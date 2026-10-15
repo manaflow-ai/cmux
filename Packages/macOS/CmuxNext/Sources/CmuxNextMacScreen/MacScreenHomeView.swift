@@ -14,8 +14,9 @@ public struct MacScreenHomeActions {
     public init() {}
 }
 
-/// `cmux://mac-screen`: the Macs this Mac can show, pairing a new one from
-/// its link, and Share This Mac with its permissions, link and QR code.
+/// Mac Screen's home page: the Macs this Mac can show, pairing a new one
+/// from its link, and Share This Mac with its permissions, link and QR code.
+/// Drawn in the tab's theme (`MacScreenColors`, `MacScreenType`).
 public struct MacScreenHomeView: View {
     let store: MacScreenStore
     let host: MacScreenShareHost
@@ -28,6 +29,7 @@ public struct MacScreenHomeView: View {
     @State private var showLink = false
     @State private var forgetting: SavedMac?
     @State private var copied = false
+    @Environment(\.macScreenColors) private var colors
 
     public init(store: MacScreenStore, host: MacScreenShareHost, actions: MacScreenHomeActions) {
         self.store = store
@@ -48,7 +50,10 @@ public struct MacScreenHomeView: View {
             .padding(.vertical, 36)
             .frame(maxWidth: .infinity)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .font(MacScreenType.body)
+        .foregroundStyle(colors.primary)
+        .tint(colors.focus)
+        .background(colors.page)
         .onAppear { host.refreshPermissions() }
         .confirmationDialog(String(format: L.t("macScreen.home.forgetTitle", "Forget %@?"), forgetting?.name ?? ""),
                             isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {
@@ -67,20 +72,25 @@ public struct MacScreenHomeView: View {
 
     private func renameSheet(_ mac: SavedMac) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(L.t("macScreen.home.renameTitle", "Rename Mac")).font(.headline)
+            Text(L.t("macScreen.home.renameTitle", "Rename Mac")).font(MacScreenType.subtitle.weight(.semibold))
             ThemedField(text: $renameText, placeholder: L.t("macScreen.home.renameField", "Name"), focusOnAppear: true,
                         identifier: "macScreen.home.renameField", onSubmit: { rename(mac) }, onCancel: { renaming = nil })
             HStack {
                 Spacer()
                 Button(L.t("macScreen.home.cancel", "Cancel"), role: .cancel) { renaming = nil }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(MacScreenButtonStyle())
                 Button(L.t("macScreen.home.rename", "Rename")) { rename(mac) }
                     .keyboardShortcut(.defaultAction)
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(20)
         .frame(width: 320)
+        .font(MacScreenType.body)
+        .foregroundStyle(colors.primary)
+        .background(colors.page)
     }
 
     private func rename(_ mac: SavedMac) {
@@ -91,9 +101,10 @@ public struct MacScreenHomeView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(L.t("macScreen.home.title", "Mac Screen"), systemImage: "display")
-                .font(.system(size: 26, weight: .bold))
+                .font(MacScreenType.title)
             Text(L.t("macScreen.home.subtitle", "See and control your other Macs from a cmux tab."))
-                .foregroundStyle(.secondary)
+                .font(MacScreenType.subtitle)
+                .foregroundStyle(colors.secondary)
         }
     }
 
@@ -103,14 +114,14 @@ public struct MacScreenHomeView: View {
         section(L.t("macScreen.home.yourMacs", "Your Macs")) {
             if store.macs.isEmpty {
                 Text(L.t("macScreen.home.noMacs", "No Macs yet. Pair one with its link below."))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(colors.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
             } else {
                 VStack(spacing: 0) {
                     ForEach(store.macs) { mac in
                         macRow(mac)
-                        if mac.id != store.macs.last?.id { Divider().padding(.leading, 50) }
+                        if mac.id != store.macs.last?.id, colors.borders { colors.separator.frame(height: 1).padding(.leading, 50) }
                     }
                 }
             }
@@ -119,13 +130,14 @@ public struct MacScreenHomeView: View {
 
     private func macRow(_ mac: SavedMac) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "desktopcomputer").font(.system(size: 20)).frame(width: 26)
+            Image(systemName: "desktopcomputer").font(MacScreenType.glyph).foregroundStyle(colors.secondary).frame(width: 26)
             VStack(alignment: .leading, spacing: 2) {
-                Text(mac.name).font(.system(size: 13, weight: .medium))
-                Text(lastUsed(mac)).font(.caption).foregroundStyle(.secondary)
+                Text(mac.name).font(MacScreenType.emphasized)
+                Text(lastUsed(mac)).font(MacScreenType.caption).foregroundStyle(colors.secondary)
             }
             Spacer()
             Button(L.t("macScreen.home.connect", "Connect")) { actions.open(mac.id) }
+                .buttonStyle(MacScreenButtonStyle(role: .primary))
                 .accessibilityIdentifier("macScreen.home.open.\(mac.name)")
             Menu {
                 Button(L.t("macScreen.home.openNewTab", "Open in New Tab")) { actions.openInNewTab(mac.id) }
@@ -138,7 +150,7 @@ public struct MacScreenHomeView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton).fixedSize()
+            .macScreenMenu(colors.secondary)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .contentShape(Rectangle())
@@ -157,7 +169,7 @@ public struct MacScreenHomeView: View {
         section(L.t("macScreen.home.pairTitle", "Pair a Mac")) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(L.t("macScreen.home.pairBody", "On the other Mac, open Mac Screen in cmux, turn on Share This Mac and copy its link. Paste it here."))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(colors.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     // The theme's field: its box shows focus, never AppKit's ring.
@@ -167,12 +179,13 @@ public struct MacScreenHomeView: View {
                         .onChange(of: linkText) { addError = nil }
                     Button(L.t("macScreen.home.pair", "Pair and Connect"), action: pair)
                         .keyboardShortcut(.defaultAction)
+                        .buttonStyle(MacScreenButtonStyle(role: .primary))
                         .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("macScreen.home.pair")
                 }
                 if let addError {
                     Label(message(addError), systemImage: "exclamationmark.circle.fill")
-                        .foregroundStyle(.red).font(.callout)
+                        .foregroundStyle(colors.danger).font(MacScreenType.body)
                         .accessibilityIdentifier("macScreen.home.error")
                 }
             }
@@ -209,20 +222,21 @@ public struct MacScreenHomeView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L.t("macScreen.home.shareToggle", "Let paired Macs see and control this Mac"))
                         Text(L.t("macScreen.home.shareWarning", "Anyone with this Mac’s link can see its screen and use its keyboard and mouse. Share the link only with your own devices."))
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            .font(MacScreenType.caption).foregroundStyle(colors.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .toggleStyle(.switch)
+                .tint(colors.focus)
                 .accessibilityIdentifier("macScreen.home.shareToggle")
                 if host.isEnabled {
-                    Divider()
+                    divider
                     permissionRow(L.t("macScreen.home.screenRecording", "Screen Recording"),
                                   detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
                                   granted: host.screenRecordingGranted) { host.openSettings(screenRecording: true) }
                     permissionRow(L.t("macScreen.home.accessibility", "Accessibility"),
                                   detail: L.t("macScreen.home.accessibilityDetail", "Lets the other Mac click and type here. Without it, it can only watch."),
                                   granted: host.accessibilityGranted) { host.openSettings(screenRecording: false) }
-                    Divider()
+                    divider
                     statusRow
                     if let link = host.link { linkRow(link) }
                 }
@@ -234,16 +248,17 @@ public struct MacScreenHomeView: View {
     private func permissionRow(_ title: String, detail: String, granted: Bool, open: @escaping () -> Void) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(granted ? .green : .orange)
+                .foregroundStyle(granted ? colors.success : colors.attention)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .medium))
-                Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(title).font(MacScreenType.emphasized)
+                Text(detail).font(MacScreenType.caption).foregroundStyle(colors.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if granted {
-                Text(L.t("macScreen.home.granted", "Allowed")).font(.caption).foregroundStyle(.secondary)
+                Text(L.t("macScreen.home.granted", "Allowed")).font(MacScreenType.caption).foregroundStyle(colors.secondary)
             } else {
-                Button(L.t("macScreen.home.openSettings", "Open System Settings"), action: open).controlSize(.small)
+                Button(L.t("macScreen.home.openSettings", "Open System Settings"), action: open)
+                    .buttonStyle(MacScreenButtonStyle(compact: true))
             }
         }
     }
@@ -254,7 +269,8 @@ public struct MacScreenHomeView: View {
             Text(statusText).accessibilityIdentifier("macScreen.home.shareStatus")
             Spacer()
             if host.status == .viewing {
-                Button(L.t("macScreen.indicator.stop", "Stop Sharing This Mac"), action: host.disconnectViewer).controlSize(.small)
+                Button(L.t("macScreen.indicator.stop", "Stop Sharing This Mac"), action: host.disconnectViewer)
+                    .buttonStyle(MacScreenButtonStyle(role: .destructive, compact: true))
             }
         }
     }
@@ -274,22 +290,22 @@ public struct MacScreenHomeView: View {
 
     private var statusColor: Color {
         switch host.status {
-        case .waiting: .green
-        case .viewing: .blue
-        case .starting, .roomLost, .needsPermission: .orange
-        case .sourceFailed, .linkUnavailable: .red
-        case .off: .gray
+        case .waiting: colors.success
+        case .viewing: colors.accent
+        case .starting, .roomLost, .needsPermission: colors.attention
+        case .sourceFailed, .linkUnavailable: colors.danger
+        case .off: colors.tertiary
         }
     }
 
     private func linkRow(_ link: URL) -> some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(L.t("macScreen.home.linkTitle", "This Mac’s link")).font(.system(size: 13, weight: .medium))
+                Text(L.t("macScreen.home.linkTitle", "This Mac’s link")).font(MacScreenType.emphasized)
                 Text(L.t("macScreen.home.linkBody", "Paste it into Mac Screen on your other Mac, or scan the code with the cmux VNC iPhone app."))
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(MacScreenType.caption).foregroundStyle(colors.secondary).fixedSize(horizontal: false, vertical: true)
                 Text(showLink ? link.absoluteString : String(repeating: "•", count: 28))
-                    .font(.system(size: 11, design: .monospaced)).textSelection(.enabled).lineLimit(3)
+                    .font(MacScreenType.code).textSelection(.enabled).lineLimit(3)
                 HStack {
                     Button(copied ? L.t("macScreen.home.copied", "Copied") : L.t("macScreen.home.copy", "Copy Link")) {
                         // Marked concealed (nspasteboard.org): clipboard managers do not keep the room secret.
@@ -303,7 +319,7 @@ public struct MacScreenHomeView: View {
                     Button(showLink ? L.t("macScreen.home.hide", "Hide") : L.t("macScreen.home.show", "Show")) { showLink.toggle() }
                     Button(L.t("macScreen.home.reset", "Reset Link…")) { confirmReset = true }
                 }
-                .controlSize(.small)
+                .buttonStyle(MacScreenButtonStyle(compact: true))
             }
             Spacer()
             if showLink, let image = Self.qrImage(link.absoluteString) {
@@ -313,7 +329,7 @@ public struct MacScreenHomeView: View {
                 Button { showLink = true } label: {
                     Label(L.t("macScreen.home.showCode", "Show Code"), systemImage: "qrcode").frame(width: 132, height: 132)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(MacScreenButtonStyle())
             }
         }
         .onChange(of: link) {
@@ -330,13 +346,21 @@ public struct MacScreenHomeView: View {
 
     // MARK: Helpers
 
+    private var divider: some View {
+        (colors.borders ? colors.separator : colors.hover).frame(height: 1)
+    }
+
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+            Text(title).font(MacScreenType.header).foregroundStyle(colors.secondary)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor)))
+                .background(colors.card, in: RoundedRectangle(cornerRadius: Metrics.panelCornerRadius, style: .continuous))
+                .overlay {
+                    if colors.borders {
+                        RoundedRectangle(cornerRadius: Metrics.panelCornerRadius, style: .continuous).strokeBorder(colors.separator)
+                    }
+                }
         }
     }
 

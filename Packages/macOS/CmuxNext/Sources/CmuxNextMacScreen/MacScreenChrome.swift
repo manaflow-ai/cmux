@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxScreenKit
 import Observation
 import SwiftUI
@@ -61,18 +62,18 @@ enum MacScreenCard: Equatable {
     case ended
 }
 
-/// The toolbar and card hosting views.
+/// The toolbar and card hosting views, each in the tab's theme scope.
 @MainActor
 final class MacScreenChromeHost {
     let actions = MacScreenChromeActions()
-    let toolbar: NSHostingView<MacScreenToolbar>
-    let card: NSHostingView<MacScreenCardView>
+    let toolbar: MacScreenHostingView<MacScreenToolbar>
+    let card: MacScreenHostingView<MacScreenCardView>
     private let model: MacScreenPaneModel
 
     init(model: MacScreenPaneModel) {
         self.model = model
-        toolbar = NSHostingView(rootView: MacScreenToolbar(model: model, actions: actions))
-        card = NSHostingView(rootView: MacScreenCardView(model: model, actions: actions))
+        toolbar = MacScreenHostingView(MacScreenToolbar(model: model, actions: actions))
+        card = MacScreenHostingView(MacScreenCardView(model: model, actions: actions))
         toolbar.sizingOptions = []
         card.sizingOptions = [.intrinsicContentSize]
     }
@@ -106,6 +107,7 @@ extension MacScreenPaneModel {
 struct MacScreenToolbar: View {
     let model: MacScreenPaneModel
     let actions: MacScreenChromeActions
+    @Environment(\.macScreenColors) private var colors
 
     var body: some View {
         HStack(spacing: 10) {
@@ -115,7 +117,7 @@ struct MacScreenToolbar: View {
             // name keeps the room that is left.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
-                    Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
+                    Image(systemName: "desktopcomputer").foregroundStyle(colors.secondary)
                     name
                 }
                 name
@@ -123,7 +125,7 @@ struct MacScreenToolbar: View {
             .layoutPriority(1)
             if let session = model.session, model.isLive, session.preferences.showStats {
                 ViewThatFits(in: .horizontal) {
-                    Text(statsLine(session)).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    Text(statsLine(session)).font(MacScreenType.stats).foregroundStyle(colors.secondary).lineLimit(1)
                         .fixedSize()
                         .accessibilityIdentifier("macScreen.stats")
                     Color.clear.frame(width: 0, height: 0)
@@ -134,12 +136,12 @@ struct MacScreenToolbar: View {
             if model.capturesKeyboard, model.isLive {
                 ViewThatFits(in: .horizontal) {
                     Label(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), systemImage: "keyboard")
-                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(MacScreenType.caption).foregroundStyle(colors.secondary).lineLimit(1)
                         .fixedSize()
                     Color.clear.frame(width: 0, height: 0)
                 }
                 .layoutPriority(-2)
-                .help(L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release"))
+                .themedHelp(L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release"))
             }
             if let session = model.session, model.gate == .open {
                 HStack(spacing: 10) { controls(session) }
@@ -149,11 +151,14 @@ struct MacScreenToolbar: View {
         }
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.bar)
+        .background(colors.chrome)
+        .overlay(alignment: .bottom) {
+            if colors.borders { colors.separator.frame(height: 1) }
+        }
     }
 
     private var name: some View {
-        Text(model.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+        Text(model.name).font(MacScreenType.emphasized).foregroundStyle(colors.primary).lineLimit(1)
             .frame(minWidth: 24, alignment: .leading)
     }
 
@@ -168,8 +173,9 @@ struct MacScreenToolbar: View {
                 }
             } label: {
                 Label(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1), systemImage: "display.2")
+                    .font(MacScreenType.body)
             }
-            .menuStyle(.borderlessButton).fixedSize()
+            .macScreenMenu(colors.secondary)
             .accessibilityIdentifier("macScreen.display")
         }
         Menu {
@@ -182,8 +188,8 @@ struct MacScreenToolbar: View {
         } label: {
             Image(systemName: "slider.horizontal.3")
         }
-        .menuStyle(.borderlessButton).fixedSize()
-        .help(L.t("macScreen.toolbar.qualityHelp", "Quality and stats"))
+        .macScreenMenu(colors.secondary)
+        .themedHelp(L.t("macScreen.toolbar.qualityHelp", "Quality and stats"))
         .accessibilityIdentifier("macScreen.quality")
         Menu {
             ForEach(MacScreenShortcut.all) { shortcut in
@@ -192,30 +198,32 @@ struct MacScreenToolbar: View {
         } label: {
             Image(systemName: "command")
         }
-        .menuStyle(.borderlessButton).fixedSize()
+        .macScreenMenu(model.isLive ? colors.secondary : colors.tertiary)
         .disabled(!model.isLive)
-        .help(L.t("macScreen.toolbar.sendKeys", "Send Keys"))
+        .themedHelp(L.t("macScreen.toolbar.sendKeys", "Send Keys"))
         .accessibilityIdentifier("macScreen.sendKeys")
         Button(action: actions.refresh) { Image(systemName: "arrow.clockwise") }
-            .buttonStyle(.borderless).disabled(!model.isLive)
-            .help(L.t("macScreen.toolbar.refresh", "Refresh Screen"))
+            .buttonStyle(MacScreenButtonStyle(role: .icon)).disabled(!model.isLive)
+            .themedHelp(L.t("macScreen.toolbar.refresh", "Refresh Screen"))
         switch session.phase {
         case .ended, .failed:
-            Button(L.t("macScreen.toolbar.connect", "Connect"), action: actions.connect).controlSize(.small)
+            Button(L.t("macScreen.toolbar.connect", "Connect"), action: actions.connect)
+                .buttonStyle(MacScreenButtonStyle(role: .primary, compact: true))
                 .accessibilityIdentifier("macScreen.connect")
         default:
-            Button(L.t("macScreen.toolbar.disconnect", "Disconnect"), action: actions.disconnect).controlSize(.small)
+            Button(L.t("macScreen.toolbar.disconnect", "Disconnect"), action: actions.disconnect)
+                .buttonStyle(MacScreenButtonStyle(compact: true))
                 .accessibilityIdentifier("macScreen.disconnect")
         }
     }
 
     private var statusColor: Color {
-        guard model.gate == .open, let session = model.session else { return .gray }
+        guard model.gate == .open, let session = model.session else { return colors.tertiary }
         switch session.phase {
-        case .connected: return session.isReconnecting ? .orange : .green
-        case .connecting: return .orange
-        case .failed: return .red
-        case .ended: return .gray
+        case .connected: return session.isReconnecting ? colors.attention : colors.success
+        case .connecting: return colors.attention
+        case .failed: return colors.danger
+        case .ended: return colors.tertiary
         }
     }
 
@@ -242,61 +250,85 @@ struct MacScreenToolbar: View {
 struct MacScreenCardView: View {
     let model: MacScreenPaneModel
     let actions: MacScreenChromeActions
+    @Environment(\.macScreenColors) private var colors
 
     var body: some View {
         if let card = model.card {
             VStack(spacing: 12) {
                 content(card)
             }
+            .foregroundStyle(colors.primary)
+            .font(MacScreenType.body)
             .padding(24)
             .frame(width: 340)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-            .environment(\.colorScheme, .dark)
+            .background(colors.popup, in: RoundedRectangle(cornerRadius: Metrics.panelCornerRadius, style: .continuous))
+            .overlay {
+                if colors.borders {
+                    RoundedRectangle(cornerRadius: Metrics.panelCornerRadius, style: .continuous).strokeBorder(colors.separator)
+                }
+            }
             .accessibilityIdentifier("macScreen.card")
         }
+    }
+
+    private func title(_ text: String) -> some View {
+        Text(text).font(MacScreenType.subtitle.weight(.semibold)).multilineTextAlignment(.center)
+    }
+
+    private func detail(_ text: String) -> some View {
+        Text(text).font(MacScreenType.body).multilineTextAlignment(.center).foregroundStyle(colors.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func glyph(_ name: String, color: Color? = nil) -> some View {
+        Image(systemName: name).font(MacScreenType.glyph).foregroundStyle(color ?? colors.secondary)
     }
 
     @ViewBuilder
     private func content(_ card: MacScreenCard) -> some View {
         switch card {
         case .confirm:
-            Image(systemName: "desktopcomputer").font(.system(size: 28))
-            Text(String(format: L.t("macScreen.card.confirmTitle", "Show %@?"), model.name)).font(.headline)
-            Text(L.t("macScreen.card.confirmBody", "This tab was opened for you. Connect to see and control this Mac."))
-                .multilineTextAlignment(.center).foregroundStyle(.secondary)
+            glyph("desktopcomputer")
+            title(String(format: L.t("macScreen.card.confirmTitle", "Show %@?"), model.name))
+            detail(L.t("macScreen.card.confirmBody", "This tab was opened for you. Connect to see and control this Mac."))
             Button(L.t("macScreen.card.connect", "Connect"), action: actions.confirm)
+                .buttonStyle(MacScreenButtonStyle(role: .primary))
                 .accessibilityIdentifier("macScreen.card.confirm")
         case .missing:
-            Image(systemName: "questionmark.square.dashed").font(.system(size: 28))
-            Text(L.t("macScreen.card.missingTitle", "This Mac is not paired")).font(.headline)
-            Text(L.t("macScreen.card.missingBody", "It was forgotten, or this tab came from another Mac. Pair it again from Mac Screen."))
-                .multilineTextAlignment(.center).foregroundStyle(.secondary)
+            glyph("questionmark.square.dashed")
+            title(L.t("macScreen.card.missingTitle", "This Mac is not paired"))
+            detail(L.t("macScreen.card.missingBody", "It was forgotten, or this tab came from another Mac. Pair it again from Mac Screen."))
             Button(L.t("macScreen.card.openHome", "Open Mac Screen"), action: actions.openHome)
+                .buttonStyle(MacScreenButtonStyle())
         case let .connecting(reconnecting):
             ProgressView().controlSize(.regular)
-            Text(reconnecting ? L.t("macScreen.card.reconnecting", "Reconnecting…")
-                : String(format: L.t("macScreen.card.connecting", "Connecting to %@…"), model.name)).font(.headline)
+            title(reconnecting ? L.t("macScreen.card.reconnecting", "Reconnecting…")
+                : String(format: L.t("macScreen.card.connecting", "Connecting to %@…"), model.name))
             Button(L.t("macScreen.card.cancel", "Cancel"), action: actions.disconnect)
+                .buttonStyle(MacScreenButtonStyle())
         case .waitingForPicture:
             ProgressView().controlSize(.regular)
-            Text(L.t("macScreen.card.waiting", "Waiting for the screen…")).font(.headline)
+            title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
         case .failed:
             // The session's message can quote the signaling URL (with the room id): never shown.
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(.yellow)
-            Text(L.t("macScreen.card.failedTitle", "Couldn’t connect")).font(.headline)
-            Text(L.t("macScreen.card.failedHint", "Check that Share This Mac is on and the other Mac is awake."))
-                .font(.caption).multilineTextAlignment(.center).foregroundStyle(.secondary)
+            glyph("exclamationmark.triangle", color: colors.attention)
+            title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
+            detail(L.t("macScreen.card.failedHint", "Check that Share This Mac is on and the other Mac is awake."))
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
                 Button(L.t("macScreen.card.retry", "Try Again"), action: actions.connect).keyboardShortcut(.defaultAction)
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .accessibilityIdentifier("macScreen.card.retry")
             }
         case .ended:
-            Image(systemName: "display").font(.system(size: 28))
-            Text(L.t("macScreen.card.endedTitle", "Disconnected")).font(.headline)
+            glyph("display")
+            title(L.t("macScreen.card.endedTitle", "Disconnected"))
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
                 Button(L.t("macScreen.card.reconnect", "Reconnect"), action: actions.connect).keyboardShortcut(.defaultAction)
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .accessibilityIdentifier("macScreen.card.reconnect")
             }
         }

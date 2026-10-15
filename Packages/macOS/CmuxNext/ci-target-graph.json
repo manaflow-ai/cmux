@@ -526,7 +526,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
       "targets": [
         "CmuxNextActions",
-        "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDesign",

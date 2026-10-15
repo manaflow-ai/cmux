@@ -12,16 +12,16 @@ import CmuxScreenKit
 /// - `state` (default): the saved Macs (names only), Share This Mac, and one
 ///   row per tab: URL, gate, phase, path, stats, picture size, displays.
 /// - `pair` {link_file}: saves the Mac whose link is in `link_file` and opens it.
-/// - `open` {url?, pane?}: opens `url` (default the home page) in a new tab.
+/// - `open` {url?, pane?}: opens the record at `url` (default the home page) in a new Mac Screen tab.
 /// - `connect` {tab?}: presses Connect on tabs that ask first (stands in for the person).
 /// - `share` {enabled}: switches Share This Mac (stands in for the person);
 ///   `link_file` writes this Mac's link there (0600).
 /// - `forget` {name}: forgets the saved Macs with that name.
 extension MacScreenPages {
     /// Registers `debug.mac_screen` (development builds; nothing in Release).
-    /// `openTab` opens a URL in a new tab of the named pane (or the focused
-    /// one) and returns nil, or an error.
-    public func registerDebug(on router: ControlRouter?, openTab: @escaping @MainActor (URL, String?) -> String?) {
+    /// `openTab` opens a record in a new Mac Screen tab of the named pane (or
+    /// the focused one), unconfirmed, and returns nil, or an error.
+    public func registerDebug(on router: ControlRouter?, openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
         router?.register([
             .async("debug.mac_screen") { [weak self] call in
                 guard let self else { return .null }
@@ -30,12 +30,12 @@ extension MacScreenPages {
         ])
     }
 
-    /// `openTab` opens a URL in a new tab of the named pane (or the focused one); nil on success, else an error.
-    public func debug(_ params: [String: JSONValue], openTab: @MainActor (URL, String?) -> String?) async -> JSONValue {
+    /// `openTab` opens a record in a new Mac Screen tab of the named pane (or the focused one); nil on success, else an error.
+    public func debug(_ params: [String: JSONValue], openTab: @MainActor (MacScreenRecord, String?) -> String?) async -> JSONValue {
         let only = params["tab"]?.stringValue
-        let tabs = MacScreenPageTab.live.allObjects.filter { only == nil || $0.id.rawValue == only }
+        let tabs = self.tabs.values.filter { only == nil || $0.key == only }.sorted { $0.key < $1.key }
         func open(_ url: URL) -> JSONValue {
-            if let error = openTab(url, params["pane"]?.stringValue) { return ["error": .string(error)] }
+            if let error = openTab(MacScreenRecord(url: url) ?? MacScreenRecord(macID: nil), params["pane"]?.stringValue) { return ["error": .string(error)] }
             return ["opened": .string(url.absoluteString)]
         }
         switch params["action"]?.stringValue ?? "state" {
@@ -93,8 +93,8 @@ extension MacScreenPages {
         ]
     }
 
-    private static func row(_ tab: MacScreenPageTab) -> JSONValue {
-        var row: [String: JSONValue] = ["tab": .string(tab.id.rawValue), "url": .string(tab.record.url.absoluteString)]
+    private static func row(_ tab: MacScreenTab) -> JSONValue {
+        var row: [String: JSONValue] = ["tab": .string(tab.key), "url": .string(tab.record.url.absoluteString)]
         guard let pane = tab.pane else { return .object(row) }
         row["gate"] = .string("\(pane.model.gate)")
         row["card"] = pane.model.card.map { .string("\($0)") } ?? .null
@@ -128,6 +128,6 @@ extension MacScreenPages {
 }
 #else
 extension MacScreenPages {
-    public func registerDebug(on router: ControlRouter?, openTab: @escaping @MainActor (URL, String?) -> String?) {}
+    public func registerDebug(on router: ControlRouter?, openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {}
 }
 #endif

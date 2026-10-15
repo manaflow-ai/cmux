@@ -3,7 +3,6 @@ import CmuxNextBookmarks
 import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextIcons
-import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextTabs
 import Foundation
@@ -41,7 +40,6 @@ enum BrowserTabIconState: Equatable {
         if AgentActivityPageAddress.matches(url) { return .agentActivity }
         if url?.scheme?.lowercased() == RemoteViewTabRecord.scheme, url?.host()?.lowercased() == RemoteViewTabRecord.urlHost { return .machineRemote }
         if TabContentCache.isRemoteBrowserPage(url) { return .machineRemote }
-        if MacScreenRecord.matches(url) { return .remoteDisplay }
         return nil
     }
 

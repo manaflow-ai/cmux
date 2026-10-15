@@ -1,10 +1,11 @@
 public import Foundation
 
-/// A Mac Screen tab: the browser tab record `cmux://mac-screen` (the
-/// home page: paired Macs, pairing, Share This Mac) or
-/// `cmux://mac-screen?mac=<id>` (one paired Mac's screen). The record holds
-/// only the saved Mac's id; its pairing secret stays in the Keychain
-/// (`MacScreenStore`), because records persist and travel with the tree.
+/// What a Mac Screen page tab shows: the home page (paired Macs, pairing,
+/// Share This Mac) or one paired Mac's screen. Its address, `cmux://mac-screen`
+/// or `cmux://mac-screen?mac=<id>`, typed in a browser's address bar, opens
+/// the page tab. The record holds only the saved Mac's id; its pairing secret
+/// stays in the Keychain (`MacScreenStore`), because routes persist and
+/// travel with the tree.
 public nonisolated struct MacScreenRecord: Sendable, Hashable {
     public static let scheme = "cmux"
     public static let urlHost = "mac-screen"

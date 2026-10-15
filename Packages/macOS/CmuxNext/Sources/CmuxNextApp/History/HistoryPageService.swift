@@ -118,17 +118,19 @@ extension TabContentCache {
         }
         entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
             // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
-            guard let url = ChromiumPageRouter.routed(typed, services: services) else {
+            // cmux://mac-screen opens the Mac Screen tab beside this one (nil: nothing loads here).
+            guard let url = ChromiumPageRouter.routed(typed, services: services, in: services.paneController(listing: key)) else {
                 chrome?.addressBar.showPageURL()
                 return true
             }
             // A Mac Screen pairing link a person typed or pasted in the address bar pairs that
-            // Mac and shows it. Automation (CLI bookmarks, scripts) never saves a Mac this way.
+            // Mac and shows it in a Mac Screen tab; this page stays. Automation (CLI bookmarks,
+            // scripts) never saves a Mac this way. The link never loads or searches.
             if url.scheme?.lowercased() == "cmux-vnc" {
-                guard let self, let tab = tabModel(key), RemoteViewPageService.isPersonInput(ActionRunScope.current),
-                      let record = services.macScreenPages.pair(link: url) else { return true }
-                services.macScreenPages.confirm(key, url: record.url, byPerson: true)
-                showAppPage(record.url, in: tab)
+                chrome?.addressBar.showPageURL()
+                guard RemoteViewPageService.isPersonInput(ActionRunScope.current), let record = services.macScreenPages.pair(link: url),
+                      let pane = services.paneController(listing: key) else { return true }
+                services.macScreenTabs.open(record, in: pane, focus: true, byPerson: true)
                 return true
             }
             guard Self.isAppPage(url) else { return false }
@@ -136,7 +138,6 @@ extension TabContentCache {
             guard let self, let tab = tabModel(key) else { return true }
             // Typed in the address bar (or a bookmark a person opened).
             if RemoteViewTabRecord.matches(url) { services.remoteViewPages.confirm(key, url: url) }
-            if MacScreenRecord.matches(url) { services.macScreenPages.confirm(key, url: url, byPerson: RemoteViewPageService.isPersonInput(ActionRunScope.current)) }
             showAppPage(url, in: tab)
             return true
         }
@@ -154,7 +155,6 @@ extension TabContentCache {
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
-            || MacScreenRecord.matches(url)
     }
 
     /// A development remote tab record (`cmux://remote-browser`).
@@ -198,22 +198,6 @@ extension TabContentCache {
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
                 })
-            page.onNavigate = { [weak self] target in
-                pages.forget(key)
-                self?.leaveAppPage(key, to: target)
-            }
-            return page
-        }
-        if let url, MacScreenRecord.matches(url) {
-            let pages = services.macScreenPages
-            let page = pages.makePage(
-                url: url, key: key, engine: engine, profile: profile, isLocal: services.machines.daemon(forTab: tab).isLocal,
-                show: { [weak self] target in
-                    guard let self, let tab = tabModel(key) else { return }
-                    showAppPage(target, in: tab)
-                },
-                newTab: { [weak services] target in services?.windows.active?.focusedPane?.newBrowserTab(url: target) ?? false },
-                closeTab: { [weak self] in self?.pageRequests.closeTab(key) })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)

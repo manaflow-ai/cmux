@@ -8,6 +8,7 @@ import CmuxNextSettings
 import CmuxScreenKit
 import CmuxTheme
 import Foundation
+import SwiftUI
 import Testing
 
 /// Mac Screen tabs: the record, the saved Macs and their secrets, scrolling.
@@ -434,19 +435,29 @@ struct MacScreenThemeTests {
         root.addSubview(pane.view)
         let hosts: [any MacScreenThemedHost] = [home, pane.view.chrome.toolbar, pane.view.chrome.card]
 
+        let darkInk = try rgb(MacScreenColors.resolved(in: root).primary)
         for host in hosts {
-            #expect(host.resolvedColors == MacScreenColors.resolved(in: host.hostView))
+            #expect(try rgb(host.resolvedColors.primary) == darkInk)
+            #expect(try rgb(host.resolvedColors.page) == rgb(MacScreenColors.resolved(in: host.hostView).page))
             #expect(host.resolvedColors.isDark)
         }
-        let dark = home.themeAppearance.colors
         try paint(scope, background: 0xF7F3E8, foreground: 0x1D1A14)
-        #expect(home.themeAppearance.colors != dark)
+        let lightInk = try rgb(MacScreenColors.resolved(in: root).primary)
+        #expect(lightInk != darkInk)
         for host in hosts {
-            #expect(host.resolvedColors == MacScreenColors.resolved(in: host.hostView))
+            // Live: the theme change reached every surface without a new view.
+            #expect(try rgb(host.resolvedColors.primary) == lightInk)
+            #expect(try rgb(host.resolvedColors.chrome) == rgb(MacScreenColors.resolved(in: host.hostView).chrome))
             #expect(!host.resolvedColors.isDark)
         }
         pane.close()
         pages.tabClosed("home")
+    }
+
+    /// A color's sRGB components, rounded (to compare colors made apart).
+    private func rgb(_ color: Color) throws -> [Int] {
+        let srgb = try #require(NSColor(color).usingColorSpace(.sRGB))
+        return [srgb.redComponent, srgb.greenComponent, srgb.blueComponent, srgb.alphaComponent].map { Int(($0 * 255).rounded()) }
     }
 }
 
