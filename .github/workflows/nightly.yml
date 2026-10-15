@@ -3232,7 +3232,15 @@ jobs:
             : > "$pending"
             if ! CMUX_CHANNEL="$SIGN_CHANNEL" CMUX_NOTARY_CONTINUE_STATE="$dir/$STATE_NAME" GITHUB_OUTPUT="$pending" \
                 ./scripts/ci/notarize-nightly-dmg.sh "$dir/$APP_NAME" "$dir/$DMG_NAME" "recovered/$IMMUTABLE_NAME"; then
-              echo "::notice::run $run_id: submission $SUBMISSION_ID was not accepted, or a check after acceptance failed (see the log above); skipping"
+              # notarize-nightly-dmg.sh reports Apple's verdict once it has one.
+              notary_status="$(sed -n 's/^notary_status=//p' "$pending" | tail -n 1)"
+              if [ "$notary_status" = Accepted ]; then
+                echo "::error::run $run_id: Apple accepted submission $SUBMISSION_ID, but a check after acceptance failed (see the log above); skipping"
+              elif [ -n "$notary_status" ]; then
+                echo "::notice::run $run_id: Apple did not accept submission $SUBMISSION_ID (status $notary_status); skipping"
+              else
+                echo "::notice::run $run_id: Apple's verdict on submission $SUBMISSION_ID is unknown (see the log above); skipping"
+              fi
               echo "::endgroup::"; continue
             fi
             if grep -Fxq "submission_pending=true" "$pending"; then

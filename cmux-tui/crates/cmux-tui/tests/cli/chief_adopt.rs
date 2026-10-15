@@ -160,7 +160,7 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     assert_eq!(record["display_name"], "Release Chief");
     assert_eq!(record["role"], "Release trains");
     assert_eq!(record["self_edit"], json!(["avatar"]));
-    assert_eq!(record["tools"], json!(["spawn", "tell", "workspaces"]));
+    assert_eq!(record["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]));
     assert_eq!(record["instructions"], "");
     assert_eq!(record["is_default"], false);
 
