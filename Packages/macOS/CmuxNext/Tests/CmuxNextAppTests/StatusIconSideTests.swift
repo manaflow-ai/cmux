@@ -43,7 +43,8 @@ import Testing
         try Self.withStatusLook(side) {
             let sidebar = Self.sidebar()
             for id in [Self.busy, Self.chat, Self.page] {
-                #expect(try Self.row(sidebar, id).icon.isHidden, "\(id) draws a kind icon")
+                let row = try Self.row(sidebar, id)
+                #expect(row.icon.isHidden, "\(id) draws a kind icon")
             }
         }
     }
