@@ -320,7 +320,7 @@ def front_bundle_id():
     import re
     info = lsapp("info", "-only", "bundleid", lsapp("front"))
     m = re.search(r'(?:bundleID|CFBundleIdentifier)"?\s*=\s*"([^"]+)"', info)
-    return m.group(1) if m else info[:200]
+    return m.group(1) if m else None
 
 
 def finder_pid():
@@ -333,10 +333,12 @@ def finder_pid():
 def inactive_now():
     """cmux is NOT active and none of its windows is key: the app's own report (debug.focus) and the
     window server's front app agree. Read immediately before the click."""
-    f = res(rpc("debug.focus", {}, 30)) or {}
-    keys = [w.get("id") for w in f.get("windows") or [] if w.get("is_key")]
+    f = res(rpc("debug.focus", {}, 30))
+    f = f if isinstance(f, dict) else {}
+    keys = [w.get("id") for w in f.get("windows") or [] if isinstance(w, dict) and w.get("is_key")]
     front = front_bundle_id()
-    ok = f.get("app_active") is False and f.get("key_window") is None and not keys and front != BUNDLE_ID
+    # A front app that LaunchServices does not name is not proof that another app is in front.
+    ok = f.get("app_active") is False and f.get("key_window") is None and not keys and front not in (None, BUNDLE_ID)
     state = {"ok": ok, "app_active": f.get("app_active"), "key_window": f.get("key_window"), "key_windows": keys,
              "front_app": front, "app_bundle": BUNDLE_ID, "t": round(time.time(), 3)}
     say("INACTIVE-BEFORE-CLICK " + json.dumps(state))
@@ -485,44 +487,47 @@ try:
     #    the same socket). A page relay call then answers within the relay's deadline (16 s) plus margin, and a real
     #    click on Create Chief makes a Chief on the NEW owner: its gesture token is bound to a relay connection on the
     #    new owner, so a relay still on the old owner (or a token bound to another connection) cannot pass.
-    before_restart = owner_status()
-    check("owner_running_before_restart", bool(before_restart.get("pid")), {"status": before_restart})
-    R["owner_stop"] = subprocess.run([CLI, "--session", owner_session(CHIEF), "--json", "server", "stop", "--force"],
-                                     capture_output=True, text=True, timeout=60, env={**env_base(), **OWNER_ENV}).returncode
-    def new_owner():
-        o = (res(rpc("debug.home", {}, 30)) or {}).get("chief_owner") or {}
-        return o if o.get("connected") and o.get("daemon_pid") and o.get("daemon_pid") != before_restart.get("pid") else None
-    # A relay call while the owner is down or coming back: an answer (ok or a typed error) within the deadline.
-    t0 = time.time()
-    during = rpc("debug.page", {"page": "cmux.home-channels", "action": "call", "op": "cmux.chief.profile.list",
-                                "params": {"machine": "current", "session": "current"}}, 30)
-    during_ms = int((time.time() - t0) * 1000)
-    check("relay_call_answers_while_owner_restarts", during_ms <= 18000 and (res(during) or {}).get("t") in ("ok", "err"),
-          {"ms": during_ms, "reply": json.dumps(during)[:600]})
-    restarted = until(new_owner, 120)
-    t0 = time.time()
-    relay_after = rpc("debug.page", {"page": "cmux.home-channels", "action": "call", "op": "cmux.chief.profile.list",
-                                     "params": {"machine": "current", "session": "current"}}, 30)
-    relay_ms = int((time.time() - t0) * 1000)
-    check("relay_call_answers_after_owner_restart", bool(restarted) and bool(before_restart.get("pid")) and relay_ms <= 18000
-          and (res(relay_after) or {}).get("t") == "ok",
-          {"old_pid": before_restart.get("pid"), "owner": restarted, "ms": relay_ms, "reply": json.dumps(relay_after)[:600]})
-    name2 = "Second Chief %s" % MARK[-5:]
-    R["new_chief_action_2"] = rpc("action.run", {"id": "home.newChief", "focus": True, "wait": True}, 30)
-    until(lambda: (lambda s: s if "Create Chief" in json.dumps(s) else None)(page_state()), 30)
-    R["type_name_2"] = rpc("debug.page", {"page": "cmux.home-channels", "action": "type", "selector": ".lg-chief-names input",
-                                           "text": name2}, 30)
-    until(lambda: None, 1)  # proof pacing: React applies the typed name before the click
-    R["name_click_2"] = real_click_link(app.pid, name2, name2, role="textfield")
-    until(lambda: None, 1)  # proof pacing: the first click's activation settles before the gesture click
-    R["create_click_2"] = real_click_link(app.pid, "Create Chief", "Create Chief", role="button")
-    made2 = until(lambda: name2 in chief_list(), 30)
-    after2 = page_state()
-    R["in_flight_after_restart_click"] = after2.get("in_flight")
-    shot("3-after-owner-restart", app.pid)
-    check("new_chief_created_on_restarted_owner", bool(made2) and not after2.get("in_flight"),
-          {"click": R["create_click_2"], "list": (R.get("chief_list") or [{}])[-1], "in_flight": after2.get("in_flight"),
-           "hash": after2.get("hash"), "page_tail": json.dumps(after2)[-600:]})
+    try:
+        before_restart = owner_status()
+        check("owner_running_before_restart", bool(before_restart.get("pid")), {"status": before_restart})
+        R["owner_stop"] = subprocess.run([CLI, "--session", owner_session(CHIEF), "--json", "server", "stop", "--force"],
+                                         capture_output=True, text=True, timeout=60, env={**env_base(), **OWNER_ENV}).returncode
+        def new_owner():
+            o = (res(rpc("debug.home", {}, 30)) or {}).get("chief_owner") or {}
+            return o if o.get("connected") and o.get("daemon_pid") and o.get("daemon_pid") != before_restart.get("pid") else None
+        # A relay call while the owner is down or coming back: an answer (ok or a typed error) within the deadline.
+        t0 = time.time()
+        during = rpc("debug.page", {"page": "cmux.home-channels", "action": "call", "op": "cmux.chief.profile.list",
+                                    "params": {"machine": "current", "session": "current"}}, 30)
+        during_ms = int((time.time() - t0) * 1000)
+        check("relay_call_answers_while_owner_restarts", during_ms <= 18000 and (res(during) or {}).get("t") in ("ok", "err"),
+              {"ms": during_ms, "reply": json.dumps(during)[:600]})
+        restarted = until(new_owner, 120)
+        t0 = time.time()
+        relay_after = rpc("debug.page", {"page": "cmux.home-channels", "action": "call", "op": "cmux.chief.profile.list",
+                                         "params": {"machine": "current", "session": "current"}}, 30)
+        relay_ms = int((time.time() - t0) * 1000)
+        check("relay_call_answers_after_owner_restart", bool(restarted) and bool(before_restart.get("pid")) and relay_ms <= 18000
+              and (res(relay_after) or {}).get("t") == "ok",
+              {"old_pid": before_restart.get("pid"), "owner": restarted, "ms": relay_ms, "reply": json.dumps(relay_after)[:600]})
+        name2 = "Second Chief %s" % MARK[-5:]
+        R["new_chief_action_2"] = rpc("action.run", {"id": "home.newChief", "focus": True, "wait": True}, 30)
+        until(lambda: (lambda s: s if "Create Chief" in json.dumps(s) else None)(page_state()), 30)
+        R["type_name_2"] = rpc("debug.page", {"page": "cmux.home-channels", "action": "type", "selector": ".lg-chief-names input",
+                                               "text": name2}, 30)
+        until(lambda: None, 1)  # proof pacing: React applies the typed name before the click
+        R["name_click_2"] = real_click_link(app.pid, name2, name2, role="textfield")
+        until(lambda: None, 1)  # proof pacing: the first click's activation settles before the gesture click
+        R["create_click_2"] = real_click_link(app.pid, "Create Chief", "Create Chief", role="button")
+        made2 = until(lambda: name2 in chief_list(), 30)
+        after2 = page_state()
+        R["in_flight_after_restart_click"] = after2.get("in_flight")
+        shot("3-after-owner-restart", app.pid)
+        check("new_chief_created_on_restarted_owner", bool(made2) and not after2.get("in_flight"),
+              {"click": R["create_click_2"], "list": (R.get("chief_list") or [{}])[-1], "in_flight": after2.get("in_flight"),
+               "hash": after2.get("hash"), "page_tail": json.dumps(after2)[-600:]})
+    except Exception as e:  # step 4 fails alone; the Settings check below still runs
+        check("owner_restart_steps_ran", False, {"error": repr(e)})
     # Click-through must not skip a confirmation: Settings (browsing-data Clear acts on one click, no sheet) does
     # not accept the first mouse; the Home page does.
     home_fm = page_state().get("accepts_first_mouse")

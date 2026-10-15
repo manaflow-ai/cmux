@@ -6,17 +6,19 @@ import CmuxNextSettings
 /// (plans/cmux-next/focus.md section 6). Pane and tab ids match
 /// `debug.surfaces` and the compat tree.
 enum DebugFocus {
+    #if DEBUG
     /// The app hands activation to the app `pid` names (the caller passes one, for example Finder's)
     /// and resigns active, as when a person works in another app; its windows stay where they are.
     /// `NSApp.deactivate()` alone left the app active when no other app took over. The caller names
     /// the app, so the app looks up no process.
     static func deactivateApp(handingActivationTo pid: Int?) {
-        if let pid, let other = NSRunningApplication(processIdentifier: pid_t(pid)) {
+        if let pid, let pid = pid_t(exactly: pid), let other = NSRunningApplication(processIdentifier: pid) {
             NSApp.yieldActivation(to: other)
             other.activate(from: .current, options: [])
         }
         NSApp.deactivate()
     }
+    #endif
 
     static func report(services: AppServices) -> JSONValue {
         let ghostty = services.cache.focusedTerminalTabs

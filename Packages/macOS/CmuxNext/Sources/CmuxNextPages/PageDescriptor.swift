@@ -39,9 +39,11 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Keyboard Shortcuts, Passwords), instead of a find bar.
     public let ownsSearchField: Bool
     /// A first click in an inactive window reaches the page (``PageWKWebView``), as on the native
-    /// controls. False for a page with a one-click destructive control and no confirmation sheet
-    /// (Settings: browsing-data Clear), so a click that only meant to bring the window forward
-    /// cannot run it; that page keeps WebKit's own answer.
+    /// controls. False for a page with a one-click destructive or granting control and no host
+    /// confirmation sheet (Settings: browsing-data Clear; the agent pane: permission cards, Push,
+    /// Apply, Remove; the diff page: Push) and for app pages (``appPage(id:resource:namespaces:)``),
+    /// so a click that only meant to bring the window forward cannot run it; such a page keeps
+    /// WebKit's own answer.
     public let acceptsFirstMouse: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],

@@ -110,9 +110,13 @@ final class PageWKWebView: WKWebView {
     /// dividers, toasts, popup rows): WebKit accepts a first mouse only to drag a selection, so a
     /// person's click on a page button only activated the window. A page action that removes or
     /// grants something keeps its own confirmation (the host's native sheet), so this skips none; a
-    /// page with a one-click destructive control (Settings) opts out and keeps WebKit's answer.
+    /// page with a one-click destructive or granting control opts out
+    /// (``PageDescriptor/acceptsFirstMouse``) and keeps WebKit's answer. No owner: WebKit's answer.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        (pageAcceptsFirstMouse?() ?? true) ? true : super.acceptsFirstMouse(for: event)
+        if pageAcceptsFirstMouse?() ?? false { return true }
+        // WebKit reads the event (its location); without one it has no first mouse to accept.
+        guard let event else { return false }
+        return super.acceptsFirstMouse(for: event)
     }
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
