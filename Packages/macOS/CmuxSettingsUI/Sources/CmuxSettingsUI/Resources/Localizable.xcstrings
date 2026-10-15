@@ -15490,6 +15490,183 @@
           }
         }
       }
+    },
+    "settings.browser.autoSelectCertificateForUrls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Select Client Certificates"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clientzertifikate automatisch auswählen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionner automatiquement les certificats client"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختيار شهادات العميل تلقائيًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleccionar certificados de cliente automáticamente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動選取用戶端憑證"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动选择客户端证书"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라이언트 인증서 자동 선택"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアント証明書を自動選択"
+          }
+        }
+      }
+    },
+    "settings.browser.autoSelectCertificateForUrls.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically answers client-certificate prompts for matching HTTPS hosts. A host-only rule applies when exactly one certificate is available; append = SERIAL to choose a specific certificate."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beantwortet Clientzertifikatsanfragen für passende HTTPS-Hosts automatisch. Eine reine Hostregel wird angewendet, wenn genau ein Zertifikat verfügbar ist; fügen Sie = SERIAL an, um ein bestimmtes Zertifikat auszuwählen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répond automatiquement aux demandes de certificat client pour les hôtes HTTPS correspondants. Une règle limitée à l’hôte s’applique lorsqu’un seul certificat est disponible ; ajoutez = SERIAL pour choisir un certificat précis."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجيب تلقائيًا عن مطالبات شهادة العميل للمضيفين المطابقين عبر HTTPS. تُطبَّق قاعدة المضيف فقط عند توفر شهادة واحدة؛ أضف = SERIAL لاختيار شهادة محددة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responde automáticamente a las solicitudes de certificado de cliente para los hosts HTTPS coincidentes. Una regla solo de host se aplica cuando hay un único certificado disponible; añade = SERIAL para elegir un certificado específico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動回應符合 HTTPS 主機的用戶端憑證提示。只有一張憑證可用時才會套用僅主機規則；附加 = SERIAL 可選取特定憑證。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动响应匹配 HTTPS 主机的客户端证书提示。只有一个证书可用时才应用仅主机规则；附加 = SERIAL 可选择特定证书。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 HTTPS 호스트의 클라이언트 인증서 요청에 자동으로 응답합니다. 사용 가능한 인증서가 하나일 때만 호스트 전용 규칙을 적용하며, 특정 인증서를 선택하려면 = SERIAL을 추가하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する HTTPS ホストのクライアント証明書リクエストに自動で応答します。証明書が 1 つだけ使用可能な場合にホストのみのルールを適用し、特定の証明書を選ぶには = SERIAL を追加します。"
+          }
+        }
+      }
+    },
+    "settings.browser.autoSelectCertificateForUrls.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One rule per line, for example: intranet.example.com or intranet.example.com = 01AB23. Use *.example.com for subdomains."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Regel pro Zeile, zum Beispiel: intranet.example.com oder intranet.example.com = 01AB23. Verwenden Sie *.example.com für Subdomains."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une règle par ligne, par exemple : intranet.example.com ou intranet.example.com = 01AB23. Utilisez *.example.com pour les sous-domaines."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قاعدة واحدة في كل سطر، مثل: intranet.example.com أو intranet.example.com = 01AB23. استخدم *.example.com للنطاقات الفرعية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una regla por línea, por ejemplo: intranet.example.com o intranet.example.com = 01AB23. Usa *.example.com para subdominios."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每行一條規則，例如：intranet.example.com 或 intranet.example.com = 01AB23。使用 *.example.com 套用至子網域。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每行一条规则，例如：intranet.example.com 或 intranet.example.com = 01AB23。使用 *.example.com 匹配子域名。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 줄에 규칙 하나를 입력하세요. 예: intranet.example.com 또는 intranet.example.com = 01AB23. 하위 도메인에는 *.example.com을 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 行に 1 ルールを入力します。例: intranet.example.com または intranet.example.com = 01AB23。サブドメインには *.example.com を使います。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

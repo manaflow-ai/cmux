@@ -653591,6 +653591,124 @@
           }
         }
       }
+    },
+    "settings.search.browser.autoSelectCertificateForUrls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Select Client Certificates"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clientzertifikate automatisch auswählen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionner automatiquement les certificats client"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختيار شهادات العميل تلقائيًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleccionar certificados de cliente automáticamente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動選取用戶端憑證"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动选择客户端证书"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라이언트 인증서 자동 선택"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアント証明書を自動選択"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.auto-select-certificate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls client certificate mTLS mutual TLS certificate picker automatic selection host domain serial number AutoSelectCertificateForUrls"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls Clientzertifikat mTLS automatische Auswahl Zertifikatsauswahl Host Domain Seriennummer AutoSelectCertificateForUrls"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls certificat client mTLS sélection automatique sélecteur de certificat hôte domaine numéro de série AutoSelectCertificateForUrls"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls شهادة العميل mTLS اختيار تلقائي منتقي الشهادة مضيف نطاق رقم تسلسلي AutoSelectCertificateForUrls"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls certificado de cliente mTLS selección automática selector de certificados host dominio número de serie AutoSelectCertificateForUrls"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls 用戶端憑證 mTLS 自動選取 憑證選擇器 主機 網域 序號 AutoSelectCertificateForUrls"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls 客户端证书 mTLS 自动选择 证书选择器 主机 域名 序列号 AutoSelectCertificateForUrls"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls 클라이언트 인증서 mTLS 자동 선택 인증서 선택기 호스트 도메인 일련 번호 AutoSelectCertificateForUrls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls クライアント証明書 mTLS 自動選択 証明書ピッカー ホスト ドメイン シリアル番号 AutoSelectCertificateForUrls"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

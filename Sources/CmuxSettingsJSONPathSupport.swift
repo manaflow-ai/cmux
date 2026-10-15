@@ -536,5 +536,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
             invalidPath: "browser.urlAllowlist"
         ),
+        .init(
+            jsonKey: "autoSelectCertificateForUrls",
+            defaultsKey: BrowserClientCertificateAutoSelectionPolicy.userDefaultsKey,
+            invalidPath: "browser.autoSelectCertificateForUrls"
+        ),
     ]
 }
