@@ -16,6 +16,7 @@ use crate::state::agent_message_policy::{self as policy, CrossWorkspace};
 use crate::state::agent_message_store::{
     self as messages, AgentMessageFilter, NewAgentMessage, SendContext,
 };
+use crate::state::agent_message_unsend::{self as unsend, WithdrawError};
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit};
@@ -91,6 +92,7 @@ impl Mux {
                 Ok(StateChanges::new(value, Vec::new()))
             },
         )
+        .inspect(|_| self.wake_agent_message_pump())
     }
 
     /// The workspace keys of the acpmux sessions a send involves: the
@@ -215,6 +217,88 @@ impl Mux {
                 Ok(StateChanges::new(value, Vec::new()))
             },
         )
+        .inspect(|_| self.wake_agent_message_pump())
+    }
+
+    /// `agent.message.unsend` (agent_message_unsend.rs): the sender or the
+    /// person takes a message back. acpmux decides each acpmux recipient's
+    /// outcome before the commit; the pump hands nothing over meanwhile.
+    pub(crate) fn agent_message_unsend(
+        &self,
+        mutation: &WorkspaceMutation,
+        expected_revision: Option<u64>,
+        selectors: &crate::ResourceSelectors,
+        message_id: &str,
+        recipient: Option<&str>,
+    ) -> anyhow::Result<StateCommit> {
+        let fingerprint = serde_json::json!({
+            "operation": "agent.message.unsend",
+            "selectors": selectors,
+            "message_id": message_id,
+            "recipient": recipient,
+        });
+        let session_id = self.session_public_id.as_str().to_owned();
+        let _delivering = self.agent_message_delivery_lock();
+        let (sender, targets) = self
+            .read_registry_state(|connection| unsend::targets(connection, message_id, recipient))?;
+        if let Some(agent) = policy::sender_address(&mutation.actor)
+            && agent != sender
+        {
+            return Err(unsend_refused(
+                "unsend_not_sender",
+                format!(
+                    "{agent} did not send message {message_id}; only its sender or the person takes it back"
+                ),
+                serde_json::json!({}),
+            ));
+        }
+        let mut answers = HashMap::new();
+        for target in targets.iter().filter(|target| target.asks_acpmux()) {
+            let session = target.recipient.trim_start_matches("acp:");
+            match self.acp_withdraw_message(session, message_id) {
+                Ok(answer) => {
+                    answers.insert(target.recipient.clone(), answer);
+                }
+                // Not running: what acpmux never took is unsent.
+                Err(WithdrawError::Unavailable) if !target.handed_over() => {}
+                Err(WithdrawError::Unavailable) => {
+                    return Err(unsend_refused(
+                        "acpmux_unavailable",
+                        format!("acpmux did not answer for {}; try again", target.recipient),
+                        serde_json::json!({"recipient": target.recipient}),
+                    ));
+                }
+                Err(WithdrawError::Refused(reason)) => {
+                    return Err(unsend_refused(
+                        "withdraw_refused",
+                        format!(
+                            "acpmux refused to withdraw it from {} ({reason})",
+                            target.recipient
+                        ),
+                        serde_json::json!({"recipient": target.recipient, "acpmux_reason": reason}),
+                    ));
+                }
+            }
+        }
+        self.commit_state(
+            mutation,
+            "agent.message.unsend",
+            &fingerprint,
+            expected_revision,
+            StateEffects::EVENTS_ONLY,
+            |transaction, state| {
+                self.resolve_in_state(state, crate::ResourceTarget::Session, selectors)?;
+                let value = unsend::unsend(
+                    transaction,
+                    &session_id,
+                    message_id,
+                    recipient,
+                    &answers,
+                    policy::now_ms(),
+                )?;
+                Ok(StateChanges::new(value, Vec::new()))
+            },
+        )
     }
 
     /// `agent.message.list`, newest first. A held delivery whose wait is
@@ -233,6 +317,10 @@ impl Mux {
         })
         .map_err(crate::resource_api::operation_failed)
     }
+}
+
+fn unsend_refused(reason: &str, message: String, extra: Value) -> anyhow::Error {
+    policy::refused_by("agent.message.unsend", reason, message, extra)
 }
 
 /// No acpmux off unix: no session's workspace is known, so a message to or

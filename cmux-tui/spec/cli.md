@@ -472,6 +472,7 @@ agent list
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
+agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
@@ -864,6 +865,17 @@ stored either way, and problems with older messages are reported on stderr.
 it (one `agent.message.release`). Only the verified cmux app may decide, so
 from a terminal the command is refused with reason `release_needs_app`; the
 app's Approve and Decline controls make the same request.
+
+`agent message unsend` takes `<message-id>` back, from every recipient or
+only `--recipient` (one `agent.message.unsend`), and prints each delivery's
+outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
+agent in its turn that it was withdrawn) or `too_late` (its turn ended, or the
+delivery path cannot take it back). Only the message's sender, or the person,
+may take it back; there is no time limit.
+
+The daemon also delivers queued messages to acpmux recipients on its own (its
+delivery pump), so a message that waited for acpmux, or for the person's
+approval, goes out without another `agent message`.
 
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
 own address when it has one, else every message. `--state` is any delivery
