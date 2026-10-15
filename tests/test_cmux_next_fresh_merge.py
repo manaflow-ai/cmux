@@ -302,6 +302,30 @@ class FreshMergeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.merges(), [])
 
+    def assert_wait_checks_refuses(self, checks):
+        head = self.open_pull_request("docs/c.md")
+        state = json.loads(self.state.read_text())
+        state["checks"][head] = checks
+        self.state.write_text(json.dumps(state))
+        result = self.run_script("--wait-checks")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.merges(), [])
+
+    def test_wait_checks_refuses_a_check_still_running(self):
+        self.assert_wait_checks_refuses([{"__typename": "CheckRun", "name": "react-apps-check",
+                                          "workflowName": "cmux-next", "status": "IN_PROGRESS", "conclusion": ""}])
+
+    def test_wait_checks_refuses_a_pending_status_context(self):
+        self.assert_wait_checks_refuses([{"__typename": "StatusContext", "context": "vercel", "state": "PENDING"}])
+
+    def test_wait_checks_waives_only_whole_word_bot_jobs(self):
+        self.assert_wait_checks_refuses([{"__typename": "CheckRun", "name": "Build both architectures",
+                                          "workflowName": "cmux-next", "status": "COMPLETED",
+                                          "conclusion": "CANCELLED"}])
+
+    def test_wait_checks_refuses_a_head_with_no_checks(self):
+        self.assert_wait_checks_refuses([])
+
     def test_without_wait_checks_it_never_calls_glaeda(self):
         self.open_pull_request("docs/c.md")
         result = self.run_script()
