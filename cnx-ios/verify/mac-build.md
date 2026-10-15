@@ -60,3 +60,10 @@ Bundle (headless, on this Mac and a copy on mini-cmux10s-mac-mini):
 Live rig (mini-cmux10s-mac-mini, tag cnx-e2e-9063df14, iOS Demo build of this tree in one
 headless iOS 26.5 simulator; the rig app is an unmodified copy of the fleet build, settings
 via `open --env`; no Keychain prompt, no SecurityAgent):
+
+| Check | Result |
+| --- | --- |
+| Journey to a terminal (fresh install, sign-in, space, Mac discovered, workspace list, open workspace) | pass (run2, 05:49 UTC); link WebRTC direct |
+| Browser tab streams (https://example.com in the seed workspace, opened from the phone's tab grid) | pass by evidence: the phone shows the page (screenshot `verify/rig-phone-browser-example-com.png` in the build folder, overlay `3 fps · track · latency 209 ms`), hostd logs `browser: video on the link's media lane`. The step's OCR needle was stale (example.com changed its copy); fixed in the rig, rerun below. |
+| cnx-hostd kill, WebRTC (3 SIGKILLs, 20 s apart) | pass: link up 1.86, 1.96, 1.57 s after the kill (supervisor restart ~1.0 s, then ~0.7 s to link up); the phone's terminal input reached the Mac after each |
+| Transport WebRTC to WireGuard and back | pass: WireGuard Connected in 7.9 s, back in 7.7 s, terminal input on both |
