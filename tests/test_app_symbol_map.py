@@ -107,9 +107,11 @@ class AppSymbolMapTest(unittest.TestCase):
             symbols = read_map(app / "Contents/Resources/cmux-symbols.bin")
             self.assertEqual(symbols, {SLICE_UUID: [(0x1000, "$s4cmux3AppV3runyyF"), (0x1400, "main")]})
 
-            # The second strip pass (nightly nn-strip-again) sees no names and keeps the map.
+            # The second strip pass (nightly nn-strip-again) sees the stripped
+            # executable, same UUID, where only __mh_execute_header is left in
+            # __TEXT,__text. It keeps the map.
             before = (app / "Contents/Resources/cmux-symbols.bin").read_bytes()
-            exe.write_bytes(macho([]))
+            exe.write_bytes(macho([("__mh_execute_header", 0x0F, 1, TEXT_VMADDR)]))
             self.strip(app)
             self.assertEqual((app / "Contents/Resources/cmux-symbols.bin").read_bytes(), before)
 
