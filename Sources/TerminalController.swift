@@ -9569,17 +9569,6 @@ class TerminalController {
     }
 
     /// A live browser or a browser restore placeholder: what `tree` lists as a browser.
-    /// The browser a command that names no surface falls back to: the one
-    /// live browser, or, when none is live yet, the one restore placeholder.
-    /// Placeholders never make a single live browser ambiguous.
-    nonisolated static func v2SoleBrowserTabID(in panels: some Collection<any Panel>) -> UUID? {
-        let live = panels.filter { $0 is BrowserPanel }
-        if live.count == 1 { return live.first?.id }
-        guard live.isEmpty else { return nil }
-        let placeholders = panels.filter(v2IsBrowserTab)
-        return placeholders.count == 1 ? placeholders.first?.id : nil
-    }
-
     nonisolated static func v2IsBrowserTab(_ panel: any Panel) -> Bool {
         panel is BrowserPanel || panel is DeferredBrowserPanel
     }
