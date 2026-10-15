@@ -145,10 +145,12 @@ export function applePriceUsd(
  */
 export const PRO_TRIAL_ANALYTICS_PLAN_ID = "pro_trial";
 const TRIAL_PRODUCT_SUFFIX = ".pro.trial.monthly";
-const TRIAL_SUBSCRIPTION_PLAN_IDS: ReadonlySet<string> = new Set(["trial_pending", "trial_unverified"]);
+/** A trial the server refused (no verified claim, or a reused iPhone): it grants nothing and is not a trial. */
+export const UNVERIFIED_TRIAL_ANALYTICS_PLAN_ID = "trial_unverified";
 
 function appleRecordPlanId(row: AppleSubscriptionInput): string {
-  return row.freeTrial || TRIAL_SUBSCRIPTION_PLAN_IDS.has(row.planId) ? PRO_TRIAL_ANALYTICS_PLAN_ID : row.planId;
+  if (row.planId === "trial_unverified") return UNVERIFIED_TRIAL_ANALYTICS_PLAN_ID;
+  return row.freeTrial || row.planId === "trial_pending" ? PRO_TRIAL_ANALYTICS_PLAN_ID : row.planId;
 }
 
 function appleTransactionInterval(

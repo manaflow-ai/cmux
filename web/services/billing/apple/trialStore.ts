@@ -1,7 +1,7 @@
 // Postgres persistence for the iOS Pro trial: single-use challenges, App
 // Attest keys and one trial claim per account (db/schema.ts).
 
-import { and, eq, gt, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import { appleAppAttestKeys, appleSubscriptions, appleTrialChallenges, appleTrialClaims } from "../../../db/schema";
@@ -26,6 +26,8 @@ export type TrialClaimRow = {
   readonly originalTransactionId: string | null;
   readonly deviceMarkAttemptedAt: Date | null;
   readonly deviceMarkedAt: Date | null;
+  /** The trial's entitlement was applied and `trial_started` sent. */
+  readonly grantedAt: Date | null;
 };
 
 export type TrialStore = {
@@ -43,10 +45,14 @@ export type TrialStore = {
   /** Recorded before bit0 is written, so a retry can tell its own mark from another account's. */
   readonly markDeviceMarkAttempted: (userId: string, now: Date) => Promise<void>;
   readonly markDeviceMarked: (userId: string, now: Date) => Promise<void>;
+  /** Only a claim that never tried to mark its device can be a reused device. */
   readonly markDeviceReused: (userId: string) => Promise<void>;
+  readonly markGranted: (userId: string, now: Date) => Promise<void>;
+  /** Runs `task` while holding this user's trial-settle lock (a transaction-scoped advisory lock). */
+  readonly withTrialSettleLock: <T>(userId: string, task: () => Promise<T>) => Promise<T>;
   /** Moves a `trial_pending` subscription to its settled plan; no-op once settled. */
   readonly settleSubscriptionPlan: (originalTransactionId: string, planId: "go" | "trial_unverified") => Promise<boolean>;
-  /** Active free-trial subscriptions still waiting for the device check. */
+  /** Active free-trial subscriptions still waiting for the device check, or granted but not finished. */
   readonly pendingTrialSubscriptions: (limit: number) => Promise<readonly (typeof appleSubscriptions.$inferSelect)[]>;
 };
 
@@ -59,6 +65,7 @@ const claimColumns = {
   originalTransactionId: appleTrialClaims.originalTransactionId,
   deviceMarkAttemptedAt: appleTrialClaims.deviceMarkAttemptedAt,
   deviceMarkedAt: appleTrialClaims.deviceMarkedAt,
+  grantedAt: appleTrialClaims.grantedAt,
 };
 
 export function databaseTrialStore(db: () => Db = cloudDb): TrialStore {
@@ -128,8 +135,20 @@ export function databaseTrialStore(db: () => Db = cloudDb): TrialStore {
     },
     markDeviceReused: async (userId) => {
       await db().update(appleTrialClaims).set({ status: "device_reused" })
-        .where(and(eq(appleTrialClaims.userId, userId), eq(appleTrialClaims.status, "started")));
+        .where(and(
+          eq(appleTrialClaims.userId, userId),
+          eq(appleTrialClaims.status, "started"),
+          isNull(appleTrialClaims.deviceMarkAttemptedAt),
+          isNull(appleTrialClaims.deviceMarkedAt),
+        ));
     },
+    markGranted: async (userId, now) => {
+      await db().update(appleTrialClaims).set({ grantedAt: now }).where(eq(appleTrialClaims.userId, userId));
+    },
+    withTrialSettleLock: async (userId, task) => await db().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`apple-trial-settle:${userId}`}, 0))`);
+      return await task();
+    }),
     settleSubscriptionPlan: async (originalTransactionId, planId) => {
       const rows = await db().update(appleSubscriptions).set({ planId })
         .where(and(eq(appleSubscriptions.originalTransactionId, originalTransactionId), eq(appleSubscriptions.planId, "trial_pending")))
@@ -137,7 +156,19 @@ export function databaseTrialStore(db: () => Db = cloudDb): TrialStore {
       return rows.length === 1;
     },
     pendingTrialSubscriptions: async (limit) => await db().select().from(appleSubscriptions)
-      .where(and(eq(appleSubscriptions.planId, "trial_pending"), eq(appleSubscriptions.freeTrial, true), eq(appleSubscriptions.status, "active")))
+      .where(and(
+        eq(appleSubscriptions.freeTrial, true),
+        eq(appleSubscriptions.status, "active"),
+        or(
+          eq(appleSubscriptions.planId, "trial_pending"),
+          and(eq(appleSubscriptions.planId, "go"), sql`exists (
+            select 1 from ${appleTrialClaims}
+            where ${appleTrialClaims.userId} = ${appleSubscriptions.userId}
+              and ${appleTrialClaims.originalTransactionId} = ${appleSubscriptions.originalTransactionId}
+              and ${appleTrialClaims.deviceMarkedAt} is not null
+              and ${appleTrialClaims.grantedAt} is null)`),
+        ),
+      ))
       .limit(limit),
   };
 }

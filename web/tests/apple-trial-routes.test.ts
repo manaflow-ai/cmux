@@ -159,24 +159,32 @@ mock.module("../services/billing/apple/trialStore", () => ({
       claims.set(userId, { ...claims.get(userId)!, deviceMarkedAt: now });
     },
     markDeviceReused: async (userId: string) => {
-      claims.set(userId, { ...claims.get(userId)!, status: "device_reused" });
+      const claim = claims.get(userId)!;
+      if (claim.status === "started" && !claim.deviceMarkAttemptedAt && !claim.deviceMarkedAt) claims.set(userId, { ...claim, status: "device_reused" });
     },
+    markGranted: async (userId: string, now: Date) => {
+      claims.set(userId, { ...claims.get(userId)!, grantedAt: now });
+    },
+    withTrialSettleLock: async <T>(_userId: string, task: () => Promise<T>) => await task(),
     settleSubscriptionPlan: async (originalTransactionId: string, planId: string) => {
       const row = pendingTrials.find((item) => item.originalTransactionId === originalTransactionId);
       if (!row || row.planId !== "trial_pending") return false;
       row.planId = planId;
       return true;
     },
-    pendingTrialSubscriptions: async () => pendingTrials.filter((row) => row.planId === "trial_pending"),
+    pendingTrialSubscriptions: async () => pendingTrials.filter((row) => row.planId === "trial_pending"
+      || (row.planId === "go" && claims.get(row.userId)?.deviceMarkedAt && !claims.get(row.userId)?.grantedAt)),
   }),
 }));
 
-const emptyClaim = { startedAt: null, originalTransactionId: null, deviceMarkAttemptedAt: null, deviceMarkedAt: null };
+const emptyClaim = { startedAt: null, originalTransactionId: null, deviceMarkAttemptedAt: null, deviceMarkedAt: null, grantedAt: null };
 type PendingTrial = { originalTransactionId: string; userId: string; planId: string; freeTrial: boolean; status: string; productId: string; environment: string; expiresAt: Date | null };
 const pendingTrials: PendingTrial[] = [];
 const entitlementsApplied: string[] = [];
+let failEntitlement = false;
 mock.module("../services/billing/apple/applyEntitlement", () => ({
   applyPersonalPlanEntitlement: async (userId: string) => {
+    if (failEntitlement) throw new Error("entitlement store down");
     entitlementsApplied.push(userId);
   },
 }));
@@ -245,6 +253,7 @@ beforeEach(() => {
   deviceCheckRequests.length = 0;
   pendingTrials.length = 0;
   entitlementsApplied.length = 0;
+  failEntitlement = false;
 });
 
 describe("POST /api/billing/apple/trial/verify", () => {
@@ -365,6 +374,19 @@ describe("trial device settlement (apple-notifications cron)", () => {
     expect(await runCron()).toMatchObject({ device_reused: 1 });
     expect(pendingTrials[1]!.planId).toBe("trial_unverified");
     expect(claims.get("user-b")?.status).toBe("device_reused");
+  });
+
+  test("a grant interrupted after the plan flipped is finished by the next run", async () => {
+    await startedTrial("user-a", "otid-a");
+    failEntitlement = true;
+    expect(await runCron()).toMatchObject({ granted: 1 });
+    expect(pendingTrials[0]!.planId).toBe("go");
+    expect(claims.get("user-a")?.grantedAt).toBeNull();
+    failEntitlement = false;
+    expect(await runCron()).toMatchObject({ granted: 1 });
+    expect(entitlementsApplied).toEqual(["user-a"]);
+    expect(claims.get("user-a")?.grantedAt).toBeInstanceOf(Date);
+    expect(await runCron()).toMatchObject({ granted: 0 });
   });
 
   test("fails closed and retries while DeviceCheck is down", async () => {

@@ -2918,6 +2918,7 @@ export const appleTrialClaims = pgTable("apple_trial_claims", {
   originalTransactionId: text("original_transaction_id"),
   deviceMarkAttemptedAt: timestamp("device_mark_attempted_at", { withTimezone: true }),
   deviceMarkedAt: timestamp("device_marked_at", { withTimezone: true }),
+  grantedAt: timestamp("granted_at", { withTimezone: true }),
 }, (table) => [
   index("apple_trial_claims_key_idx").on(table.keyId),
   check("apple_trial_claims_status_check", sql`${table.status} in ('verified', 'started', 'device_reused')`),

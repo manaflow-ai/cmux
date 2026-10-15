@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS "apple_trial_claims" (
 	"original_transaction_id" text,
 	"device_mark_attempted_at" timestamp with time zone,
 	"device_marked_at" timestamp with time zone,
+	"granted_at" timestamp with time zone,
 	CONSTRAINT "apple_trial_claims_status_check" CHECK ("status" in ('verified', 'started', 'device_reused'))
 );
 --> statement-breakpoint

@@ -237,7 +237,8 @@ export async function verifyTrialEligibility(
 
 export type TrialLifecycleDependencies = {
   readonly store: Pick<TrialStore,
-    "claim" | "markDeviceMarkAttempted" | "markDeviceMarked" | "markDeviceReused" | "settleSubscriptionPlan" | "pendingTrialSubscriptions">;
+    "claim" | "markDeviceMarkAttempted" | "markDeviceMarked" | "markDeviceReused" | "markGranted"
+    | "settleSubscriptionPlan" | "pendingTrialSubscriptions" | "withTrialSettleLock">;
   readonly deviceCheck: (environment: string) => DeviceCheckClient | null;
   readonly attestKeyEnvironment: (keyId: string) => Promise<string | null>;
   readonly paywallVariant: (userId: string) => Promise<string | null>;
@@ -314,45 +315,72 @@ export type TrialSettlement = "granted" | "device_reused" | "unverified" | "pend
  * Settles a `trial_pending` subscription against the device: if the
  * iPhone's DeviceCheck bit0 is already set by another trial the trial grants
  * nothing; otherwise bit0 is set first and only then the trial is granted
- * (`go`). Fails closed: any DeviceCheck failure leaves it pending (no grant),
- * and the apple-notifications cron and every later write retry it.
+ * (`go`), the entitlement applied and `trial_started` sent. Settles of one
+ * user run one at a time (the app's posted transaction and the App Store
+ * notification arrive together). Fails closed: any DeviceCheck failure
+ * leaves it pending (no grant); a grant interrupted after the plan flipped is
+ * finished later. The apple-notifications cron and every later write retry.
  */
 export async function settleTrialDevice(
   current: AppleSubscriptionRow,
   deps: TrialLifecycleDependencies,
 ): Promise<TrialSettlement> {
-  if (!current.freeTrial || current.planId !== "trial_pending") return "skipped";
-  const claim = await deps.store.claim(current.userId);
-  if (!claim || claim.status !== "started" || claim.originalTransactionId !== current.originalTransactionId || !claim.deviceCheckToken) {
-    await deps.store.settleSubscriptionPlan(current.originalTransactionId, "trial_unverified");
-    return "unverified";
-  }
-  const client = deps.deviceCheck(await deps.attestKeyEnvironment(claim.keyId) ?? "production");
-  if (!client) return "pending";
+  if (!current.freeTrial || (current.planId !== "trial_pending" && current.planId !== "go")) return "skipped";
   try {
-    if (!claim.deviceMarkedAt) {
-      const bits = await client.queryBits(claim.deviceCheckToken);
-      // bit0 already set and this claim never tried to set it: another trial used this iPhone.
-      if (bits.bit0 && !claim.deviceMarkAttemptedAt) {
-        await deps.store.markDeviceReused(current.userId);
-        await deps.store.settleSubscriptionPlan(current.originalTransactionId, "trial_unverified");
-        return "device_reused";
-      }
-      await deps.store.markDeviceMarkAttempted(current.userId, deps.now());
-      if (!bits.bit0) await client.updateBits(claim.deviceCheckToken, { bit0: true });
-      await deps.store.markDeviceMarked(current.userId, deps.now());
-    }
-    if (await deps.store.settleSubscriptionPlan(current.originalTransactionId, "go")) {
-      await deps.applyEntitlement(current.userId);
-      await captureTrialEvent("trial_started", { ...current, planId: "go" }, deps);
-    }
-    return "granted";
+    return await deps.store.withTrialSettleLock(current.userId, () => settleLocked(current, deps));
   } catch (error) {
     console.warn("billing.trial.device_settle_failed", {
       originalTransactionId: current.originalTransactionId,
       error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
     });
     return "pending";
+  }
+}
+
+async function settleLocked(current: AppleSubscriptionRow, deps: TrialLifecycleDependencies): Promise<TrialSettlement> {
+  // Read under the lock: another settle may have finished meanwhile.
+  const claim = await deps.store.claim(current.userId);
+  const ownsClaim = claim?.status === "started" && claim.originalTransactionId === current.originalTransactionId;
+  if (current.planId === "go") {
+    if (!ownsClaim || !claim.deviceMarkedAt || claim.grantedAt) return "skipped";
+    await finishGrant(current, deps);
+    return "granted";
+  }
+  if (!ownsClaim || !claim.deviceCheckToken) {
+    await deps.store.settleSubscriptionPlan(current.originalTransactionId, "trial_unverified");
+    return "unverified";
+  }
+  if (!claim.deviceMarkedAt) {
+    const client = deps.deviceCheck(await deps.attestKeyEnvironment(claim.keyId) ?? "production");
+    if (!client) return "pending";
+    const bits = await client.queryBits(claim.deviceCheckToken);
+    // bit0 already set and this claim never tried to set it: another trial used this iPhone.
+    if (bits.bit0 && !claim.deviceMarkAttemptedAt) {
+      await deps.store.markDeviceReused(current.userId);
+      await deps.store.settleSubscriptionPlan(current.originalTransactionId, "trial_unverified");
+      return "device_reused";
+    }
+    await deps.store.markDeviceMarkAttempted(current.userId, deps.now());
+    if (!bits.bit0) await client.updateBits(claim.deviceCheckToken, { bit0: true });
+    await deps.store.markDeviceMarked(current.userId, deps.now());
+  }
+  await deps.store.settleSubscriptionPlan(current.originalTransactionId, "go");
+  if (!claim.grantedAt) await finishGrant(current, deps);
+  return "granted";
+}
+
+/** Applies the granted trial and reports it; `granted_at` marks it done so a crash before that is retried. */
+async function finishGrant(current: AppleSubscriptionRow, deps: TrialLifecycleDependencies): Promise<void> {
+  try {
+    await deps.applyEntitlement(current.userId);
+    await captureTrialEvent("trial_started", { ...current, planId: "go" }, deps);
+    await deps.store.markGranted(current.userId, deps.now());
+  } catch (error) {
+    // The plan already flipped to go; the cron finishes the grant later.
+    console.warn("billing.trial.grant_finish_failed", {
+      originalTransactionId: current.originalTransactionId,
+      error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+    });
   }
 }
 
@@ -370,7 +398,7 @@ export async function applyTrialLifecycle(
   if (!write.applied) return current.planId;
   try {
     const settled = await settleTrialDevice(current, deps);
-    if (settled !== "skipped") {
+    if (current.planId === "trial_pending") {
       return settled === "granted" ? "go" : settled === "pending" ? "trial_pending" : "trial_unverified";
     }
     const event = trialTransition(write.previous, current, notification);
