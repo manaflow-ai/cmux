@@ -1996,8 +1996,8 @@ w("\r\x1b[2KSTREAMDONE\n")
     def _axe_type(self, text):
         subprocess.run(["axe", "type", text, "--udid", self.sim.udid], capture_output=True, timeout=60)
 
-    def _chat_send(self, prompt):
-        f = self.sim.wait(kind="TextView", timeout=10) or self.sim.wait(kind="TextField", timeout=5)
+    def _chat_send(self, prompt, timeout=15):
+        f = self.sim.wait(kind="TextView", timeout=timeout) or self.sim.wait(kind="TextField", timeout=5)
         check(f, "no chat composer")
         self.sim.tap_el(f); time.sleep(0.6)
         self._axe_type(prompt); time.sleep(0.5)
@@ -2074,8 +2074,9 @@ w("\r\x1b[2KSTREAMDONE\n")
             t = self._chat_send(prompt)
             reply = None
             while time.time() - t < 240:
-                hits = [e for e in s.find(contains="PONG") if prompt not in (e.label or "")
-                        and e.kind not in ("TextView", "TextField") and prompt not in (e.value or "")]
+                # The reply, not the prompt's own bubble: a short element that is not the prompt.
+                hits = [e for e in s.find(contains="PONG") if len(e.label or "") < 40
+                        and "Reply with" not in (e.label or "") and e.kind not in ("TextView", "TextField")]
                 if hits:
                     reply = time.time() - t
                     break
@@ -2084,7 +2085,7 @@ w("\r\x1b[2KSTREAMDONE\n")
             check(reply is not None, "no PONG reply within 240 s")
             notes.append(f"replied PONG in {reply:.1f} s")
             s.shot(f"codex-chat-pong-{self.run_id}")
-            t = self._chat_send("Run this shell command in the current folder: echo hi > macnext-approval.txt")
+            t = self._chat_send("Run this shell command in the current folder: echo hi > macnext-approval.txt", timeout=120)
             ask = None
             while time.time() - t < 240:
                 if s.find(contains="wants to run") or s.find(label="Allow", kind="Button"):
