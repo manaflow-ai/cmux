@@ -25,6 +25,9 @@ final class BrowserEngineRuntime {
     private let resolver = BrowserEngineResolver()
     private let environment: [String: String]
     private let defaults: UserDefaults
+    /// Starts Chromium at an idle moment once a Chromium page is likely; nil
+    /// until the Chromium provider is registered.
+    private(set) var chromiumWarmup: BrowserEngineWarmup?
 
     // Main-actor defaults are built in the body: default argument expressions are
     // evaluated in a nonisolated context and cannot call main-actor initializers.
@@ -80,11 +83,26 @@ final class BrowserEngineRuntime {
             }
         )
         chromiumExtensions = extensions
-        registry.register(CEFBrowserEngineProvider(
+        let chromium = CEFBrowserEngineProvider(
             runtime: .shared,
             devToolsLayoutStore: BrowserDevToolsLayoutStore(defaults: defaults),
             extensions: extensions.stores
-        ))
+        )
+        registry.register(chromium)
+        // Nothing loads here: the warmup only acts once a Chromium page is likely.
+        chromiumWarmup = BrowserEngineWarmup(engine: chromium)
+        // New browser panels open in Chromium: a Chromium page is likely soon.
+        if environmentOverride == .chromium || BrowserEngineKind.configured(defaults: defaults) == .chromium {
+            chromiumLikely(.defaultEngine)
+        }
+    }
+
+    /// A Chromium page is likely soon: start Chromium at the next idle moment.
+    /// Only the first call per process acts; it does nothing while Chromium
+    /// is unavailable or already running.
+    /// - Parameter reason: Why a Chromium page is likely.
+    func chromiumLikely(_ reason: BrowserEngineWarmupReason) {
+        chromiumWarmup?.engineLikely(reason)
     }
 
     /// Whether an engine can create pages now.
