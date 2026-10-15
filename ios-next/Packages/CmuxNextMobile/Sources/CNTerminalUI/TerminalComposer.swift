@@ -24,6 +24,7 @@ struct TerminalComposer: View {
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
+    @State private var showAttachMenu = false
     @State private var photoItems: [PhotosPickerItem] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -80,14 +81,11 @@ struct TerminalComposer: View {
         }
     }
 
+    /// `+` opens Photos, Camera and Files in a popover above the row. A
+    /// system `Menu` grows out of the button and covers the composer row it
+    /// sits in (Tabs QA #15); the popover leaves the row in view.
     private var plusMenu: some View {
-        Menu {
-            Button(TerminalText.photos, systemImage: "photo.on.rectangle") { showPhotos = true }
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button(TerminalText.camera, systemImage: "camera") { showCamera = true }
-            }
-            Button(TerminalText.files, systemImage: "folder") { showFiles = true }
-        } label: {
+        Button { showAttachMenu = true } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(.cn(\.textPrimary))
@@ -95,8 +93,36 @@ struct TerminalComposer: View {
                 .background(.cn(\.fillHover), in: .circle)
                 .contentShape(.circle)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(TerminalText.addAttachment)
         .accessibilityIdentifier("terminal.composer.plus")
+        .popover(isPresented: $showAttachMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                attachChoice(TerminalText.photos, "photo.on.rectangle") { showPhotos = true }
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    attachChoice(TerminalText.camera, "camera") { showCamera = true }
+                }
+                attachChoice(TerminalText.files, "folder") { showFiles = true }
+            }
+            .padding(.vertical, 6)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func attachChoice(_ title: String, _ symbol: String, _ action: @escaping () -> Void) -> some View {
+        Button {
+            showAttachMenu = false
+            action()
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.body)
+                .foregroundStyle(.cn(\.textPrimary))
+                .frame(minWidth: 180, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 
     private var sendButton: some View {
