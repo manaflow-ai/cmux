@@ -1,3 +1,4 @@
+import CNCore
 import Foundation
 import Observation
 import SwiftUI
@@ -28,7 +29,7 @@ public final class AppPreferences {
 
     /// UserDefaults key (Bool, default false) for "Bring tabs forward on Mac
     /// automatically"; the browser module reads it.
-    nonisolated public static let browserBringForwardKey = "cmuxNext.browser.bringForward"
+    nonisolated public static let browserBringForwardKey = AppSettings.browserBringForwardKey
 
     public static let terminalFontRange: ClosedRange<Double> = 9...24
     public static let defaultTerminalFontSize: Double = 13
@@ -54,7 +55,7 @@ public final class AppPreferences {
         static let browserBringForward = AppPreferences.browserBringForwardKey
     }
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = AppSettings.current.defaults) {
         self.defaults = defaults
         appearance = Appearance(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
         let size = defaults.double(forKey: Keys.terminalFontSize)

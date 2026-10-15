@@ -160,6 +160,8 @@ public final class AppModel {
         )
         let defaults = UserDefaults(suiteName: "cmux-next-mock") ?? .standard
         defaults.removePersistentDomain(forName: "cmux-next-mock")
+        // One store for the whole mock app: the browser reads the same suite.
+        AppSettings.current = AppSettings(defaults: defaults)
         let preferences = AppPreferences(defaults: defaults)
         if devScreen != .onboarding { preferences.selectedHostId = host.options.hostId }
         return AppModel(shell: shell, devScreen: devScreen, backend: backend, preferences: preferences,

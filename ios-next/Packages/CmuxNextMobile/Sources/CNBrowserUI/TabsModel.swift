@@ -133,14 +133,14 @@ final class TabsModel {
         browser = BrowserModel(connection: connection)
         self.includesTerminals = includesTerminals
         browser.bringForward = { [weak self] id in
-            guard let self, UserDefaults.standard.bool(forKey: Self.bringForwardKey) else { return false }
+            guard let self, AppSettings.current.browserBringForward else { return false }
             return self.hiddenOnMac(id) != nil
         }
     }
 
     /// Settings › Browser "Bring tabs forward on Mac automatically"
     /// (`AppPreferences.browserBringForwardKey`; off by default).
-    static let bringForwardKey = "cmuxNext.browser.bringForward"
+    static let bringForwardKey = AppSettings.browserBringForwardKey
 
     /// The Mac browser tab behind `key` when the Mac is not showing it (its
     /// pane shows another tab, or its workspace is in the background): it
@@ -385,7 +385,7 @@ final class TabsModel {
             activeTerminalKey = nil
             // "Bring tabs forward on Mac automatically": a tab the Mac is
             // not drawing is shown there first (no "Show on Mac" tap).
-            if UserDefaults.standard.bool(forKey: Self.bringForwardKey), hiddenOnMac(key) != nil { showOnMac(key) }
+            if AppSettings.current.browserBringForward, hiddenOnMac(key) != nil { showOnMac(key) }
             browser.select(key)
         }
     }
@@ -556,7 +556,7 @@ final class TabsModel {
     func open(key: String) {
         if !TabItem.isBrowserKey(key) { select(key); return }
         activeTerminalKey = nil
-        if UserDefaults.standard.bool(forKey: Self.bringForwardKey), hiddenOnMac(key) != nil { showOnMac(key) }
+        if AppSettings.current.browserBringForward, hiddenOnMac(key) != nil { showOnMac(key) }
         browser.open(tabId: key)
     }
 
