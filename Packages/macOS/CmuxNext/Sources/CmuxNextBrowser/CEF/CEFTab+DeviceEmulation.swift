@@ -6,6 +6,7 @@ extension CEFTab: BrowserEmulating {
         guard emulation != deviceEmulation else { return }
         deviceEmulation = emulation
         deviceEmulationViewport = nil
+        container.updateFitFrame()
         applyDeviceEmulation()
     }
 
@@ -24,7 +25,7 @@ extension CEFTab: BrowserEmulating {
             while let self, self.deviceEmulationDirty, !self.isClosed, let browserID = self.browserID {
                 self.deviceEmulationDirty = false
                 let emulation = self.deviceEmulation
-                let viewport = emulation?.viewport(in: self.container.pageViewportFrame.size)
+                let viewport = emulation.flatMap { $0.viewport(in: $0.layoutArea(in: self.container.pageViewportFrame).size) }
                 self.deviceEmulationViewport = viewport
                 self.deviceEmulationApplied = emulation != nil
                 for (method, params) in CEFDeviceEmulation.calls(emulation, viewport: viewport) {
@@ -43,7 +44,8 @@ extension CEFTab: BrowserEmulating {
     /// now fits better), or resize a fit's layout (no reload).
     func deviceEmulationViewDidResize() {
         guard let emulation = deviceEmulation else { return }
-        guard emulation.viewport(in: container.pageViewportFrame.size) != deviceEmulationViewport else { return }
+        container.needsLayout = true // a fit's page rect and frame follow the pane
+        guard emulation.viewport(in: emulation.layoutArea(in: container.pageViewportFrame).size) != deviceEmulationViewport else { return }
         applyDeviceEmulation()
     }
 }
