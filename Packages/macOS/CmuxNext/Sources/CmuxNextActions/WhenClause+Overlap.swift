@@ -15,7 +15,7 @@ extension WhenClause {
     }
 
     /// The `&&` terms of this clause (itself when it is not an `&&`).
-    private var conjuncts: [WhenClause] {
+    nonisolated var conjuncts: [WhenClause] {
         if case .and(let clauses) = self { return clauses.flatMap(\.conjuncts) }
         return [self]
     }
