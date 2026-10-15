@@ -1,3 +1,5 @@
+import Foundation
+
 /// How a browser panel answers a page's permission request when the page's
 /// engine has no prompt of its own cmux can show (the Chromium engine:
 /// Chromium's permission bubble anchors to a toolbar cmux never shows, so a

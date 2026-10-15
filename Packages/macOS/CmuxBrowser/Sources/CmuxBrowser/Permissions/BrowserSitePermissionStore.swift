@@ -16,7 +16,7 @@ public final class BrowserSitePermissionStore {
     }
 
     /// File name inside the profile's store directory.
-    public static let fileName = "cmux-site-permissions.json"
+    public nonisolated static let fileName = "cmux-site-permissions.json"
 
     private let fileURL: URL?
     private var settings: [String: [String: Setting]]

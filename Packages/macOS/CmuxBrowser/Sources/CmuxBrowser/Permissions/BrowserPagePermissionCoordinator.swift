@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Answers a panel's permission requests for an engine without a prompt cmux
 /// can show (``BrowserPageUIDelegate/page(_:requestPermission:)`` on a

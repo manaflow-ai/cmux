@@ -7,8 +7,11 @@ import SwiftUI
 /// key answers it, so Escape or Return typed into the page never decides a
 /// permission by accident.
 ///
-/// Host-agnostic: mount it above the page (for a Chromium page, in the
-/// overlay that sits above Chromium's child window), filling the page area.
+/// Host-agnostic: overlay it on the page area (it fills it and draws only the
+/// card). `mountCard` wraps just the card, so a Chromium panel passes
+/// `.browserPageOccluding(panel.pageOverlays, id: "permissionPrompt")` and
+/// Chromium's child window is masked under the card only (chrome-ui's page
+/// overlay host); other hosts keep the default identity.
 ///
 /// References: Next `PromptBarView.swift` (answers and copy),
 /// cmux-design-references `apps/codex/web/computer-use-app-approval.webp`
@@ -17,6 +20,7 @@ import SwiftUI
 struct BrowserPermissionPromptBar: View {
     let queue: BrowserPermissionPromptQueue
     let metrics: BrowserChromeMetrics
+    var mountCard: (AnyView) -> AnyView = { $0 }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -24,10 +28,12 @@ struct BrowserPermissionPromptBar: View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
                 if let prompt = queue.current {
-                    BrowserPermissionPromptCard(prompt: prompt, metrics: metrics) { answer in
-                        queue.answer(prompt.id, with: answer)
-                    }
-                    .frame(width: metrics.promptBarWidth(pageWidth: proxy.size.width))
+                    mountCard(AnyView(
+                        BrowserPermissionPromptCard(prompt: prompt, metrics: metrics) { answer in
+                            queue.answer(prompt.id, with: answer)
+                        }
+                        .frame(width: metrics.promptBarWidth(pageWidth: proxy.size.width))
+                    ))
                     .id(prompt.id)
                     .transition(cardTransition)
                 }
