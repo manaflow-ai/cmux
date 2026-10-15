@@ -22566,7 +22566,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Feature Flags",
+      "title" : "Labs…",
       "title_key" : "action.help.featureFlags",
       "title_table" : "ActionCatalog"
     },
