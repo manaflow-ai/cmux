@@ -296,6 +296,99 @@ struct CloudSecretsServiceTests {
         #expect(recorder.events == ["deliver:NPM_TOKEN"])
     }
 
+    /// Holds a delivery open until the test releases it, and says when one started.
+    final class GatedTransport: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entered: CheckedContinuation<Void, Never>?
+        private var didEnter = false
+        private var release: CheckedContinuation<Void, Never>?
+
+        var transport: CloudSecretsService.Transport {
+            CloudSecretsService.Transport(
+                deliver: { _, _ in
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        self.lock.lock()
+                        self.release = continuation
+                        self.didEnter = true
+                        let waiter = self.entered
+                        self.entered = nil
+                        self.lock.unlock()
+                        waiter?.resume()
+                    }
+                },
+                exec: { _, _ in VMExecResult(exitCode: 0, stdout: "", stderr: "") }
+            )
+        }
+
+        /// Returns once a delivery is waiting on ``releaseDelivery()``.
+        func waitForDelivery() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if didEnter {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    entered = continuation
+                    lock.unlock()
+                }
+            }
+        }
+
+        func releaseDelivery() {
+            lock.lock()
+            let continuation = release
+            release = nil
+            lock.unlock()
+            continuation?.resume()
+        }
+    }
+
+    @Test func forgettingAMachineDuringASyncDoesNotResurrectItsLedgerOrRouting() async throws {
+        let gate = GatedTransport()
+        let defaults = try #require(UserDefaults(suiteName: "cloud-secrets-tests-\(UUID().uuidString)"))
+        let service = CloudSecretsService(
+            vault: CloudSecretVault(storage: InMemoryCloudSecretVaultStorage()),
+            transport: gate.transport,
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            observesMachineCreation: false
+        )
+        try await service.set([CloudSecretInput(name: "OPENAI_API_KEY", value: "sk-proj-race")], scope: .all, source: .manual, sync: false)
+        let inFlight = Task { @MainActor in await service.sync(machineID: "m1") }
+        await gate.waitForDelivery()
+
+        // The machine is destroyed while its delivery is still on the link.
+        service.forgetMachine("m1")
+        try await service.vault.forgetMachine("m1")
+        gate.releaseDelivery()
+        _ = await inFlight.value
+        await service.reload()
+
+        #expect(try await service.vault.delivery(for: "m1") == nil)
+        #expect(service.delivery(for: "m1") == nil)
+        #expect(defaults.string(forKey: CloudSecretsService.providerRoutingDefaultsKey(machineID: "m1")) == nil)
+    }
+
+    @Test func aFailedSyncRecordsItsErrorBeforeReturning() async throws {
+        let recorder = RecordingTransport()
+        recorder.failDelivery = CloudEnvDelivery.DeliveryError.receiverFailed("closed")
+        let service = makeService(recorder)
+        try await service.set([CloudSecretInput(name: "XAI_API_KEY", value: "xai-value")], scope: .all, source: .manual, sync: false)
+
+        let failed = await service.sync(machineID: "m1")
+
+        // Recorded in the chain, not by a detached task that could land after a
+        // later sync succeeded.
+        #expect(failed.error != nil)
+        #expect(service.delivery(for: "m1")?.lastError == failed.error)
+
+        recorder.failDelivery = nil
+        let succeeded = await service.sync(machineID: "m1")
+        #expect(succeeded.error == nil)
+        #expect(service.delivery(for: "m1")?.lastError == nil)
+        #expect(try await service.vault.delivery(for: "m1")?.lastError == nil)
+    }
+
     // MARK: - vm.env_set provider routing
 
     @Test func envSetRoutesAProviderKeyBeforeDeliveringIt() async throws {
