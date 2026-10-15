@@ -225,6 +225,19 @@ struct BrowserChromiumAutomationTests {
             let data = failed["data"] as? [String: Any]
             #expect(data?["reason"] as? String == "startFailed", "\(method): \(failed)")
         }
+
+        // A tab opened from a Chromium surface with no engine named inherits
+        // Chromium, as a tab opened from the page's own UI does.
+        let pagesBefore = provider.pages.count
+        let inherited = try successfulResult(await call(method: "browser.tab.new", params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": surfaceID,
+            "url": "https://example.com/other",
+        ]))
+        #expect(inherited["engine"] as? String == "chromium", "\(inherited)")
+        #expect(provider.pages.count == pagesBefore + 1)
+        let inheritedID = try #require((inherited["surface_id"] as? String).flatMap(UUID.init(uuidString:)))
+        #expect((workspace.panels[inheritedID] as? BrowserPanel)?.engineKind == .chromium)
     }
 
     /// A command on a Chromium page that is not up (Memory Saver released it,

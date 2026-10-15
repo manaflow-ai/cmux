@@ -11712,12 +11712,19 @@ class TerminalController {
                 return
             }
 
+            // With no engine named, a tab opened from a Chromium surface opens
+            // in Chromium, as a tab opened from its own UI does (a WebKit
+            // source leaves the choice to the setting, as there).
+            let sourceEngine = (v2UUID(params, "surface_id") ?? ws.focusedPanelId)
+                .flatMap { ws.panels[$0] as? BrowserPanel }
+                .flatMap { $0.engineKind == .webkit ? nil : $0.engineKind }
             guard let panel = ws.newBrowserSurface(
                 inPane: pane,
                 url: url,
                 focus: true,
                 creationPolicy: .automationPreload,
-                engine: requestedEngine.engine
+                engine: requestedEngine.engine,
+                inheritedEngine: sourceEngine
             ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
