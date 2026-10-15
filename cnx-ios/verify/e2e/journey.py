@@ -2017,6 +2017,13 @@ w("\r\x1b[2KSTREAMDONE\n")
         if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
             raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex makes model calls)")
         s = self.sim
+        # Agent chats from a phone start in a project folder (never the home folder):
+        # the seed workspace's terminals move to one, which the Mac hands acpmux.
+        proj = os.path.expanduser("~/cnx-ios-e2e/codexchat-proj")
+        os.makedirs(proj, exist_ok=True)
+        for k in ("term1", "term2"):
+            self.mac_write(self.seed[k], f"cd {proj} && clear\n")
+        time.sleep(3)
         self.open_seed_workspace()
         video = os.path.join(self.out, f"codex-chat-{self.run_id}.mp4")
         s.record_start(video)
@@ -2040,7 +2047,8 @@ w("\r\x1b[2KSTREAMDONE\n")
             deadline = t + 120
             while time.time() < deadline:
                 time.sleep(0.5)
-                bad = [e.label for e in s.find(contains="Couldn")] + [e.label for e in s.find(contains="Trust ")]
+                bad = [e.label for e in s.find(contains="Couldn")] + [e.label for e in s.find(contains="Trust ")] + \
+                      [e.label for e in s.find(contains="start in a project folder")]
                 check(not bad, f"the chat did not start: {bad[:1]}")
                 if not s.find(contains="Opening") and time.time() - t > 3:
                     break
