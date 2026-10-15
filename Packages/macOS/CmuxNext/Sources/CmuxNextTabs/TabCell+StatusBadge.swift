@@ -60,25 +60,25 @@ extension TabCell {
     /// The side of a mark that sits beside the icon or the title.
     func statusGlyphSide(iconSide: CGFloat) -> CGFloat { pixel(iconSide * 0.62) }
 
-    /// An agent chat draws no chat icon or agent mark while rows show a status icon, as agent chat
-    /// rows draw none (Leo 2026-10-15); a user's own icon still draws.
+    /// A tab draws no kind icon or agent mark while rows show a status icon, as rows draw none (Leo
+    /// 2026-10-15). A favicon, a user's own icon and a pinned tab's icon (its only content) still draw.
     var hidesKindIcon: Bool {
-        guard item.iconIsKind, StatusIndicatorAppearance.shared.config.statusSide != nil else { return false }
+        guard item.iconIsKind, !item.isPinned, StatusIndicatorAppearance.shared.config.statusSide != nil else { return false }
         switch item.icon {
-        case .icon(.agentChat), .agentMark: return true
-        default: return false
+        case .icon, .agentMark: return true
+        case .none, .symbol, .image: return false
         }
     }
 
-    /// The slot a mark on the left takes before the icon; 0 for any other place, and for an agent
-    /// chat, whose mark takes the icon's own slot.
+    /// The slot a mark on the left takes before the icon; 0 for any other place, and for a tab
+    /// without its kind icon, whose mark takes the icon's own slot.
     func statusLeadingSlot(iconSide: CGFloat) -> CGFloat {
         statusSide == .left && visibility.showsIcon && !visibility.centersContent && !hidesKindIcon
             ? statusGlyphSide(iconSide: iconSide) + Metrics.space2 : 0
     }
 
-    /// Where the title starts: after the icon, or where the icon was for an agent chat whose
-    /// status icon sits on the right (its left side is empty, as the row's is).
+    /// Where the title starts: after the icon, or where the icon was for a tab without its kind
+    /// icon whose status icon sits on the right (its left side is empty, as the row's is).
     func titleStart(iconFrame: CGRect, spacing: CGFloat) -> CGFloat {
         hidesKindIcon && StatusIndicatorAppearance.shared.config.statusSide == .right && spinnerLayer == nil
             ? iconFrame.minX : iconFrame.maxX + spacing

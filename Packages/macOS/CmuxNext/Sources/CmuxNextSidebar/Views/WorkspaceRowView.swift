@@ -177,10 +177,10 @@ final class WorkspaceRowView: SidebarRowView {
         // A row badge style other than `.trailing` draws the unread count and activity in its
         // badge and leads with the kind icon (`configureBadges`): set those views once, here, so
         // a status tick does not flip the icon image and the activity indicator twice per configure.
-        // `.status` draws neither: one status icon on the `sidebar.statusIconSide` side; a browser row keeps a globe.
+        // `.status` draws neither: one status icon on the `sidebar.statusIconSide` side (a page's favicon still draws).
         statusSide = content.rowBadge == .status && !isShowingPlaceholder ? content.statusSide : nil
         let badgesLead = statusSide == nil && content.rowBadge != .trailing && !isShowingPlaceholder
-        if badgesLead || (statusSide != nil && ws.kind == .browser), shown.icon == nil {
+        if badgesLead, shown.icon == nil {
             icon.configure(icon: nil, fallback: ws.kind.iconName, brand: ws.kindBrand ?? ws.agentBrand)
         } else {
             icon.configure(icon: shown.icon)

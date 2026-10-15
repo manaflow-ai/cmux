@@ -34,7 +34,7 @@ public struct TabItemMapping {
             status: status(tab)
         )
         item.isNewTabPage = isNewTabPage
-        item.iconIsKind = isConversation
+        item.iconIsKind = !isNewTabPage // the New Tab page's icon is its only mark
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
@@ -48,7 +48,7 @@ public struct TabItemMapping {
     /// mark, page icon, favicon). Callers that set a derived icon after ``item(_:fallbackTitle:isNewTabPage:)``
     /// apply it again last. A busy indicator still covers it while the tab loads.
     public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem, asset: (String) -> TabImage? = { _ in nil }) {
-        if let icon = TabUserIcon.shared.icon(tab.userIcon, asset: asset) { item.icon = icon }
+        if let icon = TabUserIcon.shared.icon(tab.userIcon, asset: asset) { (item.icon, item.iconIsKind) = (icon, false) }
     }
 
     /// A tab's kind icon from the cmux icon registry. A terminal whose agent session is live,
