@@ -54,7 +54,8 @@ public actor FreeTierAttestProvider {
     /// The relay's free-tier state, as it reports it (the Settings caption).
     public nonisolated let states: AsyncStream<FreeTierState>
 
-    /// - Parameter environment: the acpmux this app runs; its relay socket is `<home>/router/router.sock`.
+    /// - Parameter environment: the acpmux this app runs; its relay socket is
+    ///   ``LocalRouterClient/socketPath(acpmuxHome:uid:)`` (`<home>/router/router.sock`, or a short path for a long home).
     /// - Parameter attest: App Attest and DeviceCheck.
     /// - Parameter keys: where the free-tier key id lives.
     /// - Parameter clock: spaces reconnects.
@@ -62,8 +63,7 @@ public actor FreeTierAttestProvider {
     public init(environment: AcpmuxEnvironment, attest: any DeviceAttesting, keys: any AttestKeyStore,
                 clock: any Clock<Duration> = ContinuousClock(), logger: Logger) {
         var router = environment
-        router.socketPath = environment.home.appendingPathComponent("router", isDirectory: true)
-            .appendingPathComponent("router.sock").path
+        router.socketPath = LocalRouterClient.socketPath(acpmuxHome: environment.home)
         routerEnvironment = router
         self.attest = attest
         self.keys = keys

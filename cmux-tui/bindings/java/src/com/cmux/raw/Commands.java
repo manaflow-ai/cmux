@@ -47,6 +47,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_ATTACHMENT_READ = new CommandMetadata("cloud-attachment-read", Authority.LOCAL_ADMIN, 12, "cloud-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_ATTACHMENT_UPLOAD = new CommandMetadata("cloud-attachment-upload", Authority.LOCAL_ADMIN, 12, "cloud-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_HISTORY = new CommandMetadata("cloud-conversation-history", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_CONVERSATION_LIVE = new CommandMetadata("cloud-conversation-live", Authority.LOCAL_ADMIN, 12, "cloud-chief-live-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_OP = new CommandMetadata("cloud-conversation-op", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_RUN = new CommandMetadata("cloud-conversation-run", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_RUNS = new CommandMetadata("cloud-conversation-runs", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -77,6 +78,8 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_INBOX_OP = new CommandMetadata("conversation-inbox-op", Authority.LOCAL_ADMIN, 12, "conversation-inbox-state-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LINK_RESOLVE = new CommandMetadata("conversation-link-resolve", Authority.LOCAL_ADMIN, 12, "conversation-tree-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIST = new CommandMetadata("conversation-list", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_LIVE = new CommandMetadata("conversation-live", Authority.LOCAL_ADMIN, 12, "chief-live-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_LIVE_PUBLISH = new CommandMetadata("conversation-live-publish", Authority.LOCAL_ADMIN, 12, "chief-live-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN = new CommandMetadata("conversation-run", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN_APPEND = new CommandMetadata("conversation-run-append", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -321,6 +324,7 @@ public final class Commands {
         values.put("cloud-attachment-read", CLOUD_ATTACHMENT_READ);
         values.put("cloud-attachment-upload", CLOUD_ATTACHMENT_UPLOAD);
         values.put("cloud-conversation-history", CLOUD_CONVERSATION_HISTORY);
+        values.put("cloud-conversation-live", CLOUD_CONVERSATION_LIVE);
         values.put("cloud-conversation-op", CLOUD_CONVERSATION_OP);
         values.put("cloud-conversation-run", CLOUD_CONVERSATION_RUN);
         values.put("cloud-conversation-runs", CLOUD_CONVERSATION_RUNS);
@@ -351,6 +355,8 @@ public final class Commands {
         values.put("conversation-inbox-op", CONVERSATION_INBOX_OP);
         values.put("conversation-link-resolve", CONVERSATION_LINK_RESOLVE);
         values.put("conversation-list", CONVERSATION_LIST);
+        values.put("conversation-live", CONVERSATION_LIVE);
+        values.put("conversation-live-publish", CONVERSATION_LIVE_PUBLISH);
         values.put("conversation-op", CONVERSATION_OP);
         values.put("conversation-run", CONVERSATION_RUN);
         values.put("conversation-run-append", CONVERSATION_RUN_APPEND);
