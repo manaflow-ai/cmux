@@ -53,6 +53,9 @@ public final class CEFPageFeatures {
     private let composer = BrowserChromiumContextMenuComposer()
     private let presenter = BrowserContextMenuPresenter()
     private var frames: BrowserDevToolsLayoutFrames?
+    /// DevTools were open when the renderer crashed (Chromium closes them with it): they reopen
+    /// on the reloaded page, as Chrome reattaches DevTools.
+    private var reopensDevToolsAfterCrash = false
 
     /// Creates the features of one page.
     /// - Parameters:
@@ -110,6 +113,16 @@ public final class CEFPageFeatures {
         case .loadStart(let browser, _, _) where browser == id:
             // A new document: the next search starts over.
             nativeFind.resetForNewDocument()
+            return false
+        case .renderTerminated(let browser, _, _, _) where browser == id:
+            if devTools.state.isOpen { reopensDevToolsAfterCrash = true }
+            return false
+        case .loadEnd(let browser, _) where browser == id:
+            // The first load after the crash decides; DevTools that survived stay as they are.
+            if reopensDevToolsAfterCrash {
+                reopensDevToolsAfterCrash = false
+                if !devTools.state.isOpen { devTools.perform(.show) }
+            }
             return false
         case .beforeClose(let browser) where browser == id:
             tearDown()
