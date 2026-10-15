@@ -448,3 +448,62 @@ fn a_chief_brain_gets_the_accounts_home_like_the_default_chief() {
     let _ = owned.child.wait();
     wait_gone(pid, "after daemon shutdown");
 }
+
+/// cx-tgf4h: a daemon started with agents off in its build session
+/// (`ACPMUX_AGENT_LAUNCH=deny`, as a GUI build job sets it) starts no brain
+/// for a new Chief, also on a message to it, and `cmux chief engine` says
+/// why at once instead of "not running".
+#[test]
+fn a_daemon_with_agents_off_starts_no_brain_and_says_why() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbd");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-deny",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str()), ("ACPMUX_AGENT_LAUNCH", "deny")],
+    );
+    let server = &owned;
+    let mut home = Conn::open(&server.socket);
+    let scout = make_chief(server, "Scout", "Researcher");
+    let conversation = dm(&mut home, "deny-dm", &scout, "Scout");
+    say(&mut home, &conversation, "deny-1", "hello");
+    // The supervisor says, once, that the brain does not start.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let line = format!("Chief brain {scout} does not start: agents are disabled");
+    while !server.stderr_tail().contains(&line) {
+        assert!(
+            Instant::now() < deadline,
+            "no refusal line; daemon stderr: {}",
+            server.stderr_tail()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let scout_home = brain_dir(&chief_home, &scout);
+    assert!(!scout_home.join("starts").exists(), "a brain started under deny");
+
+    let engine = chief_cli(server, &["engine", "--json"], "");
+    assert_eq!(engine.status.code(), Some(1), "{}", String::from_utf8_lossy(&engine.stderr));
+    let stderr = String::from_utf8_lossy(&engine.stderr);
+    assert!(stderr.contains("agents are disabled in this build session"), "{stderr}");
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    let _ = fs::remove_dir_all(&files);
+}
