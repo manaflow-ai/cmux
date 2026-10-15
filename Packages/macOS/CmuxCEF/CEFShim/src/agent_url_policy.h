@@ -25,6 +25,12 @@ inline bool IsReservedPageHost(const std::string& rest) {
   size_t end = rest.find_first_of("/\\?#", start);
   std::string host = rest.substr(start, end == std::string::npos ? std::string::npos : end - start);
   if (host.find('%') != std::string::npos) return true;
+  // cmux-page is a standard scheme, so Chromium runs IDNA on the host: a
+  // non-ASCII host (an ignored combining mark, fullwidth letters) can map
+  // onto cmux.<id>. Refuse it, like a percent escape.
+  for (unsigned char c : host) {
+    if (c >= 0x80) return true;
+  }
   size_t at = host.rfind('@');
   if (at != std::string::npos) host = host.substr(at + 1);
   size_t port = host.find(':');

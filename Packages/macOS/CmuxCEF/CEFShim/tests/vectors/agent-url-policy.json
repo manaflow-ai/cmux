@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the agent URL rule: Swift AgentURLPolicy (CmuxNextBrowser/Core/AgentURLPolicy.swift, AgentURLPolicyVectorTests), C++ AgentRefusesURL (CEFShim/src/agent_url_policy.h, scripts/cef/test-agent-url-policy-cpp.sh) and Rust cmux-browser-host policy::is_browser_page all read this file. Change all three implementations together. Reserved cmux page hosts (cmux-page://cmux, cmux-page://cmux.<id> and every single-label host such as cmux-page://shell) and the internal cmux:// scheme are refused too.",
+  "description": "Shared test vectors for the agent URL rule in Chromium panes: Swift BrowserAgentURLPolicy (Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/EngineSafety/BrowserAgentURLPolicy.swift, ChromiumNavigationPolicyVectorTests) and the CEF shim's C++ AgentRefusesURL (CEFShim/src/agent_url_policy.h) read this file; cmux Next keeps the same vectors. Change every implementation together. Reserved cmux page hosts (cmux-page://cmux, cmux-page://cmux.<id> and every single-label host such as cmux-page://shell) and the internal cmux:// scheme are refused too. Non-ASCII cases (combining marks after the colon, fullwidth or IDNA-ignored cmux-page hosts, a Kelvin sign in about:) pin the byte-level, ASCII-only reading every copy must use.",
   "cases": [
     {
       "url": "chrome://password-manager/passwords",
@@ -247,6 +247,34 @@
     },
     {
       "url": "cmux-page://com.example.app./",
+      "refused": false
+    },
+    {
+      "url": "chrome:͏settings",
+      "refused": true
+    },
+    {
+      "url": "chrome:️settings",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://%͏63mux.app/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://cmux͏.settings/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://ｃｍｕｘ.settings/",
+      "refused": true
+    },
+    {
+      "url": "about:blanK",
+      "refused": true
+    },
+    {
+      "url": "https://ex͏ample.com/",
       "refused": false
     }
   ]
