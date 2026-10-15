@@ -631,10 +631,13 @@ def floor_run(exe, variant, frame, label, i):
         if not ready.startswith("ready"):
             return {"name": f"{label}-noticks-{i}", "error": f"floor did not start: {ready!r}"}
         Target.find(proc.pid)
+        quiet = wait_quiet(proc.pid)
         point_x, point_y = Target.bounds["x"] + 110, Target.bounds["y"] + 430
         Target.point, Target.screen_point = (110 * Target.scale, 430 * Target.scale), (point_x, point_y)
         time.sleep(2)  # harness: the window is on screen and idle before the recorder attaches
-        return record(f"{label}-noticks-{i}", False, [], False)
+        result = record(f"{label}-noticks-{i}", False, [], False)
+        result["quiet"] = quiet
+        return result
     finally:
         proc.stdin.close()  # the floor quits when its stdin ends
         try:
@@ -642,6 +645,21 @@ def floor_run(exe, variant, frame, label, i):
         except subprocess.TimeoutExpired:
             proc.terminate()  # our own child process (exact pid)
             proc.wait(timeout=30)
+
+
+def wait_quiet(pid, below_pct=4.0, limit_s=120):
+    """Waits until the app's CPU stays under `below_pct` for 2 one-second windows in a row (startup, state load and
+    workspace churn done), at most `limit_s`. Returns the seconds waited and the last window's CPU %."""
+    started, calm, pct = time.monotonic(), 0, None
+    while time.monotonic() - started < limit_s and calm < 2:  # harness: bounded wait for an idle app
+        c0, t0 = cpu_ns(pid), time.monotonic()
+        time.sleep(1)
+        c1 = cpu_ns(pid)
+        if c0 is None or c1 is None:
+            break
+        pct = round((c1 - c0) / 1e9 / (time.monotonic() - t0) * 100, 1)
+        calm = calm + 1 if pct < below_pct else 0
+    return {"seconds": round(time.monotonic() - started, 1), "cpu_pct": pct, "quiet": calm >= 2}
 
 
 def cmux_runs(app, i, first):
@@ -663,10 +681,11 @@ def cmux_runs(app, i, first):
         app["tick_window"] = {"ticks": ticks, "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1)
                               if cpu0 and cpu1 and ticks else None}
         print(f"{app['label']} tick window: {app['tick_window']}", flush=True)
-    else:
-        time.sleep(3)  # harness: the relaunched app settles before the recorder attaches
     for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
+        quiet = wait_quiet(Target.pid)
+        print(f"{app['label']} {mode} {i}: quiet {quiet}", flush=True)
         out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i - opts.round_offset < opts.profile_runs)
+        out[mode]["quiet"] = quiet
         time.sleep(2)  # harness: settle between runs
     stop_b(app)
     note(app_pid() is None, f"{app['label']} round {i}: the app quit")
