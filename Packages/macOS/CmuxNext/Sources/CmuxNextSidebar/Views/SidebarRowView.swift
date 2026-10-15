@@ -120,6 +120,9 @@ class SidebarRowView: NSView {
     /// earlier open's completion, run early when a later update reopens the
     /// row, leaves the later open's clip alone (cx-ai79).
     var opens = 0
+    /// The frame a row that left the list closes its slot to, until its close recycles it
+    /// (`RowMotion`): a viewport re-anchor mid-close shifts it with the rows (cx-y2uf5).
+    var closingEnd: NSRect?
 
     /// The frame as drawn now: the presentation mid-animation (debug).
     var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
