@@ -117,6 +117,15 @@ enum HomeMapping {
                 owners.append(i)
                 continue
             }
+            // A completed memory write is acknowledged by the dedicated memory
+            // receipt (`ChiefNoticeRows`), even when the brain put the command
+            // next to prose in one stored message. Keeping the work part here
+            // would add a duplicate “Ran cmux chief memory add …” row beside
+            // the assistant's acknowledgement; tool-only messages take the
+            // same path in `ChiefRows.roles`.
+            if case .work(let work) = p, work.status == .done, ChiefRows.savesMemory(work) {
+                continue
+            }
             // cmux-classic: the owner's system rows (a failed turn, a saved note; ChiefNoticeRows.swift).
             if case .work(let work) = p, let row = ChiefRows.noticePart(work, retry: retry) {
                 parts.append(.custom(row))

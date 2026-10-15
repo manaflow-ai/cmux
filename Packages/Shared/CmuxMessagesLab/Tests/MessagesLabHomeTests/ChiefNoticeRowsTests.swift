@@ -131,6 +131,18 @@ import Testing
         #expect(undone.map(ChiefRows.memoryText) == "Removed from memory: x")
     }
 
+    @Test func aFinishedMemorySaveBesideProseDoesNotCreateAToolRow() {
+        let save = Rows.work("t1", "cmux chief memory add \"Prefers 14 pt font\"", .done)
+        let item = Rows.item(1, [.text("Got it — I'll remember that."), save])
+        let shown = Rows.message(item, in: [item]).parts
+        #expect(shown.count == 1)
+        guard case let .text(text, _)? = shown.first else {
+            Issue.record("completed memory save should leave the acknowledgement bubble")
+            return
+        }
+        #expect(text == "Got it — I'll remember that.")
+    }
+
     // MARK: Header band
 
     /// P0-2: the band shows at rest while rows lie under the header, not only on hover.
