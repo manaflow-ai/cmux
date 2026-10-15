@@ -35,7 +35,8 @@ import WebKit
     var handleDroppedFileNavigation: (@MainActor ([URL]) -> Bool)?
     var currentRestoreAttemptID: (@MainActor () -> UUID?)?
     var terminalPolicyCancellationReporter: (@MainActor (WKNavigationAction, WKWebView) -> @MainActor () -> Void)?
-    var willReplaceNavigationForUserAgentPolicy: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    /// The navigation being replaced (nil before its provisional start) and the replaced request's URL.
+    var willReplaceNavigationForUserAgentPolicy: (@MainActor (WKWebView, WKNavigation?, URL?) -> Void)?
     var didReplaceNavigationForUserAgentPolicy: (@MainActor (WKWebView, WKNavigation?, WKNavigation?) -> Void)?
     var didRenderPDFDocument: (@MainActor (URL, Bool) -> Void)?
     var didClearPDFDocument: (@MainActor () -> Void)?
@@ -834,7 +835,7 @@ import WebKit
             addsAutomationHeaders: navigationAction.navigationType != .backForward,
             decisionHandler: decisionHandler,
             willRestart: {
-                reportReplacementWillStart?(webView, replacedNavigation)
+                reportReplacementWillStart?(webView, replacedNavigation, navigationAction.request.url)
             },
             startReplacement: { restartRequest in
                 requestNavigation(restartRequest, .currentTab, { [weak self, weak webView] replacementNavigation in

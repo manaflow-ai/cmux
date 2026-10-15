@@ -27,7 +27,7 @@ struct BrowserViewportRuntimeTests {
         let ticket = coordinator.begin(instanceID: panel.webViewInstanceID)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(original))
 
-        delegate.willReplaceNavigationForUserAgentPolicy?(webView, original)
+        delegate.willReplaceNavigationForUserAgentPolicy?(webView, original, nil)
         _ = delegate.didInterruptProvisionalNavigationByPolicy?(webView, original)
         delegate.didReplaceNavigationForUserAgentPolicy?(webView, original, replacement)
         delegate.didCommit?(webView, replacement)

@@ -53,10 +53,71 @@ struct BrowserAutomationNavigationCoordinatorReplacementTests {
         let ticket = coordinator.begin(instanceID: instanceID, targetURL: target, allowsSameDocumentCompletion: true)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
 
-        coordinator.willReplaceNavigation(instanceID: instanceID, navigationID: nil)
+        coordinator.willReplaceNavigation(instanceID: instanceID, navigationID: nil, requestURL: target)
         coordinator.didReplaceNavigation(
             instanceID: instanceID,
             replacedNavigationID: nil,
+            replacementNavigationID: ObjectIdentifier(replacementNavigation)
+        )
+        coordinator.didStart(instanceID: instanceID, navigationID: ObjectIdentifier(replacementNavigation), targetURL: target)
+        coordinator.didCommit(instanceID: instanceID, navigationID: ObjectIdentifier(replacementNavigation))
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    /// The page's own navigation, restarted for the user agent before the
+    /// automation's load reached its provisional start, is not the
+    /// automation's navigation.
+    @Test("A pre-provisional replacement of another URL is not adopted")
+    func preProvisionalReplacementOfAnotherURLIsIgnored() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(navigationTimeout: .milliseconds(500))
+        let instanceID = UUID()
+        let target = URL(string: "http://127.0.0.1:8123/index.html")!
+        let automationNavigation = NSObject()
+        let pageNavigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: target)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(automationNavigation))
+
+        coordinator.willReplaceNavigation(
+            instanceID: instanceID,
+            navigationID: nil,
+            requestURL: URL(string: "https://example.com/elsewhere")!
+        )
+        coordinator.didReplaceNavigation(
+            instanceID: instanceID,
+            replacedNavigationID: nil,
+            replacementNavigationID: ObjectIdentifier(pageNavigation)
+        )
+        coordinator.didCommit(instanceID: instanceID, navigationID: ObjectIdentifier(pageNavigation))
+        coordinator.didStart(instanceID: instanceID, navigationID: ObjectIdentifier(automationNavigation), targetURL: target)
+        coordinator.didCommit(instanceID: instanceID, navigationID: ObjectIdentifier(automationNavigation))
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    /// The previous page was still loading when the automation navigated, so
+    /// the panel names that page's navigation as the one being replaced.
+    @Test("A pre-provisional replacement that names the previous page's navigation keeps the transaction")
+    func preProvisionalReplacementNamingAStaleNavigationTransfersTransaction() async {
+        let coordinator = BrowserAutomationNavigationCoordinator(navigationTimeout: .milliseconds(500))
+        let instanceID = UUID()
+        let target = URL(string: "http://127.0.0.1:8123/index.html")!
+        let previousPageNavigation = NSObject()
+        let automationNavigation = NSObject()
+        let replacementNavigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: target)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(automationNavigation))
+
+        coordinator.willReplaceNavigation(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(previousPageNavigation),
+            requestURL: target
+        )
+        coordinator.didReplaceNavigation(
+            instanceID: instanceID,
+            replacedNavigationID: ObjectIdentifier(previousPageNavigation),
             replacementNavigationID: ObjectIdentifier(replacementNavigation)
         )
         coordinator.didStart(instanceID: instanceID, navigationID: ObjectIdentifier(replacementNavigation), targetURL: target)

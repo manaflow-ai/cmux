@@ -12369,6 +12369,8 @@
 				6E0312C285F7C7C82024BF62 /* UpgradePromptImpression.swift */,
 				899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */,
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
+				26930C4CD0BFCE82BFD30A3A /* TerminalController+BrowserRawInput.swift */,
+				46B25AEF7E3533D8C74A393B /* BrowserPanel+NativeInput.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 				26930C4CD0BFCE82BFD30A3A /* TerminalController+BrowserRawInput.swift */,
 				46B25AEF7E3533D8C74A393B /* BrowserPanel+NativeInput.swift */,
