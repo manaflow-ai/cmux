@@ -52,9 +52,8 @@ final class NotificationCenterService {
     /// Showcase captures seed the real daemon ledger without showing banners
     /// or prompting for system authorization at launch.
     @ObservationIgnored var desktopPostingEnabled = true
-    /// When a banner shows an agent's last message (Show Previews, like macOS).
+    /// When a banner shows an agent's last message (Show Previews, like macOS) and the screen lock it reads; tests pin both.
     @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
-    /// Whether the screen is locked now (Show Previews `whenUnlocked`); tests pin it.
     @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
@@ -328,8 +327,7 @@ final class NotificationCenterService {
         feedDriver?.run()
         if decision.desktop {
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
-                 subtitle: notification.subtitle.flatMap { $0.isEmpty ? nil : $0 } ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName),
-                 program: program)
+                 subtitle: notification.shownSubtitle ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
         }
         if !decision.desktop, let sound = decision.sound {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
@@ -343,8 +341,7 @@ final class NotificationCenterService {
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let title = program?.title(localizations: localizations)
             ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
-        let body = notification.bannerBody(previews: previews, screenLocked: screenLocked())
-        desktop.post(id: id, title: title, subtitle: subtitle, body: body, surface: notification.surface?.rawValue,
+        desktop.post(id: id, title: title, subtitle: subtitle, body: notification.bannerBody(previews: previews, screenLocked: screenLocked()), surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
                      attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
                      reply: notification.reply && tab?.kind == .pty)

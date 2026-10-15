@@ -65,6 +65,12 @@ pub(super) async fn route(
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // A one-shot completion runs a harness CLI with the user's own login:
+    // the unix socket only. `Hub::complete` is its one gate (it never reaches
+    // `remote_guard` or a peer).
+    if m == crate::rpc::method::MUX_COMPLETE {
+        return hub.complete(conn.origin, &params).await;
+    }
     if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
         return reply;
     }

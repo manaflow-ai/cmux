@@ -121,6 +121,7 @@ const longProfiles = longRows.map((r, i) => ({
   is_default: i === 0,
   source: "Imported sample browser profile",
 }));
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
     note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
