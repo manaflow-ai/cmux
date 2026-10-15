@@ -23,6 +23,8 @@ import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { questionFromPermission } from "./question/model";
 import { isNotification, typedRequest } from "./protocol/client";
+import type { AcpmuxRequestName, AcpmuxRequests } from "./protocol/generated/methods";
+import type { SessionEvent } from "./protocol/generated/types";
 import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
@@ -112,14 +114,14 @@ export function adoptedBy(result: any, adopt: AcpmuxAdopt): boolean {
   return result?._meta?.acpmux?.agentSessionId === adopt.agentSessionId;
 }
 
-export type EventRecord = {
+/// A session log record (acpmux's `SessionEvent`); the pane reads `msg`, a raw JSON-RPC message
+/// or acpmux's payload, loosely.
+export type EventRecord = Pick<SessionEvent, "seq" | "at" | "dir" | "kind"> & {
   sessionId?: string;
-  seq: number;
-  at: number;
-  dir: string;
-  kind: string;
   msg: Record<string, any>;
 };
+/// The one place the pane takes acpmux's records as `EventRecord`s.
+const records = (events: SessionEvent[] | undefined): EventRecord[] => (events ?? []) as EventRecord[];
 type Session = Record<string, any> & { sessionId: string };
 type Reply = {
   id: number;
@@ -707,13 +709,13 @@ export class AcpmuxDirectClient {
   async recordedEvents(sessionId: string): Promise<EventRecord[]> {
     const events: EventRecord[] = [];
     for (let after = 0; ;) {
-      const page = await this.request("_acpmux/events", {
+      const page = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: after,
         limit: 2000,
         kinds: ["transcript"],
       });
-      const batch: EventRecord[] = page?.events ?? [];
+      const batch = records(page?.events);
       events.push(...batch);
       const last = batch.at(-1)?.seq;
       if (!page?.hasMore || last === undefined || last <= after) return events;
@@ -1005,13 +1007,13 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     for (let cursor = afterSeq; ;) {
-      const result = await this.request("_acpmux/events", {
+      const result = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: cursor,
         limit: 5_000,
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-      const missed: EventRecord[] = result?.events ?? [];
+      const missed = records(result?.events);
       this.events = mergeEventRecords(this.events, missed);
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined);
       if (result?.hasMore !== true || missed.length === 0) break;
@@ -1082,7 +1084,7 @@ export class AcpmuxDirectClient {
       const visible = pageShown();
       if (!sessionId || this.closed || this.shownToAcpmux?.sessionId !== sessionId) return;
       if (this.shownToAcpmux.visible === visible) return;
-      await this.request("_acpmux/view", { sessionId, visible }).then(
+      await this.typed("_acpmux/view", { sessionId, visible }).then(
         () => (this.shownToAcpmux = { sessionId, visible }),
         () => undefined,
       );
@@ -1243,6 +1245,14 @@ export class AcpmuxDirectClient {
       : asked;
   }
 
+  /// `request` with params and result typed by acpmux's registry (`protocol/generated`).
+  private typed<M extends AcpmuxRequestName>(
+    method: M,
+    params: AcpmuxRequests[M]["params"],
+    deadline?: number,
+  ): Promise<AcpmuxRequests[M]["result"]> {
+    return typedRequest((name, body, until) => this.request(name, body, until), method, params, deadline);
+  }
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN)
       return Promise.reject(
@@ -1275,7 +1285,7 @@ export class AcpmuxDirectClient {
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const visible = pageShown();
-    const attaching = this.request("_acpmux/attach", {
+    const attaching = this.typed("_acpmux/attach", {
       sessionId,
       limit: 400,
       // The most opening a chat downloads, however large its tool output (a remote session's open).
@@ -1293,7 +1303,7 @@ export class AcpmuxDirectClient {
     const result = await attaching;
     this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
-    const page: EventRecord[] = result?.events ?? [];
+    const page = records(result?.events);
     // An agent usually lists its commands once, at start, which is older than the page.
     if (
       !page.some((event) => event.kind === COMMANDS_KIND) &&
@@ -1343,14 +1353,14 @@ export class AcpmuxDirectClient {
 
   /// The newest command list at or before `lastSeq`, unless a live update already arrived.
   private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
-    const result = await this.request("_acpmux/events", {
+    const result = await this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: lastSeq + 1,
       limit: 1,
       kinds: [COMMANDS_KIND],
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commandsApplied) return;
-    const event: EventRecord | undefined = result?.events?.at(-1);
+    const event: EventRecord | undefined = records(result?.events).at(-1);
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
     if (!commands) return;
     this.commands = commands;
@@ -2138,7 +2148,7 @@ export class AcpmuxDirectClient {
   async markUnread(): Promise<void> {
     const sessionId = this.selectedSessionId;
     if (!sessionId) throw new Error(translate("error.notOpen"));
-    await this.request("_acpmux/markUnread", { sessionId });
+    await this.typed("_acpmux/markUnread", { sessionId });
   }
   /// New side chat: acpmux tags the fork `sessionId` as a side chat of `chat` (the `side` tag),
   /// which keeps it off the lists (cx-jlzsf).
@@ -2182,7 +2192,7 @@ export class AcpmuxDirectClient {
   /// prompt adds nothing, and the attach ends with the turn (unless the pane shows it by then).
   private async promptUnseen(sessionId: string, text: string): Promise<void> {
     try {
-      await this.request("_acpmux/attach", { sessionId, limit: 0, kinds: [], visible: false });
+      await this.typed("_acpmux/attach", { sessionId, limit: 0, kinds: [], visible: false });
       // The reply comes when the turn ends; the chat shows how it goes.
       await this.request("session/prompt", {
         sessionId,
@@ -2192,8 +2202,7 @@ export class AcpmuxDirectClient {
     } catch {
       // A prompt acpmux refused shows in the chat itself.
     } finally {
-      if (this.selectedSessionId !== sessionId)
-        void this.request("_acpmux/detach", { sessionId }).catch(() => undefined);
+      if (this.selectedSessionId !== sessionId) void this.typed("_acpmux/detach", { sessionId }).catch(() => undefined);
     }
   }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
@@ -2234,7 +2243,7 @@ export class AcpmuxDirectClient {
             (reply) => reply?.ticket,
             () => undefined,
           );
-    await typedRequest((method, params) => this.request(method, params), "_acpmux/permission_respond", {
+    await this.typed("_acpmux/permission_respond", {
       sessionId,
       permissionId,
       ...(optionId === undefined ? {} : { optionId }),
@@ -2267,7 +2276,7 @@ export class AcpmuxDirectClient {
     this.missingSession = undefined;
     this.markSeen(sessionId);
     this.resetSessionState();
-    if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
+    if (previousSessionId) await this.typed("_acpmux/detach", { sessionId: previousSessionId });
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
@@ -2372,7 +2381,7 @@ export class AcpmuxDirectClient {
     this.selectionGeneration += 1;
     this.resetSessionState();
     this.emit();
-    void this.request("_acpmux/detach", { sessionId: previous }).catch(() => undefined);
+    void this.typed("_acpmux/detach", { sessionId: previous }).catch(() => undefined);
   }
   /// Ends a session a superseded harness switch started and nobody used.
   discard(sessionId: string): void {
@@ -2607,7 +2616,7 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
-    const result = await this.request("_acpmux/events", {
+    const result = await this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: this.firstSeq,
       limit: 400,
@@ -2615,7 +2624,7 @@ export class AcpmuxDirectClient {
       kinds: ["transcript"],
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    let older: EventRecord[] = result?.events ?? [];
+    let older = records(result?.events);
     const more = result?.hasMore === true;
     // A page whose first records finish the turn before it leaves them to the next page, so pages
     // hold whole turns and fold on their own.
