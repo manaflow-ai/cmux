@@ -545,6 +545,33 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
       },
     },
+    "primary-hover": {
+      note: "The pointer on an enabled primary button keeps its light fill (a soft ring shows the hover); it never looks disabled.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        const primary = ".lg-form-actions .primary";
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.waitFor(() => ctx.document.querySelector(`${primary}:not(:disabled)`));
+        const look = () => {
+          const button = ctx.document.querySelector<HTMLElement>(primary)!;
+          const style = ctx.document.defaultView!.getComputedStyle(button);
+          return { background: style.backgroundColor, opacity: style.opacity, color: style.color };
+        };
+        const resting = look();
+        await ctx.hover({ selector: primary });
+        await ctx.waitFor(() => {
+          const hovered = look();
+          return (
+            ctx.document.querySelector(`${primary}:hover`) !== null &&
+            hovered.background === resting.background &&
+            hovered.color === resting.color &&
+            hovered.opacity === "1"
+          );
+        });
+      },
+    },
     "new-chief-defaults": {
       note: "Create with the grant left as it is: the sheet names no tools or harnesses, so the owner applies its defaults.",
       props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
