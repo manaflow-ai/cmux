@@ -114,6 +114,7 @@ public final class ChiefProfilePageRelay {
     /// idempotency key, so the owner applies it once.
     private func call(operation: String, params: [String: JSONValue], idempotencyKey: String?, gesture: Bool) async throws -> JSONValue {
         var attempt = 0
+        // wakeup-allow: bounded, a second attempt only after a lost connection; every other error throws.
         while true {
             attempt += 1
             guard let owner, let main = owner.connection, let socket = await owner.socketPath(),

@@ -23,6 +23,8 @@ import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { questionFromPermission } from "./question/model";
+import { isNotification, typedRequest } from "./protocol/client";
+import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -147,9 +149,6 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
-/// An agent's offer of a parallel chat and its answer (cx-807da): transcript on acpmux that has
-/// them (`paging.rs`); asked for by kind too, so an older acpmux's attach still brings them.
-const OFFER_KINDS = ["session_offer", "session_offer_decision"];
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
 /// acpmux (`paging.rs`), so attach asks for them by kind, or the queue never hears either live.
 const QUEUE_KINDS = ["queue_order", "queue_updated"];
@@ -1003,8 +1002,8 @@ export class AcpmuxDirectClient {
         kind: String(notification.params?.update?.sessionUpdate ?? ""),
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
-    } else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
-    else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
+    } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
+    else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
   }
@@ -1305,6 +1304,9 @@ export class AcpmuxDirectClient {
       limit: 400,
       // The most opening a chat downloads, however large its tool output (a remote session's open).
       maxBytes: OPEN_PAGE_BYTES,
+      // At most 8 kinds: a remote cmux-tui before cx-kpd0v refuses more. Session offers come with
+      // "transcript" (acpmux paging.rs, since offers exist). The queue's live kinds go only to a
+      // local acpmux, which takes any number; a remote chat's queue follows its session changes.
       kinds: [
         "transcript",
         COMMANDS_KIND,
@@ -1312,8 +1314,7 @@ export class AcpmuxDirectClient {
         CONFIG_KIND,
         BOOKMARKS_KIND,
         ...SECRET_KINDS,
-        ...OFFER_KINDS,
-        ...QUEUE_KINDS,
+        ...(this.localOrigin ? QUEUE_KINDS : []),
       ],
       eventStream: true,
       visible,
@@ -1388,8 +1389,9 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
-  private sessionChanged(params: any): void {
-    const session = params?.session;
+  private sessionChanged(params: SessionChanged): void {
+    // Only a purge carries the id alone; every other change carries the whole summary.
+    const session = params?.session as SessionSummary | undefined;
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
@@ -2282,12 +2284,17 @@ export class AcpmuxDirectClient {
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
   /// install from the Harnesses page).
   async harnessHealth(id: string, options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown> {
+    const rows = await this.harnessHealthRows(options);
+    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+  }
+  /// Every harness's health row from this Mac's acpmux (`_acpmux/harness/health`): its last check
+  /// unless `refresh`; the model picker's rail reads which ones are signed out (cx-ae9eb).
+  async harnessHealthRows(options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown[]> {
     const reply = await this.request("_acpmux/harness/health", {
       ...(options.refresh ? { refresh: true } : {}),
       ...(options.rescan ? { rescan: true } : {}),
     });
-    const rows: unknown[] = Array.isArray(reply?.harnesses) ? reply.harnesses : [];
-    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+    return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
@@ -2311,7 +2318,7 @@ export class AcpmuxDirectClient {
             (reply) => reply?.ticket,
             () => undefined,
           );
-    await this.request("_acpmux/permission_respond", {
+    await typedRequest((method, params) => this.request(method, params), "_acpmux/permission_respond", {
       sessionId,
       permissionId,
       ...(optionId === undefined ? {} : { optionId }),
@@ -2970,6 +2977,8 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
+    ...(harness.kind === "terminal" ? { pickable: false } : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
