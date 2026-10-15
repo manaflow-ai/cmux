@@ -41,6 +41,9 @@ public final class CEFBrowserPage: BrowserPage {
     private var pendingPermissions: [Int32: Task<Void, Never>] = [:]
     /// Downloads of this page, by shim token.
     private var downloads: [Int32: BrowserPageDownload] = [:]
+    /// Captures running while the page is hidden, and the occlusion the page
+    /// had before the first of them (CEFBrowserPage+HiddenCapture).
+    var hiddenCapture = (depth: 0, savedOcclusion: [CGRect](), wantsVisible: true)
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
@@ -293,10 +296,19 @@ public final class CEFBrowserPage: BrowserPage {
         return true
     }
 
-    /// The Chromium window follows ``contentView``'s presentation, so the
-    /// host view's window membership already shows or hides it.
-    /// - Parameter visible: Ignored.
-    public func setContentVisible(_ visible: Bool) {}
+    /// Shows or hides the page. The Chromium window follows ``contentView``'s
+    /// presentation, and a pane keeps the views of its other tabs in the
+    /// window, so a tab that is not on screen hides its host view: Chromium
+    /// then sees the page hidden and stops its frames and timers, as WebKit
+    /// does for a hidden web view.
+    /// - Parameter visible: `true` when the page is on screen.
+    public func setContentVisible(_ visible: Bool) {
+        hiddenCapture.wantsVisible = visible
+        // While a capture of the hidden page runs, only its cover changes now.
+        if hiddenCapture.depth > 0 { return captureVisibilityChanged(visible) }
+        guard browser.hostView.isHidden == visible else { return }
+        browser.hostView.isHidden = !visible
+    }
 
     /// Delivers a trusted input event through `Input.dispatch*Event`.
     /// - Parameter event: The event.
