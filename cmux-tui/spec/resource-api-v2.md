@@ -438,8 +438,13 @@ and new workspaces' personal rows are followed into the document
 mutation changes are written back to the personal rows and groups (a
 workspace in Pinned or a custom section is a loose row at its document
 position, a group in Pinned is `pinned`), and
-`workspace.list {order: personal}` is the document's order of this
-machine's workspaces.
+`workspace.list` (no `order`, or `order: personal`) is the document's order of this machine's workspaces: sections in display
+order (Pinned before the machine sections), each group's members in place
+after the group, and a live workspace the document does not place yet where
+`workspaces.newPlacement` puts a new one. Only the array order changes (the
+`index` field stays the session index); `order: session` keeps the session
+order. The private `list-workspaces` tree keeps the session order, because
+its `workspace-added` / `workspace-moved` deltas carry session indexes.
 
 The palette usage history is one document per user (`palette-usage-v1`): the
 palette rows the user ran (a decayed use count per row key, half-life three
