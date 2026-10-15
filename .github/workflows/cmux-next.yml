@@ -1478,7 +1478,7 @@ jobs:
             echo
             echo "Targets: ${targets[*]}"
             echo "Elapsed: ${elapsed}s"
-            echo "This is the PR gate for package-only CmuxNext Swift edits. Release remains the base-push backstop and may report advisory failures on this PR class."
+            echo "This is the fast PR gate for package-only CmuxNext Swift edits. The Release compile also runs on this PR class, for Release-only optimizer failures a Debug build cannot see."
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The PR fast tier (hq#1915, cx-29ch2): every registered deterministic suite
@@ -2199,10 +2199,17 @@ jobs:
 
   release-compile:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.path_route.outputs.swift_canary == 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next Release compile (Xcode 26)
-    # Release is part of the full-ci batch cadence and every base push. Ordinary
-    # PRs use the fast tier; the batch tip is the native merge gate.
+    # Release is part of the full-ci batch cadence and every base push. Other
+    # PRs use the fast tier, except a PR whose router says it changes CmuxNext
+    # package Swift sources (path_route's swift_canary): it also runs this job.
+    # A Release-only optimizer crash (cx-ebm.59.5: EarlyPerfInliner on a
+    # main-actor generic class's isolated deinit) reached the base through such
+    # a PR, because the Debug fast tier and Debug `swift build` cannot see it.
+    # On a PR without full-ci, macos-placement skips: `!cancelled()` keeps this
+    # job running, and runs-on below takes the shared route (the reserved
+    # promotion runner is for feat-cmux-next pushes only).
     continue-on-error: false
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one

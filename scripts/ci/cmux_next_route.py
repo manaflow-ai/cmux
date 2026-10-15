@@ -363,7 +363,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         result.swift_canary = bool(result.swift_canary_targets)
         if result.swift_canary:
             result.reasons.append(
-                "small CmuxNext Swift-only diff: the canary gates this pull request; Release remains advisory"
+                "small CmuxNext Swift-only diff: the canary gates this pull request, and the Release compile runs too"
             )
     if result.webview:
         result.scheme = True

@@ -28,9 +28,10 @@ It builds only the affected CmuxNext production targets with `swift build
 --configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
 It catches type-checking, dependency and module errors in those targets. It
 does not exercise optimizer-only behavior, Release compiler settings, Xcode
-scheme integration, signing or the CEF shim. The full Release compile still
-runs for diagnostics on that PR class and remains hard-gated on every
-`feat-cmux-next` push and on broader pull requests.
+scheme integration, signing or the CEF shim. So the Release compile also runs
+on that PR class: a Release-only optimizer crash (cx-ebm.59.5) reached the base
+through a Debug-only PR. Other pull requests run it only with `full-ci`; every
+`feat-cmux-next` push runs it.
 
 A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
 `scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
