@@ -23,6 +23,10 @@ let package = Package(
             name: "CmuxCEFBrowser",
             targets: ["CmuxCEFBrowser"]
         ),
+        .library(
+            name: "CmuxCEFExtensions",
+            targets: ["CmuxCEFExtensions"]
+        ),
     ],
     dependencies: [
         .package(path: "../CmuxBrowser"),
@@ -60,9 +64,32 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        // Chrome extensions on the Chromium engine: per-profile stores,
+        // toolbar actions, and install prompts over the CEF shim.
+        .target(
+            name: "CmuxCEFExtensions",
+            dependencies: [
+                "CmuxCEF",
+                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
         .testTarget(
             name: "CmuxCEFBrowserTests",
             dependencies: ["CmuxCEFBrowser", "CmuxCEF", .product(name: "CmuxBrowser", package: "CmuxBrowser")],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxCEFExtensionsTests",
+            dependencies: ["CmuxCEFExtensions"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
