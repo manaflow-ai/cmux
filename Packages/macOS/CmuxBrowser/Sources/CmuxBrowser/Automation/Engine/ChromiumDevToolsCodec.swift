@@ -346,6 +346,44 @@ public struct ChromiumDevToolsCodec: Sendable {
         return mask
     }
 
+    // MARK: - Input.dispatchMouseEvent
+
+    /// `Input.dispatchMouseEvent` parameters for one mouse step at `x`, `y`
+    /// (CSS pixels from the viewport's top-left).
+    /// - Parameters:
+    ///   - action: what the mouse does.
+    ///   - x: horizontal position.
+    ///   - y: vertical position.
+    ///   - button: the button pressed or released; `nil` for none.
+    ///   - clickCount: 1 for a click, 2 for a double click.
+    ///   - modifiers: modifier keys held.
+    ///   - deltaX: horizontal wheel delta, for ``BrowserAutomationMouseAction/wheel``.
+    ///   - deltaY: vertical wheel delta, for ``BrowserAutomationMouseAction/wheel``.
+    public func mouseEventParams(
+        _ action: BrowserAutomationMouseAction,
+        x: Double,
+        y: Double,
+        button: BrowserAutomationMouseButton?,
+        clickCount: Int,
+        modifiers: BrowserKeyboardNativeModifiers,
+        deltaX: Double = 0,
+        deltaY: Double = 0
+    ) -> [String: any Sendable] {
+        var params: [String: any Sendable] = [
+            "type": action.rawValue,
+            "x": x,
+            "y": y,
+            "modifiers": protocolModifiers(modifiers),
+            "button": (button ?? .none).rawValue,
+            "clickCount": max(0, clickCount),
+        ]
+        if action == .wheel {
+            params["deltaX"] = deltaX
+            params["deltaY"] = deltaY
+        }
+        return params
+    }
+
     // MARK: - Emulation
 
     /// `Emulation.setDeviceMetricsOverride` parameters, nil to clear
