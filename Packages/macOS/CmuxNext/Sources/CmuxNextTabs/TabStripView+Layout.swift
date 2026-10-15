@@ -79,8 +79,11 @@ extension TabStripView {
                     // its tab overlap (a tab 18 wide shows nothing); ours do not overlap, so the token
                     // is 0: the tab opens from nothing at the previous right edge (hq-4e 2026-10-15).
                     let open = metrics.chrome.openStartWidth
+                    // A new first tab (index 0) opens at its slot from that width while the old first tab
+                    // slides right; only a strip's very first tab is there at once (Chrome).
+                    let alone = result.slots.count(where: { $0.id != Self.placeholderID }) == 1
                     m = previousMaxX.map { TabMotion(x: $0 - open, width: open, alpha: 1) }
-                        ?? TabMotion(x: slot.x, width: slot.width, alpha: 1) // Chrome: the first tab does not animate
+                        ?? (alone ? TabMotion(x: slot.x, width: slot.width, alpha: 1) : TabMotion(x: slot.x, width: open, alpha: 1))
                 } else {
                     m = TabMotion(x: slot.x, width: slot.width, alpha: 1)
                 }
@@ -111,15 +114,22 @@ extension TabStripView {
 
     /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
     /// tabs do not overlap) while it shrinks to that width (Chrome StartRemoveTabAnimation), following
-    /// that tab as it resizes.
+    /// that tab as it resizes. The previous tab is the one left of it when it closed (by order, not by
+    /// x: a tab opened meanwhile must not move it a slot); the first tab keeps its x.
     func pinClosingTabs() {
         let closeWidth = metrics.chrome.closeEndWidth
         let scale = window?.backingScaleFactor ?? 2
         for id in dying where id.chipGroupID == nil {
             guard var m = motion[id] else { continue }
-            let previous = result.slots.last { $0.id != Self.placeholderID && $0.x < m.x.target - 0.5 }
+            let previousMaxX: CGFloat?
+            if let anchor = closingAnchors[id] {
+                // The left neighbour's slot, or its own closing geometry when it is closing too.
+                previousMaxX = anchor.flatMap { a in result.slot(a)?.maxX ?? motion[a].map { $0.x.target + $0.width.target } }
+            } else {
+                previousMaxX = result.slots.last { $0.id != Self.placeholderID && $0.x < m.x.target - 0.5 }?.maxX
+            }
             m.use(.tabClose)
-            m.x.retarget(previous.map { $0.maxX - closeWidth } ?? m.x.target, scale: scale)
+            m.x.retarget(previousMaxX.map { $0 - closeWidth } ?? m.x.target, scale: scale)
             motion[id] = m
         }
     }

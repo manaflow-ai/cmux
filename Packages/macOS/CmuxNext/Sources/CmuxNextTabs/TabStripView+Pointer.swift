@@ -75,6 +75,7 @@ extension TabStripView {
     }
 
     public override func mouseEntered(with event: NSEvent) {
+        if closingModeTrackingEvent(event, entered: true) { return }
         buttonReveal.pointerInStrip = true
         closingModePointerReturned()
         updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
@@ -86,6 +87,7 @@ extension TabStripView {
     }
 
     public override func mouseExited(with event: NSEvent) {
+        if closingModeTrackingEvent(event, entered: false) { return }
         pointerLeft()
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
