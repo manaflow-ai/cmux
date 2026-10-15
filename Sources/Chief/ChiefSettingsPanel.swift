@@ -266,6 +266,7 @@ final class ChiefSettingsPanel: NSView {
             .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.controlAccentColor,
         ])
         moreBelow.color = theme.panelFill
+        moreBelow.indicatorColor = theme.textTertiary
     }
 
     override func layout() {
@@ -453,13 +454,23 @@ final class ChiefSettingsDocumentView: NSView {
 /// rows while more lies below. It never takes a click.
 final class ChiefSettingsFadeView: NSView {
     private let gradient = CAGradientLayer()
+    private let indicator = NSImageView()
 
     var color: NSColor = .clear { didSet { applyColor() } }
+    var indicatorColor: NSColor = .tertiaryLabelColor {
+        didSet { indicator.contentTintColor = indicatorColor }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.addSublayer(gradient)
+        indicator.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
+        indicator.imageScaling = .scaleProportionallyUpOrDown
+        indicator.contentTintColor = indicatorColor
+        indicator.alphaValue = 0.8
+        indicator.setAccessibilityElement(false)
+        addSubview(indicator)
         applyColor()
     }
 
@@ -476,6 +487,9 @@ final class ChiefSettingsFadeView: NSView {
         CATransaction.setDisableActions(true)
         gradient.frame = bounds
         CATransaction.commit()
+        let size: CGFloat = 11
+        indicator.frame = NSRect(x: (bounds.width - size) / 2, y: bounds.height - size - 3,
+                                 width: size, height: size)
     }
 
     private func applyColor() {

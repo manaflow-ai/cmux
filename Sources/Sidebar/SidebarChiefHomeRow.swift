@@ -12,11 +12,9 @@ import SwiftUI
 /// does and as cmux-next's rail Home item does. It leads with Chief's own
 /// avatar at 16 pt (the header's and the list's face), says "Needs you" or
 /// "Working…" while a Chief waits or runs, and shows an 8 pt accent dot for unread replies only while Home
-/// is not showing. Hovered in the workspace list, that trailing status gives
-/// way to the Open Chief shortcut in tertiary text (Cursor's sidebar thread
-/// rows trade their resting age for hover-only affordances, design references
-/// `topics/sidebar.md`, "hover thread row pin and details"), so the hint is
-/// there when pointed at without a permanent label. Selected, a click returns
+/// is not showing. In workspace mode the Open Chief shortcut stays visible beside
+/// the quiet status affordance, so the keyboard route is discoverable without a
+/// hover and remains present in accessibility captures. Selected, a click returns
 /// to the last selected workspace (the row toggles Home, as ⌘⇧C does); it
 /// shows no trailing label because the "‹ Workspaces" back row right under it
 /// already names the way back. Its compose button still starts a new
@@ -33,8 +31,6 @@ struct SidebarChiefHomeRow: View {
 
     /// The Chief's name from its profile (renamed in Chief Settings).
     @State private var chiefName = ChiefProfile.currentName()
-    /// The pointer is over the row: the Open Chief shortcut replaces the trailing status.
-    @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
@@ -51,26 +47,24 @@ struct SidebarChiefHomeRow: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         // Selected: no trailing label; the back row under it names the way back.
                         if !isSelected {
-                            if isHovering, let keys = SidebarChiefHomeBackRow.shortcutKeys {
+                            SidebarChiefHomeStatus(
+                                showsUnreadDot: true,
+                                dotColor: dotColor,
+                                font: font(10, weight: .regular)
+                            )
+                            if let keys = SidebarChiefHomeBackRow.shortcutKeys {
                                 Text(verbatim: keys)
                                     .font(font(12, weight: .regular))
                                     .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                                     .lineLimit(1)
                                     .fixedSize()
                                     .accessibilityHidden(true)
-                            } else {
-                                SidebarChiefHomeStatus(
-                                    showsUnreadDot: true,
-                                    dotColor: dotColor,
-                                    font: font(10, weight: .regular)
-                                )
                             }
                         }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .onHover { isHovering = $0 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(chiefName))
                 .accessibilityValue(Text(SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected)))
