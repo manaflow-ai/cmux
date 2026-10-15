@@ -467,6 +467,78 @@ fn minted_item(id: &str) -> bool {
     })
 }
 
+/// What the daemon must confirm before a line the policy forwarded reaches it:
+/// the phone's objects are checked against the Mac's own state, read on a
+/// separate connection by the splice (`services::owned_check`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ownership {
+    /// `set-personal-workspace`: a live workspace of this session
+    /// (`list-workspaces`: `registry_id` and a workspace `key`).
+    PersonalWorkspace { session: String, key: String },
+    /// Unpin: an item of the pinned section that shows a workspace (`sidebar_layout.get`).
+    PinnedWorkspaceTile { item: String },
+}
+
+/// The check a forwarded line needs, or None (any other line).
+pub fn ownership(line: &[u8]) -> Option<Ownership> {
+    let Value::Object(object) = serde_json::from_slice::<Value>(line).ok()? else { return None };
+    if object.get("cmd").and_then(Value::as_str) == Some("set-personal-workspace") {
+        let text = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_string);
+        return Some(Ownership::PersonalWorkspace {
+            session: text("session_id")?,
+            key: text("workspace_key")?,
+        });
+    }
+    if object.get("operation").and_then(Value::as_str) == Some("sidebar_layout.update") {
+        let item = object.get("params")?.get("op")?.get("id")?.as_str()?.to_string();
+        return Some(Ownership::PinnedWorkspaceTile { item });
+    }
+    None
+}
+
+/// Whether `list-workspaces` (`reply`) lists workspace `key` of session `session`.
+pub fn owns_personal_workspace(reply: &Value, session: &str, key: &str) -> bool {
+    let data = reply.get("data").unwrap_or(reply);
+    data.get("registry_id").and_then(Value::as_str) == Some(session)
+        && data
+            .get("workspaces")
+            .and_then(Value::as_array)
+            .is_some_and(|list| list.iter().any(|ws| ws.get("key").and_then(Value::as_str) == Some(key)))
+}
+
+/// Whether `sidebar_layout.get` (`reply`, its `result`) has `item` in the pinned
+/// section with a workspace ref: a pinned workspace tile, nothing else.
+pub fn is_pinned_workspace_tile(reply: &Value, item: &str) -> bool {
+    let snapshot = reply.get("result").unwrap_or(reply);
+    snapshot.get("sections").and_then(Value::as_array).is_some_and(|sections| {
+        sections.iter().filter(|section| section.get("id").and_then(Value::as_str) == Some("sec_pinned")).any(
+            |section| {
+                section.get("items").and_then(Value::as_array).is_some_and(|items| {
+                    items.iter().any(|entry| {
+                        entry.get("id").and_then(Value::as_str) == Some(item)
+                            && entry.get("ref").and_then(|r| r.get("kind")).and_then(Value::as_str)
+                                == Some("workspace")
+                    })
+                })
+            },
+        )
+    })
+}
+
+/// The refusal for a line whose object the Mac does not confirm: a v12 error
+/// line for a command, a v2 failure response for a resource request.
+pub fn not_owned(line: &[u8], what: &Ownership) -> String {
+    let id = serde_json::from_slice::<Value>(line).ok().and_then(|v| v.get("id").cloned());
+    match what {
+        Ownership::PersonalWorkspace { .. } => {
+            error_line(id.as_ref(), "forbidden", "set-personal-workspace takes only a workspace of this Mac")
+        }
+        Ownership::PinnedWorkspaceTile { .. } => {
+            resource_refusal(id.as_ref(), "a phone may only unpin a pinned workspace")
+        }
+    }
+}
+
 /// A v2 failure response, so the phone's resource client reads it as one.
 fn resource_refusal(id: Option<&Value>, why: &str) -> String {
     json!({
@@ -746,7 +818,7 @@ mod tests {
         let current = json!({"machine": "current", "session": "current"});
         for line in [
             resource("notification.clear", current.clone(), Some("cnx-ios-notification-clear-1")),
-            resource("sidebar_layout.get", current.clone(), None),
+            resource("sidebar_layout.get", current, None),
             resource(
                 "sidebar_layout.update",
                 json!({"machine": "current", "session": "current", "op": {"kind": "item.remove", "id": "itm_abcdefgh234567ab"}}),
@@ -826,6 +898,63 @@ mod tests {
         refused(br#"{"protocol":"cmux.protocol/1","type":"request","id":"r1","operation":"notification.clear","params":{},"idempotency_key":"k"}"#);
     }
 
+    /// The Mac's own state confirms the phone's objects: a live workspace of this
+    /// session for the sidebar order, a pinned workspace tile for Unpin.
+    #[test]
+    fn ownership_is_checked_against_the_macs_state() {
+        let personal = br#"{"cmd":"set-personal-workspace","id":"m1","session_id":"reg","workspace_key":"k1","index":2}"#;
+        let what = ownership(personal).unwrap();
+        assert_eq!(what, Ownership::PersonalWorkspace { session: "reg".into(), key: "k1".into() });
+        let tree =
+            json!({"ok": true, "data": {"registry_id": "reg", "workspaces": [{"key": "k1"}, {"key": "k2"}]}});
+        assert!(owns_personal_workspace(&tree, "reg", "k1"));
+        assert!(!owns_personal_workspace(&tree, "reg", "k9"), "a key the Mac does not list");
+        assert!(!owns_personal_workspace(&tree, "other", "k1"), "another session's row");
+        assert!(not_owned(personal, &what).contains("forbidden"));
+
+        let unpin = resource(
+            "sidebar_layout.update",
+            json!({"op": {"kind": "item.remove", "id": "itm_abcdefgh234567ab"}}),
+            Some("k"),
+        );
+        let what = ownership(&unpin).unwrap();
+        assert_eq!(what, Ownership::PinnedWorkspaceTile { item: "itm_abcdefgh234567ab".into() });
+        let layout = |section: &str, kind: &str| {
+            json!({"ok": true, "result": {"sections": [
+                {"id": "sec_top", "items": [{"id": "itm_home", "ref": {"kind": "app", "value": "cmux/home"}}]},
+                {"id": section, "items": [{"id": "itm_abcdefgh234567ab", "ref": {"kind": kind, "value": "reg:ws_1"}}]},
+            ]}})
+        };
+        assert!(is_pinned_workspace_tile(&layout("sec_pinned", "workspace"), "itm_abcdefgh234567ab"));
+        assert!(
+            !is_pinned_workspace_tile(&layout("sec_custom", "workspace"), "itm_abcdefgh234567ab"),
+            "another section"
+        );
+        assert!(
+            !is_pinned_workspace_tile(&layout("sec_pinned", "link"), "itm_abcdefgh234567ab"),
+            "a link tile"
+        );
+        assert!(
+            !is_pinned_workspace_tile(&layout("sec_pinned", "workspace"), "itm_zzzzzzzzzzzzzzzz"),
+            "an unknown item"
+        );
+        assert_eq!(serde_json::from_str::<Value>(&not_owned(&unpin, &what)).unwrap()["type"], "response");
+        assert_eq!(ownership(br#"{"cmd":"list-personal","id":1}"#), None);
+    }
+
+    /// A duplicate key reaches the daemon as one value: the object checked here.
+    #[test]
+    fn duplicate_keys_are_sent_as_checked() {
+        let line = br#"{"protocol":"cmux.protocol/2","type":"request","id":"r1","operation":"sidebar_layout.get","operation":"pane.run","params":{"machine":"current","session":"current"}}"#;
+        // serde keeps the last duplicate, so the policy judges `pane.run` and refuses it.
+        assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
+        let line = br#"{"protocol":"cmux.protocol/2","type":"request","id":"r1","operation":"pane.run","operation":"sidebar_layout.get","params":{"machine":"current","session":"current"}}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let text = String::from_utf8(sent).unwrap();
+        assert_eq!(text.matches("\"operation\"").count(), 1, "{text}");
+        assert!(text.contains("sidebar_layout.get") && !text.contains("pane.run"), "{text}");
+    }
+
     /// Move Workspace Up / Down in the person's own sidebar order.
     #[test]
     fn personal_order_is_a_place_only() {
@@ -876,5 +1005,9 @@ mod tests {
         let end = start + swift[start..].find("]\n").expect("end of personal fields");
         let swift_fields: Vec<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
         assert_eq!(swift_fields, PERSONAL_WORKSPACE_FIELDS);
+        let start = swift.find("resourceFields: Set<String> = [").expect("resource fields in Swift");
+        let end = start + swift[start..].find("]\n").expect("end of resource fields");
+        let swift_envelope: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
+        assert_eq!(swift_envelope, RESOURCE_FIELDS.iter().copied().collect::<HashSet<_>>());
     }
 }

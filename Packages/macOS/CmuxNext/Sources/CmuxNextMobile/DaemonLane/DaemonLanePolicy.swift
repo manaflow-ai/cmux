@@ -146,6 +146,9 @@ public struct DaemonLanePolicy: Sendable {
         if command == "set-personal-workspace", let why = Self.personalWorkspaceRefusal(object) {
             return .refuse(Self.errorLine(id: id, code: "forbidden", message: why))
         }
+        if Self.needsOwnershipCheck(object) {
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: "set-personal-workspace needs the Mac app's phone link"))
+        }
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")
         }
@@ -183,13 +186,27 @@ public struct DaemonLanePolicy: Sendable {
         guard short("session_id"), short("workspace_key") else {
             return "set-personal-workspace needs a session_id and a workspace_key"
         }
-        if let index = object["index"] {
-            guard let number = index as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-                  number.doubleValue >= 0, number.doubleValue == number.doubleValue.rounded() else {
-                return "set-personal-workspace index is a place in the list"
-            }
+        if let index = object["index"], !Self.isPlace(index) {
+            return "set-personal-workspace index is a place in the list"
         }
         return nil
+    }
+
+    /// A non-negative integer (as Rust's `is_u64`): never a Bool, a float such as
+    /// 3.0, or a number past `Int.max`.
+    static func isPlace(_ value: Any) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              let type = String(validatingCString: number.objCType), ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type)
+        else { return false }
+        if ["C", "S", "I", "L", "Q"].contains(type) { return number.uint64Value <= UInt64(Int.max) }
+        return number.int64Value >= 0
+    }
+
+    /// Lines cnx-hostd sends only after the Mac's own state confirms the phone's
+    /// object (`services::owned_check`: a live workspace of this session, a pinned
+    /// workspace tile). This lane has no such check, so it refuses them.
+    static func needsOwnershipCheck(_ object: [String: Any]) -> Bool {
+        object["cmd"] as? String == "set-personal-workspace" || object["operation"] as? String == "sidebar_layout.update"
     }
 
     /// A `cmux.protocol/2` request: one of `allowedResourceOperations` with only its
@@ -197,6 +214,7 @@ public struct DaemonLanePolicy: Sendable {
     static func resourceVerdict(_ object: [String: Any]) -> Verdict {
         let id = object["id"]
         if let why = resourceRefusal(object) { return .refuse(resourceErrorLine(id: id, message: why)) }
+        if needsOwnershipCheck(object) { return .refuse(resourceErrorLine(id: id, message: "Unpin from the Mac app's phone link only")) }
         guard let line = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return .refuse(resourceErrorLine(id: id, message: "request is not a JSON object"))
         }
