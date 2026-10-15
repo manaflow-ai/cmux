@@ -60,7 +60,7 @@ extension CloudSecretsService {
         do {
             plan = try await vault.plan(machineID: machineID)
         } catch {
-            return failure(machineID: machineID, error: error, values: [])
+            return await failure(machineID: machineID, error: error, values: [])
         }
         let values = plan.toSend.map(\.value)
         let routing = CloudSecretsProviderRouting(effectiveNames: plan.effective.keys)
@@ -79,7 +79,7 @@ extension CloudSecretsService {
                     postDidChange()
                 }
             } catch {
-                return failure(machineID: machineID, error: error, values: values)
+                return await failure(machineID: machineID, error: error, values: values)
             }
             return CloudSecretSyncResult(
                 machineID: machineID, sent: [], removed: [], noop: true,
@@ -114,7 +114,7 @@ extension CloudSecretsService {
             }
             try await vault.recordDelivered(machineID: machineID, plan: plan, at: Date())
         } catch {
-            return failure(machineID: machineID, error: error, values: values)
+            return await failure(machineID: machineID, error: error, values: values)
         }
         await reload()
         postDidChange()
@@ -128,16 +128,16 @@ extension CloudSecretsService {
         )
     }
 
-    private func failure(machineID: String, error: Error, values: [String]) -> CloudSecretSyncResult {
+    /// Records the failure in the chain before returning, so it can never land after
+    /// a later sync of the same machine succeeded.
+    private func failure(machineID: String, error: Error, values: [String]) async -> CloudSecretSyncResult {
         let message = Self.redactedMessage(for: error, values: values)
 #if DEBUG
         cmuxDebugLog("cloudSecrets.sync.failed machine=\(machineID) error=\(type(of: error))")
 #endif
-        Task { @MainActor in
-            try? await self.vault.recordFailure(machineID: machineID, message: message)
-            await self.reload()
-            self.postDidChange()
-        }
+        try? await vault.recordFailure(machineID: machineID, message: message)
+        await reload()
+        postDidChange()
         return CloudSecretSyncResult(
             machineID: machineID, sent: [], removed: [], noop: false,
             configuredGitCredentials: false, error: message
@@ -514,7 +514,9 @@ extension CloudSecretsService {
             ?? CloudSecretsProviderRouting.unrouted.marker
     }
 
+    /// Ignored for a machine forgotten while its sync was in flight.
     func recordProviderRouting(_ routing: CloudSecretsProviderRouting, machineID: String) {
+        guard !forgottenMachineIDs.contains(machineID) else { return }
         defaults.set(routing.marker, forKey: Self.providerRoutingDefaultsKey(machineID: machineID))
     }
 

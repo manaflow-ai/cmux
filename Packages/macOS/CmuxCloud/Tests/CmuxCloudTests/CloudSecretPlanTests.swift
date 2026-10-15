@@ -192,6 +192,19 @@ import Testing
     }
 
     @Test
+    func aSyncThatFinishesAfterForgetMachineDoesNotResurrectIt() async throws {
+        let vault = makeVault()
+        try await vault.set([input("A", "1")], scope: .all, source: .manual)
+        // A plan made before the machine was destroyed, recorded after.
+        let inFlight = try await vault.plan(machineID: "m1")
+        try await vault.forgetMachine("m1")
+        try await vault.recordDelivered(machineID: "m1", plan: inFlight, at: Date())
+        try await vault.recordFailure(machineID: "m1", message: "late")
+        #expect(try await vault.delivery(for: "m1") == nil)
+        #expect(try await vault.deliveries().isEmpty)
+    }
+
+    @Test
     func ledgerPersistsAcrossVaultInstances() async throws {
         let vault = makeVault()
         try await vault.set([input("A", "1")], scope: .all, source: .manual)

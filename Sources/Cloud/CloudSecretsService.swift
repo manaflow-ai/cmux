@@ -70,6 +70,9 @@ final class CloudSecretsService: ObservableObject {
     /// The newest sync per machine; a new request chains after it so one machine
     /// never receives two deliveries at once.
     private var syncChains: [String: (token: UUID, task: Task<CloudSecretSyncResult, Never>)] = [:]
+    /// Machines forgotten in this process: a sync still in flight for one must not
+    /// re-create its routing marker, and no new sync starts for it.
+    private(set) var forgottenMachineIDs: Set<String> = []
     private var createObserver: NSObjectProtocol?
     /// Keeps the "Get started" card's secret count current; see `activateForApp`.
     var bridgeSubscription: AnyCancellable?
@@ -202,7 +205,12 @@ final class CloudSecretsService: ObservableObject {
     }
 
     /// Forgets a destroyed machine: its ledger entry and machine-scoped secrets.
+    /// A sync in flight for it is cancelled, and whatever it still finishes is not
+    /// recorded (the vault ignores its ledger writes, the service its routing marker).
     func forgetMachine(_ machineID: String) {
+        forgottenMachineIDs.insert(machineID)
+        syncChains.removeValue(forKey: machineID)?.task.cancel()
+        syncingMachineIDs.remove(machineID)
         forgetProviderRouting(machineID: machineID)
         Task { @MainActor in
             do {
@@ -223,6 +231,9 @@ final class CloudSecretsService: ObservableObject {
     /// Concurrent requests for the same machine run one after another; the later one is
     /// a fast no-op when the earlier already delivered everything.
     func sync(machineID: String, projectKey: String? = nil) async -> CloudSecretSyncResult {
+        if forgottenMachineIDs.contains(machineID) {
+            return CloudSecretSyncResult(machineID: machineID, sent: [], removed: [], noop: true, configuredGitCredentials: false, error: nil)
+        }
         if let projectKey, !projectKey.isEmpty {
             do {
                 try await vault.linkMachine(machineID, projectKey: projectKey)

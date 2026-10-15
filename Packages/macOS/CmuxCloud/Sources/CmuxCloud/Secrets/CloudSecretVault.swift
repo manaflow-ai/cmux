@@ -18,6 +18,11 @@ public actor CloudSecretVault {
     private let storage: any CloudSecretVaultStorage
     private let now: @Sendable () -> Date
     private var cached: CloudSecretVaultDocument?
+    /// Machines forgotten in this process. A sync that was already in flight when its
+    /// machine was destroyed finishes after ``forgetMachine(_:)``; its
+    /// ``recordDelivered(machineID:plan:at:)`` or ``recordFailure(machineID:message:)``
+    /// must not bring the ledger entry back.
+    private var forgottenMachineIDs: Set<String> = []
 
     public init(storage: any CloudSecretVaultStorage, now: @escaping @Sendable () -> Date = { Date() }) {
         self.storage = storage
@@ -141,7 +146,9 @@ public actor CloudSecretVault {
     }
 
     /// Forgets a destroyed machine: its ledger entry and its machine-scoped secrets.
+    /// Later delivery records for the machine are ignored.
     public func forgetMachine(_ machineID: String) throws {
+        forgottenMachineIDs.insert(machineID)
         var document = try loadDocument()
         let before = document
         document.ledger.removeAll { $0.machineID == machineID }
@@ -164,11 +171,13 @@ public actor CloudSecretVault {
     }
 
     /// Records a successful delivery of `plan`: the ledger now holds the plan's
-    /// fingerprints, and the machine's last error is cleared.
+    /// fingerprints, and the machine's last error is cleared. Ignored for a machine
+    /// forgotten since the plan was made.
     public func recordDelivered(machineID: String, plan: CloudSecretPlan, at: Date) throws {
         guard plan.machineID == machineID else {
             throw CloudSecretVaultError.planMachineMismatch(expected: machineID, actual: plan.machineID)
         }
+        guard !forgottenMachineIDs.contains(machineID) else { return }
         var document = try loadDocument()
         var entry = Self.ledgerEntry(machineID, in: document) ?? CloudSecretDelivery(machineID: machineID)
         if plan.toSend.isEmpty {
@@ -184,8 +193,10 @@ public actor CloudSecretVault {
         try persist(document)
     }
 
-    /// Records a failed sync. `message` must already be redacted.
+    /// Records a failed sync. `message` must already be redacted. Ignored for a
+    /// forgotten machine.
     public func recordFailure(machineID: String, message: String) throws {
+        guard !forgottenMachineIDs.contains(machineID) else { return }
         var document = try loadDocument()
         var entry = Self.ledgerEntry(machineID, in: document) ?? CloudSecretDelivery(machineID: machineID)
         entry.lastError = message
