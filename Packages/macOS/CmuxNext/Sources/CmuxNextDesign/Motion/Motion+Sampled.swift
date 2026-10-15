@@ -2,10 +2,9 @@ public import QuartzCore
 
 extension MotionTunables {
     /// Default length of a color change before cmux.json applies (`appearance.colorTransition.duration`,
-    /// whose own default is the same 200 ms; schemas/settings/source/color-transition.json).
-    public static let colorTransitionDuration = Tunable<Double>.number(
-        "motion.colorTransition.duration", .fades, "Color change", help: "Default length of a theme or color change (appearance.colorTransition.duration).",
-        default: 0.2, range: 0...2, step: 0.01, unit: .seconds, code: "MotionTunables.colorTransitionDuration")
+    /// whose own default is the same 200 ms; schemas/settings/source/color-transition.json). The
+    /// user's setting replaces it; nothing retunes it at run time.
+    public static let colorTransitionDefaultDuration: TimeInterval = 0.2
 }
 
 extension Motion {

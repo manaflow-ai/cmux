@@ -52,7 +52,7 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     /// The layer animation key of a background color blend.
     public static let layerKey = "cmux.colorTransition.backgroundColor"
 
-    public init(enabled: Bool = true, duration: TimeInterval = MotionTunables.colorTransitionDuration.value, curve: Curve = .easeOut,
+    public init(enabled: Bool = true, duration: TimeInterval = MotionTunables.colorTransitionDefaultDuration, curve: Curve = .easeOut,
                 space: ThemeColorSpace = .oklab, reduceMotion: ReduceMotion = .crossfade) {
         self.enabled = enabled
         self.duration = duration
