@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -46,14 +47,9 @@ final class NotificationCenterService {
     /// Agent permission prompts to the person's feed, while
     /// `feed.agentPermissionPrompts` is on (cx-aocz).
     @ObservationIgnored var permissionBridge: AcpmuxPermissionFeedBridge?
-    /// Reads and answers agent chat prompts for approval banners (cx-kz6m0.2); tests stand in.
-    @ObservationIgnored var approvalAnswerer: (any AgentApprovalAnswering)?
-    /// This Mac's `install:<id>`: only a chat whose session runs here gets Allow once and Deny.
+    /// Agent chat approval banners (cx-kz6m0.2) and this Mac's `install:<id>` they need.
+    @ObservationIgnored let approvals = AgentApprovalBanners()
     @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
-    /// Approval banners posted this launch, by banner id: what Allow once or Deny answers.
-    @ObservationIgnored var approvalBanners: [String: (approval: AgentApproval, tab: String)] = [:]
-    /// Per tab id, the notification whose banner waits for its chat's prompt to be read.
-    @ObservationIgnored var approvalReads: [String: UInt64] = [:]
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -227,10 +223,8 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         timeouts.removeValue(forKey: tab.id)?.cancel()
-        let withdrawn = banners.removeValue(forKey: tab.id) ?? []
-        for id in withdrawn { approvalBanners[id] = nil }
-        approvalReads[tab.id] = nil
-        desktop.withdraw(withdrawn)
+        approvals.forget(tab: tab.id, retire: true)
+        desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver
         services?.daemon.send("ack-tab-notifications") { connection in
@@ -360,7 +354,7 @@ final class NotificationCenterService {
             if let sound, sound != "default" { NotificationSounds.play(sound) }
             if let tab {
                 self.banners[tab.id, default: []].append(id)
-                self.keepApprovalBanner(id, approval: approval, tab: tab.id)
+                self.approvals.keep(id, approval: approval, tab: tab.id)
             }
         }
     }

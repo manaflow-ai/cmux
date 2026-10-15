@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextSettings
@@ -46,7 +47,7 @@ struct ApprovalBannerTests {
         let located = LocatedTab(tab: try #require(paneModel.tabs.first), pane: paneModel, workspace: workspace)
         let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
         let service = NotificationCenterService()
-        service.approvalAnswerer = answerer
+        service.approvals.answerer = answerer
         service.localAgentHost = { Self.thisMac }
         var decision = NotificationPolicy.Decision()
         decision.desktop = true
@@ -145,7 +146,7 @@ struct ApprovalBannerTests {
         let workspace = try #require(store.workspaces.first)
         let pane = try #require(workspace.screens.first?.panes.first)
         let service = NotificationCenterService()
-        service.approvalAnswerer = answerer
+        service.approvals.answerer = answerer
         service.localAgentHost = { Self.thisMac }
         return (service, LocatedTab(tab: try #require(pane.tabs.first), pane: pane, workspace: workspace))
     }

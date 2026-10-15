@@ -1,4 +1,3 @@
-import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
 
@@ -44,7 +43,7 @@ final class AcpmuxPersonLine {
         guard !closed else { return nil }
         nextID += 1
         let id = nextID
-        let frame = AcpmuxPermissionFeedBridge.frame(id: id, method: method, params: params)
+        let frame = AcpmuxPermissionPrompt.frame(id: id, method: method, params: params)
         let reply: Data? = await withCheckedContinuation { waiter in
             waiters[id] = waiter
             line.send(frame)
@@ -68,7 +67,7 @@ final class AcpmuxPersonLine {
 
     /// Sends `initialize` as the first request and waits for its result.
     private func start() async -> [String: Any]? {
-        let frame = AcpmuxPermissionFeedBridge.frame(id: 1, method: "initialize", params: [
+        let frame = AcpmuxPermissionPrompt.frame(id: 1, method: "initialize", params: [
             "protocolVersion": 1, "clientInfo": ["name": "cmux-next-approval-banner", "version": "1"],
             "clientCapabilities": [String: Any](),
         ])

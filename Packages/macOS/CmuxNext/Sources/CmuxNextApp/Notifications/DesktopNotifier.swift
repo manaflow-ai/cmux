@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDesign
 import os
 import UserNotifications
@@ -37,10 +38,6 @@ final class DesktopNotifier: NSObject {
     var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
     /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
     var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool) -> Void)?
-    /// The category of banners that answer an agent chat's permission prompt, and its actions.
-    nonisolated static let approvalCategory = "cmux.notification.approval"
-    nonisolated static let allowAction = "cmux.notification.approval.allow-once"
-    nonisolated static let denyAction = "cmux.notification.approval.deny"
     /// The category of banners with a Reply field, and its action.
     nonisolated static let replyCategory = "cmux.notification.reply"
     nonisolated static let replyAction = "cmux.notification.reply.send"
@@ -84,7 +81,7 @@ final class DesktopNotifier: NSObject {
         content.interruptionLevel = .active
         if let workspace { content.threadIdentifier = workspace }
         if reply { content.categoryIdentifier = Self.replyCategory }
-        if approval { content.categoryIdentifier = Self.approvalCategory }
+        if approval { content.categoryIdentifier = AgentApprovalBanners.category }
         var info: [String: Any] = ["notification": id]
         if let surface { info["surface"] = NSNumber(value: surface) }
         content.userInfo = info
@@ -150,7 +147,7 @@ final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.setNotificationCategories([Self.replyBannerCategory(), Self.approvalBannerCategory()])
+        center.setNotificationCategories([Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory()])
         self.center = center
         if !requestedAuthorization {
             requestedAuthorization = true
@@ -173,24 +170,6 @@ final class DesktopNotifier: NSObject {
         )
         return UNNotificationCategory(identifier: replyCategory, actions: [action], intentIdentifiers: [])
     }
-
-    /// Approval banners' category: Allow once, and Deny (destructive). An allow runs what the
-    /// agent asked for: the Mac must be unlocked to send one.
-    private static func approvalBannerCategory() -> UNNotificationCategory {
-        let allow = UNNotificationAction(
-            identifier: allowAction,
-            title: String(localized: "notifications.approval.allowOnce", defaultValue: "Allow once", bundle: .module),
-            options: [.authenticationRequired])
-        let deny = UNNotificationAction(
-            identifier: denyAction,
-            title: String(localized: "notifications.approval.deny", defaultValue: "Deny", bundle: .module),
-            options: [.destructive])
-        // Where macOS hides previews (locked screen, Show Previews off), the command stays hidden too.
-        let hidden = String(localized: "notifications.approval.hiddenBody",
-                            defaultValue: "An agent is waiting for your approval", bundle: .module)
-        return UNNotificationCategory(identifier: approvalCategory, actions: [allow, deny], intentIdentifiers: [],
-                                      hiddenPreviewsBodyPlaceholder: hidden, options: [])
-    }
 }
 
 extension DesktopNotifier: UNUserNotificationCenterDelegate {
@@ -207,11 +186,7 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let surface = (info["surface"] as? NSNumber)?.uint64Value
         let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
-        let approved: Bool? = switch response.actionIdentifier {
-        case Self.allowAction: true
-        case Self.denyAction: false
-        default: nil
-        }
+        let approved = AgentApprovalBanners.decision(response.actionIdentifier)
         Task { @MainActor [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }

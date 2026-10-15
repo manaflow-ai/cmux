@@ -5,8 +5,8 @@ import Foundation
 /// screen). A best-effort net, not a guarantee: terminal notifications stay
 /// off by default (`feed.mirrorNotifications.terminal`) because program
 /// output can hold secrets of any shape.
-nonisolated enum FeedSecretScrubber {
-    static let marker = "[redacted]"
+public nonisolated enum FeedSecretScrubber {
+    public static let marker = "[redacted]"
 
     /// Patterns whose whole match is a secret.
     private static let whole: [NSRegularExpression] = [
@@ -35,14 +35,14 @@ nonisolated enum FeedSecretScrubber {
     /// over unbounded program output ran on the main actor (cx-9c8m); a
     /// secret cut at the edge is still redacted (the PEM pattern runs to the
     /// end of input).
-    static let window = 16 * 1024
+    public static let window = 16 * 1024
 
     /// `scrub` of the first `window` characters of `text`.
-    static func scrubPrefix(_ text: String) -> String {
+    public static func scrubPrefix(_ text: String) -> String {
         scrub(String(text.prefix(window)))
     }
 
-    static func scrub(_ text: String) -> String {
+    public static func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
         var out = text
         for pattern in whole {
