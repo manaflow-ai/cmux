@@ -404,7 +404,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await toStart(page);
     const command = commandToggle(page);
     await command.waitFor();
-    await watch(page, "ls build");
+    await watch(page, "Listed build");
     await command.click();
     await page.getByText("build/step-13.o").waitFor();
     const tops = (await stop(page)).map((frame) => frame.top);
@@ -527,7 +527,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await page.waitForTimeout(250);
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 0, onTool: 0 });
+    expect({ onPrompt, onTool: await shown("Listed build") }).toEqual({ onPrompt: 0, onTool: 0 });
     await page.close();
   });
 });
