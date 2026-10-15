@@ -450,7 +450,7 @@ impl Mux {
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
         let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
-        let prompts = self.agent_prompts.lock().unwrap().clone();
+        let prompts = self.agent_prompts.lock().unwrap().prompts.clone();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot

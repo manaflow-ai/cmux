@@ -111,7 +111,8 @@ pub use cmux_tui_util::user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_PROMPT_CHARS,
-    agent_hook_journal_ingress, agent_hook_live_prompt, stamp_agent_hook_observed_now,
+    agent_hook_journal_ingress, agent_hook_live_fields, agent_hook_live_prompt,
+    agent_hook_live_reply, stamp_agent_hook_observed_now,
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 /// The owner raises its open-file soft limit at start; terminal hosts and
