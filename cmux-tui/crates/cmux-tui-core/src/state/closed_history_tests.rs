@@ -120,6 +120,9 @@ fn a_closed_saved_group_reopens_linked_and_in_order() {
 
     // The last tab first, then the rest: the group keeps its strip order.
     let last = mutate(&mux, "closed.reopen", json!({"closed": id, "members": [2]}), "last");
+    // The saved group still names every closed tab, not just the one back.
+    let saved_groups = read(&mux, "saved_tab_group.list", json!({}));
+    assert_eq!(saved_groups[0]["members"].as_array().map(Vec::len), Some(3), "{saved_groups}");
     let rest = mutate(&mux, "closed.reopen", json!({"closed": id}), "rest");
     let order =
         [rest["tab_ids"][0].clone(), rest["tab_ids"][1].clone(), last["tab_ids"][0].clone()];

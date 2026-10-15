@@ -10,10 +10,10 @@ use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 
-use crate::Actor;
 use crate::mux::tab_groups::{group_members, move_members_into, pane_by_public_id, tab_public_id};
 use crate::mux::tab_strip::{StripRequest, StripResult};
 use crate::mux::*;
+use crate::{Actor, SurfaceId};
 
 /// The archives of the live tab groups holding a tab that closes: one in
 /// `tabs`, or in a screen of `screens` or a workspace of `workspaces`.
@@ -137,7 +137,8 @@ impl Mux {
                 for surface in &added {
                     edit.groups.members.insert(tab_public_id(state, *surface)?, group_id.clone());
                 }
-                edit.saved = mux.saved_record_for(state, &edit.groups, &group_id);
+                // The saved record (if any) still names every closed tab:
+                // a partial reopen never rewrites it from the tabs back so far.
                 edit.result = StripResult::Group(group_id);
                 Ok(())
             },
@@ -147,31 +148,36 @@ impl Mux {
 
     /// Link the group `id` a reopen formed again to the saved group `saved`
     /// it was linked to when it closed, unless that saved group is gone or
-    /// another live group took it (Reopen Saved Group since the close).
+    /// another live group took it (Reopen Saved Group since the close). The
+    /// saved record stays as it is: it names every closed tab, not only the
+    /// ones this reopen brought back.
     pub(super) fn relink_saved_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
         id: &str,
         saved: &str,
     ) -> anyhow::Result<()> {
-        let presentation = self.presentation_snapshot();
-        if !presentation.saved_tab_groups.iter().any(|record| record.id == saved)
-            || presentation
-                .tab_groups
-                .groups
-                .values()
-                .any(|group| group.saved_id.as_deref() == Some(saved))
-        {
-            return Ok(());
-        }
         let (group_id, saved) = (id.to_string(), saved.to_string());
         self.commit_tab_strip_change(
             StripRequest::local(actor, "closed.reopen"),
             None,
-            move |mux, state, edit| {
-                let Some(record) = edit.groups.groups.get_mut(&group_id) else { return Ok(()) };
-                record.saved_id = Some(saved);
-                edit.saved = mux.saved_record_for(state, &edit.groups, &group_id);
+            move |mux, _, edit| {
+                let exists = mux
+                    .presentation_snapshot()
+                    .saved_tab_groups
+                    .iter()
+                    .any(|record| record.id == saved);
+                let taken = edit
+                    .groups
+                    .groups
+                    .values()
+                    .any(|group| group.saved_id.as_deref() == Some(&saved));
+                if exists
+                    && !taken
+                    && let Some(record) = edit.groups.groups.get_mut(&group_id)
+                {
+                    record.saved_id = Some(saved);
+                }
                 edit.result = StripResult::Group(group_id);
                 Ok(())
             },
