@@ -141,6 +141,10 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
             .to_owned();
     let mut agent = Unix::open(&server.socket);
     agent.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
+    // It types first: it works. Its posted message ends its typing.
+    agent.request("conversation-typing", json!({"conversation": chief, "on": true}));
+    let typing = page.request("home-inbox", json!({}));
+    assert_eq!(row(&typing, &chief)["chief_state"], "working", "{typing}");
     agent.request(
         "conversation-op",
         json!({"conversation": chief, "idempotency_key": "chief-1", "op": {
@@ -181,16 +185,37 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
     let release_row = row(&inbox, &release);
     assert_eq!(release_row["kind"], "channel", "{release_row}");
     assert_eq!(release_row["unread"], 0, "{release_row}");
-    // Newest activity first: release (my message), then the Chief's message,
-    // then the conversations with no message by their update.
+    // Newest activity first (ties by id: messages may share a millisecond
+    // here): the two conversations with a message, then the others.
     let ids = order(&inbox);
-    assert_eq!(&ids[..2], &[release.clone(), chief.clone()], "{inbox}");
+    let mut newest = vec![release.clone(), chief.clone()];
+    newest.sort_by(|a, b| {
+        let at = |id: &str| row(&inbox, id)["activity_at"].as_str().unwrap().to_owned();
+        at(b).cmp(&at(a)).then_with(|| a.cmp(b))
+    });
+    assert_eq!(&ids[..2], newest.as_slice(), "{inbox}");
 
     // The Chief types: it works now.
     agent.request("conversation-typing", json!({"conversation": chief, "on": true}));
     let typing = page.request("home-inbox", json!({}));
     assert_eq!(row(&typing, &chief)["chief_state"], "working", "{typing}");
     agent.request("conversation-typing", json!({"conversation": chief, "on": false}));
+
+    // A run of the Chief's that runs is work too; it ends, and the Chief idles.
+    let turn = "turn:home-inbox:1";
+    agent.request(
+        "conversation-run-append",
+        json!({"conversation": chief, "run": {"id": turn, "turn": turn, "status": "running"},
+               "steps": []}),
+    );
+    let running = page.request("home-inbox", json!({}));
+    assert_eq!(row(&running, &chief)["chief_state"], "working", "{running}");
+    agent.request(
+        "conversation-run-append",
+        json!({"conversation": chief, "run": {"id": turn, "status": "done"}, "steps": []}),
+    );
+    let done = page.request("home-inbox", json!({}));
+    assert_eq!(row(&done, &chief)["chief_state"], "idle", "{done}");
 
     // My pins come first in my order; a marked conversation says so.
     page.request(
@@ -206,11 +231,8 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
         json!({"conversation": release, "op": {"kind": "inbox.mark_unread", "unread": true}}),
     );
     let pinned = page.request("home-inbox", json!({}));
-    assert_eq!(
-        &order(&pinned)[..4],
-        &[direct.clone(), room, release.clone(), chief.clone()],
-        "{pinned}"
-    );
+    assert_eq!(&order(&pinned)[..2], &[direct.clone(), room], "{pinned}");
+    assert_eq!(&order(&pinned)[2..4], newest.as_slice(), "{pinned}");
     assert_eq!(row(&pinned, &direct)["pinned"], true, "{pinned}");
     assert_eq!(row(&pinned, &direct)["pin_position"], 1, "{pinned}");
     assert_eq!(row(&pinned, &release)["marked_unread"], true, "{pinned}");

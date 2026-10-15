@@ -316,11 +316,10 @@ pub(super) fn home_inbox(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     let principal = mux.conversation_principal(client);
     let (conversations, states) =
         mux.with_conversations(|store| Ok((store.list()?, store.inbox_states(&principal)?)))?;
-    let typing = conversations
-        .iter()
-        .map(|summary| (summary.id.clone(), mux.conversation_typing(&summary.id)))
-        .filter(|(_, ids)| !ids.is_empty())
-        .collect();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    let running = mux.with_conversations(|store| store.running_run_authors(now_ms))?;
     let input = cmux_conversation::HomeInboxInput {
         me: &principal,
         states: states
@@ -337,7 +336,8 @@ pub(super) fn home_inbox(mux: &Mux, client: u64) -> anyhow::Result<Value> {
             })
             .collect(),
         chief_names: super::chief_registry_resource::chief_names(mux),
-        typing,
+        typing: mux.conversation_typing_all(),
+        running,
     };
     let rows = cmux_conversation::home_inbox(&conversations, &input);
     Ok(json!({"me": principal, "rows": rows}))

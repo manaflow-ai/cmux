@@ -12,6 +12,9 @@ use serde::Serialize;
 
 use crate::types::{AgentClass, Message, Part, Participant, ParticipantKind, Summary, WorkStatus};
 
+/// The name of a Chief with no name of its own.
+pub const CHIEF_NAME: &str = "Chief";
+
 /// Most characters of a row's preview.
 pub const PREVIEW_CHARS: usize = 200;
 
@@ -63,6 +66,8 @@ pub struct HomeInboxInput<'a> {
     pub chief_names: BTreeMap<String, String>,
     /// Participants typing now, by conversation id.
     pub typing: HashMap<String, Vec<String>>,
+    /// Authors of agent runs that run now (not stale), by conversation id.
+    pub running: HashMap<String, Vec<String>>,
 }
 
 /// One row of the Home list.
@@ -97,10 +102,13 @@ fn participant<'s>(summary: &'s Summary, id: &str) -> Option<&'s Participant> {
     summary.participants.iter().find(|participant| participant.id == id)
 }
 
-fn is_chief(summary: &Summary, id: &str) -> bool {
+/// An agent of class `mux`, or an agent the Chief registry knows (an adopted
+/// Chief keeps its participant record).
+fn is_chief(summary: &Summary, id: &str, input: &HomeInboxInput<'_>) -> bool {
     participant(summary, id).is_some_and(|participant| {
         participant.kind == ParticipantKind::Agent
-            && participant.agent_class == Some(AgentClass::Mux)
+            && (participant.agent_class == Some(AgentClass::Mux)
+                || input.chief_names.contains_key(id))
     })
 }
 
@@ -179,7 +187,7 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
         .map(|summary| {
             let others = others(summary, me);
             let direct = others.len() == 1 && !channels.contains(summary.id.as_str());
-            let chief = direct.then(|| others[0]).filter(|id| is_chief(summary, id));
+            let chief = direct.then(|| others[0]).filter(|id| is_chief(summary, id, input));
             let kind = match (direct, chief.is_some(), summary.title.is_empty()) {
                 (true, true, _) => HomeKind::Chief,
                 (true, false, _) => HomeKind::Direct,
@@ -196,7 +204,9 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
                             participant(summary, id)
                                 .map(|p| p.display_name.clone())
                                 .filter(|name| !name.is_empty())
-                                .unwrap_or_else(|| (*id).to_string())
+                                .unwrap_or_else(|| {
+                                    if chief == Some(*id) { CHIEF_NAME } else { *id }.to_string()
+                                })
                         })
                         .collect::<Vec<_>>()
                         .join(", ")
@@ -208,8 +218,10 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
             }
             let live = last.filter(|last| last.retracted_at.is_none());
             let chief_state = chief.map(|id| {
-                let typing =
-                    input.typing.get(&summary.id).is_some_and(|ids| ids.iter().any(|t| t == id));
+                let active = |map: &HashMap<String, Vec<String>>| {
+                    map.get(&summary.id).is_some_and(|ids| ids.iter().any(|t| t == id))
+                };
+                let typing = active(&input.typing) || active(&input.running);
                 let work = live.filter(|last| last.author == id).and_then(last_work);
                 match (typing, work) {
                     (true, _) | (false, Some(WorkStatus::Running)) => ChiefState::Working,

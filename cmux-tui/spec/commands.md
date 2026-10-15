@@ -6322,21 +6322,25 @@ The Home list as the caller sees it, over the local conversations: the owner
 derives each row once, so every view (the Messages view, the Channels page,
 the CLI) shows the same list. A read model: it adds facts to the
 `conversation-list` summaries and changes nothing. Trusted local connections
-only (as `conversation-list`); the caller is the connection's principal.
+only, never a relayed remote device; the caller is the connection's principal.
 
 Rules. `kind`: a conversation with one other participant is `chief` (that
-participant is an agent of class `mux`) or `direct`, except a titled later
+participant is an agent of class `mux` or one the Chief registry knows) or `direct`, except a titled later
 conversation with the same one participant as an older one (by `created_at`,
 then id), which is a `channel`; any other conversation is `channel` when it has
 a title, else `group`. `name`: a `chief` row's Chief's current registry name
 (`chief.profile`), else the title, else the other participants' display names
-joined by ", ". `unread`: `last_seq` minus the caller's read cursor, 0 when the
+(a Chief with none is "Chief") joined by ", ". `unread`: `last_seq` minus the caller's read cursor, 0 when the
 caller wrote the last message. `activity_at`: the last message's `created_at`
 (a deleted message too), else `updated_at`. `preview`: the last message's text
 parts joined by a space (else its attachment names joined by ", "), at most 200
 characters, absent for a deleted message. `chief_state` (a `chief` row only):
-`working` while the Chief types or when its last message's `work` part is
-`running`, `waiting` when that part is `waiting`, else `idle`. `pinned`,
+`working` while the Chief types (its posted message ends its typing), while one
+of its runs (`conversation-runs-v1`) runs (status `running`, started in the last
+day, written in the last 30 minutes), or when its last message's `work` part is
+`running`; `waiting` when that part is `waiting`; else `idle`. A Chief's live
+reply text (`conversation-draft`) is not stored, so a view that shows it adds
+that state itself. `pinned`,
 `pin_position` and `marked_unread` are the caller's own list state
 (`conversation-inbox-state-v1`). Order: pinned rows by `pin_position` (none
 last), then by `activity_at` newest first; ties by id ascending.
@@ -6348,8 +6352,9 @@ id. `HomeInboxRow`: `{id, kind:chief|direct|channel|group, name, unread,
 activity_at, preview?, last_author?, chief?, chief_state?:working|waiting|idle,
 pinned, pin_position?, marked_unread}`. A view reads the conversation itself
 (participants, title) from `conversation-list` or `conversation-snapshot`, and
-asks again on `conversation-changed`, `conversation-typing` or
-`conversation-inbox-changed`.
+asks again (coalesced) on `conversation-changed`, `conversation-inbox-changed`,
+`conversation-typing`, `conversation-run-changed` and `chief-changed`. A pinned
+row without a position sorts after the pinned rows that have one.
 
 ### conversation-search
 

@@ -47,6 +47,11 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS conversation_run (
      CREATE INDEX IF NOT EXISTS conversation_run_step_by_rev
        ON conversation_run_step(conversation, run, rev);";
 
+/// A running run written longer ago than this is stale (no work shows).
+pub(crate) const STALE_RUN_MS: u64 = 30 * 60_000;
+/// Runs started longer ago than this are not read for the Home rows.
+const RUNNING_WINDOW_MS: u64 = 24 * 60 * 60_000;
+
 /// Most steps one run keeps.
 pub(crate) const MAX_RUN_STEPS: u64 = 2000;
 /// Most steps in one append.
@@ -558,6 +563,34 @@ impl ConversationStore {
         )?;
         transaction.commit()?;
         Ok(Appended { run, steps: written })
+    }
+
+    /// The authors of runs that run now, by conversation, for the Home rows
+    /// (`home-inbox`): status running, started in the last day and written in
+    /// the last [`STALE_RUN_MS`] (the Channels page's stale rule: a run its
+    /// brain stopped writing is not work).
+    pub(crate) fn running_run_authors(
+        &mut self,
+        now_ms: u64,
+    ) -> anyhow::Result<std::collections::HashMap<String, Vec<String>>> {
+        let since = to_i64(now_ms.saturating_sub(RUNNING_WINDOW_MS))?;
+        let mut statement = self
+            .connection
+            .prepare("SELECT run_json FROM conversation_run WHERE started_at >= ?1")?;
+        let mut authors: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for json in statement.query_map(params![since], |row| row.get::<_, String>(0))? {
+            let run: Run = serde_json::from_str(&json?)?;
+            if run.status == RunStatus::Running
+                && now_ms.saturating_sub(run.updated_at) <= STALE_RUN_MS
+            {
+                let list = authors.entry(run.conversation).or_default();
+                if !list.contains(&run.author) {
+                    list.push(run.author);
+                }
+            }
+        }
+        Ok(authors)
     }
 
     /// The newest runs of a conversation (before `before_started_at`), or the
