@@ -510,6 +510,9 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
+    #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
+    pub btw: BtwConfig,
     /// `titles`: short titles for chats their harness never titles
     /// (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
@@ -975,6 +978,8 @@ mod peer;
 pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+mod btw;
+pub use btw::BtwConfig;
 pub mod folder_profiles;
 pub mod profiles;
 pub use profiles::{

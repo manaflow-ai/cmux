@@ -101,11 +101,6 @@ public nonisolated enum MotionTunables {
     public static let marqueeMinimumTravel = Tunable<Double>.number(
         "motion.marquee.minimumTravel", .hover, "Marquee minimum travel", help: "Clipping under this many points never scrolls.",
         default: 2, range: 0...40, step: 1, unit: .points, code: "MotionTunables.marqueeMinimumTravel")
-    /// Leo 2026-10-13: the workspace hover card showed on every row the
-    /// pointer passed; it waits for a native-tooltip dwell instead.
-    public static let hoverCardDwell = Tunable<Double>.number(
-        "motion.hoverCard.dwell", .hover, "Hover card dwell", help: "Pointer rest on a sidebar workspace row before its hover card shows.",
-        default: 1, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.hoverCardDwell")
     /// Leo 2026-10-14: hover intent app-wide (`HoverIntentTiming`, AppKit's
     /// `NSInitialToolTipDelay` is about 1 s).
     public static let tooltipDelay = Tunable<Double>.number(
@@ -144,7 +139,7 @@ public nonisolated enum MotionTunables {
         MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
-            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel, hoverCardDwell,
+            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
                tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
             + [panelOpenScale, panelCloseScale].map(\.descriptor)
     }

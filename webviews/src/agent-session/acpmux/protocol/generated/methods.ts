@@ -43,6 +43,7 @@ export interface AcpmuxRequests {
   "_acpmux/kill": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
   "_acpmux/side": { params: unknown; result: unknown };
+  "_acpmux/btw": { params: unknown; result: unknown };
   "_acpmux/tag": { params: unknown; result: unknown };
   "_acpmux/info": { params: unknown; result: unknown };
   "_acpmux/events": { params: unknown; result: unknown };
@@ -99,6 +100,8 @@ export interface AcpmuxRequests {
   "_acpmux/harness/restore": { params: unknown; result: unknown };
   "_acpmux/harness/doctor": { params: unknown; result: unknown };
   "_acpmux/harness/health": { params: unknown; result: unknown };
+  "_acpmux/harness/update": { params: unknown; result: unknown };
+  "_acpmux/sessions/restart_harness": { params: unknown; result: unknown };
   "_acpmux/registry": { params: unknown; result: unknown };
   "_acpmux/defaults": { params: unknown; result: unknown };
   "_acpmux/presets": { params: unknown; result: unknown };
@@ -205,6 +208,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/side", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/btw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tag", kind: "request", acp: false, typed: false },
   { name: "_acpmux/info", kind: "request", acp: false, typed: false },
   { name: "_acpmux/events", kind: "request", acp: false, typed: false },
@@ -263,6 +267,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/doctor", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/health", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/harness/update", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/sessions/restart_harness", kind: "request", acp: false, typed: false },
   { name: "_acpmux/registry", kind: "request", acp: false, typed: false },
   { name: "_acpmux/defaults", kind: "request", acp: false, typed: false },
   { name: "_acpmux/presets", kind: "request", acp: false, typed: false },
