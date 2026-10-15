@@ -33,6 +33,8 @@ extension AppActions {
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
         services.pages.register(HomeChannelsPageTab(services: services))
+        // The docked Home's tab (HomeDockTab): the Messages | Channels switch over both views.
+        services.pages.register(HomeDockTab(services: services))
         #if DEBUG
         services.pages.register(DebugHomeNativeFixture())
         #endif

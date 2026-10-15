@@ -558,7 +558,13 @@ impl Brain {
                 effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
-                env: Default::default(),
+                // Only the Chief's own turn gets the seal its `chiefs`
+                // tool needs (chief_profile.rs TURN_KEY_ENV).
+                env: [(
+                    crate::chief_profile::TURN_KEY_ENV.to_owned(),
+                    crate::chief_profile::process_turn_seal().to_owned(),
+                )]
+                .into(),
                 fast: self.turn_fast(&engine, family),
             },
             blocks,
