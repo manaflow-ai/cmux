@@ -49,6 +49,13 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// The tab's card, laid out at the full screen size like `content` and
     /// scaled down by the kit. The default shows `thumbnail(for:)`.
     @ViewBuilder func card(for tab: TabsKitTab) -> Card
+    /// The card's content anchor: how far (page points) the card, and the
+    /// live page as it zooms into a card, move the tab's content up, for a
+    /// card that shows only the top `visibleHeight` points of the page
+    /// (status bar included). A terminal returns what brings its prompt
+    /// into view, so its card shows the screen you left, not its top rows.
+    /// The zoom moves it with the scale (none full screen). Default 0.
+    func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat
     /// A snapshot of the tab's page at full screen size for the default card.
     func thumbnail(for id: TabsKitTab.ID) -> UIImage?
     /// The tab grid is about to appear: refresh thumbnails now (once per
@@ -141,6 +148,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 
 extension TabsDataSource {
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
+    public func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat { 0 }
     public func overviewWillAppear() {}
     public func overviewVisibilityChanged(_ visible: Bool) {}
     public func overviewScrollingChanged(_ scrolling: Bool) {}

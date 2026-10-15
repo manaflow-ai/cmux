@@ -291,6 +291,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await onClose(tab.id) } }) {
             source.card(for: tab)
+                .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
         }
         .overlay(alignment: .topLeading) {
             if selecting { SelectionMark(selected: selection.contains(tab.id), width: r.width, height: r.height, radius: layout.cardRadius) }
@@ -303,7 +304,10 @@ struct TabOverview<Source: TabsDataSource>: View {
                 passThrough: selecting ? nil : CGRect(x: r.width - 30, y: 0, width: 30, height: 30),
                 menu: { selecting ? [] : menuSections(tab) },
                 preview: { scale in
-                    AnyView(CardMenuPreview(scale: scale, card: r.size, radius: layout.cardRadius) { source.card(for: tab) }
+                    AnyView(CardMenuPreview(scale: scale, card: r.size, radius: layout.cardRadius) {
+                        source.card(for: tab)
+                            .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
+                    }
                         .environment(\.tabsKitTheme, theme))
                 },
                 previewScale: CardMenuPreview<EmptyView>.scale,
