@@ -2030,12 +2030,14 @@ struct BrowserPanelView: View {
                     prompt: prompt,
                     backgroundColor: browserChromeBackgroundColor,
                     metrics: chromeMetrics,
-                    exitPageAction: { panel.exitUnresponsiveChromiumPage() }
+                    exitPageAction: { panel.exitUnresponsiveChromiumPage() },
+                    overlays: panel.pageOverlays
                 ) {
                     panel.performPageRecovery(prompt)
                 }
-                // Over a Chromium page the page leaves a hole here (design spec §8).
-                .browserPageOccluding(panel.pageOverlays, id: "pageRecovery")
+                // Over a Chromium page the page leaves a hole here (design spec §8);
+                // the hang card cuts its own notched hole instead.
+                .browserPageOccluding(prompt.registersOwnPageOcclusion ? nil : panel.pageOverlays, id: "pageRecovery")
             }
         }
         .layoutPriority(1)

@@ -29,6 +29,8 @@ struct BrowserPageRecoveryOverlay: View {
     var metrics = BrowserChromeMetrics(tabBarFontSize: BrowserChromeMetrics.referenceFontSize)
     /// Exit page on the Chromium "Page unresponsive" card.
     var exitPageAction: () -> Void = {}
+    /// The panel's page overlay coordinator, for prompts that cut their own holes.
+    var overlays: BrowserPageOverlayCoordinator?
     let action: () -> Void
 
     var body: some View {
@@ -92,13 +94,13 @@ struct BrowserPageRecoveryOverlay: View {
             ChromiumPageFailureOverlay(
                 failure: .crashed(exit, isRepeat: isRepeat, restoresWhenShown: false),
                 metrics: metrics, backgroundColor: backgroundColor,
-                primaryAction: action, exitPageAction: exitPageAction
+                overlays: overlays, primaryAction: action, exitPageAction: exitPageAction
             )
         case .chromiumUnresponsive:
             ChromiumPageFailureOverlay(
                 failure: .unresponsive,
                 metrics: metrics, backgroundColor: backgroundColor,
-                primaryAction: action, exitPageAction: exitPageAction
+                overlays: overlays, primaryAction: action, exitPageAction: exitPageAction
             )
         }
     }
@@ -121,8 +123,9 @@ struct ChromiumLoadFailureView: View {
 
     var body: some View {
         ZStack {
+            // Opaque: in the Chromium page's hole only the host placeholder
+            // would show through a veil (spec §0.9).
             Color(nsColor: backgroundColor)
-                .opacity(0.92)
             VStack(spacing: metrics.recoverySpacing) {
                 Image(systemName: "exclamationmark.triangle")
                     .cmuxFont(size: metrics.recoveryIconSize)

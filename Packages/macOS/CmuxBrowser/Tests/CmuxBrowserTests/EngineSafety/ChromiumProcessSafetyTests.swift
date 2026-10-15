@@ -43,7 +43,7 @@ import Testing
     /// A child started with `--type=renderer` in its argv and killed with
     /// SIGKILL is reported as a killed renderer; one that exits 0 is not
     /// reported as abnormal.
-    @Test func reportsHelperExitWithWaitStatus() async throws {
+    @Test(.timeLimit(.minutes(1))) func reportsHelperExitWithWaitStatus() async throws {
         let exits = AsyncStream<ChromiumChildProcessMonitor.Exit>.makeStream()
         let watched = AsyncStream<Int32>.makeStream()
         let monitor = ChromiumChildProcessMonitor(
@@ -73,6 +73,56 @@ import Testing
         #expect(reported?.identity.processType == "renderer")
         #expect(reported?.abnormalKind == .killed)
         child.waitUntilExit()
+        monitor.stop()
+        exits.continuation.finish()
+        watched.continuation.finish()
         withExtendedLifetime((monitor, input)) {}
+    }
+
+    /// After stop() (the app is quitting), a helper that ends is not reported:
+    /// Chromium ends every helper at quit, and those ends are not crashes.
+    @Test(.timeLimit(.minutes(1))) func stoppedMonitorReportsNothing() async throws {
+        let reported = ExitBox()
+        let watched = AsyncStream<Int32>.makeStream()
+        let monitor = ChromiumChildProcessMonitor(
+            onExit: { reported.append($0) },
+            onWatch: { watched.continuation.yield($0) }
+        )
+        monitor.start()
+
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sh")
+        child.arguments = ["-c", "read line", "--type=gpu-process"]
+        let input = Pipe()
+        child.standardInput = input
+        try child.run()
+        let pid = child.processIdentifier
+        for await registered in watched.stream where registered == pid { break }
+
+        monitor.stop()
+        await monitor.waitForQueuedEvents()
+        kill(pid, SIGKILL)
+        child.waitUntilExit()
+        await monitor.waitForQueuedEvents()
+
+        #expect(reported.exits.isEmpty)
+        watched.continuation.finish()
+        withExtendedLifetime((monitor, input)) {}
+    }
+}
+
+/// Collects exits from the monitor's queue.
+private final class ExitBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [ChromiumChildProcessMonitor.Exit] = []
+
+    func append(_ exit: ChromiumChildProcessMonitor.Exit) {
+        lock.lock(); defer { lock.unlock() }
+        stored.append(exit)
+    }
+
+    var exits: [ChromiumChildProcessMonitor.Exit] {
+        lock.lock(); defer { lock.unlock() }
+        return stored
     }
 }

@@ -2312,6 +2312,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
+                // Chromium now ends every helper (SIGKILL for stragglers);
+                // those ends are not crashes.
+                ChromiumHelperCrashWatch.stop()
                 // After the session snapshot: closing Chromium pages must not
                 // change what restores. Bounded; skips CefShutdown on timeout.
                 await CEFRuntime.shared.shutdown(timeout: .seconds(3))

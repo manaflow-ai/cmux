@@ -2161,6 +2161,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     /// Whether the non-WebKit page is on screen, as its host last reported.
     var isEnginePageVisible = false
+    /// What to do once a hung Chromium renderer has been ended to recover it
+    /// (`BrowserPanel+ChromiumHangRecovery.swift`).
+    var pendingChromiumHangRecovery: ChromiumHangRecoveryAction?
+    /// Main-frame commits of the non-WebKit page; a probe that sees a new one knows the page answered.
+    var enginePageCommitCount = 0
+    /// The running responsiveness probe of the Chromium page, if any.
+    var chromiumHangProbeTask: Task<Void, Never>?
     private var webKitPageAdapter: WebKitBrowserPage?
     private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
@@ -7037,7 +7044,7 @@ extension BrowserPanel {
     @discardableResult
     func reload(dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
         takeBrowserDialogOwnership(dialogOwner)
-        if let enginePage { enginePage.reload(); return nil }
+        if enginePage != nil { reloadEnginePageRecoveringHang(fromOrigin: false); return nil }
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return nil
@@ -7054,7 +7061,7 @@ extension BrowserPanel {
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
-        if let enginePage { enginePage.reloadFromOrigin(); return }
+        if enginePage != nil { reloadEnginePageRecoveringHang(fromOrigin: true); return }
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return

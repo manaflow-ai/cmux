@@ -7,6 +7,10 @@ pid that belongs to the app: the WebKit WebContent pid the pane reports
 `--type=renderer` / `--type=gpu-process` (Chromium helpers), found by parent pid.
 
 Legs (CMUX_CRASH_E2E_LEGS, comma-separated, default all that apply):
+  sandbox   (Chromium) every renderer and GPU helper of the app runs sandboxed (sandbox_check).
+  agentguard (Chromium) agent navigate to chrome://, devtools://, view-source: (also with a combining
+            mark after the colon) answers navigation_refused; a script or a server redirect into
+            chrome://settings never lands there.
   webkit    SIGKILL the WebKit pane's WebContent process: the pane shows the Reload
             overlay, `debug.browser.crashes` records it, Reload brings the page back
             in a new process, cmux keeps running.
@@ -15,6 +19,8 @@ Legs (CMUX_CRASH_E2E_LEGS, comma-separated, default all that apply):
   gpu       (Chromium) SIGKILL the GPU process: Chromium starts a new one, the page
             still answers, the crash log records a gpu-process exit. The
             chrome://gpucrash equivalent.
+  hangreload (Chromium) with no input, a reload of a spinning page shows the "Page unresponsive" card;
+            a second reload ends the hung renderer and loads the page in a new one.
   hang      (Chromium) a page that spins its main thread gets the "Page unresponsive"
             prompt after input; Exit page ends the renderer and shows the crash page.
             The chrome://hang equivalent.
@@ -28,6 +34,7 @@ Usage: CMUX_SOCKET_PATH=<tagged socket> python3 tests_v2/test_browser_crash_inje
 
 from __future__ import annotations
 
+import ctypes
 import functools
 import http.server
 import os
@@ -44,7 +51,7 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
-LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,renderer,gpu,hang").split(","))
+LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,sandbox,agentguard,renderer,gpu,hang,hangreload").split(","))
 PAGE_TITLE = "crash-e2e"
 
 
@@ -109,6 +116,14 @@ def _serve() -> str:
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        def do_GET(self):  # noqa: N802
+            if self.path.startswith("/to-chrome"):
+                self.send_response(302)
+                self.send_header("Location", "chrome://settings/")
+                self.end_headers()
+                return
+            super().do_GET()
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=root))
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -188,9 +203,30 @@ def chromium_tab(h: Harness, url: str) -> str | None:
     return sid
 
 
+def _sandboxed(pid: int) -> bool:
+    """Whether macOS reports `pid` as running in a sandbox (sandbox_check with no filter)."""
+    libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    libsystem.sandbox_check.restype = ctypes.c_int
+    libsystem.sandbox_check.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+    return libsystem.sandbox_check(pid, None, 0) == 1
+
+
+def leg_sandbox(h: Harness) -> None:
+    """Chromium's renderer and GPU helpers run sandboxed; the app process does not."""
+    for kind in ("renderer", "gpu-process"):
+        pids = _children(h.app_pid, kind)
+        _must(bool(pids), f"sandbox: no Chromium {kind} process")
+        unsandboxed = [pid for pid in pids if not _sandboxed(pid)]
+        _must(not unsandboxed, f"sandbox: {kind} processes run without a sandbox: {unsandboxed}")
+    print("PASS sandbox: Chromium renderer and GPU helpers are sandboxed")
+
+
 def leg_renderer(h: Harness, sid: str) -> None:
+    # The page's own renderer (page_status page_pid), which must be one of the app's renderer helpers.
+    page_pid = int(h.status(sid).get("page_pid") or 0)
     renderers = _children(h.app_pid, "renderer")
-    _must(bool(renderers), "renderer: no Chromium renderer process")
+    _must(page_pid > 0 and page_pid in renderers, f"renderer: page_pid {page_pid} is not one of {renderers}")
+    renderers = [page_pid]
     for pid in renderers:
         os.kill(pid, signal.SIGKILL)
     _wait_for(lambda: h.status(sid).get("prompt") == "crashed", 20, "renderer: Aw, Snap! page")
@@ -215,13 +251,71 @@ def leg_gpu(h: Harness, sid: str) -> None:
     print("PASS gpu: GPU process crash contained, page still answers")
 
 
+def leg_agent_guard(h: Harness, sid: str, url: str) -> None:
+    """An agent cannot reach Chromium's internal pages: not by navigating, not by a script, not by a redirect."""
+    refused = []
+    for target in ("chrome://settings", "chrome://password-manager/passwords", "devtools://devtools/bundled/x.html",
+                   "view-source:" + url, "chrome:\u034fsettings"):
+        try:
+            h.c._call("browser.navigate", {"surface_id": sid, "url": target}, timeout_s=10)
+        except cmuxError as error:
+            if "navigation_refused" in str(error):
+                refused.append(target)
+                continue
+            raise
+    _must(len(refused) == 5, f"agentguard: navigate was not refused for every internal page: refused {refused}")
+    h.c._call("browser.eval", {"surface_id": sid, "script": "location.href = 'chrome://settings'; 1"})
+    try:
+        h.c._call("browser.navigate", {"surface_id": sid, "url": url + "to-chrome"}, timeout_s=10)
+    except cmuxError:
+        pass  # the redirect target is refused; the call may report a failed navigation
+    def current_url() -> str:
+        return str(h.status(sid).get("current_url") or "")
+    _wait_for(lambda: not current_url().startswith("chrome"), 10, "agentguard: page not on a chrome:// page")
+    _must(not current_url().startswith("chrome"), f"agentguard: agent reached {current_url()}")
+    h.c._call("browser.navigate", {"surface_id": sid, "url": url}, timeout_s=15)
+    _wait_for(lambda: h.page_answers(sid), 20, "agentguard: page answers after the refused navigations")
+    print("PASS agentguard: navigate, script and redirect into chrome:// are all refused for an agent")
+
+
+def leg_hang_reload(h: Harness, sid: str) -> None:
+    h.c._call("browser.eval", {"surface_id": sid, "script": "setTimeout(() => { for (;;) {} }, 0); 'spinning'"})
+    started = time.time()
+
+    def reload(label: str) -> None:
+        # Its own connection: a reply that arrives after the client gives up
+        # must not land on the connection the status checks read.
+        try:
+            with cmux(SOCKET_PATH) as side:
+                side._call("browser.reload", {"surface_id": sid}, timeout_s=15)
+        except Exception as error:  # noqa: BLE001
+            # The command's own navigation wait can end before the recovery
+            # does; what matters is that the page comes back.
+            print(f"note hangreload: {label} reload answered {error}")
+
+    # The first reload finds the hang and shows the card (never ends a page by itself);
+    # the second, with the card showing, ends the hung renderer and reloads.
+    reload("first")
+    _wait_for(lambda: h.status(sid).get("prompt") == "unresponsive", 30, "hangreload: card after the first reload")
+    reload("second")
+    _wait_for(lambda: h.page_answers(sid), 45, "hangreload: page answers again after Reload")
+    h.app_still_runs("hangreload")
+    print(f"PASS hangreload: card on the first reload, recovered by the second in {time.time() - started:.1f}s without input")
+
+
 def leg_hang(h: Harness, sid: str) -> None:
     h.c._call("browser.eval", {"surface_id": sid, "script": "setTimeout(() => { for (;;) {} }, 0); 'spinning'"})
-    # Chromium reports a hang when input goes unanswered (its hang monitor).
-    try:
-        h.c._call("browser.click", {"surface_id": sid, "selector": "#alive"}, timeout_s=5)
-    except cmuxError:
-        pass
+    # Chromium reports a hang when input goes unanswered (its hang monitor). The input goes
+    # through its own connection on a thread: it never answers while the page spins, and a
+    # late reply must not land on the connection the checks below use.
+    def send_input() -> None:
+        try:
+            with cmux(SOCKET_PATH) as side:
+                side._call("browser.press", {"surface_id": sid, "key": "a"}, timeout_s=60)
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=send_input, daemon=True).start()
     _wait_for(lambda: h.status(sid).get("prompt") == "unresponsive", 45, "hang: Page unresponsive prompt")
     h.app_still_runs("hang")
     pressed = h.status(sid, press="exit").get("pressed")
@@ -238,13 +332,19 @@ def main() -> int:
         h = Harness(client, app_pid)
         if "webkit" in LEGS:
             leg_webkit(h, url)
-        if LEGS & {"renderer", "gpu", "hang"}:
+        if LEGS & {"sandbox", "agentguard", "renderer", "gpu", "hang", "hangreload"}:
             sid = chromium_tab(h, url)
             if sid:
+                if "sandbox" in LEGS:
+                    leg_sandbox(h)
+                if "agentguard" in LEGS:
+                    leg_agent_guard(h, sid, url)
                 if "renderer" in LEGS:
                     leg_renderer(h, sid)
                 if "gpu" in LEGS:
                     leg_gpu(h, sid)
+                if "hangreload" in LEGS:
+                    leg_hang_reload(h, sid)
                 if "hang" in LEGS:
                     leg_hang(h, sid)
         h.app_still_runs("end")
