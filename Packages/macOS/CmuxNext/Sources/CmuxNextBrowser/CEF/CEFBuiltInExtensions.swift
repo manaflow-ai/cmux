@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Extensions that ship inside the app bundle and load into Chromium at its
@@ -76,5 +77,27 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     /// Contents/Resources/Extensions/ublock-origin (DEV tags and releases differ).
     static func isBuiltInPath(_ path: String) -> Bool {
         path.hasSuffix(".app/Contents/Resources/" + adBlockerFolder) || path.hasSuffix(".app/Contents/Resources/" + adBlockerFolder + "/")
+    }
+
+    /// SHA-256 of the staged manifest.json (scripts/cmux-next/fetch-ublock.sh
+    /// UBLOCK_MANIFEST_SHA256 pins the same value; change both with a version).
+    static let adBlockerManifestSHA256 = "8736fdbd889f05a37c62b98da88ad3e9e2ae72a067f0909e18bc051792ab161d"
+
+    /// The running app's own built-in uBlock Origin folder (symlinks
+    /// resolved) when its manifest matches the pin; nil otherwise.
+    static let trustedAdBlockerFolder: String? = {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let folder = resources.appendingPathComponent(adBlockerFolder).resolvingSymlinksInPath().standardizedFileURL
+        guard let manifest = try? Data(contentsOf: folder.appendingPathComponent("manifest.json")) else { return nil }
+        let digest = SHA256.hash(data: manifest).map { String(format: "%02x", $0) }.joined()
+        return digest == adBlockerManifestSHA256 ? folder.path : nil
+    }()
+
+    /// The cmux-shipped uBlock Origin: its id, loaded from exactly this app's
+    /// pinned built-in folder. A copy the person installed or loaded (another
+    /// path) and every other extension are not.
+    static func isTrustedBuiltIn(_ info: BrowserExtensionInfo, trustedFolder: String? = trustedAdBlockerFolder) -> Bool {
+        guard info.id == adBlockerID, let trustedFolder, !info.path.isEmpty else { return false }
+        return URL(fileURLWithPath: info.path).resolvingSymlinksInPath().standardizedFileURL.path == trustedFolder
     }
 }

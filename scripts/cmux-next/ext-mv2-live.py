@@ -194,6 +194,7 @@ class Job:
         # cannot reach agent-driven tabs (fork API 20, cmux_tab_set_extension_access).
         opened = self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": url},
                                           "focus": True, "origin": "remote"})
+        self.last_created = ((opened.get("result") or {}).get("created") or [None])[0]
         key = match or url
         target = cdp.wait_target(self.port, lambda t: t.get("type") == "page" and t.get("id") not in before
                                  and key in t.get("url", ""), timeout)
@@ -739,6 +740,26 @@ def phase_ublock(args):
                 before == "loaded" and (outcomes["jQuery"] == "blocked" or state.get("jq") == "blocked") and bool(ctx.get("rule")),
                 {"before": before, "rule": ctx.get("rule"), "after": outcomes["jQuery"], "page": state})
 
+    def agent_read():
+        """An agent's page read (`cmux browser <tab> eval`, the CLI over the app
+        socket) of a page every enabled extension can reach (example.com)."""
+        session = job.open_tab("https://example.com/?agent=1", match="example.com/?agent=1")
+        try:
+            poll(session, "document.readyState === 'complete'", 20)
+        finally:
+            session.close()
+        tab = job.last_created
+        cli = os.path.join(job.app, "Contents/Resources/bin/cmux")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX")}
+        env["CMUX_SOCKET_PATH"] = job.socket
+        done = subprocess.run([cli, "browser", str(tab), "eval", "document.title"], env=env,
+                              capture_output=True, text=True, timeout=60)
+        out = (done.stdout + done.stderr).strip()
+        refused = "enabled extension with access" in out or "extension_host_access" in out
+        want = args.agent_read
+        ok = ("Example Domain" in out and not refused) if want == "allowed" else refused
+        job.row(f"agent: page read is {want}", ok, {"tab": tab, "exit": done.returncode, "output": out[:400]})
+
     def menu_note():
         """The Extensions menu says the full uBlock Origin is built in (the Web Store
         lists only uBlock Origin Lite)."""
@@ -775,10 +796,11 @@ def phase_ublock(args):
         job.window_shot("ublock-window")
 
     return run_phase(job, [*([("person: load", person_load)] if args.load_unpacked else []), ("ublock: loaded", loaded), ("ublock: background", background),
+                           *([("menu note", menu_note)] if not args.ubo or args.menu_note else []),
+                           *([("agent read", agent_read)] if args.agent_read else []),
                            ("ublock: ready", ready), ("ublock: network", network),
                            ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
-                           *([("menu note", menu_note)] if not args.ubo or args.menu_note else []),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
 
@@ -799,6 +821,8 @@ def main():
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
     parser.add_argument("--label", help="artifact folder name (default: the phase)")
     parser.add_argument("--load-unpacked", help="builtin: first Load Unpacked this folder as the person's own copy")
+    parser.add_argument("--agent-read", choices=["allowed", "refused"],
+                        help="check an agent page read on example.com (the extension guard)")
     parser.add_argument("--person", action="store_true", help="builtin: the profile holds the person's copy (expect it to run)")
     parser.add_argument("--menu-note", choices=["present", "absent"],
                         help="check the Extensions menu's built-in line (default: present for builtin)")
