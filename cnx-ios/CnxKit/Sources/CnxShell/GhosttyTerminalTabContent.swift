@@ -280,11 +280,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts[tab.id]?.prepareCard()
     }
 
-    /// Off: on the rig the active page's snapshot (`drawHierarchy`) came out
-    /// black over the terminal rows (round 6), so the live page stays the
-    /// active card until the snapshot is proven (`-CnxStaticActiveCard` to try).
+    /// The settled grid shows the active page's snapshot, placed with its
+    /// bottom at the card's bottom edge like every other terminal card, so
+    /// the newest rows and the prompt show (V5-6). The snapshot draws the
+    /// frame Ghostty presented (`TerminalSurfaceView.presentedImage`); the
+    /// render server's copy was black over the rows (round 6).
+    /// `-CnxLiveActiveCard` keeps the live page (the kit's top crop) for A/B.
     func showsStaticCard(for tab: WorkspaceTab) -> Bool {
-        guard CommandLine.arguments.contains("-CnxStaticActiveCard"),
+        guard !CommandLine.arguments.contains("-CnxLiveActiveCard"),
               let model = hosts[tab.id]?.model, model.pageStarted else { return false }
         return model.snapshot != nil
     }

@@ -33,14 +33,18 @@ public struct TerminalCardCrop: Equatable, Sendable {
     public static let cardAspect: CGFloat = 249.3 / 177.0
     public var width: CGFloat
     public var imageHeight: CGFloat
+    /// The blank band at the image's bottom (the page's toolbar inset, under
+    /// the composer), left below the card's edge.
+    public var bottomTrim: CGFloat
 
-    public init(width: CGFloat, imageHeight: CGFloat) {
+    public init(width: CGFloat, imageHeight: CGFloat, bottomTrim: CGFloat = 0) {
         self.width = width
         self.imageHeight = imageHeight
+        self.bottomTrim = bottomTrim
     }
 
     /// The part of the card view TabsKit shows.
     public var visibleHeight: CGFloat { width * Self.cardAspect }
     /// The image's top in the card view (0 or negative).
-    public var imageTop: CGFloat { min(0, visibleHeight - imageHeight) }
+    public var imageTop: CGFloat { min(0, visibleHeight - (imageHeight - max(0, bottomTrim))) }
 }

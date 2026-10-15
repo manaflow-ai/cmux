@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxDesign
+import CoreImage
 import Foundation
 import GameController
 import GhosttyNextKit
@@ -392,6 +393,22 @@ final class TerminalSurfaceView: UIView {
 
     /// Called on the main thread in the transaction that shows a new frame.
     var onPresent: (() -> Void)?
+
+    /// The frame Ghostty presented last, as an image, and where its layer
+    /// sits in this view. `drawHierarchy` leaves the Metal surface black in a
+    /// snapshot taken while the page is live on screen (the active grid card,
+    /// V5-6), so the snapshot draws this instead.
+    func presentedImage() -> (image: CGImage, frame: CGRect)? {
+        guard let sublayer = layer.sublayers?.first, let contents = sublayer.contents else { return nil }
+        let ref = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
+        guard CFGetTypeID(ref) == IOSurfaceGetTypeID() else { return nil }
+        let ioSurface = unsafeBitCast(ref, to: IOSurface.self)
+        let image = CIImage(ioSurface: ioSurface)
+        guard !image.extent.isEmpty, let cgImage = Self.snapshotContext.createCGImage(image, from: image.extent) else { return nil }
+        return (cgImage, sublayer.frame)
+    }
+
+    private static let snapshotContext = CIContext(options: [.cacheIntermediates: false])
 
     /// One hash per cell row of the frame on screen (`rowHeight` px rows),
     /// sampled from the IOSurface Ghostty presented: two pixel lines through

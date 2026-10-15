@@ -243,7 +243,14 @@ public final class TerminalModel {
 
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
     public func captureSnapshot() {
-        if let image = controller?.snapshot() { snapshot = image }
+        if let image = controller?.snapshot() {
+            snapshot = image
+            #if DEBUG
+            if CommandLine.arguments.contains("-CnxDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
+            }
+            #endif
+        }
     }
 
     public func focusComposer() {

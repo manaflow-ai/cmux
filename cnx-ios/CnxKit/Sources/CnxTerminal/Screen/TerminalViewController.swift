@@ -683,8 +683,36 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The frame kept for a cold launch has no cursor block: it is not
         // where typing goes until the live screen is back (R3-4).
         let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
+        let presented = surface.presentedImage()
         return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { context in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+            if let presented {
+                // The page's layers in order, with the terminal surface drawn
+                // from the frame Ghostty presented: the render server's copy
+                // of a live Metal surface came out black on the rig (V5-6).
+                CnxGhosttyApp.background.setFill()
+                context.fill(view.bounds)
+                for sub in view.subviews where !sub.isHidden && sub.alpha > 0.01 {
+                    if surface.isDescendant(of: sub) {
+                        let clip = sub.convert(sub.bounds, to: view)
+                        let frame = surface.convert(presented.frame, to: view)
+                        context.cgContext.saveGState()
+                        context.cgContext.clip(to: clip.intersection(view.bounds))
+                        UIImage(cgImage: presented.image).draw(in: frame)
+                        context.cgContext.restoreGState()
+                    } else {
+                        // `layer.render`, not `drawHierarchy`: the render
+                        // server's copy is opaque black while the grid
+                        // covers the page, and a full-page overlay (the
+                        // joystick thumb's host) then blacked out everything.
+                        context.cgContext.saveGState()
+                        context.cgContext.translateBy(x: sub.frame.minX, y: sub.frame.minY)
+                        sub.layer.render(in: context.cgContext)
+                        context.cgContext.restoreGState()
+                    }
+                }
+            } else {
+                view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+            }
             if let cursor {
                 CnxGhosttyApp.background.setFill()
                 context.fill(cursor.insetBy(dx: -0.5, dy: -0.5))
