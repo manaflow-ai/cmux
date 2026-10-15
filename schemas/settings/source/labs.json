@@ -34,6 +34,32 @@
             "beta",
             "prototype"
           ]
+        },
+        {
+          "key": "labs.sessionRail",
+          "owner": "op-next-parity-surface-cx",
+          "created": "2026-10-14",
+          "expires": "2026-10-28",
+          "cohort": "off",
+          "note": "A rail beside the agent chat with the session's environment, context use and changed files (Claude Code desktop parity).",
+          "title": {
+            "key": "settings.labs.sessionRail",
+            "text": "Session side rail"
+          },
+          "help": {
+            "key": "settings.labs.sessionRail.help",
+            "text": "Shows the chat's environment, context use and the files it changed in a rail beside the chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "rail",
+            "sidebar",
+            "environment",
+            "context",
+            "outputs"
+          ]
         }
       ]
     }

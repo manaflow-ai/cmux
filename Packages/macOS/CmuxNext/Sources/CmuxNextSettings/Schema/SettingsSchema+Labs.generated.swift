@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.sessionRail`: A rail beside the agent chat with the session's environment, context use and changed files (Claude Code desktop parity).
+    public nonisolated static let sessionRailPath = ["labs", "sessionRail"]
+    public nonisolated static let sessionRailDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -23,6 +26,16 @@ nonisolated enum LabsSettingsSchema {
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.sessionRailPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.sessionRail", "Session side rail"),
+                help: SettingsText.keyed("settings.labs.sessionRail.help", "Shows the chat's environment, context use and the files it changed in a rail beside the chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.sessionRailDefault),
+                keywords: ["labs", "rail", "sidebar", "environment", "context", "outputs"]
+            ),
         ]
     }
 }
@@ -31,6 +44,7 @@ nonisolated enum LabsSettingsSchema {
 /// `CmuxConfigSnapshot.lab(_:)`, never its key path.
 public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     case previewFeatures
+    case sessionRail
 
     /// The cmux.json key: `labs.<name>`.
     public var key: String { "labs." + rawValue }
@@ -39,6 +53,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var owner: String {
         switch self {
         case .previewFeatures: "leo"
+        case .sessionRail: "op-next-parity-surface-cx"
         }
     }
 
@@ -46,6 +61,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var intent: String {
         switch self {
         case .previewFeatures: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        case .sessionRail: "Shows the chat's environment, context use and the files it changed in a rail beside the chat."
         }
     }
 
@@ -53,6 +69,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var created: String {
         switch self {
         case .previewFeatures: "2026-10-03"
+        case .sessionRail: "2026-10-14"
         }
     }
 
@@ -60,6 +77,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var expires: String {
         switch self {
         case .previewFeatures: "2026-10-27"
+        case .sessionRail: "2026-10-28"
         }
     }
 
@@ -67,6 +85,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var cohort: LabsCohort {
         switch self {
         case .previewFeatures: .off
+        case .sessionRail: .off
         }
     }
 }

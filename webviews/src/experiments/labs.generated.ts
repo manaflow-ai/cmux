@@ -11,6 +11,14 @@ export const LABS_FLAGS = {
     title: "Show Preview Features",
     intent: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
   },
+  sessionRail: {
+    owner: "op-next-parity-surface-cx",
+    created: "2026-10-14",
+    expires: "2026-10-28",
+    cohort: "off",
+    title: "Session side rail",
+    intent: "Shows the chat's environment, context use and the files it changed in a rail beside the chat.",
+  },
 } as const;
 
 export type LabsFlagName = keyof typeof LABS_FLAGS;
