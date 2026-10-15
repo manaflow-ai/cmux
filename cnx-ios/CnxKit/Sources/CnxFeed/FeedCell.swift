@@ -365,6 +365,7 @@ struct FeedCell: View {
             Spacer()
             footerButton(copied ? "checkmark" : "doc.on.doc", "Copy") {
                 UIPasteboard.general.string = item.markdown
+                UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
                 withAnimation(.cnxSnap) { copied = true }
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))
@@ -381,7 +382,6 @@ struct FeedCell: View {
         .frame(height: 44)
         .padding(.vertical, -6)
         .padding(.trailing, 8)
-        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
 
     private func footerButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {

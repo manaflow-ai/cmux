@@ -160,10 +160,10 @@ public final class FeedStore {
         }
     }
 
-    /// Writes `next` only when it differs. `@Observable` notifies on every
-    /// write, equal or not, and the Feed re-renders on each notification: the
-    /// Mac re-reports the same history on every tree change (several a second
-    /// while an agent works), which must cost nothing.
+    /// Writes `next` only when it differs. The Mac re-reports the same
+    /// history on every tree change (several a second while an agent works),
+    /// and an in-place write (`items[i] = x`, `mutate`) notifies observers even
+    /// when nothing changed: the Feed re-rendered and re-saved for nothing.
     private func setItems(_ next: [FeedItem]) {
         if next != items { items = next }
     }
