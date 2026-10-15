@@ -315,12 +315,10 @@ public final class CEFBrowserPage: BrowserPage {
             emit(.navigationStarted(url))
         case .loadFinished:
             emit(.navigationFinished(browser.state.url))
-        case .loadFailed(let code, let message, let url, _):
-            emit(.navigationFailed(url, code: code, message: message))
-        case .newBrowser(let popup, _, _, _):
-            // Popups are not hosted yet; refuse them rather than leave a
-            // hidden page running.
-            popup.close()
+        case .loadFailed(let code, let message, let url, let chromiumInterstitial):
+            emit(.navigationFailed(url, code: code, message: message, showsEngineErrorPage: chromiumInterstitial))
+        case .newBrowser(let popup, let disposition, let features, let userGesture):
+            handleNewBrowser(popup, disposition: disposition, features: features, userGesture: userGesture)
         case .closeRequested:
             emit(.closeRequested)
         case .closed:
@@ -348,6 +346,34 @@ public final class CEFBrowserPage: BrowserPage {
             emit(.unresponsiveChanged(false))
         default:
             break
+        }
+    }
+
+    /// A tab or popup Chromium created for this page (target=_blank,
+    /// `window.open`). It already lives in this page's Chromium window with
+    /// `window.opener` intact; the UI delegate hosts it or it closes.
+    private func handleNewBrowser(_ popup: CEFBrowser, disposition: CEFDisposition, features: CGRect?, userGesture: Bool) {
+        let route = ChromiumWindowOpenRoute.route(
+            disposition: ChromiumWindowOpenDisposition(raw: Int(disposition.rawValue)),
+            hasWindowFeatures: features != nil,
+            userGesture: userGesture,
+            hasOpener: true,
+            hasURL: popup.state.url != nil
+        )
+        guard let uiDelegate,
+              let placement = route.openRequestPlacement(
+                  width: features.map { Double($0.width) },
+                  height: features.map { Double($0.height) }
+              ) else {
+            popup.close()
+            return
+        }
+        let request = BrowserPageOpenRequest(url: popup.state.url, placement: placement, isUserGesture: userGesture)
+        switch uiDelegate.page(self, openNewPage: request) {
+        case .allowPopup:
+            uiDelegate.page(self, didCreatePopup: CEFBrowserPage(browser: popup), for: request)
+        case .handled, .block:
+            popup.close()
         }
     }
 
