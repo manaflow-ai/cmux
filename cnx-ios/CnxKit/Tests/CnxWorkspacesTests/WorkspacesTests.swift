@@ -78,8 +78,7 @@ import SwiftUI
         #expect(source.pendingTabTitle == nil)
         #expect(source.openedTab == nil)
         #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
-        #expect(source.toastText?.hasPrefix("Update cmux on") == true)
-        #expect(source.toastText?.hasSuffix("to start agent chats in this folder from your iPhone.") == true)
+        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone yet.") == true)
     }
 
     /// User report 2026-10-14: GUI sessions must open model-agnostic, as the Mac's New Agent

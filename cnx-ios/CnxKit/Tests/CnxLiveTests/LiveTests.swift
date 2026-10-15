@@ -550,7 +550,8 @@ private struct LinkOf: MacLinkDialer {
         let log = CommandLog()
         let (store, creator, _) = try await connected(false, log)
         // Recent Directories (the Mac's workspace folders, opened with cd); no agent workspaces.
-        #expect(creator.options(on: "m") == WorkspaceCreationOptions(directories: true, browser: true))
+        #expect(creator.options(on: "m") == WorkspaceCreationOptions(directories: true, browser: true, tapUsesLastDirectory: false))
+        #expect(creator.defaultDirectory(on: "m") == nil)
         let placeholder = try #require(creator.create())
         #expect(store.isPending(placeholder.id))
         await creator.settle()

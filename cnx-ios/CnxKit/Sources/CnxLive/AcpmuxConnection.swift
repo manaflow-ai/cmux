@@ -147,7 +147,9 @@ public actor AcpmuxConnection {
         /// The message once complete, else nil (waiting, or a frame that was dropped).
         mutating func push(_ frame: Data) -> JSONValue? {
             pending.append(frame)
-            if let value = Self.decode(pending) {
+            // A whole JSON message ends with `}` or `]` (acpmux sends objects): parse only
+            // then, so a large message is not parsed again on each of its chunks.
+            if Self.mayEnd(pending), let value = Self.decode(pending) {
                 pending = Data()
                 return value
             }
@@ -156,7 +158,12 @@ public actor AcpmuxConnection {
             }
             let stale = pending.count > frame.count
             pending = Data()
-            return stale ? Self.decode(frame) : nil
+            return stale && Self.mayEnd(frame) ? Self.decode(frame) : nil
+        }
+
+        private static func mayEnd(_ data: Data) -> Bool {
+            guard let last = data.last(where: { !($0 == 0x20 || $0 == 0x0a || $0 == 0x0d || $0 == 0x09) }) else { return false }
+            return last == UInt8(ascii: "}") || last == UInt8(ascii: "]")
         }
 
         private static func decode(_ data: Data) -> JSONValue? {

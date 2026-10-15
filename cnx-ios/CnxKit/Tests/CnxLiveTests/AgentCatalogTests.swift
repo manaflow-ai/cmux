@@ -84,6 +84,13 @@ import Testing
         #expect(catalog.resolve(AgentChatStart(harness: "gemini")) == nil)
     }
 
+    /// acpmux refuses a profile that runs Codex under another family name.
+    @Test func aRenamedCodexIsStillRefused() throws {
+        let reply = try json(#"{"harnesses": {"mine": {"argv": ["npx", "-y", "@agentclientprotocol/codex-acp@1.10.0"], "family": "mine"}, "claude": {"argv": ["claude"], "family": "claude"}}}"#)
+        #expect(AgentCatalog(harnesses: reply).harness("mine")?.unavailableReason == AgentCatalog.refusedReason)
+        #expect(AgentCatalog(harnesses: reply).harness("claude")?.canStart == true)
+    }
+
     @Test func nothingStartable() throws {
         let only = try json(#"{"defaultHarness": "codex", "harnesses": {"codex": {"argv": ["codex-acp"]}, "opencode": {"argv": ["opencode", "acp"], "family": "opencode"}}}"#)
         let catalog = AgentCatalog(harnesses: only)
@@ -104,11 +111,32 @@ import Testing
         #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("/x\nrm -rf ~") == nil)
     }
 
+    /// Review 2026-10-15: the line is typed into a shell, whose line editor acts on control
+    /// characters even inside quotes (DEL erases the quote, ^U the line), and fish reads `\'`
+    /// inside single quotes. Such folders are never typed.
+    @Test func foldersThatCouldEditTheLineAreNeverTyped() {
+        for name in ["/tmp/x\u{7f}\u{7f} rm -rf ~ #", "/tmp/a\u{15}b", "/tmp/a\tb", "/tmp/a\u{1b}[Ab", "/tmp/a\\'b",
+                     "/tmp/trailing\\", "/tmp/bang!", "/tmp/a\u{200b}b", "/tmp/a\u{2028}b"] {
+            #expect(LiveWorkspaceCreationBackend.changeDirectoryLine(name) == nil, "\(name.debugDescription)")
+        }
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("/tmp/plain dir (2)") == "cd '/tmp/plain dir (2)' && clear\n")
+    }
+
+    /// Review 2026-10-15: `move-tab`'s index is an insertion point (the daemon uses index - 1
+    /// past the tab's own place), and a drag never moves a tab into another pane.
+    @Test func moveIndexes() {
+        let at = { (pane: Int, index: Int) in DaemonTree.TabPlace(pane: pane, index: index) }
+        #expect(LiveWorkspaceCreationBackend.moveIndex(from: at(1, 0), to: at(1, 2)) == 3)
+        #expect(LiveWorkspaceCreationBackend.moveIndex(from: at(1, 0), to: at(1, 1)) == 2)
+        #expect(LiveWorkspaceCreationBackend.moveIndex(from: at(1, 2), to: at(1, 0)) == 0)
+        #expect(LiveWorkspaceCreationBackend.moveIndex(from: at(1, 0), to: at(2, 0)) == nil)
+    }
+
     @Test func homeAndAboveAreNoProject() {
         for path in ["/", "/Users", "/Users/aziz", "/Users/aziz/", "/var/root"] {
             #expect(LiveWorkspaceCreationBackend.isHomeOrAbove(path), "\(path)")
         }
-        for path in ["/Users/aziz/Projects/mario", "/tmp/x", "/Volumes/work"] {
+        for path in ["/Users/aziz/Projects/mario", "/tmp/x", "/Volumes/work", "/Users/Shared"] {
             #expect(!LiveWorkspaceCreationBackend.isHomeOrAbove(path), "\(path)")
         }
     }

@@ -41,7 +41,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// the new workspace's terminal changes to it with `cd`, as the person would type, since
     /// the phone never sends a working directory (`cwd`) to the daemon.
     public func options(on macID: String) -> WorkspaceCreationOptions {
-        WorkspaceCreationOptions(directories: true, agents: [], browser: true, cloneFromGit: false)
+        // A plain tap opens at the Mac's default folder, as its New Workspace does.
+        WorkspaceCreationOptions(directories: true, agents: [], browser: true, cloneFromGit: false, tapUsesLastDirectory: false)
     }
 
     /// The line the new terminal runs for `directory` ("~/x" or "/x"): `cd` to it, then a
@@ -49,7 +50,14 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     nonisolated static func changeDirectoryLine(_ directory: String) -> String? {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "~", trimmed != "~/" else { return nil }
-        guard !trimmed.contains(where: { $0.isNewline || $0 == "\u{0}" }) else { return nil }
+        // The line is typed into a real shell: a character its line editor acts on (control
+        // and format characters, DEL), a backslash (fish quotes) or `!` (csh history) could
+        // edit the line or leave the quotes, so such a folder is never typed.
+        guard !trimmed.unicodeScalars.contains(where: { scalar in
+            scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format
+                || scalar == "\\" || scalar == "!" || scalar.value == 0x7f
+                || scalar.properties.generalCategory == .lineSeparator || scalar.properties.generalCategory == .paragraphSeparator
+        }) else { return nil }
         func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         if trimmed.hasPrefix("~/") { return "cd ~/\(quoted(String(trimmed.dropFirst(2)))) && clear\n" }
         guard trimmed.hasPrefix("/") else { return nil }
@@ -222,7 +230,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             reply = try await acpmux.request("session/new", .object([
                 "cwd": .string(cwd), "mcpServers": .array([]),
                 "_meta": .object(["acpmux": .object(["harness": .string(choice.id), "policy": .string("ask")])]),
-            ]))
+            ]), timeout: .seconds(90))
         } catch let error as AcpmuxConnection.RPCError where error.reason == "trust.pending" || error.reason == "trust.untrusted" {
             // acpmux asks the person to trust a new folder, and only on the Mac (a phone may
             // not answer: `acp.trust.set` is refused remotely). Claude's own trust answer counts too.
@@ -240,7 +248,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         if let model {
             // The chat stands on the harness's default model if the Mac refuses this one.
             do {
-                _ = try await acpmux.request("session/set_model", .object(["sessionId": .string(session), "modelId": .string(model)]))
+                _ = try await acpmux.request("session/set_model", .object(["sessionId": .string(session), "modelId": .string(model)]),
+                                             timeout: .seconds(20))
             } catch {
                 creationLog.error("set_model \(model, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
             }
@@ -254,7 +263,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         let parts = path.split(separator: "/").map(String.init)
         if parts.isEmpty { return true }
         if parts == ["var", "root"] || parts == ["var"] { return true }
-        return parts.first == "Users" && parts.count <= 2
+        return parts.first == "Users" && parts.count <= 2 && parts.last != "Shared"
     }
 
     /// `close-surface` on the Mac, then a fresh list.
@@ -317,12 +326,26 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     }
 
     /// `move-tab {surface, pane, index}`: to the target's pane and place.
+    /// Within the tab's own pane only: a drag onto a tab of another pane would move it into
+    /// that pane (and could close a split), a layout change, not a reorder.
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         let (client, surface) = try self.target(tab, in: workspace)
-        guard let place = sync.tree?.tabPlaces[target.id] else {
+        guard let from = sync.tree?.tabPlaces[tab.id], let to = sync.tree?.tabPlaces[target.id] else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")
         }
-        try await run(client, "move-tab", ["surface": surface, "pane": place.pane, "index": place.index])
+        guard let index = Self.moveIndex(from: from, to: to) else {
+            throw WorkspaceCreationError("These tabs are in different panes on the Mac. Move tabs between panes there.",
+                                         isForPerson: true)
+        }
+        try await run(client, "move-tab", ["surface": surface, "pane": to.pane, "index": index])
+    }
+
+    /// `move-tab`'s `index` is an insertion point in the pane's current list (the daemon uses
+    /// `index - 1` past the tab's own place), so a forward move to the target's place sends
+    /// one more. Nil across panes.
+    nonisolated static func moveIndex(from: DaemonTree.TabPlace, to: DaemonTree.TabPlace) -> Int? {
+        guard from.pane == to.pane else { return nil }
+        return to.index > from.index ? to.index + 1 : to.index
     }
 
     private func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {

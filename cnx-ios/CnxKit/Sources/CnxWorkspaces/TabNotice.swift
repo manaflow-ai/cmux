@@ -59,9 +59,8 @@ public struct TabNotice: Equatable, Sendable {
             let (isAgent, thing) = subject(ofOption: optionTitle)
             switch cause {
             case .folderNotAllowed:
-                // The phone only asks for a folder of a tab the person has open there; a
-                // Mac that refuses it predates agent chats in workspace folders.
-                if isAgent { return "Update cmux on \(macName) to start agent chats in this folder from your iPhone." }
+                // An older Mac, a folder acpmux has not been told of yet, or a symlink out.
+                if isAgent { return "\(macName) doesn't allow agent chats in this folder from your iPhone yet." }
                 return "Can't open \(thing) in this folder from your iPhone yet."
             case .offline: return "Connect to \(macName) first."
             case .gone: return "This workspace is no longer on \(macName)."

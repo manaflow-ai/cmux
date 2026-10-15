@@ -26,7 +26,10 @@ final class CnxApproverSync {
     /// The folders of this Mac's workspaces a phone may start agent chats in
     /// (`_acpmux/workspace_roots_set`); nil until the first update.
     private var workspaceRoots: [String]?
-    private var needed: Bool { hasApprovers || workspaceRoots?.isEmpty == false }
+    /// acpmux may still hold folders this sync sent: an empty list must reach it once,
+    /// even with no approvers and no folders left (iPhone connections turned off).
+    private var rootsClearPending = false
+    private var needed: Bool { hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending }
     private var nextID = 10
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.approvers")
 
@@ -54,6 +57,7 @@ final class CnxApproverSync {
     /// guards: never `/`, the home folder or above it; symlinks resolved.
     func updateWorkspaceRoots(_ roots: [String]) {
         guard roots != workspaceRoots else { return }
+        if roots.isEmpty, workspaceRoots?.isEmpty == false { rootsClearPending = true }
         workspaceRoots = roots
         if proven {
             sendRoots()
@@ -137,6 +141,7 @@ final class CnxApproverSync {
         guard let connection, proven, let workspaceRoots else { return }
         nextID += 1
         connection.send(Self.frame(id: nextID, method: "_acpmux/workspace_roots_set", params: ["roots": workspaceRoots]))
+        if workspaceRoots.isEmpty { rootsClearPending = false }
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {

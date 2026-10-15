@@ -548,6 +548,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             openedTab = copy.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
             show(named(error.message))
+            CnxTheme.standard.haptics.error()
         } catch {
             show(TabNotice(action: .open(optionTitle: "New \(tab.kind == .browser ? "Browser Tab" : "Terminal")"), macName: macName,
                            reason: Self.message(error)))
@@ -571,7 +572,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 try await creator.backend.moveTab(tab, to: target, in: workspace)
             } catch {
                 self.store.moveTab(id, in: self.workspaceID, to: from)
-                self.show(TabNotice(action: .move(title: tab.title), macName: self.macName, reason: Self.message(error)))
+                if let error = error as? WorkspaceCreationError, error.isForPerson {
+                    self.show(self.named(error.message))
+                } else {
+                    self.show(TabNotice(action: .move(title: tab.title), macName: self.macName, reason: Self.message(error)))
+                }
             }
         }
     }

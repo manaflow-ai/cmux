@@ -36,12 +36,16 @@ public struct WorkspaceCreationOptions: Hashable, Sendable {
     public var browser: Bool
     /// Clone a git repository into the new workspace.
     public var cloneFromGit: Bool
+    /// A plain tap reuses the last directory used here (else the Mac's default folder).
+    public var tapUsesLastDirectory: Bool
 
-    public init(directories: Bool = false, agents: [String] = [], browser: Bool = false, cloneFromGit: Bool = false) {
+    public init(directories: Bool = false, agents: [String] = [], browser: Bool = false, cloneFromGit: Bool = false,
+                tapUsesLastDirectory: Bool = true) {
         self.directories = directories
         self.agents = agents
         self.browser = browser
         self.cloneFromGit = cloneFromGit
+        self.tapUsesLastDirectory = tapUsesLastDirectory
     }
 
     /// Only the default (a terminal in the Mac's home).
@@ -109,7 +113,7 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// Whether tabs can be renamed, duplicated and moved on `macID` now.
     func canEditTabs(on macID: String) -> Bool
-    /// Renames a tab on the Mac (empty: the Mac's own label again).
+    /// Renames a tab on the Mac (the phone never sends an empty name).
     func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws
     /// Opens a copy of a tab next to it on the Mac (a terminal in its pane's folder,
     /// the same page in a browser tab) and returns it once the Mac lists it.
@@ -251,7 +255,8 @@ public final class WorkspaceCreator {
     /// The directory a plain tap uses: the last one used on that Mac, else
     /// its home. Nil when the Mac picks (the backend cannot choose).
     public func defaultDirectory(on macID: String) -> String? {
-        guard options(on: macID).directories else { return nil }
+        let options = options(on: macID)
+        guard options.directories, options.tapUsesLastDirectory else { return nil }
         return recents.load(macID: macID).first ?? "~"
     }
 

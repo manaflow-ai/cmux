@@ -29,7 +29,13 @@ extension AgentCatalog {
         for (id, entry) in entries {
             if entry["kind"]?.stringValue == "terminal" { continue }
             let family = entry["family"]?.stringValue ?? id
-            let reason: String? = if Self.refusedFamilies.contains(family) {
+            // acpmux also refuses a profile whose command runs Codex or opencode under
+            // another family name (`web_modes.rs` `refused_families`).
+            let runsRefused = (entry["argv"]?.arrayValue ?? []).compactMap(\.stringValue).contains { arg in
+                let name = (arg as NSString).lastPathComponent.lowercased()
+                return Self.refusedFamilies.contains { name.hasPrefix($0) } || arg.contains("codex-acp")
+            }
+            let reason: String? = if Self.refusedFamilies.contains(family) || runsRefused {
                 Self.refusedReason
             } else {
                 Self.launcherReason(entry["unavailable"])
