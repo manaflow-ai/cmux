@@ -36,7 +36,7 @@
 :root[data-settings-look="dense"] {
   --row-pad-y: 2px;
   --row-pad-x: 2px;
-  --row-min: 26px;
+  --row-min: calc(26px * var(--settings-scale));
   --card-radius: 0;
   --sidebar-width: 188px;
   font-size: calc(12px * var(--settings-scale));

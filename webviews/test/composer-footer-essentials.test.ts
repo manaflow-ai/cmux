@@ -75,7 +75,11 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
   test("the bar and scope row show the essentials; titles keep the full text", async () => {
     const page = await open("agent-pane.composer", "footer-essentials");
     const model = await read(page, ".acpmux-model .acpmux-picker-button");
-    expect({ visible: model?.visible, title: model?.title }).toEqual({ visible: "Opus 5.5", title: "Claude Opus 5.5" });
+    // The title leads with the full name; usage may follow it (" · 0% of context used").
+    expect({ visible: model?.visible, title: model?.title.split(" · ")[0] }).toEqual({
+      visible: "Opus 5.5",
+      title: "Claude Opus 5.5",
+    });
     const access = await read(page, ".acpmux-access-trigger");
     expect(access?.visible).toBe("");
     expect(access?.title).toContain("Default");

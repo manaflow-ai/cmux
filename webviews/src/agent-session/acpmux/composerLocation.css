@@ -73,6 +73,9 @@
 }
 .acpmux-location-button {
   --ui-ghost-end-bearing: 4px;
+  /* The composer's text is on the one type scale (regular or emphasis), not the shared ghost
+     button's medium label weight. */
+  font-weight: var(--weight-regular);
 }
 .acpmux-location-readonly {
   gap: 4px;
