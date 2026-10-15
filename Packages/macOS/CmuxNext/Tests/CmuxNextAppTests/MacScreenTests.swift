@@ -555,3 +555,17 @@ struct MacScreenPaneConnectTests {
         pane.close()
     }
 }
+
+/// The connecting card says "Reconnecting…" only after the tab has shown
+/// the Mac once: every connect retries now, so the session's reconnecting
+/// flag is set on a first connect too.
+struct MacScreenConnectingCardTests {
+    @Test func firstConnectSaysConnecting() {
+        #expect(MacScreenPaneModel.connectingCard(isReconnecting: true, everConnected: false) == .connecting(reconnecting: false))
+        #expect(MacScreenPaneModel.connectingCard(isReconnecting: false, everConnected: false) == .connecting(reconnecting: false))
+    }
+
+    @Test func aDroppedStreamSaysReconnecting() {
+        #expect(MacScreenPaneModel.connectingCard(isReconnecting: true, everConnected: true) == .connecting(reconnecting: true))
+    }
+}

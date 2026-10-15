@@ -90,11 +90,15 @@ extension MacScreenPaneModel {
         }
         guard let session else { return .missing }
         switch session.phase {
-        case .connecting: return .connecting(reconnecting: session.isReconnecting)
+        case .connecting: return Self.connectingCard(isReconnecting: session.isReconnecting, everConnected: everConnected)
         case .connected: return hasFrame ? nil : .waitingForPicture
         case .failed: return .failed
         case .ended: return .ended
         }
+    }
+
+    static func connectingCard(isReconnecting: Bool, everConnected: Bool) -> MacScreenCard {
+        .connecting(reconnecting: isReconnecting)
     }
 
     var isLive: Bool {

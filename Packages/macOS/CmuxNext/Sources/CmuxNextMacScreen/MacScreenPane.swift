@@ -25,6 +25,8 @@ public final class MacScreenPaneModel {
     public internal(set) var currentDisplay = 0
     /// A picture arrived in this connection.
     public internal(set) var hasFrame = false
+    /// This tab has shown the Mac at least once (its connecting card then says Reconnecting).
+    public internal(set) var everConnected = false
     /// The screen has the keyboard (control mode).
     public internal(set) var capturesKeyboard = false
     /// DEV builds: the stream uses the TURN relay only (checks the relay path).
@@ -168,6 +170,7 @@ public final class MacScreenPane {
                 if case .connected = session.phase {
                     if !wasConnected { handlers.connected(session.preferences) }
                     wasConnected = true
+                    model.everConnected = true
                 } else {
                     wasConnected = false
                     model.hasFrame = false
