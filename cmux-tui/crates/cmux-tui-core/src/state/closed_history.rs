@@ -13,11 +13,12 @@
 //! request's result, so a retry with the same key replays it.
 
 use crate::Actor;
-use crate::mux::tab_groups::pane_by_public_id;
+use crate::mux::tab_groups::{group_members, pane_by_public_id};
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
 use crate::state::closed_history_query::{
-    closed_record, keep_members, newest_for_window, remove_closed,
+    closed_page, closed_record, keep_members, newest_for_window, public_item, remove_closed,
+    remove_other_closes,
 };
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::conversation_tabs::ConversationTabTarget;
@@ -140,8 +141,15 @@ fn commit_reopen(
     let tab_group = ["tab_group", "screen_group"]
         .iter()
         .any(|field| record.get(*field).is_some_and(Value::is_object));
+    // A page reopened is open again: every other close of it leaves with this one, so none
+    // takes its Recently Closed row or reopens it a second time (Leo 2026-10-14).
+    let page = if tab_group { None } else { closed_page(&public_item(&record)).map(str::to_owned) };
+    let mut others = Vec::new();
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
+        if let Some(page) = &page {
+            others = remove_other_closes(transaction, page)?;
+        }
         state_delete("closed", closed_id)
     } else {
         state_upsert("closed", closed_id, keep_members(transaction, closed_id, record, keep)?)
@@ -160,6 +168,7 @@ fn commit_reopen(
         })
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
+    changes.extend(others);
     let room_restored = match &room {
         Some(room) => {
             let local = crate::state::values::local_registry_id(transaction)?;
@@ -282,11 +291,18 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
-        if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
-            // A closed group (Close Group) names its closed tabs: it forms
-            // again around those this reopen brought back.
+        // An ungrouped group (`tab_group`, no member) forms again whole. The
+        // groups a close took (`tab_groups`; `tab_group` on a Close Group
+        // recorded before cx-gzh.31) name their closed tabs: each forms
+        // again around those this reopen brought back.
+        let closed = !restore.is_empty();
+        let groups = record
+            .get("tab_group")
+            .filter(|group| group.is_object())
+            .into_iter()
+            .chain(record["tab_groups"].as_array().into_iter().flatten());
+        for group in groups {
             let mut group = group.clone();
-            let closed = !restore.is_empty();
             if closed {
                 let tabs = group["tab_ids"]
                     .as_array()
@@ -294,6 +310,9 @@ impl Mux {
                     .flatten()
                     .filter_map(|tab| reopened.reopened_as.get(tab.as_str()?).cloned())
                     .collect::<Vec<_>>();
+                if tabs.is_empty() {
+                    continue;
+                }
                 group["tab_ids"] = serde_json::json!(tabs);
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
@@ -360,7 +379,10 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
         let presentation = self.presentation_snapshot();
-        let live = presentation.tab_groups.groups.contains_key(&id);
+        // A group row a close left behind (no strip edit pruned it yet)
+        // holds no open tab: it is not live, and forms again.
+        let live = self
+            .with_state(|state| !group_members(state, &presentation.tab_groups, &id).is_empty());
         if !live || closed {
             let wanted = archive["tab_ids"]
                 .as_array()
@@ -403,12 +425,7 @@ impl Mux {
                 return Ok(());
             }
             if live {
-                self.tab_group_add(
-                    StripRequest::local(actor, "closed.reopen"),
-                    &id,
-                    move |_| Ok(members),
-                    None,
-                )?;
+                self.rejoin_closed_tab_group(actor, &id, members)?;
             } else {
                 self.tab_group_create(
                     StripRequest::local(actor, "closed.reopen"),
@@ -418,6 +435,9 @@ impl Mux {
                     id.clone(),
                     archive["icon"].as_str().map(str::to_string),
                 )?;
+                if let Some(saved) = archive["saved_id"].as_str() {
+                    self.relink_saved_tab_group(actor, &id, saved)?;
+                }
             }
         }
         let outcome = self.tab_group_outcome(&id);

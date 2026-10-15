@@ -41,6 +41,11 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
+    public var animationBounce: MotionBounce = .none
+    /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
+    /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
+    public var enabledAnimations: Set<MotionKind> = [.newTab]
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); off by default.
     public var paneAnimations = false
@@ -89,9 +94,24 @@ public final class DesignSettings {
     public var statusIndicator = StatusIndicatorSettings()
     /// cmux's terminal font override (`terminal.fontFamily` in cmux.json),
     /// so chrome that imitates the terminal (the braille status indicator)
-    /// draws in it. Nil (no override; a font set only in the Ghostty config
-    /// is not read) uses the system monospaced font.
-    public var terminalFontFamily: String?
+    /// draws in it. Nil (no override) uses the system monospaced font there;
+    /// pages use `effectiveTerminalFontFamily`, which also reads the Ghostty config.
+    public var terminalFontFamily: String? {
+        didSet { repaintIfTerminalFaceChanged(from: oldValue ?? terminalConfigFontFamily) }
+    }
+    /// The Ghostty config files' own `font-family` (`GhosttyConfigFontFamily`), the terminal's
+    /// face when cmux.json sets none.
+    public var terminalConfigFontFamily: String? {
+        didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
+    }
+    /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
+    /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
+    public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
+    /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
+    /// repaints, so every page resends its theme.
+    private func repaintIfTerminalFaceChanged(from before: String?) {
+        if effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
+    }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or

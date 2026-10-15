@@ -8,6 +8,7 @@ Behaviour per prompt text:
   "slow"       -> streams three chunks with delays, honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
+  "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
@@ -444,6 +445,11 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
         return
     # "meta: X" sends a chunk whose notification carries the agent's own _meta.
+    # "harness-title: X" titles the session itself, as Codex does.
+    if text.startswith("harness-title:"):
+        update(sid, {"sessionUpdate": "session_info_update", "title": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("meta:"):
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text[5:].strip()}}, "_meta": {"fake": {"n": 1}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "_meta": {"fake": {"done": True}}}})
@@ -535,6 +541,14 @@ def handle_prompt(rid, params):
                 send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
                 return
             time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "deaf-to-cancel" streams "running" and never takes a cancel: an agent
+    # that is idle as far as it knows while acpmux's turn is still open.
+    if text == "deaf-to-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        time.sleep(20)
+        cancelled.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "answer-then-exit" answers, then the agent exits between turns.

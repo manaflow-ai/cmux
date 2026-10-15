@@ -95,6 +95,9 @@ extension SettingsSchema {
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        "ui.animations.newTab",
+        "ui.animations.newWorkspace",
+        "ui.animations.bounce",
         "ui.paneAnimations",
         "layout.panePadding",
         "layout.paneCornerRadius",
@@ -158,6 +161,7 @@ extension SettingsSchema {
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
+        "labs.classicHome",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -189,6 +193,8 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Off, Chromium tabs load ads and trackers again.
+        "browser.builtInAdBlocker": .privacy,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
