@@ -6,8 +6,9 @@ import AppKit
 /// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
 /// at Messages' places: the 40 pt avatar 8 pt from the top, and the glass
 /// capsule name pill (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron)
-/// whose drawn capsule spans 44-71 pt (baseline ref/real-bubble-stills-2x.png:
-/// the pill's rim rows at 88 and 142 px). The disc overlaps the pill's top
+/// whose capsule, rim included, spans 44-72 pt (centre 58) as Messages'
+/// (round 6 capture: the same pixel procedure on baseline
+/// ref/real-bubble-stills-2x.png and on ours). The disc overlaps the pill's top
 /// (disc 8-48 pt) and draws over it, whole, as in Messages (the white disc
 /// covers the pill's top edge); the pill takes the clicks where they overlap.
 /// No band, no edge line, no video button (Home has no calls).
@@ -33,9 +34,11 @@ final class PaneHeaderView: NSView {
     static let avatarSize: CGFloat = 40
     static let avatarTop: CGFloat = 8
     /// HeaderBar: Messages' pill center, 58 pt from the window top.
-    /// The drawn capsule's centre and height (Messages: 44-71 pt).
-    static let pillCenterY: CGFloat = 57.5
-    static let pillHeight: CGFloat = 27
+    /// The capsule's body (the rect the backing fills and the clicks use): AppKit's glass draws its rim
+    /// 2 pt above and 1 pt below the body (round 6: a 44-71 body measured 42-72), so a 46-71 body gives
+    /// Messages' measured 44-72 (centre 58).
+    static let pillCenterY: CGFloat = 58.5
+    static let pillHeight: CGFloat = 25
     /// AppKit's glass button draws its capsule this far inside its frame, top and bottom
     /// (round 4 and 5 captures: a 28 pt frame at 44-72 pt drew its rim at 47-69 pt), so
     /// the frame is the drawn capsule outset by it.
