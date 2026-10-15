@@ -48,8 +48,9 @@ public struct TerminalPresentMatch: Equatable, Sendable {
     /// report, a fallback).
     public func match(previous: [UInt64], current: [UInt64]) -> (top: Int, matched: Bool) {
         var best: (shift: Int, score: Double)?
+        let blank = Self.mostCommon(current)
         for shift in candidateShifts {
-            let score = Self.score(previous, current, shift: shift)
+            let score = Self.score(previous, current, shift: shift, blank: blank)
             if score > (best?.score ?? -1) + 0.02 { best = (shift, score) }
         }
         if let best, best.score >= 0.9 { return (presentedTop + best.shift, true) }
@@ -78,22 +79,48 @@ public struct TerminalPresentMatch: Equatable, Sendable {
 
     /// Fraction of the new frame's non-blank rows equal to the previous
     /// frame's rows `shift` further down (1 = the same picture moved by `shift`).
+    /// Rows can be `unread` (outside the read band): they are never compared.
     public static func score(_ previous: [UInt64], _ current: [UInt64], shift: Int) -> Double {
-        let blank = current.isEmpty ? 0 : mostCommon(current)
+        score(previous, current, shift: shift, blank: mostCommon(current))
+    }
+
+    static func score(_ previous: [UInt64], _ current: [UInt64], shift: Int, blank: UInt64) -> Double {
         var compared = 0, equal = 0
         for index in current.indices {
             let other = index + shift
-            guard other >= 0, other < previous.count, current[index] != blank else { continue }
+            guard other >= 0, other < previous.count else { continue }
+            let value = current[index]
+            guard value != blank, value != unread, previous[other] != unread else { continue }
             compared += 1
-            if previous[other] == current[index] { equal += 1 }
+            if previous[other] == value { equal += 1 }
         }
         return compared < 4 ? -1 : Double(equal) / Double(compared)
     }
 
+    /// A row outside the read band (`TerminalSurfaceView.presentedRowSignatures`).
+    public static let unread: UInt64 = 0
+
+    /// The surface rows a present reads while following: the rows on screen
+    /// and `margin` rows on each side (a frame shifted by new output or a
+    /// stale frame a few rows off still overlaps it), clamped to the surface.
+    public static func readBand(visible: Range<Int>, rowCount: Int, margin: Int) -> Range<Int> {
+        let lower = max(0, min(rowCount, visible.lowerBound - margin))
+        let upper = max(lower, min(rowCount, visible.upperBound + margin))
+        return lower..<upper
+    }
+
     private static func mostCommon(_ values: [UInt64]) -> UInt64 {
-        var counts: [UInt64: Int] = [:]
-        for value in values { counts[value, default: 0] += 1 }
-        return counts.max { $0.value < $1.value }?.key ?? 0
+        // The blank row: the most common read value (unread rows excluded).
+        // Sorted runs, no dictionary: this runs for every presented frame.
+        var sorted = values.filter { $0 != unread }
+        guard !sorted.isEmpty else { return unread }
+        sorted.sort()
+        var best = sorted[0], bestCount = 0, run = 0
+        for index in sorted.indices {
+            run = index > 0 && sorted[index] == sorted[index - 1] ? run + 1 : 1
+            if run > bestCount { bestCount = run; best = sorted[index] }
+        }
+        return best
     }
 }
 

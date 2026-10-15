@@ -415,7 +415,9 @@ final class TerminalSurfaceView: UIView {
     /// the glyphs, every third pixel. The screen matches consecutive frames'
     /// rows to learn which viewport a frame shows, whatever order Ghostty's
     /// frames and reports arrive in.
-    func presentedRowSignatures(rowHeight: Int) -> [UInt64]? {
+    /// `band`: only these rows are read; the others are
+    /// `TerminalPresentMatch.unread` (following reads the rows on screen).
+    func presentedRowSignatures(rowHeight: Int, band: Range<Int>? = nil) -> [UInt64]? {
         guard rowHeight > 2, let contents = layer.sublayers?.first?.contents else { return nil }
         let surface = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
         guard CFGetTypeID(surface) == IOSurfaceGetTypeID() else { return nil }
@@ -428,7 +430,8 @@ final class TerminalSurfaceView: UIView {
         let width = IOSurfaceGetWidth(surface)
         let height = IOSurfaceGetHeight(surface)
         let rows = height / rowHeight
-        var result = [UInt64](repeating: 0, count: rows)
+        var result = [UInt64](repeating: TerminalPresentMatch.unread, count: rows)
+        let read = band.map { $0.clamped(to: 0..<rows) } ?? 0..<rows
         // Pointer walk, no allocation per row: this runs for every presented
         // frame on the main thread. Same samples and hash as before: green
         // channel high nibble, every third pixel, two lines per row.
@@ -444,11 +447,11 @@ final class TerminalSurfaceView: UIView {
             }
         }
         result.withUnsafeMutableBufferPointer { out in
-            for row in 0..<rows {
+            for row in read {
                 var hash: UInt64 = 0xcbf2_9ce4_8422_2325
                 sample(row * rowHeight + rowHeight / 2, into: &hash)
                 sample(row * rowHeight + rowHeight * 3 / 4, into: &hash)
-                out[row] = hash
+                out[row] = hash == TerminalPresentMatch.unread ? 1 : hash
             }
         }
         return result

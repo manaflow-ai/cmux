@@ -1395,7 +1395,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             #if DEBUG
             presentDebug = " steady"
             #endif
-        } else if let rows = measured("present-read", { surface.presentedRowSignatures(rowHeight: rowPixels) }) {
+        } else if let rows = measured("present-read", { surface.presentedRowSignatures(rowHeight: rowPixels, band: presentReadBand) }) {
             steadyViewport = nil
             if let previous = presentedRows {
                 let result = match.match(previous: previous, current: rows)
@@ -1418,6 +1418,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         place(atRow: placesFromReport ? scrollbar.offset : top)
         if followAwaitsPresent { applyScroll() }
     }
+
+    /// While following, a present reads only the rows on screen and 16 rows
+    /// on each side (round 7: the full 151-row read cost p99 3.36 ms a
+    /// frame). Every other phase reads the whole frame. `-CnxFullPresentRead`
+    /// for A/B.
+    private var presentReadBand: Range<Int>? {
+        guard following, !scroll.isInteracting, cell.height > 0, surfaceRows > 0,
+              !Self.fullPresentRead else { return nil }
+        let visibleTop = scrollView.contentOffset.y - surface.frame.minY
+        let first = Int(floor(visibleTop / cell.height))
+        let last = Int(ceil((visibleTop + scrollView.bounds.height) / cell.height))
+        return TerminalPresentMatch.readBand(visible: first..<max(first, last), rowCount: surfaceRows, margin: 16)
+    }
+    private static let fullPresentRead = CommandLine.arguments.contains("-CnxFullPresentRead")
 
     /// Following output waits for the frame that shows it; if none comes
     /// within two display frames (nothing visible changed), it moves anyway.
