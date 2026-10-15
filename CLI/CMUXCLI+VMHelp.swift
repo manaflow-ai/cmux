@@ -20,6 +20,7 @@ extension CMUXCLI {
         case "run": return vmRunUsage
         case "route": return vmRouteUsage
         case "agent": return vmAgentUsage
+        case "clone", "repo": return vmCloneUsage
         case "push", "upload": return vmPushUsage
         case "pull", "download": return vmPullUsage
         case "wait": return vmWaitUsage
@@ -31,6 +32,7 @@ extension CMUXCLI {
         case "prompt", "skill": return vmPromptUsage
         case "base": return vmBaseUsage
         case "domains": return cloudDomainsUsage
+        case "secrets": return vmSecretsUsage
         default: return nil
         }
     }

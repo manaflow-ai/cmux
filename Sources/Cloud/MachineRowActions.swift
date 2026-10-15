@@ -35,6 +35,8 @@ struct MachineRowActions {
     let promptUpgrade: @MainActor () -> Void
     /// Opens the Network sheet for a machine id and its display label.
     var editNetwork: @MainActor (String, String?) -> Void = { _, _ in }
+    /// Opens Cloud Secrets for a machine id and its display label.
+    var editSecrets: @MainActor (String, String?) -> Void = { _, _ in }
     /// Turns "Keep Agents Up to Date" on or off through `cmux vm agent-updates`.
     var setAgentUpdates: @MainActor (String, Bool) -> Void = { _, _ in }
     /// Persists a pin and returns the authoritative fleet order/render state.
@@ -103,6 +105,13 @@ struct MachineRowActions {
             },
             editNetwork: { id, label in
                 CloudNetworkPolicySheetPresenter.shared.present(
+                    machineID: id,
+                    machineLabel: label,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            },
+            editSecrets: { id, label in
+                CloudSecretsSheetPresenter.shared.present(
                     machineID: id,
                     machineLabel: label,
                     preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow

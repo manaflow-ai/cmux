@@ -48,6 +48,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let mobile = MobileCatalogSection()
     /// Discovery and privacy controls for My Devices.
     public let devices = DevicesCatalogSection()
+    /// Cloud machine preferences, such as Cloud Secrets auto-sync (the `cloud.secrets.*` keys).
+    public let cloud = CloudCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
     /// Settings for custom (user/agent-authored) sidebars (the `customSidebars.*` keys).
     public let customSidebars = CustomSidebarsCatalogSection()

@@ -43,7 +43,11 @@ final class MachineDeleteCoordinator {
             )
         },
         didHide: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.detachLocalPresentations(of: $0) },
-        didRetire: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.retireLocalPresentations(of: $0) },
+        didRetire: @escaping @MainActor (String) -> Void = {
+            MachineDeleteCoordinator.retireLocalPresentations(of: $0)
+            // A destroyed machine's ledger entry and machine-scoped secrets go with it.
+            CloudSecretsService.shared.forgetMachine($0)
+        },
         didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }
     ) {
         self.destroyMachine = destroyMachine

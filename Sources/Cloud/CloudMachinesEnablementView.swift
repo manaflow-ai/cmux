@@ -152,6 +152,12 @@ struct CloudMachinesEnablementView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                Link(
+                    String(localized: "cloud.enable.learnMore", defaultValue: "How cmux Cloud works"),
+                    destination: CloudDocsLinks.overview
+                )
+                .cmuxFont(size: 11)
+                .accessibilityIdentifier("CloudMachinesEnableLearnMore")
             }
             .padding(.top, 22)
         }
@@ -328,10 +334,32 @@ struct CloudMachinesEnablementView: View {
                 retryButton(prominent: true)
             }
         case .failed(.serviceUnavailable):
-            retryButton(prominent: true)
-        case .enabled, .unavailable:
+            // Retry alone can loop; the troubleshooting page names what to check.
+            VStack(spacing: 10) {
+                retryButton(prominent: true)
+                docsLink(
+                    String(localized: "machines.listUnavailable.troubleshoot", defaultValue: "Troubleshooting"),
+                    destination: CloudDocsLinks.troubleshooting,
+                    identifier: "CloudMachinesEnableTroubleshootingLink"
+                )
+            }
+        case .unavailable:
+            // Nothing on this Mac can change the flag or policy, so the one
+            // next step is learning what Cloud is and where it is available.
+            docsLink(
+                String(localized: "cloud.security.learnMore", defaultValue: "Learn more"),
+                destination: CloudDocsLinks.overview,
+                identifier: "CloudMachinesEnableUnavailableLearnMore"
+            )
+        case .enabled:
             EmptyView()
         }
+    }
+
+    private func docsLink(_ title: String, destination: URL, identifier: String) -> some View {
+        Link(title, destination: destination)
+            .cmuxFont(size: 12)
+            .accessibilityIdentifier(identifier)
     }
 
     // MARK: Copy

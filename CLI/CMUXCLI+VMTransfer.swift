@@ -1993,6 +1993,9 @@ extension CMUXCLI {
             )
             syncedRemoteDir = remoteDir
         }
+        // Cloud Secrets first, so the agent starts with its API keys. A fast no-op when
+        // the machine is current; a failure is one warning and the agent starts anyway.
+        syncVMSecretsBeforeAgent(machine: selection.id, workDirectory: workDirectory, client: client)
         // Reported, not requested: the daemon starts the terminal in its own home and the
         // command cd's from there, so the CLI never has to know which user owns the machine.
         let remoteCwd = syncedRemoteDir.map { "~/\($0)" } ?? "~"

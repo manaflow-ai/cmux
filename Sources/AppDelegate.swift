@@ -1741,6 +1741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
         if !isRunningUnderXCTest {
             startSudoApprovalCoordinator()
+            CloudSecretsService.activateForApp()
         }
         // Prewarm the restorable-agent index (see closedPanelHistoryEntry) and the agent
         // message journal off the main thread, so the first close or command palette open
@@ -2591,6 +2592,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CloudVMActionLauncher.shared.terminateAll()
         // No Cloud session survives the app, so neither does the tunnel.
         cloudTunnelCoordinator?.appWillTerminate()
+        // Browser carriers hang in cleanup once the hub is gone, so their
+        // --exit-with-parent watch cannot end them; kill them before the hub.
+        CloudBrowserProxyQuitRegistry.shared.terminateAllForAppQuit()
         CmuxTuiSurfaceProviderRegistry.shared.terminateWireGuardHubForAppQuit()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         caffeineController.setEnabled(false)

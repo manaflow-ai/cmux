@@ -612,6 +612,34 @@ Values are sourced by every login/interactive shell on the machine (a one-line h
 
 Transport: `vm env set` uses the secret-safe receiver path rather than `vm.exec`. Values go to the app over the local socket and from there over the machine's cmux-tui link (Noise-authenticated end to end, on the private WireGuard network) into the machine's `cmux env receive`: a receiver terminal turns PTY echo off, prints `CMUX-ENV-READY`, reads base64 lines until `CMUX-ENV-END`, writes `~/.config/cmux/env` (0600), and answers `CMUX-ENV-OK keys=<n>`; the sender closes the terminal. For `--from-file` and stdin, the value is not placed in the command line, control plane, or provider API, and it is not shown on a screen or in scrollback (the daemon does not journal input). The direct `KEY=VALUE` form can appear in local shell history or process arguments, so do not use it for secrets. `ls` never prints a value without `--show`. Inside a machine, `cmux vm env set <peer> …` uses the same handshake toward a linked peer. Snapshots, forks, and templates carry the file (it lives in the work user's home): `cmux vm env rm` what must not travel before `vm promote-template`. A machine whose shim predates the verb is reported as such (reconnect: `cmux vm tree <id> --refresh`).
 
+## Cloud Secrets (API keys every machine receives)
+
+```bash
+cmux vm secrets [ls] [--scope all|project[:<key>]|machine:<id>] [--json]   # names, scopes, fingerprints; never values
+cmux vm secrets set NAME [NAME2 …] [--scope …|--project|--machine <id>] [--no-sync]
+                                                     # hidden prompt, or one value per NAME line on stdin; NAME=value in argv is refused
+cmux vm secrets import [<.env>|-] [--from-shell [NAME …]] [--gh] [--scope …] [--dry-run] [--no-sync]
+cmux vm secrets rm NAME [NAME2 …] [--scope …] [--no-sync]
+cmux vm secrets sync <id> [--project <key>|.]        # deliver now; a no-op when the machine is current
+cmux vm secrets status <id> [--verify] [--json]      # current|stale|missing|extra per name; --verify reads the machine's env names
+cmux vm secrets check [<dir>]                        # names .cmux/cloud.json `env` / devcontainer `secrets` declare vs the vault
+cmux vm secrets link|unlink <id> [--project <key>|.] # apply a project's secrets to a machine
+cmux secrets …                                       # alias of `cmux vm secrets`
+```
+
+The vault lives in this Mac's Keychain (this device only). Scopes: `all` (every machine), `project:<host/owner/repo>` (machines linked to that git remote), `machine:<id>`; the most specific wins on a name clash. Delivery uses the same end-to-end path as `vm env set` (the machine's `cmux env receive`, into `~/.config/cmux/env`), so values never pass through cmux servers; removal runs the names-only `cmux env rm`. When `GH_TOKEN` or `GITHUB_TOKEN` is delivered, git's GitHub credential helper is set to read it from the environment. New machines are synced on creation and machines already synced are updated after every change unless auto-sync is off; `vm agent` syncs its machine (linking the `--cwd` project) before the agent starts and warns instead of failing. Open a new terminal to pick up changed values.
+
+## Open a repo (`cmux vm clone`)
+
+```bash
+cmux vm clone <repo> [--machine <id>|--new] [--size <preset>] [--branch <b>] [--dir <remote-dir>] [--agent <claude|codex|opencode|pi> [-- <prompt>]] [--no-open] [--dry-run] [--json]
+cmux vm repo clone <repo> [same options]              # alias
+cmux vm clone owner/repo --agent claude -- "fix the flaky test"
+cmux vm clone .                                         # this checkout's origin remote and branch
+```
+
+`<repo>` is an https URL (also `/tree/<branch>`), `git@github.com:o/r.git`, `o/r`, or `.`. The machine is chosen like `vm agent` (sticky per repo or directory, then an idle pool machine, then a new one). Cloud Secrets sync first (`vm.secrets_sync` with the repo's project key), so a `GH_TOKEN` from `cmux vm secrets import --gh` authenticates private GitHub clones; no credential is ever in the clone command. The checkout lands in `work/<repo>`; a re-run fetches and checks out instead of cloning again. A workspace named after the repo opens with a terminal in the checkout, and `--agent` starts that agent there. Phase timings print on stderr and `Open: cmux vm open <m>/<ws>` on stdout.
+
 ## Surfaces and display
 
 A **surface** is a terminal, VNC screen, or browser on This Mac or on a machine, with a stable id `<machine>/<kind>/<key>` (`local/terminal/<uuid>`, `vivid-newt/terminal/term_2f9c…`, `vivid-newt/display/display:1`, `vivid-newt/browser/port:3000`). Panes project surfaces; closing a pane never kills a machine's terminal.
@@ -814,6 +842,9 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
 | `vm.env_set` | `vm env set` |
+| `vm.secrets_list`, `vm.secrets_set`, `vm.secrets_rm` | `vm secrets ls`, `vm secrets set` / `import` (`dry_run` for `--dry-run`), `vm secrets rm` |
+| `vm.secrets_sync`, `vm.secrets_status` | `vm secrets sync`, `vm secrets status`; `vm agent` calls `vm.secrets_sync` before launching |
+| `vm.secrets_link`, `vm.secrets_unlink`, `vm.secrets_check` | `vm secrets link`, `vm secrets unlink`, `vm secrets check` |
 | `vm.file_put` | `vm push` |
 | `vm.pause`, `vm.resume`, `vm.restart` | `vm pause`, `vm resume`, `vm restart` |
 | `vm.reflection` | `vm self` |

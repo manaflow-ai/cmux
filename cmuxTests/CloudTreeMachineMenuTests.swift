@@ -107,6 +107,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
             Self.title("machines.menu.status", "Status"),
+            Self.title("cloudSecrets.menu.machine", "Secrets\u{2026}"),
             Self.title("machines.menu.checkpoint", "Checkpoint"),
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),

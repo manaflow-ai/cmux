@@ -60,7 +60,8 @@ extension CloudTreeOutlineView.Coordinator {
             copyToPasteboard: nodeActions.copyToPasteboard,
             confirmDelete: actions.confirmDelete,
             promptUpgrade: actions.promptUpgrade,
-            fork: actions.fork
+            fork: actions.fork,
+            editSecrets: { actions.editSecrets($0.id, $0.displayName) }
         )
     }
 

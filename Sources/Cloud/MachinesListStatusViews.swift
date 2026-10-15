@@ -54,6 +54,10 @@ struct MachineListStatusPresentation {
     /// screen. It names the same cause as `title`, so a 401 and a 402 do not
     /// both read "unavailable" with no way to act. nil keeps the plain title.
     let staleTitle: String?
+    /// A docs page for a failure Retry may not fix on its own, so the empty
+    /// panel never ends at a button that keeps failing. nil when the action
+    /// is the whole fix (sign in, upgrade) or nothing has failed.
+    let helpURL: URL?
 
     init(_ status: MachineListStatus) {
         switch status {
@@ -66,6 +70,7 @@ struct MachineListStatusPresentation {
             action = nil
             isFailure = false
             staleTitle = String(localized: "machines.offline.stale", defaultValue: "Offline — showing last known")
+            helpURL = nil
         case .reconnecting:
             symbolName = nil
             title = String(localized: "machines.reconnecting.title", defaultValue: "Reconnecting to Cloud…")
@@ -73,6 +78,7 @@ struct MachineListStatusPresentation {
             action = nil
             isFailure = false
             staleTitle = nil
+            helpURL = nil
         case .failed(.unreachable):
             // Only the machine-list read failed: say that, not "Cloud is down".
             symbolName = "exclamationmark.icloud"
@@ -84,6 +90,7 @@ struct MachineListStatusPresentation {
             action = .retry
             isFailure = true
             staleTitle = String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable — showing last known")
+            helpURL = CloudDocsLinks.troubleshooting
         case .failed(.sessionRejected):
             // HTTP 401: retrying can never fix it, so route to a fresh sign-in.
             symbolName = "person.crop.circle.badge.exclamationmark"
@@ -95,6 +102,7 @@ struct MachineListStatusPresentation {
             action = .signInAgain
             isFailure = true
             staleTitle = String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh — showing last known")
+            helpURL = nil
         case .failed(.requiresPro):
             // HTTP 402: the fix is an upgrade, not a retry and not a sign-in.
             symbolName = "sparkles"
@@ -106,6 +114,7 @@ struct MachineListStatusPresentation {
             action = .upgrade
             isFailure = true
             staleTitle = String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro — showing last known")
+            helpURL = nil
         }
     }
 }
@@ -172,6 +181,14 @@ struct MachinesListStatusEmptyState: View {
                 actionButton(action)
                     .padding(.top, 2)
                     .accessibilityIdentifier(action.accessibilityIdentifier)
+            }
+            if let helpURL = presentation.helpURL {
+                Link(
+                    String(localized: "machines.listUnavailable.troubleshoot", defaultValue: "Troubleshooting"),
+                    destination: helpURL
+                )
+                .cmuxFont(size: 11)
+                .accessibilityIdentifier("CloudMachinesUnavailableTroubleshootingLink")
             }
         }
     }

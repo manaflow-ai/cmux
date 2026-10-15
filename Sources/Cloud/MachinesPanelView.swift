@@ -235,6 +235,15 @@ struct MachinesPanelView: View {
         } else {
             content
         }
+        if includesCloud {
+            // Pinned under the tree like a sidebar footer; renders nothing
+            // once the user closes it or finishes every step.
+            CloudGettingStartedPanelSection(
+                viewModel: viewModel,
+                tabManager: tabManager,
+                dismissals: bannerDismissals
+            )
+        }
     }
 
     private func syncPolling(for state: CloudVMPanelAuthState) {
@@ -364,6 +373,9 @@ struct MachinesPanelView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
+                Link(String(localized: "cloud.security.learnMore", defaultValue: "Learn more"), destination: CloudDocsLinks.overview)
+                    .cmuxFont(size: 12)
+                    .accessibilityIdentifier("CloudMachinesSignInUnavailableLearnMore")
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -710,12 +722,13 @@ struct MachinesPanelView: View {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
                     .foregroundColor(.secondary.opacity(0.55))
-                Text(String(localized: "machines.empty.title", defaultValue: "No machines yet"))
+                Text(String(localized: "machines.empty.headline", defaultValue: "No Cloud machines yet"))
                     .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary.opacity(0.85))
+                // What Cloud is, in one line, before the one thing to do.
                 Text(String(
-                    localized: "machines.empty.subtitle",
-                    defaultValue: "A machine is a persistent cloud computer. It keeps your files forever and costs nothing while it sleeps."
+                    localized: "machines.empty.pitch",
+                    defaultValue: "A Cloud machine runs your agents and terminals while you’re away. It keeps your files and costs nothing while it sleeps."
                 ))
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
@@ -748,6 +761,12 @@ struct MachinesPanelView: View {
                         .cmuxFont(size: 11)
                         .foregroundColor(.secondary.opacity(0.7))
                 }
+                Link(
+                    String(localized: "machines.empty.learnMore", defaultValue: "How Cloud machines work"),
+                    destination: CloudDocsLinks.machines
+                )
+                .cmuxFont(size: 11)
+                .accessibilityIdentifier("CloudMachinesEmptyStateLearnMore")
             } else {
                 ProgressView()
                     .controlSize(.small)

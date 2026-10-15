@@ -273,6 +273,9 @@ extension TerminalController {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
                 let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), networkPolicy: networkPolicy, agentUpdates: agentUpdates, idempotencyKey: idempotencyKey)
                 _ = await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, attach: vm.createAttach, scope: scope)
+                // Background delivery of Cloud Secrets over the link just recorded;
+                // never delays the create receipt.
+                await CloudSecretsService.shared.scheduleAutoSync(machineID: vm.id)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
@@ -761,6 +764,9 @@ extension TerminalController {
             return socketWorkerVMTerminalOutputResponse(id: id, params: params)
         case "vm.env_set":
             return socketWorkerVMEnvSetResponse(id: id, params: params)
+        case "vm.secrets_list", "vm.secrets_set", "vm.secrets_rm", "vm.secrets_sync",
+             "vm.secrets_status", "vm.secrets_link", "vm.secrets_unlink", "vm.secrets_check":
+            return socketWorkerVMSecretsResponse(method: method, id: id, params: params)
         case "vm.terminal_rename":
             return socketWorkerVMTerminalRenameResponse(id: id, params: params)
         case "vm.tab_rename":

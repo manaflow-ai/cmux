@@ -7158,6 +7158,10 @@ struct CMUXCLI {
                 }
             }
 
+        case "secrets":
+            // Alias of `cmux vm secrets`.
+            try runVMSecretsCommand(rest: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
@@ -8020,6 +8024,9 @@ struct CMUXCLI {
             case "env":
                 try runVMEnvCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "secrets":
+                try runVMSecretsCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "tab":
                 try runVMTabCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
@@ -8028,6 +8035,12 @@ struct CMUXCLI {
 
             case "agent":
                 try runVMAgentCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "clone":
+                try runVMCloneCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "repo":
+                try runVMRepoCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "run":
                 try runVMRunCommand(rest: rest, client: client, jsonOutput: jsonOutput)
@@ -8103,7 +8116,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -10107,9 +10120,11 @@ struct CMUXCLI {
         command: String,
         commandArgs: [String]
     ) -> Bool {
+        // `cmux secrets` validates its arguments (and refuses NAME=value) before any request.
+        if command == "secrets" { return true }
         guard command == "vm" || command == "cloud",
               let subcommand = commandArgs.first?.lowercased() else { return false }
-        return ["dev", "layout", "env"].contains(subcommand)
+        return ["dev", "layout", "env", "clone", "repo", "secrets"].contains(subcommand)
     }
 
     /// Returns whether a command can reach its own dispatch path without a live
@@ -21052,6 +21067,8 @@ struct CMUXCLI {
             defaultValue: "Run this as the new terminal's initial command"
         )
         switch command {
+        case "secrets":
+            return Self.vmSecretsUsage.replacingOccurrences(of: "cmux vm secrets", with: "cmux secrets")
         case "agent":
             return Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux agent") + """
 
@@ -21238,7 +21255,7 @@ struct CMUXCLI {
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -21304,6 +21321,15 @@ struct CMUXCLI {
                                         its ~/.config/cmux/env; names only are echoed back).
               env ls <machine> [--show]  List them (names; --show adds values).
               env rm <machine> KEY…      Remove them.
+              secrets [ls|set|import|rm|sync|status|check|link|unlink]
+                                        Cloud Secrets: API keys kept in this Mac's Keychain and
+                                        delivered to every machine end to end; see
+                                        `cmux vm secrets --help`.
+              clone <repo> [--agent <claude|codex|opencode|pi>]
+                                        Clone a repo (URL, owner/repo, or `.`) onto a machine
+                                        with your secrets, open its workspace, and optionally
+                                        start an agent in it (alias: `repo clone`); see
+                                        `cmux vm clone --help`.
               tab rename <machine> <tab-id> <name>
                                         Rename one daemon tab placement.
               prompt [--open <agent>]   Install the cmux-cloud skill file and print the

@@ -110,6 +110,11 @@ extension HostSettingsActions {
         AppDelegate.shared?.openCloudVPNSetup(bringWindowForward: true)
     }
 
+    func openCloudSecrets() {
+        // Settings is its own window; the sheet attaches to the main window.
+        CloudSecretsSheetPresenter.shared.present(preferredWindow: nil)
+    }
+
     private static func settingsActivationState(
         from state: CloudActivationCoordinator.State?
     ) -> CloudMachinesActivationState {

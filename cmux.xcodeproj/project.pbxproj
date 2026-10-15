@@ -748,9 +748,11 @@
 		C5E7D1A90000000000000003 /* CLIVersionSkew.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E79F791C88A42032AB6198 /* CLIVersionSkew.swift */; };
 		C5E74B39873F2DF220584A49 /* CLIVersionSkewErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E77DFE66FE1C6A88ADD10F /* CLIVersionSkewErrorTests.swift */; };
 		279535607B3531BAA835B41E /* CLIVersionSkewMessageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0BBED2106E124DBB2E6A88A /* CLIVersionSkewMessageTests.swift */; };
+		540EF28A64B49AF5C9AC5DE4 /* CLIVMCloneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA61ACEBFAC4EEA2EFFF5515 /* CLIVMCloneTests.swift */; };
 		84ED8B0271A2FD801E8F280C /* CLIVMDevTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A03BD3D5FCAFBEA0D8CA4C /* CLIVMDevTests.swift */; };
 		C78951D0E70B3BF25DFABD26 /* CLIVMLayoutEnvTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */; };
 		3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */; };
+		06406B9742920E4E096310FE /* CLIVMSecretsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8861B269BB70AC3CA1C54119 /* CLIVMSecretsTests.swift */; };
 		A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */; };
 		C11757000000000000000056 /* CLIWelcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000055 /* CLIWelcomeTests.swift */; };
 		773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
@@ -826,6 +828,12 @@
 		BCDE68E325D57019C97020A9 /* CloudFilePreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42F77A3BC50BBFAB2127492E /* CloudFilePreviewCache.swift */; };
 		8057A5361378502071A49E66 /* CloudFilePreviewLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = E552C26ABB353CE0A826C1C7 /* CloudFilePreviewLease.swift */; };
 		0A42EBEFBFD8771DC2D5C061 /* CloudFileRootOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C859FBBF795C3F290CEE905 /* CloudFileRootOwnershipTests.swift */; };
+		4E33A86C372798BD59FE378D /* CloudGettingStartedCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649A7339CBBF6A940A5F6A40 /* CloudGettingStartedCard.swift */; };
+		3ED9E48751F3ED15B4B41BE1 /* CloudGettingStartedChecklist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486BF2B38162D6D913AE7C5A /* CloudGettingStartedChecklist.swift */; };
+		4F0770715D132EDA8836BCDB /* CloudGettingStartedChecklistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE6A4E36DF4EE8D2576977E /* CloudGettingStartedChecklistTests.swift */; };
+		524B2F9C16857C5A6917E792 /* CloudGettingStartedDocsLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8627DC62CD479DE30B2031E7 /* CloudGettingStartedDocsLinks.swift */; };
+		A63A1BDE08F5ABAAD351CE22 /* CloudGettingStartedPanelSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8A365DC37A4755211FE187 /* CloudGettingStartedPanelSection.swift */; };
+		97C556A7CCE3061E38DFA5CA /* CloudGettingStartedSecretsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE6D49A8360737ED91C451F /* CloudGettingStartedSecretsBridge.swift */; };
 		F7925DA2C43A12723611F26E /* CloudGuestURLRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935A3D4E1C9FB4A5E94E2770 /* CloudGuestURLRoutingTests.swift */; };
 		902ED2709F9B61E9E4B59A24 /* CloudGuestURLService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EAC5EBE3FB2C24E1F29B55C /* CloudGuestURLService.swift */; };
 		C5616E96DCEC5AD0263BB9A4 /* CloudGuestURLTestContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA597EF5D62E0147E16DCAF /* CloudGuestURLTestContainer.swift */; };
@@ -922,6 +930,20 @@
 		C12575000000000000000050 /* CloudRenameOptimismTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000051 /* CloudRenameOptimismTests.swift */; };
 		EFD5BEC316FCF70B7E4FDFBE /* CloudRestoreReplayFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283DE1F547455A79CD6EC26D /* CloudRestoreReplayFixture.swift */; };
 		9A1E85136C5F9BDC2E66DC08 /* CloudRestoreReplayGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD277217AB02219F074EDADA /* CloudRestoreReplayGridTests.swift */; };
+		1D3F3E77C1D8CF3D857C8AB3 /* CloudSecretsEditorCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B9628CFE52186C738000E03 /* CloudSecretsEditorCard.swift */; };
+		2E09E258130B0329A87AC745 /* CloudSecretsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F8AF3B810C4FC169935A97 /* CloudSecretsEmptyStateView.swift */; };
+		C3FA0C7C91B7A7C234AB08F6 /* CloudSecretsImportPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 624C1804BA470859487EBBAB /* CloudSecretsImportPreviewView.swift */; };
+		2EA70C3A2313BAD5A9A934AF /* CloudSecretsMachineStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FA621C0216A382C918B9A3 /* CloudSecretsMachineStatusView.swift */; };
+		E2D2D5C9041394E940824C11 /* CloudSecretsService+Activation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CA966F3F305A2DF78DD3EF2 /* CloudSecretsService+Activation.swift */; };
+		DAA77072F219531C70AEA92E /* CloudSecretsService+Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBEFFC2896FFE1EB2BE9049 /* CloudSecretsService+Sync.swift */; };
+		038D399F406BBCEBC58BDCD5 /* CloudSecretsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6B4C4B7CA4A751769FFEF0 /* CloudSecretsService.swift */; };
+		735F37D9986C7F5394832817 /* CloudSecretsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1393A25EFDCA2D7E6A5CC5 /* CloudSecretsServiceTests.swift */; };
+		1A84BA9EC6EAB8EF7F805A63 /* CloudSecretsSheet+List.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88D910BD431D69F44618DCA3 /* CloudSecretsSheet+List.swift */; };
+		131F64CA391A697F33603A46 /* CloudSecretsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5751DD155FF65865786B0E41 /* CloudSecretsSheet.swift */; };
+		A5968FCE5E8C0B005120AABD /* CloudSecretsSheetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4803B4FC04700D3AE8A2C38 /* CloudSecretsSheetModel.swift */; };
+		487CA5AD4EA34BB9A8A86E85 /* CloudSecretsSheetModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 658629B9E90C4EAF1E27952A /* CloudSecretsSheetModelTests.swift */; };
+		625D0003850B54CF4EF81B23 /* CloudSecretsSheetPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A077F6CE70BAEDD7723C3332 /* CloudSecretsSheetPresentation.swift */; };
+		8908007B51409997FCC24A31 /* CloudSecretsSheetPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0FCB980A3F0E0F978AB7E5 /* CloudSecretsSheetPresenter.swift */; };
 		A14485000000000000000002 /* CloudSectionHeaderActionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14485000000000000000001 /* CloudSectionHeaderActionsUITests.swift */; };
 		B5F7FD4791E006CF41AFDE98 /* CloudSecurityExplainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651CA0786CE6EF620FA48D5C /* CloudSecurityExplainer.swift */; };
 		B4C75A04BD9133EBF9073562 /* CloudSheetWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB385AD0EF7105ED9471B5F7 /* CloudSheetWindow.swift */; };
@@ -1388,11 +1410,13 @@
 		D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */; };
 		3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */; };
 		B4EF90A40C5CC384DCA80BD3 /* CMUXCLI+VMAgentUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B588C0B56CED7C6B38466D4 /* CMUXCLI+VMAgentUpdates.swift */; };
+		7D7C8D7FEB590D638B766520 /* CMUXCLI+VMClone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 201DDE96D4B51E4890169F4D /* CMUXCLI+VMClone.swift */; };
 		E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */ = {isa = PBXBuildFile; fileRef = A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */; };
 		CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */; };		CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */; };
 		E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */; };
 		D412B64D8C3A4FF85E50C39B /* CMUXCLI+VMNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B86A2F39B40CAA99280C6B /* CMUXCLI+VMNetwork.swift */; };
 		21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */; };
+		9DA9341C7A15CD6B172DEA38 /* CMUXCLI+VMSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DC65969A10CB9B927E7485A /* CMUXCLI+VMSecrets.swift */; };
 		C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */; };
 		8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */; };
 		CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */; };
@@ -4302,6 +4326,7 @@
 		C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000001 /* VMClientReadCoalescingTests.swift */; };
 		ECB6A18DEC5D08DC2383081D /* VMClientSocketCommands+AgentUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D0E225AB84528426A1B821 /* VMClientSocketCommands+AgentUpdates.swift */; };
 		3AC7AE496E2A88ED7A2750F4 /* VMClientSocketCommands+Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3266CA3D5220D1464EC162 /* VMClientSocketCommands+Network.swift */; };
+		670A103F578DCE67FA3170F5 /* VMClientSocketCommands+Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A402D457C778A28DE67B37 /* VMClientSocketCommands+Secrets.swift */; };
 		7A0CE1000000000000000044 /* VMClientSocketCommands+Tunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000018 /* VMClientSocketCommands+Tunnel.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C10DC1000000000000000013 /* VMClientTelemetry+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10DC1000000000000000014 /* VMClientTelemetry+Live.swift */; };
@@ -5463,9 +5488,11 @@
 		C5E79F791C88A42032AB6198 /* CLIVersionSkew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVersionSkew.swift; sourceTree = "<group>"; };
 		C5E77DFE66FE1C6A88ADD10F /* CLIVersionSkewErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVersionSkewErrorTests.swift; sourceTree = "<group>"; };
 		A0BBED2106E124DBB2E6A88A /* CLIVersionSkewMessageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIVersionSkewMessageTests.swift"; sourceTree = "<group>"; };
+		BA61ACEBFAC4EEA2EFFF5515 /* CLIVMCloneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIVMCloneTests.swift"; sourceTree = "<group>"; };
 		20A03BD3D5FCAFBEA0D8CA4C /* CLIVMDevTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMDevTests.swift; sourceTree = "<group>"; };
 		7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMLayoutEnvTests.swift; sourceTree = "<group>"; };
 		BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMReadyPollIntervalTests.swift; sourceTree = "<group>"; };
+		8861B269BB70AC3CA1C54119 /* CLIVMSecretsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIVMSecretsTests.swift"; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMTransferTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000055 /* CLIWelcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWelcomeTests.swift; sourceTree = "<group>"; };
 		773600000000000000000002 /* CLIWindowCommandMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowCommandMockServer.swift; sourceTree = "<group>"; };
@@ -5537,6 +5564,12 @@
 		42F77A3BC50BBFAB2127492E /* CloudFilePreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFilePreviewCache.swift"; sourceTree = "<group>"; };
 		E552C26ABB353CE0A826C1C7 /* CloudFilePreviewLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFilePreviewLease.swift"; sourceTree = "<group>"; };
 		2C859FBBF795C3F290CEE905 /* CloudFileRootOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileRootOwnershipTests.swift"; sourceTree = "<group>"; };
+		649A7339CBBF6A940A5F6A40 /* CloudGettingStartedCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudGettingStartedCard.swift; sourceTree = "<group>"; };
+		486BF2B38162D6D913AE7C5A /* CloudGettingStartedChecklist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudGettingStartedChecklist.swift; sourceTree = "<group>"; };
+		4FE6A4E36DF4EE8D2576977E /* CloudGettingStartedChecklistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudGettingStartedChecklistTests.swift"; sourceTree = "<group>"; };
+		8627DC62CD479DE30B2031E7 /* CloudGettingStartedDocsLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudGettingStartedDocsLinks.swift; sourceTree = "<group>"; };
+		AD8A365DC37A4755211FE187 /* CloudGettingStartedPanelSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudGettingStartedPanelSection.swift; sourceTree = "<group>"; };
+		0FE6D49A8360737ED91C451F /* CloudGettingStartedSecretsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudGettingStartedSecretsBridge.swift; sourceTree = "<group>"; };
 		935A3D4E1C9FB4A5E94E2770 /* CloudGuestURLRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudGuestURLRoutingTests.swift"; sourceTree = "<group>"; };
 		8EAC5EBE3FB2C24E1F29B55C /* CloudGuestURLService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudGuestURLService.swift"; sourceTree = "<group>"; };
 		DAA597EF5D62E0147E16DCAF /* CloudGuestURLTestContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudGuestURLTestContainer.swift"; sourceTree = "<group>"; };
@@ -5633,6 +5666,20 @@
 		C12575000000000000000051 /* CloudRenameOptimismTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRenameOptimismTests.swift; sourceTree = "<group>"; };
 		283DE1F547455A79CD6EC26D /* CloudRestoreReplayFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRestoreReplayFixture.swift"; sourceTree = "<group>"; };
 		DD277217AB02219F074EDADA /* CloudRestoreReplayGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRestoreReplayGridTests.swift"; sourceTree = "<group>"; };
+		7B9628CFE52186C738000E03 /* CloudSecretsEditorCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsEditorCard.swift; sourceTree = "<group>"; };
+		08F8AF3B810C4FC169935A97 /* CloudSecretsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsEmptyStateView.swift; sourceTree = "<group>"; };
+		624C1804BA470859487EBBAB /* CloudSecretsImportPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsImportPreviewView.swift; sourceTree = "<group>"; };
+		C9FA621C0216A382C918B9A3 /* CloudSecretsMachineStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsMachineStatusView.swift; sourceTree = "<group>"; };
+		9CA966F3F305A2DF78DD3EF2 /* CloudSecretsService+Activation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSecretsService+Activation.swift"; sourceTree = "<group>"; };
+		DBBEFFC2896FFE1EB2BE9049 /* CloudSecretsService+Sync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSecretsService+Sync.swift"; sourceTree = "<group>"; };
+		9D6B4C4B7CA4A751769FFEF0 /* CloudSecretsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsService.swift; sourceTree = "<group>"; };
+		CC1393A25EFDCA2D7E6A5CC5 /* CloudSecretsServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSecretsServiceTests.swift"; sourceTree = "<group>"; };
+		88D910BD431D69F44618DCA3 /* CloudSecretsSheet+List.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSecretsSheet+List.swift"; sourceTree = "<group>"; };
+		5751DD155FF65865786B0E41 /* CloudSecretsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsSheet.swift; sourceTree = "<group>"; };
+		D4803B4FC04700D3AE8A2C38 /* CloudSecretsSheetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsSheetModel.swift; sourceTree = "<group>"; };
+		658629B9E90C4EAF1E27952A /* CloudSecretsSheetModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSecretsSheetModelTests.swift"; sourceTree = "<group>"; };
+		A077F6CE70BAEDD7723C3332 /* CloudSecretsSheetPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsSheetPresentation.swift; sourceTree = "<group>"; };
+		7C0FCB980A3F0E0F978AB7E5 /* CloudSecretsSheetPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecretsSheetPresenter.swift; sourceTree = "<group>"; };
 		A14485000000000000000001 /* CloudSectionHeaderActionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSectionHeaderActionsUITests.swift; sourceTree = "<group>"; };
 		651CA0786CE6EF620FA48D5C /* CloudSecurityExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecurityExplainer.swift; sourceTree = "<group>"; };
 		DB385AD0EF7105ED9471B5F7 /* CloudSheetWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSheetWindow.swift; sourceTree = "<group>"; };
@@ -6077,11 +6124,13 @@
 		D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TypedDiffViewer.swift"; sourceTree = "<group>"; };
 		74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Vault.swift"; sourceTree = "<group>"; };
 		6B588C0B56CED7C6B38466D4 /* CMUXCLI+VMAgentUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMAgentUpdates.swift"; sourceTree = "<group>"; };
+		201DDE96D4B51E4890169F4D /* CMUXCLI+VMClone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMClone.swift"; sourceTree = "<group>"; };
 		A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMDev.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMHelp.swift"; sourceTree = "<group>"; };		CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTransfer.swift"; sourceTree = "<group>"; };
 		D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMLayoutEnv.swift"; sourceTree = "<group>"; };
 		46B86A2F39B40CAA99280C6B /* CMUXCLI+VMNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMNetwork.swift"; sourceTree = "<group>"; };
 		21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSCP.swift"; sourceTree = "<group>"; };
+		1DC65969A10CB9B927E7485A /* CMUXCLI+VMSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSecrets.swift"; sourceTree = "<group>"; };
 		25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSelf.swift"; sourceTree = "<group>"; };
 		F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSnapshots.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTui.swift"; sourceTree = "<group>"; };
@@ -8851,6 +8900,7 @@
 		C12625000000000000000001 /* VMClientReadCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMClientReadCoalescingTests.swift; sourceTree = "<group>"; };
 		B5D0E225AB84528426A1B821 /* VMClientSocketCommands+AgentUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+AgentUpdates.swift"; sourceTree = "<group>"; };
 		FF3266CA3D5220D1464EC162 /* VMClientSocketCommands+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+Network.swift"; sourceTree = "<group>"; };
+		19A402D457C778A28DE67B37 /* VMClientSocketCommands+Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+Secrets.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000018 /* VMClientSocketCommands+Tunnel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+Tunnel.swift"; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C10DC1000000000000000014 /* VMClientTelemetry+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientTelemetry+Live.swift"; sourceTree = "<group>"; };
@@ -10056,6 +10106,24 @@
 				5ECF12C0C620A0999268B8BA /* CloudTuiManualMirrorHandshake.swift */,
 				335F00E37FFA52FF5624A936 /* CloudWelcomeAnalyticsSession.swift */,
 				A986CE6A5E2D281B2CE3C7E1 /* SidebarCloudButtonAction.swift */,
+				649A7339CBBF6A940A5F6A40 /* CloudGettingStartedCard.swift */,
+				486BF2B38162D6D913AE7C5A /* CloudGettingStartedChecklist.swift */,
+				8627DC62CD479DE30B2031E7 /* CloudGettingStartedDocsLinks.swift */,
+				AD8A365DC37A4755211FE187 /* CloudGettingStartedPanelSection.swift */,
+				0FE6D49A8360737ED91C451F /* CloudGettingStartedSecretsBridge.swift */,
+				DBBEFFC2896FFE1EB2BE9049 /* CloudSecretsService+Sync.swift */,
+				9D6B4C4B7CA4A751769FFEF0 /* CloudSecretsService.swift */,
+				88D910BD431D69F44618DCA3 /* CloudSecretsSheet+List.swift */,
+				5751DD155FF65865786B0E41 /* CloudSecretsSheet.swift */,
+				D4803B4FC04700D3AE8A2C38 /* CloudSecretsSheetModel.swift */,
+				A077F6CE70BAEDD7723C3332 /* CloudSecretsSheetPresentation.swift */,
+				7B9628CFE52186C738000E03 /* CloudSecretsEditorCard.swift */,
+				08F8AF3B810C4FC169935A97 /* CloudSecretsEmptyStateView.swift */,
+				624C1804BA470859487EBBAB /* CloudSecretsImportPreviewView.swift */,
+				C9FA621C0216A382C918B9A3 /* CloudSecretsMachineStatusView.swift */,
+				7C0FCB980A3F0E0F978AB7E5 /* CloudSecretsSheetPresenter.swift */,
+				19A402D457C778A28DE67B37 /* VMClientSocketCommands+Secrets.swift */,
+				9CA966F3F305A2DF78DD3EF2 /* CloudSecretsService+Activation.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -12620,6 +12688,8 @@
 				5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */,
 				6EA23FD5F4147585610132E4 /* CMUXCLI+BrowserRepl.swift */,
 				F0226FF4BE571A2BA5B5AB16 /* CMUXCLI+VPN.swift */,
+				201DDE96D4B51E4890169F4D /* CMUXCLI+VMClone.swift */,
+				1DC65969A10CB9B927E7485A /* CMUXCLI+VMSecrets.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -13918,6 +13988,11 @@
 				2B8ACF56AB5811EEC9D0203F /* SidebarCloudButtonActionTests.swift */,
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
+				4FE6A4E36DF4EE8D2576977E /* CloudGettingStartedChecklistTests.swift */,
+				BA61ACEBFAC4EEA2EFFF5515 /* CLIVMCloneTests.swift */,
+				658629B9E90C4EAF1E27952A /* CloudSecretsSheetModelTests.swift */,
+				8861B269BB70AC3CA1C54119 /* CLIVMSecretsTests.swift */,
+				CC1393A25EFDCA2D7E6A5CC5 /* CloudSecretsServiceTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15170,6 +15245,11 @@
 				F1B3A871EE6D2EB7BEFB9566 /* CloudFileExplorerTargetIdentity.swift in Sources */,
 				BCDE68E325D57019C97020A9 /* CloudFilePreviewCache.swift in Sources */,
 				8057A5361378502071A49E66 /* CloudFilePreviewLease.swift in Sources */,
+				4E33A86C372798BD59FE378D /* CloudGettingStartedCard.swift in Sources */,
+				3ED9E48751F3ED15B4B41BE1 /* CloudGettingStartedChecklist.swift in Sources */,
+				524B2F9C16857C5A6917E792 /* CloudGettingStartedDocsLinks.swift in Sources */,
+				A63A1BDE08F5ABAAD351CE22 /* CloudGettingStartedPanelSection.swift in Sources */,
+				97C556A7CCE3061E38DFA5CA /* CloudGettingStartedSecretsBridge.swift in Sources */,
 				902ED2709F9B61E9E4B59A24 /* CloudGuestURLService.swift in Sources */,
 				124760000000000000000028 /* CloudImagePasteInputLease.swift in Sources */,
 				2CA3DFCD62CD4AECA4B8ABD1 /* CloudMachineCreatorLabel.swift in Sources */,
@@ -15205,6 +15285,18 @@
 				7A0CE100000000000000071C /* CloudPortRoutePlan.swift in Sources */,
 			EA1141167D5A710EAD47E9F5 /* CloudPortsDiscoveryDemand.swift in Sources */,
 			C13234000000000000000001 /* CloudPortsStatusContent.swift in Sources */,
+				1D3F3E77C1D8CF3D857C8AB3 /* CloudSecretsEditorCard.swift in Sources */,
+				2E09E258130B0329A87AC745 /* CloudSecretsEmptyStateView.swift in Sources */,
+				C3FA0C7C91B7A7C234AB08F6 /* CloudSecretsImportPreviewView.swift in Sources */,
+				2EA70C3A2313BAD5A9A934AF /* CloudSecretsMachineStatusView.swift in Sources */,
+				E2D2D5C9041394E940824C11 /* CloudSecretsService+Activation.swift in Sources */,
+				DAA77072F219531C70AEA92E /* CloudSecretsService+Sync.swift in Sources */,
+				038D399F406BBCEBC58BDCD5 /* CloudSecretsService.swift in Sources */,
+				1A84BA9EC6EAB8EF7F805A63 /* CloudSecretsSheet+List.swift in Sources */,
+				131F64CA391A697F33603A46 /* CloudSecretsSheet.swift in Sources */,
+				A5968FCE5E8C0B005120AABD /* CloudSecretsSheetModel.swift in Sources */,
+				625D0003850B54CF4EF81B23 /* CloudSecretsSheetPresentation.swift in Sources */,
+				8908007B51409997FCC24A31 /* CloudSecretsSheetPresenter.swift in Sources */,
 				B5F7FD4791E006CF41AFDE98 /* CloudSecurityExplainer.swift in Sources */,
 				B4C75A04BD9133EBF9073562 /* CloudSheetWindow.swift in Sources */,
 				B12357000000000000000004 /* CloudSidebarDebugLabWindow.swift in Sources */,
@@ -17219,6 +17311,7 @@
 				A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */,
 				ECB6A18DEC5D08DC2383081D /* VMClientSocketCommands+AgentUpdates.swift in Sources */,
 				3AC7AE496E2A88ED7A2750F4 /* VMClientSocketCommands+Network.swift in Sources */,
+				670A103F578DCE67FA3170F5 /* VMClientSocketCommands+Secrets.swift in Sources */,
 				7A0CE1000000000000000044 /* VMClientSocketCommands+Tunnel.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
 				C10DC1000000000000000013 /* VMClientTelemetry+Live.swift in Sources */,
@@ -17653,11 +17746,13 @@
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */,
 				B4EF90A40C5CC384DCA80BD3 /* CMUXCLI+VMAgentUpdates.swift in Sources */,
+				7D7C8D7FEB590D638B766520 /* CMUXCLI+VMClone.swift in Sources */,
 				E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */,				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
 				E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */,
 				D412B64D8C3A4FF85E50C39B /* CMUXCLI+VMNetwork.swift in Sources */,
 				21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */,
+				9DA9341C7A15CD6B172DEA38 /* CMUXCLI+VMSecrets.swift in Sources */,
 				C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */,
 				8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
@@ -18079,8 +18174,10 @@
 				6E47320B17B75FED0EBF916D /* CLIVaultForkSelectorTests.swift in Sources */,
 				C5E7D1A90000000000000003 /* CLIVersionSkew.swift in Sources */,
 				279535607B3531BAA835B41E /* CLIVersionSkewMessageTests.swift in Sources */,
+				540EF28A64B49AF5C9AC5DE4 /* CLIVMCloneTests.swift in Sources */,
 				84ED8B0271A2FD801E8F280C /* CLIVMDevTests.swift in Sources */,
 				C78951D0E70B3BF25DFABD26 /* CLIVMLayoutEnvTests.swift in Sources */,
+				06406B9742920E4E096310FE /* CLIVMSecretsTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */,
 					773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */,
 					846600000000000000000001 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */,
@@ -18119,6 +18216,7 @@
 				C3CD2FF9F6F1489C8EDD0C7B /* CloudFeatureFlagTests.swift in Sources */,
 				CFSF00000000000000000011 /* CloudFileExplorerBehaviorTests.swift in Sources */,
 				0A42EBEFBFD8771DC2D5C061 /* CloudFileRootOwnershipTests.swift in Sources */,
+				4F0770715D132EDA8836BCDB /* CloudGettingStartedChecklistTests.swift in Sources */,
 				F7925DA2C43A12723611F26E /* CloudGuestURLRoutingTests.swift in Sources */,
 				C5616E96DCEC5AD0263BB9A4 /* CloudGuestURLTestContainer.swift in Sources */,
 				052EED2B7B94A277BCD1CEBD /* CloudHubConnectorHedgeTests.swift in Sources */,
@@ -18180,6 +18278,8 @@
 				C12575000000000000000050 /* CloudRenameOptimismTests.swift in Sources */,
 				EFD5BEC316FCF70B7E4FDFBE /* CloudRestoreReplayFixture.swift in Sources */,
 				9A1E85136C5F9BDC2E66DC08 /* CloudRestoreReplayGridTests.swift in Sources */,
+				735F37D9986C7F5394832817 /* CloudSecretsServiceTests.swift in Sources */,
+				487CA5AD4EA34BB9A8A86E85 /* CloudSecretsSheetModelTests.swift in Sources */,
 				46383D21CF46427F36EBEB7B /* CloudSidebarAcceptanceTests.swift in Sources */,
 				5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */,
 				D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */,

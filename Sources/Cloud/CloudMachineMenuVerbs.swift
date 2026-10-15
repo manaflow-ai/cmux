@@ -17,6 +17,8 @@ struct CloudMachineMenuVerbs {
     /// Forks through the shared create coordinator, so every surface shows the
     /// same pending "Fork of …" row the moment the person picks Fork.
     var fork: @MainActor (MachineSnapshot) -> Void = { _ in }
+    /// Opens Cloud Secrets on this machine's view (per-name delivery state, Sync Now).
+    var editSecrets: @MainActor (MachineSnapshot) -> Void = { _ in }
 
     /// Connect verbs: Open Shell, New Workspace, Open Desktop, full client.
     /// A machine past its free window offers only the upgrade.
@@ -36,7 +38,7 @@ struct CloudMachineMenuVerbs {
         return entries
     }
 
-    /// Rename, recovery, Copy IP Address, Status, and the provider-honored Checkpoint/Fork.
+    /// Rename, recovery, Copy IP Address, Status, Secrets, and the provider-honored Checkpoint/Fork.
     func manageEntries(_ machine: MachineSnapshot) -> [CloudMenuEntry] {
         let id = machine.id
         var entries = [
@@ -49,6 +51,10 @@ struct CloudMachineMenuVerbs {
             entries.append(action("copyIP", id, String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { copyToPasteboard(address) })
         }
         entries.append(action("status", id, String(localized: "machines.menu.status", defaultValue: "Status")) { runCommand(id, ["vm", "status"]) })
+        // A locked machine cannot receive a delivery, so its secrets wait until it is unlocked.
+        if machine.freeAccess != .expired {
+            entries.append(action("secrets", id, String(localized: "cloudSecrets.menu.machine", defaultValue: "Secrets\u{2026}")) { editSecrets(machine) })
+        }
         // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
         if machine.capabilities.snapshot {
             entries.append(action("checkpoint", id, String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { runCommand(id, ["vm", "snapshot"]) })

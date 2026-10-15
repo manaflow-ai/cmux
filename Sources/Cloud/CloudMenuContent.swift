@@ -42,6 +42,8 @@ struct CloudMenuActions {
     var upgrade: @MainActor () -> Void
     var retry: @MainActor () -> Void
     var machine: CloudMachineMenuVerbs
+    /// Opens the Cloud Secrets sheet for every machine.
+    var showSecrets: @MainActor () -> Void = {}
 }
 
 enum CloudMenuContent {
@@ -203,6 +205,11 @@ enum CloudMenuContent {
 
     private static func toolEntries(_ actions: CloudMenuActions) -> [CloudMenuEntry] {
         [
+            .action(CloudMenuAction(
+                id: "cloud.secrets",
+                title: String(localized: "cloudSecrets.menu.app", defaultValue: "Cloud Secrets\u{2026}"),
+                perform: actions.showSecrets
+            )),
             .action(CloudMenuAction(
                 id: "cloud.showMachines",
                 title: String(localized: "cloudMenu.showMachines", defaultValue: "Show Machines Sidebar"),
