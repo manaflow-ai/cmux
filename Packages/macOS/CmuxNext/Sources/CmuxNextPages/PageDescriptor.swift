@@ -38,11 +38,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// `focusSearch`, which focuses and selects that field (Settings,
     /// Keyboard Shortcuts, Passwords), instead of a find bar.
     public let ownsSearchField: Bool
+    /// A first click in an inactive window reaches the page (``PageWKWebView``), as on the native
+    /// controls. Off by default (fail closed): a page opts in only when no control on it acts on one
+    /// click without a host confirmation sheet, so a click that only meant to bring the window
+    /// forward cannot run one (Settings' browsing-data Clear, the agent pane's permission cards,
+    /// Push, Apply and Remove, an app page's own content; those also say false explicitly, so a
+    /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
+    public let acceptsFirstMouse: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -57,6 +64,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
+        self.acceptsFirstMouse = acceptsFirstMouse
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -150,7 +158,7 @@ public extension PageDescriptor {
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true)
+        dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open

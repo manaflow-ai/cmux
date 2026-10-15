@@ -287,7 +287,8 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = new_chat(&mut person).await;
     let socket = listen(&hub).await;
-    let mut mcp = tokio::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let scratch = std::env::temp_dir().join(format!("amx-offer-{}", std::process::id()));
+    let mut mcp = crate::daemon_env::tokio_command(&scratch, crate::daemon_env::Agents::Deny)
         .arg("offer-mcp")
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_OFFER_SESSION", &id)
