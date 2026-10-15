@@ -737,8 +737,8 @@ struct CloudWelcomeMediaCarousel: View {
     /// Configures a movie layer to show the entire recorded frame in the poster.
     ///
     /// The layer configuration lives on the carousel so the presentation rule
-    /// can be exercised without starting a player in the unit tests.
-    static func configureMovieLayer(_ layer: AVPlayerLayer) {
+    /// stays centralized for every movie view.
+    fileprivate static func configureMovieLayer(_ layer: AVPlayerLayer) {
         layer.videoGravity = .resizeAspect
     }
 
@@ -776,9 +776,6 @@ struct CloudWelcomeMediaCarousel: View {
             private var statusObservation: NSKeyValueObservation?
             private var loopObservation: NSKeyValueObservation?
             private weak var playback: Playback?
-
-            /// The configured presentation mode, exposed for construction-path tests.
-            var videoGravity: AVLayerVideoGravity { playerLayer.videoGravity }
 
             init(url: URL, playback: Playback) {
                 self.playback = playback

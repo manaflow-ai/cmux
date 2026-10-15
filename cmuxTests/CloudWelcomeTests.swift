@@ -371,7 +371,7 @@ struct CloudWelcomeTests {
         let playback = CloudWelcomeMediaCarousel.Playback()
         let movieView = CloudWelcomeMediaCarousel.Player.MovieView(url: url, playback: playback)
 
-        #expect(movieView.videoGravity == .resizeAspect)
+        #expect((movieView.layer as? AVPlayerLayer)?.videoGravity == .resizeAspect)
     }
 
     @Test("Cloud creation actions introduce Cloud while it is off or signed out")
