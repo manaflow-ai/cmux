@@ -39,12 +39,38 @@ test("labs on moves the list under the work, with the activity line in the statu
 
 test("the activity line names the running call, else the todo in progress", () => {
   const running = live([row("u", "user"), steps, tool("edit-a", "in_progress")], true).at(-1)!;
-  expect(running.items?.[0]?.tool?.id).toBe("edit-a");
+  expect(running.text).toBe("edit-a");
+  // It carries no items, so Find never counts the call's output on it a second time.
+  expect(running.items).toBeUndefined();
   const between = live([row("u", "user"), steps, tool("edit-a", "completed")], true).at(-1)!;
-  expect(between.items).toBeUndefined();
-  expect(between.plan?.find((entry) => entry.status === "in_progress")?.content).toBe("Reserve space");
+  expect(between.text).toBe("Reserve space");
   // What it names is in its version, so the memoized row redraws when the call changes.
   expect(between.version).not.toBe(running.version);
+});
+
+test("a call whose path arrives after its title redraws the line", () => {
+  const bare = row("edit-b", "activity", {
+    items: [{ kind: "tool", text: "Edit", tool: { id: "edit-b", title: "Edit", kind: "edit", status: "in_progress" } }],
+  });
+  const located = row("edit-b", "activity", {
+    items: [
+      {
+        kind: "tool",
+        text: "Edit",
+        tool: {
+          id: "edit-b",
+          title: "Edit",
+          kind: "edit",
+          status: "in_progress",
+          locations: [{ path: "src/grid.css" }],
+        },
+      },
+    ],
+  });
+  const before = live([row("u", "user"), steps, bare], true).at(-1)!;
+  const after = live([row("u", "user"), steps, located], true).at(-1)!;
+  expect(after.text).not.toBe(before.text);
+  expect(after.version).not.toBe(before.version);
 });
 
 test("while the answer streams the list stays above it and the line goes", () => {

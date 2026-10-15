@@ -12,6 +12,7 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { toolLabel } from "../toolPaths";
 import type { Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -431,26 +432,21 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, labs 
   return [...work, plan, activityLine(user, work, plan, clockOffset)];
 }
 
-/// The activity line of a live turn: its running tool call, else the todo in progress. Its version
-/// follows what it names, and its clock ticks from the prompt as the status's does.
+/// The activity line of a live turn: its running tool call as its row names it (a command as
+/// itself: "Ran …" would say it has finished), else the todo in progress. The label is its text
+/// and its version, so the memoized row redraws when the call's paths arrive; it carries no items,
+/// so Find never counts the call's output a second time. Its clock ticks from the prompt.
 function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clockOffset: number): AcpmuxRow {
   const running = work
     .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
     .reverse()
     .find((item) => item.tool && (item.tool.status === "pending" || item.tool.status === "in_progress"));
-  const step = plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "";
-  const names = running?.tool ? `${running.tool.id}|${running.tool.title}|${running.tool.command ?? ""}` : step;
+  const label = running?.tool
+    ? toolLabel(running.tool, running.text, (command) => command)
+    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   let version = 1;
-  for (let index = 0; index < names.length; index += 1) version = (version * 31 + names.charCodeAt(index)) % 1_000_003;
-  return {
-    id: `${ACTIVITY_LINE}-${user.id}`,
-    version,
-    at: user.at + clockOffset,
-    kind: ACTIVITY_LINE,
-    text: names,
-    ...(running ? { items: [running] } : {}),
-    plan: plan.plan,
-  };
+  for (let index = 0; index < label.length; index += 1) version = (version * 31 + label.charCodeAt(index)) % 1_000_003;
+  return { id: `${ACTIVITY_LINE}-${user.id}`, version, at: user.at + clockOffset, kind: ACTIVITY_LINE, text: label };
 }
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
