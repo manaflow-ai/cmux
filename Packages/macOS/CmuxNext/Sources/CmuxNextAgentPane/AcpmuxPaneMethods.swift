@@ -64,10 +64,8 @@ nonisolated enum AcpmuxPaneMethods {
         // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
         // `side` with its chat; only that tag, never `_acpmux/tag`.
         "_acpmux/side",
-        // A side session about a chat in the pane's scope (`/btw`, direct.ts btw): acpmux starts a
-        // read-only session beside the chat, tagged `side`, and sends the question as its first
-        // prompt, so it runs an agent turn like a prompt; its reply names the new session, which
-        // becomes the pane's (``AcpmuxPaneSessions/starting``) so `chat.sideChat` may open it.
+        // `/btw` (direct.ts btw): a read-only `side` session beside a chat in scope whose first prompt is the
+        // question, so it runs a turn; its reply's session becomes the pane's (``AcpmuxPaneSessions/starting``).
         "_acpmux/btw",
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.

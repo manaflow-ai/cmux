@@ -71,6 +71,15 @@ public final class AgentSidePanes {
         return opened
     }
 
+    /// ``open(_:chat:hooks:)`` with one placement: `place(anchor, created, finished)` opens `session`
+    /// focused as a tab in the pane that holds tab `anchor`, or (nil) in a new split right of the chat.
+    @discardableResult
+    public func open(_ session: String, chat: String, pane: @escaping (String) -> String?,
+                     place: @escaping (_ anchor: String?, _ created: @escaping @MainActor (String) -> Void, _ finished: @escaping @MainActor () -> Void) -> Bool) -> Bool {
+        open(session, chat: chat, hooks: Hooks(pane: pane, addTab: { anchor, _, created, finished in place(anchor, created, finished) },
+                                               split: { _, created, finished in place(nil, created, finished) }))
+    }
+
     /// The newest side tab still open in a pane other than the chat's, nil for none.
     private func sidePaneTab(chat: String, pane: (String) -> String?) -> String? {
         tabs.removeAll { pane($0) == nil }
