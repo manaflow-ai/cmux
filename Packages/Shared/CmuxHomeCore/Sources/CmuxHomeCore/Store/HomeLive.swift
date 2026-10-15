@@ -13,6 +13,8 @@ public enum HomeLiveEvent: Hashable, Sendable {
     case snapshot(conversation: ConversationID, runs: [HomeLiveRunSnapshot])
     /// A run record changed (`conversation-run-changed`): its reply key and status.
     case run(HomeLiveRunChange)
+    /// A running run's talk rows, read after a snapshot: the segments the owner already freed.
+    case rows(conversation: ConversationID, author: ParticipantID, run: String, steps: [HomeLiveRunSnapshot.Step])
 
     var conversation: ConversationID {
         switch self {
@@ -20,6 +22,7 @@ public enum HomeLiveEvent: Hashable, Sendable {
         case .activity(let activity): activity.conversation
         case .snapshot(let conversation, _): conversation
         case .run(let change): change.conversation
+        case .rows(let conversation, _, _, _): conversation
         }
     }
 }
