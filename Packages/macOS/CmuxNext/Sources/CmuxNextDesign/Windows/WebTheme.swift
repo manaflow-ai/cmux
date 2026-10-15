@@ -149,13 +149,21 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       // colors gets a second `cmux-theme` event once the blend ends.
       var registered = {};
       var transitionStyle = null;
-      var rgba = /^rgba?\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*(?:,\\s*([\\d.]+)\\s*)?\\)$/;
+      // rgb()/rgba() parsed without a regular expression: the literal stays free of backslashes
+      // (Swift escapes), so the gallery runs the same script (webviews/dev-server/galleryHost.ts).
+      function rgba(value) {
+        var open = value.indexOf('('), close = value.lastIndexOf(')');
+        if (value.slice(0, 3) !== 'rgb' || open < 3 || close !== value.length - 1) return null;
+        var parts = value.slice(open + 1, close).split(',').map(function (p) { return Number(p.trim()); });
+        if (parts.length < 3 || parts.length > 4 || parts.some(function (n) { return !isFinite(n); })) return null;
+        return parts;
+      }
       var hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?$/i;
       function colorValue(value, space) {
         if (space !== 'oklab') return value;
-        var m = rgba.exec(value);
-        if (m) return 'color(srgb ' + (m[1] / 255) + ' ' + (m[2] / 255) + ' ' + (m[3] / 255) + ' / ' + (m[4] === undefined ? 1 : m[4]) + ')';
-        m = hex.exec(value);
+        var c = rgba(value);
+        if (c) return 'color(srgb ' + (c[0] / 255) + ' ' + (c[1] / 255) + ' ' + (c[2] / 255) + ' / ' + (c[3] === undefined ? 1 : c[3]) + ')';
+        var m = hex.exec(value);
         if (m) return 'color(srgb ' + (parseInt(m[1], 16) / 255) + ' ' + (parseInt(m[2], 16) / 255) + ' ' + (parseInt(m[3], 16) / 255) +
           ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
         return value;
