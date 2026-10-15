@@ -273,7 +273,7 @@ struct CloudWelcomeTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
-        defaults.set(true, forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
+        defaults.set(["seen": true], forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
 
         #expect(CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
         #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(
