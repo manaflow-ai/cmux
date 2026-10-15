@@ -8,6 +8,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from browser_local_pages import local_html_url
 from cmux import BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S, cmux, cmuxError
 
 
@@ -49,7 +50,7 @@ def main() -> int:
   </body>
 </html>
 """.strip()
-        data_url = "data:text/html," + urllib.parse.quote(html)
+        data_url = local_html_url(html, "p0")
 
         c._call("browser.navigate", {"surface_id": target, "url": data_url})
         try:

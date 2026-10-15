@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable
 
 sys.path.insert(0, str(Path(__file__).parent))
+from browser_local_pages import local_html_url
 from cmux import BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S, cmux, cmuxError
 
 
@@ -24,7 +25,7 @@ def _must(cond: bool, msg: str) -> None:
 
 
 def _data_url(html: str) -> str:
-    return "data:text/html;charset=utf-8," + urllib.parse.quote(html)
+    return local_html_url(html, "hidden-screenshot")
 
 
 def _wait_until(pred, timeout_s: float, label: str) -> None:
