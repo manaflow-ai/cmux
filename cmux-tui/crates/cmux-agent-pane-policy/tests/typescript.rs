@@ -65,9 +65,17 @@ fn the_allowlist_is_what_the_page_sends() {
     let direct = read(&dir, "direct.ts");
     let mut sent: BTreeSet<String> = quoted_after(&direct, "this.request(").into_iter().collect();
     sent.extend(quoted_after(&read(&dir, "sessionPages.ts"), "this.request("));
-    // A typed call (protocol/client.ts `typedRequest`) names its method after its sender.
+    // A typed call (protocol/client.ts `typedRequest`) names its method, a
+    // string literal, as its second argument, right after its sender.
     for call in direct.split("typedRequest(").skip(1) {
-        let method = call.split('"').nth(1).expect("a typedRequest call names its method");
+        // An arrow sender ends at its call's `),`; a named one at the first `,`.
+        let after_sender =
+            if call.starts_with('(') { call.split_once("),") } else { call.split_once(',') };
+        let method = after_sender
+            .and_then(|(_, rest)| rest.trim_start().strip_prefix('"'))
+            .and_then(|rest| rest.split_once('"'))
+            .map(|(method, _)| method)
+            .unwrap_or_else(|| panic!("a typedRequest call names a literal method: {call:.80}"));
         sent.insert(method.to_owned());
     }
     sent.extend(object_values(&read(&dir, "handoff/protocol.ts"), "HANDOFF_OPS"));

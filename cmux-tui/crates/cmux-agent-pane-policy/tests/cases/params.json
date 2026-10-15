@@ -1134,5 +1134,39 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "_acpmux/permission_respond with an empty _meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "_meta": {}
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/permission_respond with a non-string ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "_meta": {
+     "cmuxGesture": 7
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
  }
 ]
