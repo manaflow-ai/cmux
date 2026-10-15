@@ -416,6 +416,30 @@ impl Default for TuiConfig {
     }
 }
 
+/// `titles` in the config: how a chat its harness never titles gets one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TitlesConfig {
+    /// `generate`: title such a chat after its first turn. Default on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the
+    /// title. Env `ACPMUX_TITLE_COMMAND` (one program) wins. Unset: the
+    /// chat's own Claude Code profile, with `model`; another harness's chat
+    /// then keeps its first-prompt title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the Claude model of the default command. Default `haiku`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl TitlesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -486,6 +510,10 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `titles`: short titles for chats their harness never titles
+    /// (`hub/titles.rs`).
+    #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
+    pub titles: TitlesConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
