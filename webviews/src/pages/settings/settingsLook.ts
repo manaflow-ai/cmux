@@ -14,11 +14,21 @@ export function useRefinedSettingsLook(): boolean {
   return useSyncExternalStore(subscribe, isRefined, () => false);
 }
 
-/** Host facts own the app variant; the browser preview also accepts ?look=refined. */
+/** The look the page had before the refined one took over (mount.tsx SHIPPED_LOOK, or a gallery variant). */
+let previous: string | null = null;
+
+/** Host facts own the app variant; the browser preview also accepts ?look=refined. Turning it off
+ * puts back the look the page had before. */
 export function useSettingsLookAttribute(refined: boolean): void {
   const preview = new URLSearchParams(window.location.search).get("look") === "refined";
   useLayoutEffect(() => {
-    if (refined || preview) document.documentElement.setAttribute(attribute, "refined");
-    else if (isRefined()) document.documentElement.removeAttribute(attribute);
+    const root = document.documentElement;
+    if (refined || preview) {
+      if (!isRefined()) previous = root.getAttribute(attribute);
+      root.setAttribute(attribute, "refined");
+    } else if (isRefined()) {
+      if (previous === null) root.removeAttribute(attribute);
+      else root.setAttribute(attribute, previous);
+    }
   }, [refined, preview]);
 }

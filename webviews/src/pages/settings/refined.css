@@ -146,3 +146,14 @@
   :root[data-settings-look="refined"] .settings .row { padding: 10px; }
   :root[data-settings-look="refined"] .settings .row-main { gap: 8px; flex-wrap: wrap; }
 }
+
+/* Icon-only and text buttons (play a sound, reset, reveal): the base hover fills with the field
+   color, which these cards make invisible, so they take the section links' hover and pressed fills. */
+:root[data-settings-look="refined"] .settings :is(.icon-button, .button):hover:not(:disabled) {
+  background: var(--polish-hover);
+  color: var(--polish-ink);
+}
+
+:root[data-settings-look="refined"] .settings :is(.icon-button, .button):active:not(:disabled) {
+  background: var(--polish-pressed);
+}

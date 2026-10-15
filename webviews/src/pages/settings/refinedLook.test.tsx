@@ -54,7 +54,7 @@ test("the browser query enables the same look", async () => {
   expect(preview().querySelector('g[aria-hidden="true"]')).not.toBeNull();
 });
 
-test("mount leaves the default look attribute absent", async () => {
+test("mount keeps the shipped look", async () => {
   const { mountSettingsPage } = await import("./mount");
   const { createMockClient } = await import("./mockProvider");
   const mock = createMockClient();
@@ -65,12 +65,22 @@ test("mount leaves the default look attribute absent", async () => {
     await run(async () => {
       unmount = await mountSettingsPage(root, mock.client);
     });
-    expect(document.documentElement.hasAttribute("data-settings-look")).toBe(false);
+    expect(document.documentElement.getAttribute("data-settings-look")).toBe("quiet");
   } finally {
     await run(() => unmount?.());
     root.remove();
     mock.close();
   }
+});
+
+test("turning the switch off restores the look the page had", async () => {
+  document.documentElement.setAttribute("data-settings-look", "quiet");
+  page = await renderPage({ path: "/settings/theme" });
+  for (const on of [true, false]) {
+    await run(() => page!.provider.setHost({ ...page!.provider.host, settings_refined_look: on }));
+    expect(document.documentElement.getAttribute("data-settings-look")).toBe(on ? "refined" : "quiet");
+  }
+  expect(normalized()).toBe(original);
 });
 
 test("the variant stylesheet has no matching rules while off", async () => {
