@@ -19,6 +19,11 @@ enum BrowserDeviceHandlers {
         daemon.send("browser.tab.emulate") { try await $0.state.fitTab(resource, aspect: "16:9") }
     }
 
+    /// The device menu's Fit row (nil when the daemon cannot fit).
+    @MainActor static func fitToggle(_ invocation: ActionInvocation, _ context: AppActionContext) -> (@MainActor () -> Void)? {
+        { toggleFit(invocation, context) }
+    }
+
     @MainActor static func fitting(_ tab: TabModel) -> Bool {
         BrowserDeviceMenu.isFit(record: tab.emulation.flatMap { try? JSONEncoder().encode($0) })
     }
@@ -58,13 +63,13 @@ enum BrowserDeviceHandlers {
             if device != nil || orientation != nil { return choose(device?.lowercased() == "none" ? nil : device ?? "", orientation) }
             let (chrome, current) = (entry.chrome, tab.emulation.flatMap { try? JSONEncoder().encode($0) })
             let fitting = BrowserDeviceMenu.isFit(record: current)
-            let canFit = daemon.supports(DaemonCapabilities.shared.browserFit)
+            let fitRow = daemon.supports(DaemonCapabilities.shared.browserFit) ? fitToggle(invocation, context) : nil
             Task { @MainActor in
                 do {
                     let list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
                     let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
                                                  current: BrowserDeviceMenu.current(record: current), isFitting: fitting,
-                                                 toggleFit: canFit ? { toggleFit(invocation, context) } : nil, choose: choose).menu()
+                                                 toggleFit: fitRow, choose: choose).menu()
                     presentedMenu = menu
                     chrome.toolbarButtons.present(menu, from: .overflow)
                 } catch {
