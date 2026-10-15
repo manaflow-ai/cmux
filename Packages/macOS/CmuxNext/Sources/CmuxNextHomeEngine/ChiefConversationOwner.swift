@@ -34,7 +34,7 @@ public final class ChiefConversationOwner {
     /// published (the move of the old per-tag Chiefs). It never holds the
     /// owner back: Home's availability does not wait for the move.
     @ObservationIgnored public var prepare: (@concurrent @Sendable (DaemonConnection) async -> Void)?
-    /// Conversation events (`conversation-changed`, `conversation-typing`).
+    /// Conversation events (`conversation-changed`, `conversation-typing`, the Home row events).
     @ObservationIgnored public var onEvent: ((DaemonEvent) -> Void)?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let wake = RetryWake(owner: "ChiefConversationOwner")
@@ -171,6 +171,8 @@ public final class ChiefConversationOwner {
             self.connection = nil
             lastError = reason
         case .conversationChanged, .conversationTyping, .conversationDraft:
+            onEvent?(event)
+        case .unknown(let name, _) where HomeInboxSource.rowEvents.contains(name):
             onEvent?(event)
         default:
             break

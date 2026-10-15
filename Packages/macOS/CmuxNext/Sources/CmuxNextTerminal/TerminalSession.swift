@@ -95,6 +95,8 @@ public final class TerminalSession {
     private let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
+    /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
+    public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
     private var canonicalGrid: TerminalGridSize?
     /// True once the current surface received a replay or output; a later
@@ -234,6 +236,8 @@ public final class TerminalSession {
     public func close() {
         eventsTask?.cancel()
         eventsTask = nil
+        closeCancels.forEach { $0.cancel() }
+        closeCancels = []
         input.finish()
         surfaceView.removeFromSuperview()
     }

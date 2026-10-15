@@ -36,6 +36,10 @@ public struct TerminalFontScale {
     /// The current font scale reported by Ghostty, nil at the configured size.
     public var current: Double? { view.bridge.takeUnretainedValue().fontScale }
 
+    /// True once the font size changed since the view was made, including a reset to the
+    /// configured size (`current` is nil again then).
+    public var changed: Bool { view.bridge.takeUnretainedValue().fontScaleChanged }
+
     /// The scale `points` is of the configured size; nil at the configured size.
     nonisolated static func scale(points: Double, adjusted: Bool, base: Double?) -> Double? {
         guard adjusted, let base, base > 0, points > 0 else { return nil }
@@ -76,6 +80,7 @@ nonisolated func ghosttyFontSizeAction(_ userdata: UnsafeMutableRawPointer?, _ a
         let scale = TerminalFontScale.scale(points: Double(current), adjusted: currentAdjusted,
                                             base: GhosttyRuntime.shared.configuredFontSize)
         bridge.fontScale = scale
+        bridge.fontScaleChanged = true
         bridge.onFontScaleChange?(scale)
     }
 }

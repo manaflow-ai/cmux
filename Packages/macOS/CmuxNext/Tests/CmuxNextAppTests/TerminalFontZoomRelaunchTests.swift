@@ -64,6 +64,29 @@ struct TerminalFontZoomRelaunchTests {
         #expect(abs(Self.scale(entry) - Self.zoom) < 0.01, "the reopened terminal draws at scale \(Self.scale(entry))")
     }
 
+    /// The person changes the launch view's font (a zoom, or a zoom then Cmd-0 back to the
+    /// configured size) before the records arrive: their size wins over the record's zoom.
+    @Test(arguments: [1.3, nil] as [Double?])
+    func aFontChangeBeforeTheRecordsArriveWins(_ size: Double?) async throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let daemon = DaemonService()
+        let store = daemon.store
+        store.applyProvisional(snapshot: Self.tree())
+        let entry = services.cache.terminal(for: try #require(store.tab(surface: 1)), daemon: daemon)
+        let fontScale = TerminalFontScale(entry.session.surfaceView)
+        #expect(fontScale.apply(1.5), "Ghostty refused the zoom")
+        #expect(fontScale.apply(size), "Ghostty refused the person's size")
+
+        store.apply(.connected(try Self.identity(), generationChanged: false))
+        store.apply(snapshot: Self.tree())
+        try Self.records(store)
+        _ = services.cache.terminal(for: try #require(store.tab(surface: 1)), daemon: daemon)
+
+        let want = size ?? 1
+        await Self.until({ abs(Self.scale(entry) - want) >= 0.01 }, within: .seconds(1))
+        #expect(abs(Self.scale(entry) - want) < 0.01, "the person's size \(want) became \(Self.scale(entry))")
+    }
+
     /// The control: a terminal made once the record is known starts at its zoom.
     @Test func aTerminalMadeAfterItsRecordStartsAtItsZoom() async throws {
         let services = AppServices(environment: AppEnvironment.current([:]))

@@ -18,8 +18,8 @@
 +            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
              case let .receipt(b, r): return b + " " + r
              case let .label(text, _, _): return text
-             default: return nil
-@@ -756,7 +755,7 @@
+             case let .notice(text): return text
+@@ -758,7 +757,7 @@
              // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
@@ -28,7 +28,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1381,6 +1380,16 @@
+@@ -1411,6 +1410,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
