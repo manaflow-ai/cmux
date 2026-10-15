@@ -118,9 +118,17 @@ extension BrowserPanel {
         enginePage
     }
 
+    /// Gives a non-WebKit page the pane's theme color until its first frame,
+    /// so it does not flash gray. The page's own background stays its default.
+    func applyEnginePagePlaceholderColor() {
+        guard let page = enginePage as? any BrowserPagePlaceholderColoring else { return }
+        page.placeholderColor = GhosttyBackgroundTheme.currentColor()
+    }
+
     /// Starts mirroring the non-WebKit page's events into the panel.
     func startEnginePageEvents() {
         guard let enginePage, enginePageEventsTask == nil else { return }
+        applyEnginePagePlaceholderColor()
         syncAgentNavigationGuard()
         ChromiumHelperCrashWatch.startIfNeeded()
         enginePageDelegate.panel = self

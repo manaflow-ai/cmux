@@ -5091,6 +5091,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func refreshBackgroundAppearance() {
+        applyEnginePagePlaceholderColor()
         applyConfiguredWebViewBackground()
         backgroundAppearanceRevision &+= 1
     }

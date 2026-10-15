@@ -14,7 +14,8 @@ import Testing
 @MainActor
 @Suite(.serialized) struct BrowserPanelEngineTests {
     @MainActor
-    final class FakeChromiumPage: BrowserPage {
+    final class FakeChromiumPage: BrowserPage, BrowserPagePlaceholderColoring {
+        var placeholderColor: NSColor = .clear
         var engineKind: BrowserEngineKind { .chromium }
         var capabilities: BrowserEngineCapabilities { [.devToolsProtocol] }
         var presentation: BrowserPagePresentation { .childWindow }
@@ -223,6 +224,18 @@ import Testing
         panel.handleEnginePageEvent(.navigationFailed(URL(string: "https://nope.invalid/"), code: -105, message: "NAME_NOT_RESOLVED", showsEngineErrorPage: true))
         #expect(panel.engineKind == .chromium)
         #expect(panel.engineFallbackNotice == nil)
+    }
+
+    @Test func chromiumPageOpensOnTheThemeColor() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let page = try #require(provider.pages.first)
+        #expect(page.placeholderColor == GhosttyBackgroundTheme.currentColor())
     }
 
     @Test func closingTheChromiumPanelClosesItsPage() {
