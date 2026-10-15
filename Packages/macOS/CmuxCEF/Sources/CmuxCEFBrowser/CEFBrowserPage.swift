@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxBrowser
 public import CmuxCEF
+public import CmuxCEFExtensions
 public import Foundation
 
 /// The Chromium engine's ``BrowserPage``: a CEF browser whose Chromium
@@ -32,10 +33,21 @@ public final class CEFBrowserPage: BrowserPage {
         .crossOriginFrames, .userScripts, .findMatchCount,
     ]
 
+    /// The page's extension side (toolbar actions, extension calls); nil
+    /// when the engine was created without extension support.
+    public let extensionSupport: CEFExtensionPageSupport?
+
     /// Wraps a CEF browser and starts receiving its events.
-    /// - Parameter browser: The Chromium page.
-    public init(browser: CEFBrowser) {
+    /// - Parameters:
+    ///   - browser: The Chromium page.
+    ///   - extensions: The engine's extension stores, or nil for a page without extensions.
+    public init(browser: CEFBrowser, extensions: CEFExtensionStores? = nil) {
         self.browser = browser
+        extensionSupport = extensions.map { stores in
+            CEFExtensionPageSupport(profileID: browser.configuration.profile, stores: stores) { [weak browser] in
+                browser?.browserID
+            }
+        }
         browser.onEvent = { [weak self] event in
             self?.handle(event)
         }
@@ -306,6 +318,7 @@ public final class CEFBrowserPage: BrowserPage {
     private func handle(_ event: CEFBrowserEvent) {
         switch event {
         case .stateChanged(let cefState):
+            extensionSupport?.noteBrowserID()
             emit(.stateChanged(Self.pageState(cefState)))
             if cefState.faviconURL != lastFaviconURL {
                 lastFaviconURL = cefState.faviconURL

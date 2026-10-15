@@ -1,3 +1,4 @@
+import AppKit
 import CmuxBrowser
 import CmuxCEF
 import CmuxCEFBrowser
@@ -18,6 +19,8 @@ final class BrowserEngineRuntime {
     static let shared = BrowserEngineRuntime()
 
     let registry: BrowserEngineRegistry
+    /// Chrome extension stores and prompts of the Chromium engine (set at launch).
+    private(set) var chromiumExtensions: CEFBrowserExtensions?
     let fallbackNotices: BrowserEngineFallbackNoticeLedger
     private let resolver = BrowserEngineResolver()
     private let environment: [String: String]
@@ -63,7 +66,20 @@ final class BrowserEngineRuntime {
     /// Chromium runtime. Called once at launch.
     func registerBundledEngines() {
         guard registry.provider(for: .chromium) == nil else { return }
-        registry.register(CEFBrowserEngineProvider(runtime: .shared))
+        let extensions = CEFBrowserExtensions(
+            runtime: .shared,
+            window: { browserID in
+                // The asking tab's window, else a visible cmux window; none aborts the prompt.
+                CEFRuntime.shared.browser(id: browserID)?.hostView.window
+                    ?? NSApp.windows.first { $0.isVisible && $0.isMainWindow }
+                    ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.parent == nil && !($0 is NSPanel) }
+            },
+            present: { content, icon, window in
+                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
+            }
+        )
+        chromiumExtensions = extensions
+        registry.register(CEFBrowserEngineProvider(runtime: .shared, extensions: extensions.stores))
     }
 
     /// Whether an engine can create pages now.

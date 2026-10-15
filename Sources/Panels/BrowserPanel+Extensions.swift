@@ -2,24 +2,20 @@ import AppKit
 import CmuxBrowser
 
 extension BrowserPanel {
-    /// The panel's Chromium extension host, or nil for a WebKit panel.
-    ///
-    /// Chromium pages conform to ``BrowserExtensionHosting``; until the
-    /// engine plumbing gives `BrowserPanel` an engine page, every panel is
-    /// WebKit and this is nil, so extension commands report that they need
-    /// the Chromium engine and the toolbar shows no extension controls.
+    /// The panel's Chromium extension host, or nil for a WebKit panel (or a
+    /// Chromium page set up without extensions).
     var extensionHost: (any BrowserExtensionHosting)? {
-        extensionHostingPage as? any BrowserExtensionHosting
+        (enginePage as? any BrowserExtensionHostProviding)?.extensionHost
     }
-
-    /// The engine page that may host extensions. WebKit-only today.
-    private var extensionHostingPage: AnyObject? { nil }
 
     /// The page view's leading edge in window coordinates (extension popups anchor to it).
     func extensionPageLeadingX() -> CGFloat? {
-        guard let view = (extensionHostingPage as? any BrowserPage)?.contentView, view.window != nil else { return nil }
+        guard let view = enginePage?.contentView, view.window != nil else { return nil }
         return view.convert(view.bounds, to: nil).minX
     }
+
+    /// The window of the panel's engine page, if it is on screen.
+    var extensionPageWindow: NSWindow? { enginePage?.contentView.window }
 
     /// Carries out a choice the person made in the Extensions popover. These
     /// are the person's own clicks, so no consent sheet is involved.
@@ -62,7 +58,7 @@ extension BrowserPanel {
             guard response == .OK, let url = panel.url else { return }
             _ = store.loadUnpacked(at: url.standardizedFileURL.path)
         }
-        if let window = (extensionHostingPage as? any BrowserPage)?.contentView.window {
+        if let window = extensionPageWindow {
             panel.beginSheetModal(for: window, completionHandler: completion)
         } else {
             panel.begin(completionHandler: completion)

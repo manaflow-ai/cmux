@@ -193,7 +193,7 @@ extension TerminalController {
         _ content: BrowserExtensionPromptContent, ctx: V2BrowserPanelContext, host: any BrowserExtensionHosting,
         icon iconPath: String? = nil
     ) async -> Bool {
-        let window = (host as? any BrowserPage)?.contentView.window ?? ctx.webView.window
+        let window = ctx.browserPanel.extensionPageWindow ?? ctx.webView.window
         guard let window, window.attachedSheet == nil else { return false }
         let icon = iconPath.flatMap { FileManager.default.contents(atPath: $0) }
         let accepted = await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)

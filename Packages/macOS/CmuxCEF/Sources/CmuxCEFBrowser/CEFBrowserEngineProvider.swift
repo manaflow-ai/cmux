@@ -1,5 +1,6 @@
 public import CmuxBrowser
 public import CmuxCEF
+public import CmuxCEFExtensions
 import Foundation
 
 /// The Chromium engine for browser panels.
@@ -16,11 +17,15 @@ import Foundation
 @MainActor
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     private let runtime: CEFRuntime
+    private let extensions: CEFExtensionStores?
 
     /// Creates the provider.
-    /// - Parameter runtime: The process's CEF runtime.
-    public init(runtime: CEFRuntime) {
+    /// - Parameters:
+    ///   - runtime: The process's CEF runtime.
+    ///   - extensions: The extension stores pages join, or nil for pages without extensions.
+    public init(runtime: CEFRuntime, extensions: CEFExtensionStores? = nil) {
         self.runtime = runtime
+        self.extensions = extensions
     }
 
     /// Always ``BrowserEngineKind/chromium``.
@@ -62,6 +67,6 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
                 restoreState: restore
             )
         )
-        return CEFBrowserPage(browser: browser)
+        return CEFBrowserPage(browser: browser, extensions: extensions)
     }
 }

@@ -30,6 +30,7 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
     @ObservationIgnored private unowned let stores: CEFExtensionStores
     @ObservationIgnored private let browserID: @MainActor () -> Int32?
     @ObservationIgnored private var pendingAction: (id: String, x: Int32, width: Int32)?
+    @ObservationIgnored private var seenBrowserID: Int32?
 
     /// Creates the extension side of a page and registers it with `stores`.
     ///
@@ -84,6 +85,14 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
               let json = stores.extensionCalls.actions(browser: browser, iconPixels: Self.iconPixels) else { return }
         let next = BrowserExtensionAction.decodeList(json)
         if next != actions { actions = next }
+    }
+
+    /// Call on every page state change: runs ``browserCreated()`` once each
+    /// time the page gets a new Chromium browser id.
+    public func noteBrowserID() {
+        guard let id = cefBrowserID, id != seenBrowserID else { return }
+        seenBrowserID = id
+        browserCreated()
     }
 
     /// The page's Chromium browser now exists: read actions and run a click that came first.
