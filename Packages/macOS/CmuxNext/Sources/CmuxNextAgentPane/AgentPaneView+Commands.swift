@@ -15,6 +15,9 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// Ask a Side Question… (`/btw`): the page takes the keyboard and starts a side question in its
+    /// composer; a page whose side sessions gate is off ignores it.
+    public func askSideQuestion() {}
     private func showWithKeyboard(_ command: String) {
         if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
         send(command)

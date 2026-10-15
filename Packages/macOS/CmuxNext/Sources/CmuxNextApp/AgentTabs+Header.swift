@@ -4,7 +4,7 @@ import CmuxNextDaemon
 
 /// The chat header and right-click menu (``AgentChatTabActions``), its toggling quick actions
 /// (``AgentChatSplitToggles``), the header's state, pushed when it changes (``AgentChatHeaderWatch``),
-/// and New side chat's split.
+/// and the side pane New side chat and `/btw` open in (``AgentSidePanes``).
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
@@ -30,7 +30,7 @@ extension AgentTabStore {
         }, tabState: {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
-        }, openSide: { [weak self] in _ = self?.openSide($0, beside: provisional) }, openTab: { [weak self] in self?.openSide($0, beside: provisional, split: false) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
+        }, openSide: { [weak self] chat, fork in self?.openSideSession(fork, of: chat, beside: provisional) }, openTab: { [weak self] in self?.openTab($0, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)
             return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
@@ -48,14 +48,38 @@ extension AgentTabStore {
         model.onSearchWeb = actions.searchWeb
     }
 
-    /// A tab on `session` in the chat's pane, then (`split`, New side chat) moved to a new split on its
-    /// right (`tab.moveToNewSplit`), so the chat stays where it is; a fork or Continue in… stays a tab.
-    private func openSide(_ session: String, beside provisional: String, split: Bool = true) -> Bool {
-        openBeside(provisional, split: split) { pane, daemon in try self.open(in: pane, of: daemon, session: session) }
+    /// A tab on `session` in the chat's pane (a fork, a started Continue in…), so the chat stays where it is.
+    private func openTab(_ session: String, beside provisional: String) -> Bool {
+        openBeside(provisional, split: false) { pane, daemon in try self.open(in: pane, of: daemon, session: session) }
+    }
+
+    /// A side session (New side chat, `/btw`) beside the chat: the tracker (``AgentSidePanes``)
+    /// decides between a tab in the chat's side pane and a new split; the app opens the tab there
+    /// and focuses it, or moves it to a split right of the chat as before.
+    private func openSideSession(_ session: String, of chat: String, beside provisional: String) {
+        AgentSidePanes.chat(chat).open(session, chat: resolve(provisional), hooks: .init(pane: { [weak self] key in
+            self?.locate(self?.resolve(key) ?? key).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" }
+        }, addTab: { [weak self] anchor, session, created, finished in
+            guard let self, let (pane, daemon) = locate(resolve(anchor)),
+                  let pending = try? open(in: pane, of: daemon, session: session) else { return false }
+            // task-owner: one tab creation in the side pane, then one focus of that tab
+            Task { [weak self] in
+                guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { finished(); return }
+                created(tab.key)
+                _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: .user))
+                finished()
+            }
+            return true
+        }, split: { [weak self] session, created, finished in
+            self?.openBeside(provisional, open: { [weak self] pane, daemon in
+                guard let self else { throw CancellationError() }
+                return try open(in: pane, of: daemon, session: session)
+            }, created: created, finished: { _ in finished() }) ?? false
+        }))
     }
 
     /// [+] New tab's column: a New Tab page in the chat's folder (or `cwd`, New Chat Here), moved to
-    /// a new split on its right as New side chat's tab is unless not `split`. The page's choices
+    /// a new split on its right unless not `split`. The page's choices
     /// replace it in whichever pane it is in then. Returns whether the page was started.
     private func openNewTabColumn(beside provisional: String, cwd: String? = nil, split: Bool = true) -> Bool {
         let chat = resolve(provisional)
