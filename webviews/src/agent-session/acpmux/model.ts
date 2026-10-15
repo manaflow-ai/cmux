@@ -408,7 +408,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
-  // The Labs activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
+  // The status activity line (agent.sessionStatus): one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
   if (row.kind === ACTIVITY_LINE) return 36;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;

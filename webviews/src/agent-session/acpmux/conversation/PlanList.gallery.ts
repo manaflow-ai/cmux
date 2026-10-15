@@ -28,9 +28,9 @@ export default agentPaneEntry({
         }),
       ]),
     },
-    "labs-card": {
-      note: "Labs (cx-ncc.102): the live list as a quiet card under the work, and the activity line under it naming the running edit and the turn's time.",
-      labs: true,
+    "status-card": {
+      note: "In-session status (Debug Settings agent.sessionStatus, cx-ncc.102): the live list as a quiet card under the work, and the activity line under it naming the running edit and the turn's time.",
+      sessionStatus: true,
       snapshot: chat(
         [
           user("Fix the layout shift on the product grid", 26 / 60),

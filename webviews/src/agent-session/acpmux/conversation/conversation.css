@@ -2137,7 +2137,7 @@ pre.cv-math-source {
   border-color: var(--agent-text);
 }
 
-/* The Labs card (cx-ncc.102): a quiet card under the turn's work; a dashed circle waits, a
+/* The status card (agent.sessionStatus Debug toggle, cx-ncc.102): a quiet card under the turn's work; a dashed circle waits, a
    spinner runs and a filled check is done. No heading, strike-through or bold. */
 .cv-plan.is-card {
   padding: 8px 12px;

@@ -26,7 +26,7 @@ export const THINKING = "thinking";
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
 const LIVE_THINKING = `${THINKING}-live`;
 export const WORKING = "working";
-/// The live turn's activity line under its todo card (Labs, cx-ncc.102): what the agent is
+/// The live turn's activity line under its todo card (the agent.sessionStatus Debug toggle, cx-ncc.102): what the agent is
 /// doing now and how long the turn has run.
 export const ACTIVITY_LINE = "activityLine";
 /// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
@@ -72,7 +72,7 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
-  options: { now?: number; working?: boolean; clockOffset?: number; labs?: boolean } = {},
+  options: { now?: number; working?: boolean; clockOffset?: number; statusCards?: boolean } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
 }
@@ -103,8 +103,8 @@ export function turnViewFrom(
     now = Date.now(),
     working = false,
     clockOffset = 0,
-    labs = false,
-  }: { now?: number; working?: boolean; clockOffset?: number; labs?: boolean } = {},
+    statusCards = false,
+  }: { now?: number; working?: boolean; clockOffset?: number; statusCards?: boolean } = {},
   previous?: TurnView,
 ): TurnView {
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -169,8 +169,8 @@ export function turnViewFrom(
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
-    for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!, labs))
-      out.push(row);
+    const shaped = shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!, statusCards);
+    for (const row of shaped) out.push(row);
     ends.push(out.length);
   }
   return { source: rows, expanded, clockOffset, lead, starts, times, dated, ends, rows: out };
@@ -200,7 +200,7 @@ function shapedTurn(
   last: boolean,
   clockOffset: number,
   dated: boolean,
-  labs = false,
+  statusCards = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   const open = expanded.size > 0 && expanded.has(`${WORKED}-${user.id}`);
@@ -237,7 +237,7 @@ function shapedTurn(
     shaped = [
       ...date,
       user,
-      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, labs),
+      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, statusCards),
       ...held,
     ];
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
@@ -273,7 +273,7 @@ function shapeTurn(
   last: boolean,
   retryable: boolean,
   clockOffset = 0,
-  labs = false,
+  statusCards = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status.
@@ -281,7 +281,11 @@ function shapeTurn(
   // a reloaded turn without timing. The last one may only be waiting for its
   // summary, so it draws as it came.
   if (end < 0)
-    return live ? liveTurn(user, turn, clockOffset, labs) : last ? turn : settledWithoutSummary(user, turn, expanded);
+    return live
+      ? liveTurn(user, turn, clockOffset, statusCards)
+      : last
+        ? turn
+        : settledWithoutSummary(user, turn, expanded);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
   const final = answerAt(body);
@@ -413,9 +417,9 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 /// fold). The line is timed from the prompt and draws its own clock; while text streams, the
 /// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
 /// The client's empty "typing" placeholder gives way to it.
-/// With Labs on and a todo list, the list sits under the work as a card instead, and the activity
+/// With the agent.sessionStatus Debug toggle on (`statusCards`) and a todo list, the list sits under the work as a card instead, and the activity
 /// line under it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
-function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, labs = false): AcpmuxRow[] {
+function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, statusCards = false): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
   const last = rows.at(-1);
   if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
@@ -424,7 +428,7 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, labs 
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
-  const plan = labs ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+  const plan = statusCards ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
   if (!plan) return [status, ...rows];
   const work = rows.filter((row) => row !== plan);
   // The answer streams under the list; the line has nothing left to say.

@@ -256,7 +256,7 @@ import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { OfferChip } from "./offer/OfferChip";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
-import { setSessionStatus } from "./sessionStatus";
+import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -634,7 +634,7 @@ const WorkingRow = memo(
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs,
 );
-/// The live turn's activity line under its todo card (Labs, cx-ncc.102).
+/// The live turn's activity line under its todo card (the agent.sessionStatus Debug toggle, cx-ncc.102).
 const ActivityLineRow = memo(
   function ActivityLineRow({ row }: RowProps) {
     return <ActivityLine row={row} />;
@@ -642,7 +642,7 @@ const ActivityLineRow = memo(
   (a, b) =>
     a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text && a.row.at === b.row.at,
 );
-/// The pane's shortcut labels, and the todo list's Labs card style (cx-ncc.102).
+/// The pane's shortcut labels, and the todo list's status card style (agent.sessionStatus, cx-ncc.102).
 function PaneContexts({
   shortcuts,
   planCard,
@@ -2626,8 +2626,8 @@ function AcpmuxPane() {
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
-  /// Preview features (`labs.previewFeatures`, applyPreview): the Labs todo card and activity line.
-  const [preview, setPreview] = useState(false);
+  /// The in-session status toggle (Debug Settings `agent.sessionStatus`): the todo card and activity line.
+  const sessionStatus = useSessionStatus();
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
@@ -2638,14 +2638,14 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, labs: preview },
+        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, statusCards: sessionStatus },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       return withShellRows(subagents.rows, chatShellRuns);
     });
-  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, preview]);
+  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionStatus]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
@@ -3083,6 +3083,7 @@ function AcpmuxPane() {
   // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
+  const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -5162,7 +5163,7 @@ function AcpmuxPane() {
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
   const pane = (
-    <PaneContexts shortcuts={shortcuts} planCard={preview}>
+    <PaneContexts shortcuts={shortcuts} planCard={sessionStatus}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {!harnessesOpen && showNewTab && !newTab.history && (
@@ -5322,10 +5323,7 @@ function AcpmuxPane() {
                       onApplyWorktree={
                         snapshot.sessionId && localCwd
                           ? (key: string) =>
-                              callNative("git.worktree.apply", {
-                                session_id: snapshot.sessionId,
-                                idempotency_key: key,
-                              })
+                              callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
                           : undefined
                       }
                       // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
