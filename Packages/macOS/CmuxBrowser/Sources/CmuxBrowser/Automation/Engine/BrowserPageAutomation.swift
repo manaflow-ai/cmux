@@ -157,6 +157,36 @@ public struct BrowserPageAutomation {
         }
     }
 
+    /// Delivers one trusted mouse step to the page.
+    public func dispatchMouse(
+        _ action: BrowserAutomationMouseAction,
+        x: Double,
+        y: Double,
+        button: BrowserAutomationMouseButton? = nil,
+        clickCount: Int = 0,
+        modifiers: BrowserKeyboardNativeModifiers = [],
+        deltaX: Double = 0,
+        deltaY: Double = 0
+    ) async throws(BrowserAutomationPageError) {
+        guard speaksDevTools else { throw .unsupported("trusted mouse input") }
+        _ = try await devTools("Input.dispatchMouseEvent", codec.mouseEventParams(
+            action,
+            x: x,
+            y: y,
+            button: button,
+            clickCount: clickCount,
+            modifiers: modifiers,
+            deltaX: deltaX,
+            deltaY: deltaY
+        ))
+    }
+
+    /// Inserts text at the page's focus as an input method commit would.
+    public func insertText(_ text: String) async throws(BrowserAutomationPageError) {
+        guard speaksDevTools else { throw .unsupported("trusted text input") }
+        _ = try await devTools("Input.insertText", ["text": text])
+    }
+
     // MARK: - Viewport
 
     /// Whether ``setViewportOverride(width:height:)`` can emulate a viewport
