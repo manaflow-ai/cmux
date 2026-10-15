@@ -14,11 +14,17 @@ struct SidebarRowHold {
     var isEmpty: Bool { pending.isEmpty }
 
     /// `sections` with each held row as it was shown. A row that changed since its patch in another way (a
-    /// structural update rewrote it) is not the patch's value any more: it shows as the model has it.
+    /// structural update rewrote it) is not the patch's value any more: it shows as the model has it. Each
+    /// listed copy keeps its own row state and machine (a saved stale row beside the live one).
     func apply(to sections: [SidebarSection]) -> [SidebarSection] {
         guard !shown.isEmpty else { return sections }
         func held(_ ws: SidebarWorkspace) -> SidebarWorkspace {
-            guard let old = shown[ws.id], pending[ws.id] == ws else { return ws }
+            guard var old = shown[ws.id], var patch = pending[ws.id] else { return ws }
+            patch.rowState = ws.rowState
+            patch.machineID = ws.machineID
+            guard patch == ws else { return ws }
+            old.rowState = ws.rowState
+            old.machineID = ws.machineID
             return old
         }
         var sections = sections
@@ -50,8 +56,8 @@ extension SidebarListView {
     var listSections: [SidebarSection] { rowHold.isEmpty ? model.sections : rowHold.apply(to: model.sections) }
 
     /// Holds `patched` until the drag's card is gone.
+    /// (Counted in `.rowPatches` when they apply.)
     func holdRowPatches(_ patched: [SidebarWorkspace]) {
-        SidebarPerfCounters.add(.rowPatches, patched.count)
         for ws in patched {
             if rowHold.shown[ws.id] == nil, let old = workspaces[ws.id] { rowHold.shown[ws.id] = old }
             rowHold.pending[ws.id] = ws

@@ -159,6 +159,7 @@ final class SidebarListView: NSView {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
         if newWindow == nil, let landing { finishLand(landing, then: landing.landingThen) }
+        releaseRowHold() // a settle still running keeps the rows held until it ends (`reload`)
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -229,6 +230,8 @@ final class SidebarListView: NSView {
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
+        // The settle ended in this reload with its card already gone (no landing to finish): the held rows show now.
+        releaseRowHold()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
