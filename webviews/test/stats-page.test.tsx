@@ -6,7 +6,15 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { attentionRows, formatDay, formatDuration, formatHour, formatWait, heatmap, hourShares } from "../src/pages/stats/shape";
+import {
+  attentionRows,
+  formatDay,
+  formatDuration,
+  formatHour,
+  formatWait,
+  heatmap,
+  hourShares,
+} from "../src/pages/stats/shape";
 import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 import { mockSummary } from "../src/pages/stats/mockProvider";
 import type { StatsSummary } from "../src/pages/stats/types";
@@ -75,7 +83,11 @@ test("attention rows show what acpmux sent and hide what an older daemon did not
     { key: "stats.attention.steersPerTurn", ratio: 0.15 },
   ]);
   // No question answered yet: no wait to average, but the counts still read.
-  expect(attentionRows({ ...summary, permissionAnswered: 0, permissionWaitMs: 0, permissionWaitMaxMs: 0 }).map((row) => row.key)).toEqual([
+  expect(
+    attentionRows({ ...summary, permissionAnswered: 0, permissionWaitMs: 0, permissionWaitMaxMs: 0 }).map(
+      (row) => row.key,
+    ),
+  ).toEqual([
     "stats.attention.answered",
     "stats.attention.unanswered",
     "stats.attention.limitErrors",
@@ -183,8 +195,8 @@ test("the page shows the summary, switches range and drops a stale reply", async
   expect(attention).toEqual({
     "Average wait": formatWait(summary.permissionWaitMs! / summary.permissionAnswered!, "en"),
     "Longest wait": formatWait(summary.permissionWaitMaxMs!, "en"),
-    Answered: String(summary.permissionAnswered),
-    Unanswered: String(summary.permissionUnanswered),
+    "Questions answered": String(summary.permissionAnswered),
+    "Questions unanswered": String(summary.permissionUnanswered),
     "Limit errors": String(summary.limitErrors),
     "Steers per turn": new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(summary.steers / summary.turns),
   });
