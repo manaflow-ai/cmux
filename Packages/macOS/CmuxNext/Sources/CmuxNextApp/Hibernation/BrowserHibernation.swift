@@ -330,27 +330,10 @@ struct PageProbe {
         return webAudio && pressure != .critical ? .webAudio : nil
     }
 
-    /// Unmuted media playing, a running Web Audio context, a live camera,
-    /// microphone or screen capture, or form fields whose value differs from the
-    /// page's default (form interaction). A page that does not
-    /// answer within the deadline is treated as busy and kept.
-    static let script = """
-    (() => {
-      const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
-      const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
-        if (e.disabled || e.type === 'hidden' || e.type === 'submit' || e.type === 'button') return false;
-        if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);
-        if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
-        return e.value !== e.defaultValue;
-      });
-      return JSON.stringify({media, form});
-    })()
-    """
-
     static func run(_ tab: any BrowserTab) async -> PageProbe {
         do {
             let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                (try await tab.evaluate(script, world: .isolated), try await tab.pageBusy())
+                (try await tab.evaluate(BrowserPageBusy.probeScript, world: .isolated), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }

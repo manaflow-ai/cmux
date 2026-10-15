@@ -40,6 +40,23 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         self.editedForm = editedForm
     }
 
+    /// Unmuted media playing, a running Web Audio context, a live camera,
+    /// microphone or screen capture, or form fields whose value differs from the
+    /// page's default (form interaction): the fallback for a page without the recorder.
+    /// A page that does not answer within the deadline is treated as busy and kept.
+    package static let probeScript = """
+    (() => {
+      const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
+      const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
+        if (e.disabled || e.type === 'hidden' || e.type === 'submit' || e.type === 'button') return false;
+        if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);
+        if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
+        return e.value !== e.defaultValue;
+      });
+      return JSON.stringify({media, form});
+    })()
+    """
+
     static let recorderScript = #"""
     (() => {
       const key = Symbol.for('cmux.pageBusy');
