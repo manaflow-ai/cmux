@@ -23,7 +23,7 @@ with the unit that implements them (0e1, 0i); never on main.
   Events: one struct per event, `UnknownEvent`, `using Event = std::variant<...>`,
   `Event DecodeEvent(const base::Value::Dict&)`.
 - Integers decode from an int or from a double that is an exact integer with
-  magnitude at or below 2^53, else `DecodeError` (no silent precision loss).
+  magnitude below 2^53, else `DecodeError` (no silent precision loss).
   Enums get `kUnknown` (rule of `test_enum_fallback.py`). Results ignore
   unknown fields. A missing required field gives `DecodeError{path, message}`
   with a path such as `result.panes[2].id`.

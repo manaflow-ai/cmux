@@ -16,7 +16,7 @@ an SDK language: ``generate.py --write`` does not discover it (see
 Rules that the emitted code follows:
 
 - Integers decode from a ``base::Value`` int, or from a double that is an exact
-  integer with a magnitude at or below 2^53. Anything else is a
+  integer with a magnitude below 2^53. Anything else is a
   ``DecodeError``; there is no silent precision loss.
 - Every enum gets ``kUnknown`` as its first enumerator. An unknown string
   decodes to the spec ``fallback`` value when the enum has one (the rule of
@@ -1619,7 +1619,8 @@ class CppValueEmitter:
 
 
 _SOURCE_PRELUDE = """\
-// Every integer up to this magnitude has an exact double (2^53).
+// Every integer below this magnitude has an exact double (2^53). 2^53 + 1
+// reads as 2^53, so 2^53 itself is refused too.
 constexpr double kMaxExactInteger = 9007199254740992.0;
 
 // The path of the value being decoded and, after a failure, the message.
@@ -1681,8 +1682,8 @@ bool ReadInteger(const base::Value& value, DecodeContext& context, T& out) {
     if (!std::isfinite(number) || std::trunc(number) != number) {
       return Fail(context, "expected an integer");
     }
-    if (std::fabs(number) > kMaxExactInteger) {
-      return Fail(context, "integer above 2^53 has no exact value");
+    if (std::fabs(number) >= kMaxExactInteger) {
+      return Fail(context, "integer at or above 2^53 has no exact value");
     }
     wide = static_cast<int64_t>(number);
   } else {
@@ -1701,8 +1702,8 @@ base::Value WriteInteger(T value) {
     return base::Value(static_cast<int>(value));
   }
   const double number = static_cast<double>(value);
-  // Above 2^53 the wire value is not exact. Protocol ids stay below it.
-  DCHECK_LE(std::fabs(number), kMaxExactInteger);
+  // At or above 2^53 the wire value is not exact. Protocol ids stay below it.
+  DCHECK_LT(std::fabs(number), kMaxExactInteger);
   return base::Value(number);
 }
 """

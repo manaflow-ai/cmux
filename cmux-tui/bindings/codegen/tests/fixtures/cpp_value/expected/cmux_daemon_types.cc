@@ -23,7 +23,8 @@ namespace cmux::daemon {
 
 namespace {
 
-// Every integer up to this magnitude has an exact double (2^53).
+// Every integer below this magnitude has an exact double (2^53). 2^53 + 1
+// reads as 2^53, so 2^53 itself is refused too.
 constexpr double kMaxExactInteger = 9007199254740992.0;
 
 // The path of the value being decoded and, after a failure, the message.
@@ -85,8 +86,8 @@ bool ReadInteger(const base::Value& value, DecodeContext& context, T& out) {
     if (!std::isfinite(number) || std::trunc(number) != number) {
       return Fail(context, "expected an integer");
     }
-    if (std::fabs(number) > kMaxExactInteger) {
-      return Fail(context, "integer above 2^53 has no exact value");
+    if (std::fabs(number) >= kMaxExactInteger) {
+      return Fail(context, "integer at or above 2^53 has no exact value");
     }
     wide = static_cast<int64_t>(number);
   } else {
@@ -105,8 +106,8 @@ base::Value WriteInteger(T value) {
     return base::Value(static_cast<int>(value));
   }
   const double number = static_cast<double>(value);
-  // Above 2^53 the wire value is not exact. Protocol ids stay below it.
-  DCHECK_LE(std::fabs(number), kMaxExactInteger);
+  // At or above 2^53 the wire value is not exact. Protocol ids stay below it.
+  DCHECK_LT(std::fabs(number), kMaxExactInteger);
   return base::Value(number);
 }
 
