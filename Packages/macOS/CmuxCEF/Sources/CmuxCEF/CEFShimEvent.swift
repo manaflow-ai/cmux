@@ -62,6 +62,12 @@ public enum CEFShimEvent: Equatable, Sendable {
     /// (`permissionDismissed`).
     case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
     case permissionDismissed(browser: Int32, token: Int32)
+    /// A JavaScript dialog Chromium waits on (JS_DIALOG), answered with
+    /// `CEFRuntime.answerJSDialog(token:accept:text:)`; Chromium may end it
+    /// first (`jsDialogDismissed`).
+    case jsDialog(browser: Int32, token: Int32, kind: CEFJSDialogKind, message: String, origin: String,
+                  defaultText: String, isReload: Bool)
+    case jsDialogDismissed(browser: Int32, token: Int32)
     /// Chromium's password manager asks to save or update a sign-in, or its
     /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
     /// `cmux_shim_password_prompt_answer(promptID, …)`.
@@ -140,6 +146,12 @@ public enum CEFShimEvent: Equatable, Sendable {
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
         case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
+        case 44:
+            let fields = (s2.data(using: .utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+            self = .jsDialog(browser: browser, token: request, kind: CEFJSDialogKind(rawValue: Int32(truncatingIfNeeded: a)) ?? .alert,
+                             message: s1, origin: fields["origin"] as? String ?? "",
+                             defaultText: fields["default"] as? String ?? "", isReload: b != 0)
+        case 45: self = .jsDialogDismissed(browser: browser, token: request)
         default: self = .unknown(kind: kind)
         }
     }
@@ -244,10 +256,20 @@ extension CEFShimEvent {
              .navigationReroute(let browser, _, _), .authCallback(let browser, _),
              .localFileHandoff(let browser, _), .externalURL(let browser, _, _),
              .permissionPrompt(let browser, _, _, _), .permissionDismissed(let browser, _),
+             .jsDialog(let browser, _, _, _, _, _, _), .jsDialogDismissed(let browser, _),
              .passwordPrompt(let browser, _, _), .keyUnhandled(let browser, _, _),
              .installPrompt(let browser, _, _), .takeFocus(let browser, _), .devToolsMessage(let browser, _),
              .download(_, let browser, _, _, _, _, _):
             return browser == 0 ? nil : browser
         }
     }
+}
+
+/// The kind of a JavaScript dialog (`cef_jsdialog_type_t`, plus beforeunload).
+public enum CEFJSDialogKind: Int32, Equatable, Sendable {
+    case alert = 0
+    case confirm = 1
+    case prompt = 2
+    /// "Leave site?" before the page unloads or reloads.
+    case beforeUnload = 3
 }

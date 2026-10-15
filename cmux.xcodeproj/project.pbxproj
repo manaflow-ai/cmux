@@ -12443,6 +12443,7 @@
 				DA7AC0DE0000000000000008 /* BrowserAVMediaAuthorization.swift */,
 				DA7AC0DE0000000000000006 /* BrowserPanelEnginePageDelegate+Data.swift */,
 				DA7AC0DE0000000000000004 /* BrowserChromiumProfileEngineStore.swift */,
+				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";

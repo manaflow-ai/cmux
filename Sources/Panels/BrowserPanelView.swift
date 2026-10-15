@@ -1087,7 +1087,9 @@ struct BrowserPanelView: View {
             if let fallbackReason = panel.engineFallbackNotice {
                 BrowserEngineFallbackNoticeBar(
                     reason: fallbackReason,
+                    metrics: chromeMetrics,
                     backgroundColor: browserChromeBackgroundColor,
+                    onShowLog: { panel.showEngineLog() },
                     onDismiss: { panel.dismissEngineFallbackNotice() }
                 )
             }

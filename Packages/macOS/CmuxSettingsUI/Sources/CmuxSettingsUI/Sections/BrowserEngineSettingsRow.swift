@@ -41,12 +41,14 @@ struct BrowserEngineSettingsRow: View {
         if isChromiumBundled {
             return String(
                 localized: "settings.browser.engine.subtitle",
-                defaultValue: "The engine new browser tabs open with. Open tabs keep theirs."
+                defaultValue: "The engine new browser tabs open with. Open tabs keep theirs.",
+                bundle: .module
             )
         }
         return String(
             localized: "settings.browser.engine.subtitleUnavailable",
-            defaultValue: "This build doesn't include Chromium, so new browser tabs open in WebKit."
+            defaultValue: "This build doesn't include Chromium, so new browser tabs open in WebKit.",
+            bundle: .module
         )
     }
 

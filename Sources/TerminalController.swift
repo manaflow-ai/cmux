@@ -9705,6 +9705,7 @@ class TerminalController {
 
         var setupError: V2CallResult?
         var basePayload: [String: Any]?
+        var engineNavigation: (panel: BrowserPanel, ticket: BrowserAutomationNavigationTicket, targetURL: URL)?
         v2MainSync {
             let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
             if let error = resolvedContext.error {
@@ -9713,6 +9714,14 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
+            // A Chromium page commits the history step asynchronously: wait
+            // for it like navigate and reload do.
+            if action == "back" || action == "forward",
+               let step = context.browserPanel.beginEngineHistoryNavigationForAutomation(offset: action == "back" ? -1 : 1) {
+                engineNavigation = (context.browserPanel, step.ticket, step.targetURL)
+                basePayload = v2BrowserActionPayload(context, tabManager: tabManager)
+                return
+            }
             switch action {
             case "back":
                 context.browserPanel.goBack(dialogOwner: .automation)
@@ -9733,6 +9742,12 @@ class TerminalController {
         }
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        }
+        if let engineNavigation {
+            let outcome = v2AwaitBrowserAutomationNavigation(engineNavigation.ticket, browserPanel: engineNavigation.panel)
+            if let failure = v2BrowserNavigationFailureResult(outcome, targetURL: engineNavigation.targetURL) {
+                return failure
+            }
         }
         // Run --snapshot-after off the main thread (see v2BrowserNavigate): the
         // accessibility-tree walk must not block SwiftUI on a fresh surface.

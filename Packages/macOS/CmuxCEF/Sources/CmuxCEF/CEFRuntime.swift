@@ -142,6 +142,13 @@ public final class CEFRuntime {
         shim?.permissionContinue(token, allow ? 1 : 2) == 1
     }
 
+    /// Answers a `.jsDialog`: accept is OK / Leave, false is Cancel / Stay;
+    /// `text` is the prompt() answer.
+    @discardableResult
+    public func answerJSDialog(token: Int32, accept: Bool, text: String = "") -> Bool {
+        text.withCString { shim?.jsDialogReply(token, accept ? 1 : 0, $0) } == 1
+    }
+
     /// Answers a download start (`.download` kind 34): the full destination
     /// path, or nil to cancel.
     @discardableResult
