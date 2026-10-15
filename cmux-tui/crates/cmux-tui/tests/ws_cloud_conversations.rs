@@ -662,11 +662,13 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
 /// projections cannot drift apart silently.
 #[test]
 fn home_inbox_cloud_rows_follow_the_shared_corpus() {
-    let corpus: Value = serde_json::from_str(include_str!("fixtures/home-inbox-cloud-cases.json")).unwrap();
+    let corpus: Value =
+        serde_json::from_str(include_str!("fixtures/home-inbox-cloud-cases.json")).unwrap();
     let cases = corpus["cases"].as_array().unwrap();
     let fixture = Fixture::start("corpus");
     let cloud = FakeCloud::start();
-    *cloud.inbox.lock().unwrap() = Value::Array(cases.iter().map(|case| case["entry"].clone()).collect());
+    *cloud.inbox.lock().unwrap() =
+        Value::Array(cases.iter().map(|case| case["entry"].clone()).collect());
     let mut app = fixture.app();
     assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
     let (addr, _) = fixture.credential();
