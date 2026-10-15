@@ -30,6 +30,8 @@ public struct BrowserPageDownload: Equatable, Hashable, Sendable {
     public var expectedBytes: Int64?
     /// The download's progress.
     public var state: State
+    /// `true` while an in-progress download is paused (it can resume).
+    public var isPaused: Bool
 
     /// Creates a download description.
     /// - Parameters:
@@ -40,6 +42,7 @@ public struct BrowserPageDownload: Equatable, Hashable, Sendable {
     ///   - receivedBytes: Bytes received so far.
     ///   - expectedBytes: Expected total bytes, if known.
     ///   - state: The download's progress.
+    ///   - isPaused: Whether an in-progress download is paused; defaults to `false`.
     public init(
         id: String,
         url: URL?,
@@ -47,7 +50,8 @@ public struct BrowserPageDownload: Equatable, Hashable, Sendable {
         destination: URL? = nil,
         receivedBytes: Int64 = 0,
         expectedBytes: Int64? = nil,
-        state: State = .pending
+        state: State = .pending,
+        isPaused: Bool = false
     ) {
         self.id = id
         self.url = url
@@ -56,5 +60,6 @@ public struct BrowserPageDownload: Equatable, Hashable, Sendable {
         self.receivedBytes = receivedBytes
         self.expectedBytes = expectedBytes
         self.state = state
+        self.isPaused = isPaused
     }
 }

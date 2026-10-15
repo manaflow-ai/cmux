@@ -55,9 +55,14 @@ public final class BrowserEngineRegistry {
     ///   - configuration: The page configuration.
     /// - Returns: A new page.
     /// - Throws: ``BrowserEngineError/unavailable(_:_:)`` when no provider is
-    ///   registered or the engine is unavailable.
+    ///   registered or the engine is unavailable;
+    ///   ``BrowserEngineError/unsupported(_:)`` for WebKit without a provider,
+    ///   because browser panels create WebKit pages themselves.
     public func makePage(_ kind: BrowserEngineKind, _ configuration: BrowserPageConfiguration) throws -> any BrowserPage {
         guard let provider = providers[kind] else {
+            if kind == .webkit {
+                throw BrowserEngineError.unsupported("webkitPagesAreCreatedByThePanel")
+            }
             throw BrowserEngineError.unavailable(kind, .notBundled)
         }
         if let reason = provider.availability.unavailableReason {
