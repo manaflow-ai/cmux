@@ -18,10 +18,16 @@
 //! the log for a session this daemon does not hold running or waiting now.
 //! A prompt that never got `turn_started` and was never settled has no
 //! outcome: it counts as a prompt, not a turn.
+//!
+//! `branches` rolls the range's turns, working time and spend up by the git
+//! branch each session started on (`stats/branches.rs`).
 
 mod attention;
+mod branches;
 
-use crate::store::{EventRecord, SessionMeta, SessionStatus, Store};
+pub use branches::{BranchStats, MAX_BRANCHES};
+
+use crate::store::{EventRecord, SessionMeta, SessionStatus, Store, TurnUsage};
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
@@ -63,7 +69,7 @@ impl StatsOptions {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StatsSummary {
     pub since: u64,
@@ -105,6 +111,11 @@ pub struct StatsSummary {
     pub peak_parallel: u64,
     pub peak_parallel_at: Option<u64>,
     pub harnesses: Vec<HarnessStats>,
+    /// Turns, working time and spend in the range per git branch, keyed by
+    /// the branch and cwd a session started on; most working time first, at
+    /// most `MAX_BRANCHES`. Sessions without a branch and a fork's copies of
+    /// its parent's turns are left out (`stats/branches.rs`).
+    pub branches: Vec<BranchStats>,
     /// Days with activity, oldest first, in the person's calendar.
     pub days: Vec<DayStats>,
     /// Working time per hour of the day (0 to 23), in the person's calendar.
@@ -194,12 +205,19 @@ struct SessionFold {
     /// a wait the daemon never closed (it died) really stopped. A restart's
     /// own records do not move it.
     last_at: Option<u64>,
+    /// The open turn began before the log's `forked` record: a copy of the
+    /// parent's.
+    open_copied: bool,
 }
 
 struct Turn {
     start: Option<u64>,
     end: u64,
     status: TurnStatus,
+    /// A fork's copy of its parent's turn (before its `forked` record).
+    copied: bool,
+    /// The spend its `turn_result` recorded.
+    usage: TurnUsage,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -232,6 +250,7 @@ impl SessionFold {
             waiting_since: None,
             waiting_ms: 0,
             last_at: None,
+            open_copied: false,
         }
     }
 
@@ -285,14 +304,11 @@ impl SessionFold {
                     // after a turn ended was live up to this prompt.
                     let wait_end = if self.open.is_some() { last } else { at };
                     if let Some((start, true)) = self.take_open() {
-                        self.turns.push(Turn {
-                            start: Some(start),
-                            end: last.max(start),
-                            status: TurnStatus::Completed,
-                        });
+                        self.push_turn(Some(start), last.max(start), TurnStatus::Completed);
                     }
                     self.end_wait(wait_end);
                     self.open = Some(at);
+                    self.open_copied = false;
                     if self.in_range(at) {
                         self.prompts += 1;
                     }
@@ -317,6 +333,16 @@ impl SessionFold {
                 } else {
                     self.close(at, status);
                 }
+                if let Some(turn) = self.turns.last_mut() {
+                    turn.usage = branches::turn_usage(&record.msg);
+                }
+            }
+            // Everything before it in a fork's log is a copy of the parent's.
+            "forked" if record.dir == "mux" => {
+                for turn in &mut self.turns {
+                    turn.copied = true;
+                }
+                self.open_copied = self.open.is_some();
             }
             // Older logs end a turn here; current ones follow with a
             // turn_result that sets the status (`awaiting_result`).
@@ -361,9 +387,16 @@ impl SessionFold {
     /// it only sets the status.
     fn close_pending(&mut self, at: u64, status: TurnStatus) {
         if let Some((start, _)) = self.take_open() {
-            self.turns.push(Turn { start: Some(start), end: at, status });
+            self.push_turn(Some(start), at, status);
             self.awaiting_result = true;
         }
+    }
+
+    /// Records a turn that ended, with or without a start: a fork's copy
+    /// when the open turn began before its `forked` record.
+    fn push_turn(&mut self, start: Option<u64>, end: u64, status: TurnStatus) {
+        let copied = std::mem::take(&mut self.open_copied);
+        self.turns.push(Turn { start, end, status, copied, usage: TurnUsage::default() });
     }
 
     fn take_open(&mut self) -> Option<(u64, bool)> {
@@ -373,14 +406,14 @@ impl SessionFold {
 
     fn close(&mut self, at: u64, status: TurnStatus) {
         if let Some((start, _)) = self.take_open() {
-            self.turns.push(Turn { start: Some(start), end: at, status });
+            self.push_turn(Some(start), at, status);
         } else if std::mem::take(&mut self.awaiting_result)
             && let Some(last) = self.turns.last_mut()
         {
             last.status = status;
         } else {
             // A turn that never started (the agent could not spawn).
-            self.turns.push(Turn { start: None, end: at, status });
+            self.push_turn(None, at, status);
         }
         self.awaiting_result = false;
     }
@@ -415,15 +448,11 @@ impl SessionFold {
             if live { self.options.until } else { self.last_at.unwrap_or(self.options.until) };
         match self.take_open() {
             Some((start, _)) if live => {
-                self.turns.push(Turn { start: Some(start), end, status: TurnStatus::Running });
+                self.push_turn(Some(start), end, TurnStatus::Running);
             }
             // A prompt that never started has no outcome and is not a turn.
             Some((start, true)) => {
-                self.turns.push(Turn {
-                    start: Some(start),
-                    end: end.max(start),
-                    status: TurnStatus::Unknown,
-                });
+                self.push_turn(Some(start), end.max(start), TurnStatus::Unknown);
             }
             _ => {}
         }
@@ -438,6 +467,7 @@ struct Fold {
     options: StatsOptions,
     summary: StatsSummary,
     harnesses: BTreeMap<String, HarnessStats>,
+    branches: branches::Branches,
     days: BTreeMap<i64, DayStats>,
     hours: [u64; 24],
     /// Local days with a finished turn, over the longest range.
@@ -457,6 +487,7 @@ impl Fold {
                 ..StatsSummary::default()
             },
             harnesses: BTreeMap::new(),
+            branches: branches::Branches::default(),
             days: BTreeMap::new(),
             hours: [0; 24],
             turn_days: BTreeSet::new(),
@@ -498,42 +529,23 @@ impl Fold {
 
         let mut turns = 0;
         let mut working = 0;
+        let mut branch = branches::BranchShare::default();
         for turn in &session.turns {
-            if turn.status == TurnStatus::Unknown {
-                working += turn.start.map_or(0, |start| self.work(start, turn.end));
-                continue;
-            }
-            if turn.status != TurnStatus::Running
-                && turn.status != TurnStatus::Failed
-                && turn.end >= self.streak_since()
-                && turn.end <= self.options.until
-            {
-                let day = self.local_day(turn.end);
-                self.turn_days.insert(day);
-            }
-            if turn.end < self.options.since || turn.end > self.options.until {
-                // A turn counts on the day it ended; its working time may
-                // still reach into the range.
-                if let Some(start) = turn.start {
-                    working += self.work(start, turn.end);
+            // A turn's working time may reach into the range whether or not
+            // the turn itself counts in it.
+            let worked = turn.start.map_or(0, |start| self.work(start, turn.end));
+            working += worked;
+            let counted = self.count_turn(turn);
+            turns += u64::from(counted);
+            if !turn.copied {
+                branch.working_ms += worked;
+                if counted {
+                    branch.turns += 1;
+                    branch.usage.add(&turn.usage);
                 }
-                continue;
-            }
-            turns += 1;
-            match turn.status {
-                TurnStatus::Completed => self.summary.turns_completed += 1,
-                TurnStatus::Cancelled => self.summary.turns_cancelled += 1,
-                TurnStatus::Failed => self.summary.turns_failed += 1,
-                TurnStatus::Running | TurnStatus::Unknown => {}
-            }
-            if turn.status != TurnStatus::Running {
-                let day = self.local_day(turn.end);
-                self.day(day).turns += 1;
-            }
-            if let Some(start) = turn.start {
-                working += self.work(start, turn.end);
             }
         }
+        self.branches.add(meta, branch);
         if turns == 0 && working == 0 {
             return;
         }
@@ -548,6 +560,37 @@ impl Fold {
         harness.sessions += 1;
         harness.turns += turns;
         harness.working_ms += working;
+    }
+
+    /// Counts a turn's outcome and day, and its day in the streak: whether
+    /// it is a turn of the range. A turn counts on the day it ended; a turn
+    /// the daemon lost is no turn.
+    fn count_turn(&mut self, turn: &Turn) -> bool {
+        if turn.status == TurnStatus::Unknown {
+            return false;
+        }
+        if turn.status != TurnStatus::Running
+            && turn.status != TurnStatus::Failed
+            && turn.end >= self.streak_since()
+            && turn.end <= self.options.until
+        {
+            let day = self.local_day(turn.end);
+            self.turn_days.insert(day);
+        }
+        if turn.end < self.options.since || turn.end > self.options.until {
+            return false;
+        }
+        match turn.status {
+            TurnStatus::Completed => self.summary.turns_completed += 1,
+            TurnStatus::Cancelled => self.summary.turns_cancelled += 1,
+            TurnStatus::Failed => self.summary.turns_failed += 1,
+            TurnStatus::Running | TurnStatus::Unknown => {}
+        }
+        if turn.status != TurnStatus::Running {
+            let day = self.local_day(turn.end);
+            self.day(day).turns += 1;
+        }
+        true
     }
 
     /// Adds one working interval (clipped to the range) to the day and hour
@@ -593,6 +636,7 @@ impl Fold {
         let mut harnesses: Vec<HarnessStats> = self.harnesses.into_values().collect();
         harnesses.sort_by(|a, b| b.working_ms.cmp(&a.working_ms).then(b.turns.cmp(&a.turns)));
         self.summary.harnesses = harnesses;
+        self.summary.branches = self.branches.finish();
         self.summary.days = self.days.into_values().collect();
         self.summary.hours = self.hours.to_vec();
         self.summary

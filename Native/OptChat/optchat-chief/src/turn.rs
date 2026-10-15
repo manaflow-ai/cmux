@@ -329,6 +329,7 @@ pub fn run_with_drafts(
                 run: serde_json::Map::new(),
                 steps: chunk,
                 images: images.take().unwrap_or_default(),
+                live: Vec::new(),
             });
         }
         if !summary.is_empty() {
@@ -337,6 +338,7 @@ pub fn run_with_drafts(
                 run: summary,
                 steps: Vec::new(),
                 images: Vec::new(),
+                live: Vec::new(),
             });
         }
     };
@@ -344,6 +346,17 @@ pub fn run_with_drafts(
         let (closed, open) = fold.take_segments();
         for d in drafter.borrow_mut().update(closed, open, Instant::now()) {
             draft(d);
+        }
+        // The live frames first: a step's last delta before its row.
+        let live = fold.take_run_live();
+        if !live.is_empty() {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: serde_json::Map::new(),
+                steps: Vec::new(),
+                images: Vec::new(),
+                live,
+            });
         }
         let steps = fold.take_run_steps(Instant::now(), false);
         if !steps.is_empty() {
@@ -565,8 +578,11 @@ pub fn run_with_drafts(
             }
         }
     }
-    // What the turn's end closed, then the last draft (the brain publishes
-    // it once the reply is posted).
+    // What the turn's end closed (every streaming step's last live frame,
+    // before the run's end and the reply: the reply replaces the streaming
+    // text with no jump), then the last draft (the brain publishes it once
+    // the reply is posted).
+    fold.close_run_steps();
     publish(&mut fold);
     let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
