@@ -144,10 +144,21 @@
 .acpmux-location-label[data-middle] { display: inline-flex; min-width: 0; }
 .acpmux-location-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .acpmux-location-tail { flex: none; white-space: pre; }
-/* A narrow strip: the computer shows its icon alone, its name in its tooltip and accessible label,
+/* The strip's steps (compact-composer verdict 4) are pane widths, at or under. They are literals
+   that match COMPOSER_FIT_STEPS in composerRowFit.ts (machineIconOnly 460, folderMiddleTruncate
+   340) once the footer's fit steps land (#20802); the webview is the pane, so a media query reads
+   its width. test/composer-location-strip.test.ts holds each step at its boundary (461/460,
+   341/340).
+   At 460: the computer shows its laptop icon alone, its name in its tooltip and accessible label,
    so the folder and the branch keep theirs (never "This…"). */
-@container acpmux-strip (max-width: 320px) {
+@media (max-width: 460px) {
   .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
+}
+/* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
+   last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
+   name. Above it the folder cuts only when the strip runs out of room. */
+@media (max-width: 340px) {
+  .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child :is(.acpmux-location-button, .acpmux-location-readonly) { max-width: 120px; }
 }
 .acpmux-location-button .acpmux-icon,
 .acpmux-location-readonly .acpmux-icon { flex: none; color: currentColor; opacity: .8; }

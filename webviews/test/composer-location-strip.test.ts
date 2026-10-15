@@ -365,25 +365,51 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(Math.abs(folderIcon.left + 1.5 - prompt.left)).toBeLessThanOrEqual(2);
       expect(Math.abs(branchChevron.right - 4 - prompt.right)).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
-      expect(marks.computerLabelShown).toBe(true);
+      // At or under 460 px the computer is its icon (the strip's first step).
+      expect(marks.computerLabelShown).toBe(width > 460);
     });
 
-  for (const width of [290, 300])
-    test(`the chat composer at ${width} px: the folder cuts in the middle, the computer is its icon, the branch is whole`, async () => {
+  // The strip's steps (compact-composer verdict 4; composerLocation.css): pane widths, at or under.
+  // At 460 the computer shows its laptop icon alone, named by its label and tooltip; at 340 the
+  // folder cuts in the middle and keeps both ends. The branch keeps its name at every step.
+  for (const [width, iconOnly] of [
+    [461, false],
+    [460, true],
+  ] as const)
+    test(`the chat composer at ${width} px: the computer ${iconOnly ? "shows its icon alone" : "keeps its name"}`, async () => {
       const page = await open("agent-pane.composer-strip", "project", width);
       await page.locator(".acpmux-composer-strip .acpmux-location-icon").first().waitFor();
       const marks = await page.evaluate(measureMarks);
+      const label = await page
+        .locator('.acpmux-composer-strip .acpmux-location-picker[data-kind="computer"] button')
+        .getAttribute("aria-label");
+      await page.close();
+      expect(marks.computerLabelShown).toBe(!iconOnly);
+      expect(marks.computerIcon!.width).toBeGreaterThan(0);
+      // Named for the pointer and VoiceOver either way.
+      expect(marks.computerName).toContain("This Mac");
+      expect(label).toBe("Computer: This Mac");
+      if (!iconOnly) expect(marks.computerClipped).toBe(false);
+      expect(marks.branchClipped).toBe(false);
+    });
+
+  for (const [width, cut] of [
+    [341, false],
+    [340, true],
+  ] as const)
+    test(`the chat composer at ${width} px: a folder name ${cut ? "cuts in the middle and keeps its last word" : "shows whole"}`, async () => {
+      const page = await open("agent-pane.composer-strip", "mid-folder", width);
+      await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
+      const marks = await page.evaluate(measureMarks);
       await page.close();
       const strip = marks.strip!;
-      // atlas-web keeps its end in view; never "atla…".
-      expect(marks.tailText).toBe("web");
       const tail = marks.tail!;
+      // The head takes the ellipsis ("atl…"); the last word stays whole and inside the strip.
+      expect(marks.head).toEqual({ clipped: cut, text: "atlas-" });
+      expect(marks.tailText).toBe("checkout");
       expect(tail.width).toBeGreaterThan(0);
       expect(tail.right).toBeLessThanOrEqual(strip.right);
-      // The computer gives way to its icon, still named for the pointer and VoiceOver.
       expect(marks.computerLabelShown).toBe(false);
-      expect(marks.computerIcon!.width).toBeGreaterThan(0);
-      expect(marks.computerName).toContain("This Mac");
       expect(marks.branchClipped).toBe(false);
     });
 
@@ -394,27 +420,19 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
     // No fixed cap cuts it beside empty strip.
     expect(marks.head).toEqual({ clipped: false, text: "atlas-web-checkout-" });
+    expect(marks.computerLabelShown).toBe(true);
   });
 
-  for (const width of [300, 400])
-    test(`the chat composer at ${width} px: a long folder name cuts in the middle and keeps its last word`, async () => {
-      const page = await open("agent-pane.composer-strip", "long-folder", width);
-      await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
-      const marks = await page.evaluate(measureMarks);
-      await page.close();
-      const strip = marks.strip!;
-      const tail = marks.tail!;
-      // The head takes the ellipsis ("atlas-we…"); the last word stays whole and inside the strip.
-      expect(marks.head).toEqual({ clipped: true, text: "atlas-web-checkout-" });
-      expect(marks.tailText).toBe("service");
-      // The computer keeps its whole name while the folder can still give.
-      expect(marks.computerClipped === null || marks.computerClipped === false).toBe(true);
-      // It cuts only as far as the strip needs: no empty run beside a cut name.
-      expect(marks.leadingSlack).toBeLessThanOrEqual(1);
-      expect(tail.width).toBeGreaterThan(0);
-      expect(tail.right).toBeLessThanOrEqual(strip.right);
-      expect(marks.branchClipped).toBe(false);
-    });
+  test("the chat composer at 290 px: the folder still keeps both ends and the branch its name", async () => {
+    const page = await open("agent-pane.composer-strip", "long-folder", 290);
+    await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
+    const marks = await page.evaluate(measureMarks);
+    await page.close();
+    expect(marks.head?.clipped).toBe(true);
+    expect(marks.tailText).toBe("service");
+    expect(marks.tail!.right).toBeLessThanOrEqual(marks.strip!.right);
+    expect(marks.branchClipped).toBe(false);
+  });
 
   // Inside the card's corner: one column just inside the strip's side, from the strip down into the
   // card. The card's corner has dropped there, and a gap would show the page between the two.

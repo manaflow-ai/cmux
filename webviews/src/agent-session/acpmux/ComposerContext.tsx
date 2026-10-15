@@ -461,10 +461,14 @@ function LocationPicker({
   const button = <LocationFace icon={icon} value={value} chevron middle={middle} />;
   if (!allowPath)
     return (
-      // tooltip-allow: below a 320 px strip the computer shows only its icon; the tooltip names it
+      // tooltip-allow: at or under a 460 px pane the computer shows only its icon; the tooltip names it
       <span ref={control} className="acpmux-location-picker" data-kind={kind} title={label + ": " + value}>
         <Menu open={open} onOpenChange={setOpen}>
-          <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
+          {/* The computer's name is in its label too: a narrow pane shows its icon alone. */}
+          <MenuButton
+            className="acpmux-location-button ui-ghost ui-ghost-sm"
+            label={kind === "computer" ? label + ": " + value : label}
+          >
             {button}
           </MenuButton>
           <MenuPopup

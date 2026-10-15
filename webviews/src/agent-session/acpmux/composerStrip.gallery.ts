@@ -44,17 +44,6 @@ function started(fields: Parameters<typeof chat>[1] = {}): AcpmuxSnapshot {
   return { ...snapshot, summary: { ...snapshot.summary!, configOptions: [effort], modes } };
 }
 
-/// A started chat in a folder whose name outgrows a narrow strip.
-function longFolder(): AcpmuxSnapshot {
-  const cwd = "/Users/you/src/atlas-web-checkout-service";
-  const snapshot = started();
-  return {
-    ...snapshot,
-    sessions: snapshot.sessions.map((entry) => ({ ...entry, cwd })),
-    summary: { ...snapshot.summary!, cwd },
-  };
-}
-
 /// A new chat on Claude: `reported` once its session has reported effort and access.
 function fresh(reported: boolean, fields: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}): AcpmuxSnapshot {
   return noChat([], {
@@ -92,8 +81,14 @@ export default agentPaneEntry({
       snapshot: started(),
     },
     "long-folder": {
-      note: 'A long folder name in a narrow pane: it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',
-      snapshot: longFolder(),
+      note: 'A new chat in a folder with a long name: in a narrow pane it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',
+      ready: { newSession: true },
+      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-web-checkout-service", branch: "main" }),
+    },
+    "mid-folder": {
+      note: "A new chat in a folder that fits a 341 px pane whole and cuts in the middle at 340, the strip's folder step.",
+      ready: { newSession: true },
+      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-checkout", branch: "main" }),
     },
     "no-project": {
       note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",
