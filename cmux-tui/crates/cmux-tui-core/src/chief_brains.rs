@@ -730,6 +730,15 @@ impl Supervisor {
         if is_default(&record) {
             return;
         }
+        // cx-tgf4h: no brain while agents are off in this build session (its
+        // turns could not start an agent; it would only hold the message).
+        if crate::agent_launch::disabled() {
+            let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
+            if !std::mem::replace(&mut brain.lock_noted, true) {
+                eprintln!("cmux-tui: Chief brain {chief} does not start: {}", crate::agent_launch::MESSAGE);
+            }
+            return;
+        }
         let mux_home = brain_home(&self.config.home, chief);
         if !sockets_fit(&mux_home) {
             let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);

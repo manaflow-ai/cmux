@@ -60,6 +60,16 @@ pub(super) fn handle_with(
     if let Err(error) = require_owner(mux, client) {
         return send_resource_response(writer, id, operation, Err(error));
     }
+    // cx-tgf4h: with agents off in this build session no brain runs; say
+    // so at once instead of a socket error the panel reads as "not running".
+    if crate::agent_launch::disabled() {
+        let refused = ResourceError::operation_failed(
+            operation.wire_name(),
+            crate::agent_launch::REASON,
+            json!({"message": crate::agent_launch::MESSAGE}),
+        );
+        return send_resource_response(writer, id, operation, Err(refused));
+    }
     let line = tool_line(operation, &request.fields);
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
     let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
