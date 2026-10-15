@@ -259,6 +259,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/process/tail",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/kill",
       "params": true,
       "result": true
@@ -669,6 +675,12 @@
     {
       "kind": "request",
       "name": "_acpmux/sessions/restart_harness",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/complete",
       "params": true,
       "result": true
     },
