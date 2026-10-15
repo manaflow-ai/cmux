@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36'
+IR_SHA256 = 'b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442'
 
 
 @dataclass(frozen=True)
@@ -120,6 +120,7 @@ COMMANDS = {
         None,
         {
             'expected_session': CommandFieldMetadata(None, None),
+            'harness': CommandFieldMetadata(None, None),
             'session': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
         },
