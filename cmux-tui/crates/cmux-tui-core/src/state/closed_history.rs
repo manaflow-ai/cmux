@@ -148,6 +148,10 @@ fn commit_reopen(
     // A page reopened is open again: every other close of it leaves with this one, so none
     // takes its Recently Closed row or reopens it a second time (Leo 2026-10-14).
     let page = if tab_group { None } else { closed_page(&public_item(&record)).map(str::to_owned) };
+    // Pushed restore state goes to the reopened tabs before the group goes
+    // (its triggers drop the rows of the tabs it no longer names).
+    let restore_state =
+        super::restore_state_store::move_to_reopened(transaction, &reopened.reopened_as)?;
     let mut others = Vec::new();
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
@@ -219,6 +223,7 @@ fn commit_reopen(
             "tab_ids": reopened.tabs,
             "remaining": remaining,
             "window": window,
+            "restore_state": restore_state,
         }),
         changes,
     ))

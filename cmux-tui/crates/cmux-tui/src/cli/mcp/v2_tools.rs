@@ -140,6 +140,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.list", WINDOW_RECORD_REASON),
     ("window_record.put", WINDOW_RECORD_REASON),
     ("window_record.delete", WINDOW_RECORD_REASON),
+    ("tab.restore_state.put", RESTORE_STATE_REASON),
     ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
     ("sidebar.adopt", SIDEBAR_LAYOUT_REASON),
@@ -229,6 +230,8 @@ const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
 const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that hosts the \
      window; the CLI omits it too, and window_list reads the app's windows.";
+const RESTORE_STATE_REASON: &str = "A tab's restore state is pushed by the client that owns \
+     the tab's state (the app for a page or a browser); reopening returns it.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \

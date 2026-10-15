@@ -195,6 +195,7 @@ impl ResourceOperation {
             Self::OriginConfirmationIssue => "origin.confirmation.issue",
             Self::ClosedList => "closed.list",
             Self::ClosedReopen => "closed.reopen",
+            Self::TabRestoreStatePut => "tab.restore_state.put",
             Self::ClosedDelete => "closed.delete",
             Self::SettingsSchema => "settings.schema",
             Self::SettingsList => "settings.list",

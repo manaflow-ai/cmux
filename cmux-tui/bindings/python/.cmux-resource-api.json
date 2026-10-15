@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "0afea456b5ccae178dd3d5dbeea8c9532b95baf956da26fc9468b4d8f741c712",
+  "catalog_sha256": "6f8c277ab80630043e2eb222e8d8f20b8cd54ee2558ff061eec682a78375b633",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -695,6 +695,9 @@
       "class": "mutation"
     },
     "tab.rename": {
+      "class": "mutation"
+    },
+    "tab.restore_state.put": {
       "class": "mutation"
     },
     "tab.unpin": {

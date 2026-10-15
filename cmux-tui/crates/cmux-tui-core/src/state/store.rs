@@ -92,6 +92,8 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     // Archives of closed terminals (ARCHIVE-1): after closed_groups, whose
     // triggers drop an archive with its group.
     crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
+    // Pushed restore state: after closed_groups too, for the same reason.
+    super::restore_state_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
     super::agent_message_schema::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;

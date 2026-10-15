@@ -7507,9 +7507,66 @@
       },
       "extra": false
     },
+    "RestoreStateEntry": {
+      "kind": "object",
+      "fields": {
+        "provider": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The restore provider (`cmux.page`, `cmux.agent`, `cmux.viewer`, `cmux.browser`, `app:<id>`)."
+        },
+        "version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The provider's payload version."
+        },
+        "payload": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Opaque JSON of at most 16 KiB that the daemon never interprets; web URL query keys that look like secrets are stripped."
+        }
+      },
+      "extra": false
+    },
+    "RestoreStatePutResult": {
+      "kind": "object",
+      "fields": {
+        "stored": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False for a tab of an incognito (ephemeral) workspace, which never stores restore state."
+        }
+      },
+      "extra": false
+    },
     "ClosedReopenResult": {
       "kind": "object",
       "fields": {
+        "restore_state": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "RestoreStateEntry"
+            }
+          },
+          "description": "Pushed restore state of the reopened tabs, by reopened tab id: the inline state of the close, else the last `tab.restore_state.put`. The reopened tab keeps it."
+        },
         "closed_id": {
           "required": true,
           "type": {
@@ -14256,6 +14313,17 @@
           "browser": "required"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -20518,6 +20586,17 @@
           "tab": "optional"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "verb": {
             "required": true,
             "type": {
@@ -21387,6 +21466,17 @@
           "pane": "required"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -23693,6 +23783,17 @@
           "screen": "required"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -27474,6 +27575,17 @@
           "tab": "required"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -28071,6 +28183,92 @@
         "validation.invalid"
       ]
     },
+    "tab.restore_state.put": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "provider": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The restore provider (`cmux.page`, `cmux.agent`, `cmux.viewer`, `cmux.browser`, `app:<id>`)."
+          },
+          "version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "The provider's payload version."
+          },
+          "payload": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Opaque JSON of at most 16 KiB that the daemon never interprets; web URL query keys that look like secrets are stripped."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "One row per tab (upsert, no history): the owner of state the daemon cannot own (a draft prompt, a page or viewer scroll) puts its newest payload, coalesced.",
+          "A close keeps the inline `restore_state` of the close request, else this row; Reopen Closed hands it back on its result and the reopened tab keeps it.",
+          "The row leaves when the tab's closed group is reopened or deleted, and when the tab closes outside the closed history."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "RestoreStatePutResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "tab.unpin": {
       "class": "mutation",
       "idempotency": "required",
@@ -28328,6 +28526,17 @@
           "session": "required"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "tab_group": {
             "required": true,
             "type": {
@@ -28917,6 +29126,17 @@
           "terminal": "required"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -30558,6 +30778,17 @@
           "workspace": "required"
         },
         "fields": {
+          "restore_state": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "RestoreStateEntry"
+              }
+            },
+            "description": "The closer's freshest restore state, by tab id (the owning client's Cmd-W). The closed history keeps it over a pushed row; a tab that is gone or incognito is skipped."
+          },
           "expected_revision": {
             "required": false,
             "type": {

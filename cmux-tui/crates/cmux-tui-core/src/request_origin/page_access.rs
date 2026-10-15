@@ -239,6 +239,7 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedList
         | Op::ClosedDelete
         | Op::ClosedReopen
+        | Op::TabRestoreStatePut
         | Op::WindowRecordList
         | Op::SettingsSchema
         | Op::SettingsList

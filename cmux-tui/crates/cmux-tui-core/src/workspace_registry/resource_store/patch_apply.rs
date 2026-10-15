@@ -33,6 +33,10 @@ pub(crate) fn apply_resource_patch_timed(
     let created = crate::state::personal_order::created_workspaces(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
     delete_closed_browser_rows(transaction, &closing)?;
+    // A tab closed outside the closed history drops its pushed restore state.
+    if closes_anything(&patch) {
+        crate::state::restore_state_store::drop_orphans(transaction)?;
+    }
     crate::state::personal_order::place_created_workspaces(transaction, &created)?;
     // sidebar-doc-v1: a closed workspace leaves its machine section.
     let closed: Vec<String> = patch
@@ -86,6 +90,10 @@ pub(crate) fn apply_resource_patch_unrecorded(
     let closing = closing_browsers(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
     delete_closed_browser_rows(transaction, &closing)?;
+    // A tab closed outside the closed history drops its pushed restore state.
+    if closes_anything(&patch) {
+        crate::state::restore_state_store::drop_orphans(transaction)?;
+    }
     Ok(patch)
 }
 
@@ -145,4 +153,17 @@ fn delete_closed_browser_rows(
         }
     }
     Ok(())
+}
+
+/// Whether `patch` tombstones a workspace, screen, pane or tab.
+fn closes_anything(patch: &ResourcePatch) -> bool {
+    patch.changes.iter().any(|change| {
+        matches!(
+            change,
+            ResourceChange::TombstoneWorkspace { .. }
+                | ResourceChange::TombstoneScreen { .. }
+                | ResourceChange::TombstonePane { .. }
+                | ResourceChange::TombstoneTab { .. }
+        )
+    })
 }

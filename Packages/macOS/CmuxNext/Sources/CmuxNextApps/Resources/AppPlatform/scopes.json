@@ -1936,6 +1936,7 @@
     "sso.connection.set_secret",
     "stream.cancel",
     "tab.close",
+    "tab.restore_state.put",
     "tab_group.close",
     "team.ai_limit.member.set",
     "team.ai_limit.set",

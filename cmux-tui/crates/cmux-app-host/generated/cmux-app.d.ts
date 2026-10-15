@@ -51,7 +51,7 @@ declare namespace Cmux {
   type ClosedDeleteResult = { deleted: Array<Cmux.StateId>; updated: Array<Cmux.StateId> }
   type ClosedItemSnapshot = { id: Cmux.StateId; kind: "tab" | "screen" | "workspace" | "window"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; closed_at_ms: string; screens: Array<Cmux.ClosedScreenRecord>; window: string | null; member_count: number; members: Array<Cmux.ClosedMemberRecord>; group?: Cmux.ClosedWorkspaceGroupRecord }
   type ClosedMemberRecord = { kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; screens: Array<Cmux.ClosedScreenRecord> }
-  type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace" | "window"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; window?: string | null; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
+  type ClosedReopenResult = { restore_state?: Record<string, Cmux.RestoreStateEntry>; closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace" | "window"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; window?: string | null; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
   type ClosedScreenRecord = { name: string | null; tabs: Array<Cmux.ClosedTabRecord> }
   type ClosedTabRecord = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; browser_profile_id: string | null; pinned: boolean; page?: string | null; empty?: boolean; scrollback_not_kept?: boolean }
   type ClosedWorkspaceGroupRecord = { id: Cmux.StateId; name: string; color: string | null; icon?: string | null }
@@ -314,6 +314,8 @@ declare namespace Cmux {
   type ResourceKind = "machine" | "session" | "workspace" | "screen" | "pane" | "tab" | "terminal" | "browser" | "client" | "notification" | "agent" | "pairing_request" | "frontend_projection" | "sidebar_view"
   type ResourceSnapshot = { machine: Cmux.MachineSnapshot; session: Cmux.SessionSnapshot; workspaces: Array<Cmux.WorkspaceSnapshot>; screens: Array<Cmux.ScreenSnapshot>; panes: Array<Cmux.PaneSnapshot>; tabs: Array<Cmux.TabSnapshot>; terminals: Array<Cmux.TerminalSnapshot>; browsers: Array<Cmux.BrowserSnapshot>; clients: Array<Cmux.ClientSnapshot>; notifications: Array<Cmux.NotificationSnapshot>; agents: Array<Cmux.AgentSnapshot>; frontend_projections: Array<Cmux.FrontendProjectionSnapshot>; sidebar_views: Array<Cmux.SidebarViewSnapshot>; cursor: Cmux.Cursor; extra?: Record<string, Cmux.JsonValue> }
   type ResourceUpsert = { kind: "upsert"; sequence: number; resource: Cmux.ResourceKind; id: Cmux.ResourceChangeId; value: Cmux.ResourceEntitySnapshot }
+  type RestoreStateEntry = { provider: string; version: number; payload: Cmux.JsonValue }
+  type RestoreStatePutResult = { stored: boolean }
   type Revision = string
   type RoomDeleteResult = { id: Cmux.StateId; moved_to: Cmux.StateId | null; unpinned: Array<Cmux.WorkspaceRef> }
   type RoomSnapshot = { id: Cmux.StateId; name: string; color: string | null; icon: string | null; theme: string | null; index: number; browser_profile_id: string | null; default_session_id: string | null; follows: Array<string>; pins: Array<Cmux.WorkspaceRef> }

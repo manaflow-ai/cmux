@@ -245,10 +245,12 @@ pub(crate) fn validate_resource_envelope(
 
 fn dispatch_resource_request(
     mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
+    mut request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
     browser_engine::refuse_without_provider(mux, &request)?;
+    // A close's inline restore state is stored before the close captures it.
+    crate::state::restore_state::take_inline(mux, &mut request)?;
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),
@@ -258,6 +260,7 @@ fn dispatch_resource_request(
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::History => crate::history_ops::dispatch(mux, request),
         OperationOwner::BrowserProfile => crate::browser_profile_ops::dispatch(mux, request),
+        OperationOwner::RestoreState => crate::state::restore_state::put(mux, &request),
         OperationOwner::Credential => credential::dispatch(mux, request),
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),

@@ -418,6 +418,8 @@ pub enum ResourceOperation {
     ClosedDelete,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
+    #[serde(rename = "tab.restore_state.put")]
+    TabRestoreStatePut,
     #[serde(rename = "settings.schema")]
     SettingsSchema,
     #[serde(rename = "settings.list")]

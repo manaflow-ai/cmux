@@ -24,6 +24,8 @@ pub(super) enum OperationOwner {
     /// `workspace.open_url` (resource_router/open_url.rs), composed of topology
     /// and content operations.
     OpenUrl,
+    /// `tab.restore_state.put` (state/restore_state.rs).
+    RestoreState,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -159,6 +161,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserProfileList
         | ResourceOperation::BrowserProfileCreate
         | ResourceOperation::BrowserProfileOpen => OperationOwner::BrowserProfile,
+        ResourceOperation::TabRestoreStatePut => OperationOwner::RestoreState,
         ResourceOperation::WorkspaceOpenUrl => OperationOwner::OpenUrl,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet

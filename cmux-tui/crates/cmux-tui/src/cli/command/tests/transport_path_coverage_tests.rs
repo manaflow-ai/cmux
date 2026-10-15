@@ -160,6 +160,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "window_record.list"
                         | "window_record.put"
                         | "window_record.delete"
+                        // A tab's restore state is pushed by the client that
+                        // owns the tab's state (reopen-closed.md 3.0).
+                        | "tab.restore_state.put"
                         // The Mac app edits the sidebar layout through its
                         // own sidebar actions and intent log.
                         | "sidebar_layout.get"
@@ -295,6 +298,16 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),
         ("layout.bulk", "ids"),
+        // The owning client's freshest restore state rides on its close
+        // (reopen-closed.md 3.0); the CLI owns no tab state.
+        ("tab.close", "restore_state"),
+        ("pane.close", "restore_state"),
+        ("screen.close", "restore_state"),
+        ("workspace.close", "restore_state"),
+        ("tab_group.close", "restore_state"),
+        ("layout.bulk", "restore_state"),
+        ("browser.close", "restore_state"),
+        ("terminal.close", "restore_state"),
     ];
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]

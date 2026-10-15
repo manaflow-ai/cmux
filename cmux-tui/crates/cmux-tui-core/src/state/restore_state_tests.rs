@@ -14,7 +14,7 @@ use crate::surface::SurfaceOptions;
 fn put(mux: &Arc<Mux>, tab: &str, version: u64, payload: Value, key: &str) -> Value {
     mutate(
         mux,
-        "surface.restore_state.put",
+        "tab.restore_state.put",
         json!({"tab": tab, "provider": "cmux.page", "version": version, "payload": payload}),
         key,
     )
@@ -114,7 +114,7 @@ fn a_put_over_the_limit_or_on_a_closed_tab_is_refused() {
     let large = json!({"text": "x".repeat(16 * 1024)});
     let refused = send(
         &mux,
-        "surface.restore_state.put",
+        "tab.restore_state.put",
         json!({"tab": tab, "provider": "cmux.page", "version": 1, "payload": large}),
         Some("too-large"),
     );
@@ -122,7 +122,7 @@ fn a_put_over_the_limit_or_on_a_closed_tab_is_refused() {
     mutate(&mux, "tab.close", json!({"tab": tab}), "close");
     let gone = send(
         &mux,
-        "surface.restore_state.put",
+        "tab.restore_state.put",
         json!({"tab": tab, "provider": "cmux.page", "version": 1, "payload": {}}),
         Some("gone"),
     );

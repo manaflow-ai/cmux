@@ -174,6 +174,17 @@ pub(super) fn strip_history(history: &str) -> Value {
     }
 }
 
+/// `payload` (a pushed restore state, which the daemon never interprets)
+/// with every web URL string in it stripped, wherever it sits.
+pub(super) fn strip_payload(payload: &mut Value) {
+    match payload {
+        Value::String(text) => *text = strip_url(text),
+        Value::Array(items) => items.iter_mut().for_each(strip_payload),
+        Value::Object(map) => map.values_mut().for_each(strip_payload),
+        _ => {}
+    }
+}
+
 /// Whether a window record that lists `keys` is an incognito window: every
 /// key it lists is a live ephemeral workspace. A key this daemon does not
 /// know (another machine's workspace, or one not loaded yet), a closed one,

@@ -1125,6 +1125,10 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # A tab's pushed restore state is its owner's opaque payload
+                # (reopen-closed.md 3.0): the daemon never interprets it.
+                "types.RestoreStateEntry.fields.payload",
+                "operations.tab.restore_state.put.params.fields.payload",
             }
             is_explicit_extra = (
                 context.startswith("types.")
