@@ -1582,7 +1582,9 @@ struct BrowserPanelView: View {
             BrowserExtensionToolbar(
                 host: host,
                 metrics: chromeMetrics,
-                isCompact: isChromeCompact,
+                rowWidth: addressBarWidth,
+                // Compact rows keep profile, theme and More; wide rows add design mode and DevTools.
+                trailingAccessoryCount: isChromeCompact ? 3 : 5,
                 spacing: browserToolbarAccessorySpacing,
                 tint: devToolsColorOption.color(accent: cmuxAccent),
                 pageLeadingX: { [panel] in panel.extensionPageLeadingX() },

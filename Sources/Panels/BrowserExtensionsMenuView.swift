@@ -28,6 +28,8 @@ struct BrowserExtensionsMenuView: View {
 
     let extensions: [BrowserExtensionInfo]
     let actionIDs: Set<String>
+    /// Pinned extensions whose actions don't fit the toolbar row; listed first under "Pinned".
+    var overflowedIDs: [String] = []
     let supportsManagement: Bool
     let metrics: BrowserChromeMetrics
     let onChoice: (Choice) -> Void
@@ -46,23 +48,15 @@ struct BrowserExtensionsMenuView: View {
                     .foregroundStyle(.secondary)
                     .frame(height: metrics.extensionsMenuRowHeight)
             } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(extensions) { info in
-                        BrowserExtensionsMenuRow(
-                            info: info,
-                            canRun: actionIDs.contains(info.id),
-                            supportsManagement: supportsManagement,
-                            metrics: metrics,
-                            onChoice: { choice in
-                                if case .remove = choice {
-                                    pendingRemoval = info
-                                } else {
-                                    onChoice(choice)
-                                }
-                            }
-                        )
-                    }
+                let overflowed = overflowedIDs.compactMap { id in extensions.first { $0.id == id } }
+                if !overflowed.isEmpty {
+                    Text(String(localized: "browser.extensions.pinnedHeader", defaultValue: "Pinned"))
+                        .cmuxFont(size: metrics.extensionsMenuCaptionFontSize, weight: .medium)
+                        .foregroundStyle(.secondary)
+                    rows(overflowed)
+                    Divider()
                 }
+                rows(extensions.filter { !overflowedIDs.contains($0.id) })
             }
 
             Divider()
@@ -92,6 +86,26 @@ struct BrowserExtensionsMenuView: View {
         } message: {
             Text(String(localized: "browser.extensions.removeMessage",
                         defaultValue: "Its data in this browser profile is deleted too."))
+        }
+    }
+
+    private func rows(_ list: [BrowserExtensionInfo]) -> some View {
+        VStack(alignment: .leading, spacing: metrics.extensionsMenuRowSpacing) {
+            ForEach(list) { info in
+                BrowserExtensionsMenuRow(
+                    info: info,
+                    canRun: actionIDs.contains(info.id),
+                    supportsManagement: supportsManagement,
+                    metrics: metrics,
+                    onChoice: { choice in
+                        if case .remove = choice {
+                            pendingRemoval = info
+                        } else {
+                            onChoice(choice)
+                        }
+                    }
+                )
+            }
         }
     }
 

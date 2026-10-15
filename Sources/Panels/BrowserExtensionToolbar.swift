@@ -2,17 +2,22 @@ import AppKit
 import CmuxBrowser
 import SwiftUI
 
-/// The extension part of a Chromium panel's toolbar row (design spec §3a):
-/// up to six pinned actions, then the Extensions (puzzle) button.
+/// The extension part of a Chromium panel's toolbar row (design spec §3a,
+/// §3a-bis): the pinned actions that fit, then the Extensions (puzzle)
+/// button, then one group gap before the cmux accessories.
 ///
 /// Shown only when the panel's page hosts extensions and at least one is
-/// installed, so a fresh Chromium panel's row matches WebKit's. In compact
-/// panes the pinned actions fold into the Extensions popover. Reads the
-/// observable host here and passes value snapshots down.
+/// installed, so a fresh Chromium panel's row matches WebKit's. Pins that
+/// don't fit the row (``BrowserExtensionToolbarBudget``) leave from the left
+/// and appear first in the Extensions popover. Reads the observable host
+/// here and passes value snapshots down.
 struct BrowserExtensionToolbar: View {
     let host: any BrowserExtensionHosting
     let metrics: BrowserChromeMetrics
-    let isCompact: Bool
+    /// The toolbar row's width, for the pinned-action budget.
+    let rowWidth: CGFloat
+    /// The cmux accessory buttons after the extension cluster at this width.
+    let trailingAccessoryCount: Int
     let spacing: CGFloat
     let tint: Color
     /// The page view's leading edge in window coordinates, to anchor popups.
@@ -29,7 +34,15 @@ struct BrowserExtensionToolbar: View {
         let extensions = store.extensions
         let actions = host.extensionActions
         let crashed = Set(store.crashed.map(\.id))
-        let pinned = isCompact ? [] : Array(actions.filter(\.isPinned).prefix(BrowserChromeMetrics.maximumPinnedExtensionActions))
+        let budget = BrowserExtensionToolbarBudget(
+            rowWidth: rowWidth, scale: metrics.scale, trailingAccessoryCount: trailingAccessoryCount
+        )
+        let split = budget.split(actions.filter(\.isPinned).map(\.id))
+        let visibleIDs = Set(split.visible)
+        let pinned = actions.filter { visibleIDs.contains($0.id) }
+        let overflowed = split.overflowed
+        // An overflowed action's popup hangs below the Extensions button, which then shows the active fill.
+        let menuActive = isMenuPresented || host.openExtensionPopup.map { !visibleIDs.contains($0) } == true
         Group {
             if !extensions.isEmpty || !actions.isEmpty {
                 HStack(spacing: spacing) {
@@ -40,13 +53,25 @@ struct BrowserExtensionToolbar: View {
                             isPopupOpen: host.openExtensionPopup == action.id,
                             metrics: metrics,
                             anchor: buttonAnchors.anchor(for: action.id),
-                            onRun: { frame in run(action.id, buttonFrame: frame) },
+                            onRun: { frame in
+                                // A second click on the button closes its open popup (Chrome's toggle).
+                                if host.openExtensionPopup == action.id {
+                                    host.hideExtensionPopup()
+                                } else {
+                                    run(action.id, buttonFrame: frame)
+                                }
+                            },
                             onReload: { _ = store.reload(action.id) },
                             onContextMenu: { point in host.showExtensionActionMenu(action.id, atScreenPoint: point) }
                         )
                     }
-                    menuButton(extensions: extensions, actionIDs: Set(actions.map(\.id)), supportsManagement: store.supportsManagement)
+                    menuButton(
+                        extensions: extensions, actionIDs: Set(actions.map(\.id)), overflowedIDs: overflowed,
+                        supportsManagement: store.supportsManagement, isActive: menuActive
+                    )
                 }
+                // One group gap between the extension cluster and the cmux accessories.
+                .padding(.trailing, max(metrics.extensionsGroupGap - spacing, 0))
             }
         }
         .onAppear {
@@ -61,20 +86,24 @@ struct BrowserExtensionToolbar: View {
         }
     }
 
-    private func menuButton(extensions: [BrowserExtensionInfo], actionIDs: Set<String>, supportsManagement: Bool) -> some View {
+    private func menuButton(
+        extensions: [BrowserExtensionInfo], actionIDs: Set<String>, overflowedIDs: [String],
+        supportsManagement: Bool, isActive: Bool
+    ) -> some View {
         Button {
             isMenuPresented.toggle()
         } label: {
             CmuxSystemSymbolImage(systemName: "puzzlepiece.extension", pointSize: metrics.accessoryIconFontSize, weight: .medium, tint: tint)
                 .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
         }
-        .buttonStyle(OmnibarAddressButtonStyle(isActive: isMenuPresented))
+        .buttonStyle(OmnibarAddressButtonStyle(isActive: isActive))
         .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
         .background(BrowserExtensionAnchorReader(anchor: menuAnchor))
         .popover(isPresented: $isMenuPresented, arrowEdge: .bottom) {
             BrowserExtensionsMenuView(
                 extensions: extensions,
                 actionIDs: actionIDs,
+                overflowedIDs: overflowedIDs,
                 supportsManagement: supportsManagement,
                 metrics: metrics,
                 onChoice: { choice in
