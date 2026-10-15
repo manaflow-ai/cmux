@@ -23,6 +23,7 @@ CLI (it needs a Codex login on the rig's Mac) and prompts it on the phone.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -183,20 +184,28 @@ def start_agent(j, agent, args, phase="streaming"):
             raise RuntimeError("codex prompt never showed")
         time.sleep(1)
         tq.paste_composer(CODEX_PROMPT)
+        # This Codex shows no working indicator on screen; its state is read from the
+        # answer itself: rows arriving (streaming), or "Worked for" / row 400 with the
+        # screen unchanged across two reads 3 s apart (idle).
+        prev = [None]
+
+        def numbered(t):
+            return sum(bool(re.match(r"\s*\d{1,4}\b", l)) for l in t.splitlines())
+
         if phase == "streaming":
-            if not wait_mac(lambda t: codex_working(t) and sum(l.strip()[:3].rstrip(".").isdigit() for l in t.splitlines()) >= 8, 300):
+            def streaming(t):
+                moving = prev[0] is not None and t != prev[0]
+                prev[0] = t
+                return moving and numbered(t) >= 8
+            if not wait_mac(streaming, 300):
                 raise RuntimeError("codex never streamed its answer")
         else:
-            # Working first (the prompt's own "400" is on screen at once), then two
-            # reads in a row with no working indicator and the answer's rows on screen.
-            if not wait_mac(codex_working, 120):
-                raise RuntimeError("codex never started working")
-            calm = [0]
-
-            def done(t):
-                calm[0] = calm[0] + 1 if not codex_working(t) and (tq.max_item(t) or 0) >= 20 else 0
-                return calm[0] >= 2
-            if not wait_mac(done, 900, every=3):
+            def idle(t):
+                same = prev[0] == t
+                prev[0] = t
+                finished = "Worked for" in t or re.search(r"(?m)^\s*400\b", t) is not None
+                return same and finished
+            if not wait_mac(idle, 900, every=3):
                 raise RuntimeError("codex never finished its answer")
     time.sleep(1)
     touch("key")
