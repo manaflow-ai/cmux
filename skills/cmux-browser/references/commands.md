@@ -183,10 +183,16 @@ sizing.
 
 ## Known WKWebView gaps (`not_supported`)
 
-`browser.geolocation.set`, `browser.offline.set`, `browser.trace.start|stop`,
+`browser.trace.start|stop`,
 `browser.network.route|unroute|requests`, `browser.screencast.start|stop`, and
 `browser.input_mouse|input_keyboard|input_touch` are not supported by the
 WKWebView engine.
+
+`browser.geolocation.set` (`latitude`, `longitude`, optional `accuracy`, or
+`clear: true`) and `browser.offline.set` (`enabled`) work on WebKit. The
+override applies to the loaded page at once and to every later document in
+all frames, and survives a page reload after a web content crash or a hidden
+tab discard.
 
 See also [snapshot-refs.md](snapshot-refs.md),
 [authentication.md](authentication.md), and
