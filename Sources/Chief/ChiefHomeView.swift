@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxHomeCore
+import MessagesLabHome
 import MessagesLabSidebar
 import Observation
 
@@ -143,7 +144,7 @@ final class ChiefHomeView: NSView {
                 id: row.id.rawValue,
                 title: row.title.isEmpty ? (others.first?.displayName ?? ChiefStrings.chiefName) : row.title,
                 people: others.map { CmuxSidebarEntry.Person(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) },
-                preview: row.preview, previewSender: nil, lastAt: row.timestamp,
+                preview: Self.listPreview(row), previewSender: nil, lastAt: row.timestamp,
                 unreadCount: marked ? max(row.unread, 1) : (visible.contains(row.id) ? 0 : row.unread), pinned: pinnedSet.contains(row.id), typing: row.isTyping,
                 avatar: avatar)
         }
@@ -159,6 +160,26 @@ final class ChiefHomeView: NSView {
                 Task { @MainActor [weak self] in self?.select(ChiefService.shared.defaultConversationID) }
             }
         }
+    }
+
+    /// A row's preview line, as Messages draws it in a 1:1: the newest
+    /// message's text with no sender prefix (MessagesLab's `SidebarStrings.preview`
+    /// leaves `previewSender` out of a 1:1, mine included; cmux-next
+    /// `InboxRow.homePreview`), the Chief's Markdown without its markers as
+    /// the transcript shows it. An attachment-only message says so; a
+    /// conversation with no message yet shows a quiet invitation (the list
+    /// draws previews in the secondary color), so the row never has an empty
+    /// second line.
+    static func listPreview(_ row: InboxRow) -> String {
+        let text = row.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            // A pending send is mine (plain text); the newest message keeps its author's rule.
+            let author = row.isSending ? nil : row.summary.lastMessage?.author
+            let shown = author.map { HomeMarkdownPreview(text, author: $0, in: row.summary).text } ?? text
+            return shown.replacingOccurrences(of: "\n", with: " ")
+        }
+        if row.previewAttachments != nil { return ChiefStrings.conversationAttachmentPreview }
+        return ChiefStrings.conversationEmptyPreview
     }
 
     private func setPinned(_ on: Bool, _ id: ConversationID) {

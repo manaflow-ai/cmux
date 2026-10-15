@@ -1325,7 +1325,7 @@ struct cmuxApp: App {
 
             if chiefEnabled {
                 splitCommandButton(title: String(localized: "menu.view.chief", defaultValue: "Chief"), shortcut: menuShortcut(for: .openChief)) {
-                    AppDelegate.shared?.openChiefHome(source: "menu.view.chief")
+                    AppDelegate.shared?.openChiefHome(toggle: true, source: "menu.view.chief")
                 }
             }
         }

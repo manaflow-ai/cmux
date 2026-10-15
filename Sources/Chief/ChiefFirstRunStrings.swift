@@ -7,6 +7,10 @@ extension ChiefStrings {
     static var firstRunAgentsHeader: String {
         String(localized: "chief.firstRun.agentsHeader", defaultValue: "Your agents")
     }
+    /// Over the workspace rows when no workspace has an agent.
+    static var firstRunWorkspacesHeader: String {
+        String(localized: "chief.firstRun.workspacesHeader", defaultValue: "Your workspaces")
+    }
     /// An agent row's trailing status word.
     static func firstRunAgentStatus(_ status: ChiefAgentGlance.Status) -> String {
         switch status {

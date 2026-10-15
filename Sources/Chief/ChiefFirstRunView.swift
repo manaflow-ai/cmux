@@ -11,7 +11,8 @@ import QuartzCore
 /// 1. "Open a terminal" and "Start an agent" (when the app wires them), each
 ///    with its configured shortcut at the trailing edge.
 /// 2. "Your agents": up to five workspaces with an agent, most urgent first,
-///    each with its status word; a click shows the workspace.
+///    each with its status word; a click shows the workspace. With no agent
+///    anywhere, "Your workspaces": the first five workspaces, "Idle".
 /// 3. A one-line keyboard hint ("⌃1…9 switches workspaces.").
 ///
 /// Pinned just above the message box, three suggestion chips in the
@@ -24,6 +25,8 @@ import QuartzCore
 final class ChiefFirstRunView: NSView {
     static let maxWidth: CGFloat = 340
     static let chipsMaxWidth: CGFloat = 560
+    /// Where the column's center sits, as a fraction of the panel's height.
+    static let opticalCenter: CGFloat = 0.4
 
     private(set) var starterRows: [ChiefFirstRunRow] = []
     private(set) var actionRows: [ChiefFirstRunRow] = []
@@ -128,8 +131,12 @@ final class ChiefFirstRunView: NSView {
         let focused = zip(agents, agentRows).first { window?.firstResponder === $0.1 }?.0.workspaceId
         for row in agentRows { row.removeFromSuperview() }
         agents = shown
+        let header = shown.contains(where: \.hasAgent) || shown.isEmpty
+            ? ChiefStrings.firstRunAgentsHeader : ChiefStrings.firstRunWorkspacesHeader
+        if agentsHeader.stringValue != header { agentsHeader.stringValue = header }
         agentRows = shown.map { glance in
-            let row = ChiefFirstRunRow(title: glance.title, leading: .status(glance.status))
+            let row = ChiefFirstRunRow(title: glance.title,
+                                       leading: glance.hasAgent ? .status(glance.status) : .glyph("terminal"))
             let word = ChiefStrings.firstRunAgentStatus(glance.status)
             row.trailing = word
             row.setAccessibilityValue(word)
@@ -373,7 +380,11 @@ final class ChiefFirstRunView: NSView {
             }
         }
 
-        // The column, centered in the room above the chips.
+        // The column: its center at 40% of the panel (the header's bottom to
+        // the field's top), the optical center a little above the middle, so
+        // a tall pane leaves no void above it; never into the chips' room.
+        // cmux-next's HomeNativeTranscriptView sizes the panel the same way
+        // (headerHeight to fieldTop) and HomeFirstRunView centers in it.
         let room = (shownLines == 0 ? bounds.height : chipGroup.frame.minY - 16)
         let width = max(0, min(Self.maxWidth, bounds.width - 48))
         let x = floor((bounds.width - width) / 2)
@@ -405,7 +416,8 @@ final class ChiefFirstRunView: NSView {
         if columnHeight() > room { showsHint = false }
         if columnHeight() > room { showsActions = false }
 
-        var y = max(0, floor((room - columnHeight()) / 2))
+        let column = columnHeight()
+        var y = max(0, min(floor(bounds.height * Self.opticalCenter - column / 2), floor(room - column)))
         var placedBlock = false
         for (index, actionRow) in actionRows.enumerated() {
             setHidden(actionRow, !showsActions)

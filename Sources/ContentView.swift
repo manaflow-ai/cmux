@@ -12091,7 +12091,9 @@ struct VerticalTabsSidebar: View, Equatable {
                         // rail swaps its one column; Messages has one list). The workspace
                         // rows stay mounted underneath, hidden, so leaving Home is instant.
                         ChiefConversationListRepresentable(home: chiefHome, accent: tabItemSettings.accentColor)
-                            .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset)
+                            .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset
+                                + SidebarWorkspaceListMetrics.homeBackRowHeight
+                                + SidebarWorkspaceListMetrics.homeBackRowBottomGap)
                             .padding(.bottom, SidebarWorkspaceListMetrics.bottomScrimHeight)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -12103,6 +12105,16 @@ struct VerticalTabsSidebar: View, Equatable {
                         onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } }
                     )
                     .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
+                    if isChiefHomeSelected {
+                        // The way back: the workspace rows are hidden while Home is selected.
+                        SidebarChiefHomeBackRow(
+                            workspaceCount: workspaceCount,
+                            settings: tabItemSettings,
+                            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+                            onShowWorkspaces: { selection = .tabs }
+                        )
+                        .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset)
+                    }
                 }
             }
         }

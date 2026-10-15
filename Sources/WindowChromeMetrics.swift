@@ -79,6 +79,10 @@ enum SidebarWorkspaceListMetrics {
     /// Space between the Home row and the first workspace row; the list's
     /// top fade runs through it.
     static let homeRowBottomGap: CGFloat = 8
+    /// While Home is selected: the "Workspaces" back row under the Home row
+    /// (a medium sidebar row) and the gap above Chief's conversation list.
+    static let homeBackRowHeight: CGFloat = 28
+    static let homeBackRowBottomGap: CGFloat = 4
 
     /// Whether the sidebar reserves the Chief Home band (`chief.enabled`).
     ///

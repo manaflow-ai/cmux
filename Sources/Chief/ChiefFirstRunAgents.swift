@@ -26,12 +26,22 @@ struct ChiefAgentGlance: Equatable {
     var workspaceId: UUID
     var title: String
     var status: Status
+    /// False for a plain workspace listed because no workspace has an agent.
+    var hasAgent = true
 
     /// At most `limit` agents, most urgent first; equal statuses keep the
     /// sidebar's order.
     static func shortlist(_ agents: [ChiefAgentGlance], limit: Int = 5) -> [ChiefAgentGlance] {
         Array(agents.enumerated().sorted { ($0.element.status, $0.offset) < ($1.element.status, $1.offset) }
             .prefix(limit).map(\.element))
+    }
+
+    /// Workspaces without agents as idle rows, in sidebar order, at most
+    /// `limit`. cmux-next's glance lists agents only (`HomeAgentGlances`);
+    /// classic Home also lists plain workspaces when there are no agents,
+    /// because the sidebar's workspace rows are hidden while Home is selected.
+    static func plainWorkspaces(_ workspaces: [(id: UUID, title: String)], limit: Int = 5) -> [ChiefAgentGlance] {
+        workspaces.prefix(limit).map { ChiefAgentGlance(workspaceId: $0.id, title: $0.title, status: .idle, hasAgent: false) }
     }
 
     /// One workspace's status from its panels' agent lifecycles; nil when no
@@ -57,16 +67,20 @@ enum ChiefAgentGlanceSource {
         return app.tabManager
     }
 
-    /// Every workspace with an agent, in sidebar order.
+    /// Every workspace with an agent, in sidebar order. With no agent
+    /// anywhere, the first workspaces as idle plain rows instead
+    /// (``ChiefAgentGlance/plainWorkspaces(_:)``), so the panel always offers
+    /// a way back to existing workspaces.
     static func glances(in tabManager: TabManager) -> [ChiefAgentGlance] {
         let notifications = TerminalNotificationStore.shared
-        return tabManager.tabs.compactMap { workspace in
+        let agents = tabManager.tabs.compactMap { workspace -> ChiefAgentGlance? in
             let unread = notifications.unreadCount(forTabId: workspace.id) > 0
             guard let status = ChiefAgentGlance.status(lifecycles: workspace.agentLifecycleStatesByPanelId,
                                                        unread: unread) else { return nil }
-            let title = workspace.customTitle ?? workspace.title
-            return ChiefAgentGlance(workspaceId: workspace.id, title: title, status: status)
+            return ChiefAgentGlance(workspaceId: workspace.id, title: workspace.customTitle ?? workspace.title, status: status)
         }
+        guard agents.isEmpty else { return agents }
+        return ChiefAgentGlance.plainWorkspaces(tabManager.tabs.map { (id: $0.id, title: $0.customTitle ?? $0.title) })
     }
 
     /// Shows the workspace, leaving Home even when it is already the selected one.

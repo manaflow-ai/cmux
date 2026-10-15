@@ -126,6 +126,69 @@ struct SidebarChiefHomeRow: View {
     }
 }
 
+/// The way back to the workspace list while Home is selected: "‹ Workspaces"
+/// with the workspace count, right under the Home row and above Chief's
+/// conversation list. The workspace rows are hidden while Home is selected
+/// (one list at a time, as in Messages and cmux-next's rail), so the way back
+/// is spelled out instead of relying on clicking the selected Home row again.
+/// A back row rather than a Chief | Workspaces segmented control: the
+/// sidebar keeps one stack of rows (no new control style), and the Home row
+/// stays where it is in both modes. The tooltip names the Open Chief
+/// shortcut, which toggles Home.
+struct SidebarChiefHomeBackRow: View {
+    let workspaceCount: Int
+    let settings: SidebarTabItemSettingsSnapshot
+    let globalFontMagnificationPercent: Int
+    let onShowWorkspaces: () -> Void
+
+    var body: some View {
+        Button(action: onShowWorkspaces) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left")
+                    .font(font(10.5, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: (16 * settings.sidebarFontScale).rounded())
+                Text(ChiefStrings.backToWorkspaces)
+                    .font(font(12.5, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if workspaceCount > 0 {
+                    Text(verbatim: "\(workspaceCount)")
+                        .font(font(11, weight: .regular).monospacedDigit())
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
+            .frame(height: SidebarWorkspaceListMetrics.homeBackRowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
+        .help(ChiefStrings.backToWorkspacesTooltip(keys: Self.shortcutKeys))
+        .accessibilityLabel(Text(ChiefStrings.backToWorkspaces))
+        .accessibilityHint(Text(ChiefStrings.backToWorkspacesTooltip(keys: Self.shortcutKeys)))
+        .accessibilityIdentifier("SidebarChiefHomeBackToWorkspaces")
+    }
+
+    /// The Open Chief shortcut (it toggles Home); nil when unbound.
+    private static var shortcutKeys: String? {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .openChief)
+        return shortcut.isUnbound ? nil : shortcut.displayString
+    }
+
+    private func font(_ baseSize: CGFloat, weight: Font.Weight) -> Font {
+        .system(
+            size: GlobalFontMagnification.scaledSize(
+                baseSize * settings.sidebarFontScale,
+                percent: globalFontMagnificationPercent
+            ),
+            weight: weight
+        )
+    }
+}
+
 /// The Home row's trailing status: "Needs you" (attention color) while a
 /// Chief waits on an approval, "Working…" while one runs a turn, else an 8 pt accent dot for unread replies (only while Home is not showing;
 /// replies on screen never count, see ``ChiefService/unreadCount``).

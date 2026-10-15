@@ -85,6 +85,26 @@ enum ChiefStrings {
     static var homeRowUnread: String {
         String(localized: "sidebar.chiefHome.unread", defaultValue: "Unread replies")
     }
+    /// The sidebar's back row while Home is selected.
+    static var backToWorkspaces: String {
+        String(localized: "sidebar.chiefHome.backToWorkspaces", defaultValue: "Workspaces")
+    }
+    /// The back row's tooltip; `keys` is the Open Chief shortcut (it toggles Home), nil when unbound.
+    static func backToWorkspacesTooltip(keys: String?) -> String {
+        guard let keys else {
+            return String(localized: "sidebar.chiefHome.backToWorkspaces.tooltip", defaultValue: "Back to workspaces")
+        }
+        return String(format: String(localized: "sidebar.chiefHome.backToWorkspaces.tooltipShortcut",
+                                     defaultValue: "Back to workspaces (%@)"), keys)
+    }
+    /// A conversation row's preview before its first message.
+    static var conversationEmptyPreview: String {
+        String(localized: "chief.list.emptyPreview", defaultValue: "Ask Chief anything")
+    }
+    /// A conversation row's preview when the newest message is only attachments.
+    static var conversationAttachmentPreview: String {
+        String(localized: "chief.list.attachmentPreview", defaultValue: "Attachment")
+    }
     static var settingsAvatarChoosePicture: String {
         String(localized: "chief.settings.avatar.choosePicture", defaultValue: "Choose Picture…")
     }
