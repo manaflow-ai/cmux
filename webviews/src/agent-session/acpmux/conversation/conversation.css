@@ -101,6 +101,38 @@
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
 }
 
+/* The images a prompt sent, above its bubble: thumbnails on a checker, so a dark screenshot reads. */
+.cv-user__images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 70%;
+  margin-bottom: 6px;
+}
+.cv-user__images button {
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+.cv-user__images img {
+  display: block;
+  width: auto;
+  height: 72px;
+  max-width: 160px;
+  object-fit: cover;
+  border-radius: 10px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
+}
+
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
 .cv-user__context {
   box-sizing: border-box;
