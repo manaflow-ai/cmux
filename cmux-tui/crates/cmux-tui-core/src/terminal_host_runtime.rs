@@ -189,6 +189,12 @@ pub struct TerminalHostRecord {
     /// ClientHello carrying `FLAG_PROGRAM_STATUS`.
     #[serde(default)]
     pub supports_program_status: bool,
+    /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
+    /// ends its terminal after this long with no client. `None` (normal
+    /// installs, and hosts from before this field): it never does; only a
+    /// close ends the terminal. Informational; no daemon decides on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orphan_grace_secs: Option<u64>,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -211,6 +217,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .field("supports_pty_custody", &self.supports_pty_custody)
             .field("supports_program_status", &self.supports_program_status)
+            .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }
 }
@@ -737,6 +744,7 @@ pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_paylo
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+pub use shared::host_state::set_dev_host_orphan_grace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]

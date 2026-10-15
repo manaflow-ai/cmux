@@ -180,9 +180,9 @@ pub use workspace_registry::{
     JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
-    SessionJournalPage, SessionJournalRecord, UnsupportedWorkspaceRegistrySchema,
-    WorkspaceMutation, WorkspaceRegistry,
+    RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
+    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
