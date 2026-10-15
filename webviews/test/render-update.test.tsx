@@ -130,11 +130,27 @@ test("a render without an id is its own card, as before", async () => {
   ]);
 });
 
+test("the same page rendered twice without an id is two cards, and an update joins the latest", async () => {
+  const again = call("toolu_4", { html: FIRST, title: "Desk clamp again" });
+  await draw([original, again]);
+  expect(cards().map((card) => card.querySelector(".acpmux-render-card-title")?.textContent)).toEqual([
+    "Desk clamp",
+    "Desk clamp again",
+  ]);
+  // An update naming the page's id goes to the most recent card that shows it.
+  await draw([original, again, update]);
+  expect(cards().map((card) => card.querySelector(".acpmux-render-card-title")?.textContent)).toEqual([
+    "Desk clamp",
+    "Desk clamp, thicker jaw",
+  ]);
+});
+
 test("the updated card opens its page in the side panel with the earlier page as a previous version", async () => {
   const opened: { kind: "html"; lang: string; code: string; render?: string }[] = [];
   await draw([original, update], (artifact) => opened.push(artifact as (typeof opened)[number]));
   act(() => button("Open preview")!.click());
-  expect(opened).toEqual([{ kind: "html", lang: "html", code: SECOND, render: FIRST_ID }]);
+  // The card goes by the call that drew it.
+  expect(opened).toEqual([{ kind: "html", lang: "html", code: SECOND, render: "toolu_1" }]);
 
   const { renderPages, renderVersions } = await import("../src/agent-session/acpmux/conversation/renderCall");
   const versions = renderVersions(renderPages([original, update]), opened[0]!);
