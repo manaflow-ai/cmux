@@ -19,6 +19,7 @@ extension HomeService {
         let linker = HomeCloudLink(lease: lease, source: cloudSource, localID: homeSource.me.id,
                                    stackProjectID: auth.configuration.stackProjectID)
         cloudLinker = linker
+        let cloudInbox = homeCloudInbox
         // task-owner: lives as long as the service; event-driven (Observation)
         cloudLink = Task {
             for await link in ObservationStream({
@@ -28,6 +29,7 @@ extension HomeService {
                                           userID: auth.isSignedIn ? auth.user?.id : nil,
                                           displayName: auth.user?.displayName ?? auth.user?.primaryEmail ?? "")
             }) {
+                cloudInbox.connectionChanged(local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil)
                 await linker.apply(link)
             }
         }

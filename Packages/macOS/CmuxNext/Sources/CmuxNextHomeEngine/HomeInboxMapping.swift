@@ -23,6 +23,7 @@ struct HomeInboxMapping {
             mapped.title = row.name
             mapped.unread = row.unread
             mapped.isPinned = row.pinned
+            mapped.summary.muted = row.muted ?? mapped.summary.muted
             if row.markedUnread { unreadMarks.insert(mapped.id) }
             if row.pinned {
                 pinned.insert(mapped.id)
@@ -37,6 +38,16 @@ struct HomeInboxMapping {
         pinned.formUnion(otherPinned.map(\.id))
         unreadMarks.formUnion(marks.intersection(others.map(\.id)))
         rows = ownedPinned + otherPinned + Self.merged(ownedRest, otherRest)
+    }
+
+    /// The rows of several owners as one list: with one owner its own order; else pinned rows by pin
+    /// position (each owner numbers its pins by time; none last), then the others newest first (spec `home-inbox`).
+    static func ordered(_ lists: [[HomeInboxRequest.Row]]) -> [HomeInboxRequest.Row] {
+        let all = lists.flatMap { $0 }
+        guard lists.filter({ !$0.isEmpty }).count > 1 else { return all }
+        let pinned = all.filter(\.pinned).sorted { ($0.pinPosition ?? .max, $0.id) < ($1.pinPosition ?? .max, $1.id) }
+        let rest = all.filter { !$0.pinned }.sorted { $0.activityAt != $1.activityAt ? $0.activityAt > $1.activityAt : $0.id < $1.id }
+        return pinned + rest
     }
 
     /// The owner's kinds; a channel draws as a group (the list has no channel style of its own).
