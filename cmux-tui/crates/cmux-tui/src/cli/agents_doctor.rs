@@ -77,6 +77,9 @@ struct Check {
     fix_url: Option<&'static str>,
     /// What an MCP client can do about it (`Fix`); text only when `None`.
     action: Option<FixAction>,
+    /// A missing harness while another one is installed: a warning, not a
+    /// failure, for the MCP finding.
+    other_harness: bool,
 }
 
 /// The runnable part of a fix: a command as written in the fix text, or
@@ -105,6 +108,7 @@ impl Check {
             fix: None,
             fix_url: None,
             action: None,
+            other_harness: false,
         }
     }
 
@@ -134,12 +138,14 @@ impl Check {
     }
 
     /// The MCP finding: `{id, status, reason, summary, fix}`, where `status`
-    /// is ok (ok, not applicable), warn (only inside cmux chats, unknown) or
-    /// fail (missing) and `fix` is `{text, command, palette, url}` or null.
+    /// is ok (ok, not applicable), warn (only inside cmux chats, unknown, a
+    /// missing harness beside an installed one) or fail (missing) and `fix`
+    /// is `{text, command, palette, url}` or null.
     fn finding(&self) -> Value {
         let status = match self.status {
             Status::Ok | Status::NotApplicable => "ok",
             Status::CmuxOnly | Status::Unknown => "warn",
+            Status::Missing if self.other_harness => "warn",
             Status::Missing => "fail",
         };
         let fix = self.fix.as_ref().map(|text| {
@@ -291,6 +297,12 @@ fn collect(
     let wants = |id: &str| wanted.is_none_or(|wanted| wanted.iter().any(|w| w == id));
     let mut checks = checks_without_grants(environment, messages);
     let redactions = environment.redactions();
+    let harness = |check: &Check| check.id.starts_with("harness.");
+    if checks.iter().any(|check| harness(check) && check.status == Status::Ok) {
+        for check in checks.iter_mut().filter(|check| harness(check)) {
+            check.other_harness = check.status == Status::Missing;
+        }
+    }
     if GRANT_ROWS.into_iter().any(wants) {
         checks.extend(grant_checks(app_status, messages));
     }
