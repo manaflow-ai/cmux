@@ -553,7 +553,7 @@ struct SnippetsSidebarModeTests {
     @Test func hiddenTabDropsOutOfPositionalDigits() {
         let defaults = makeDefaults()
         #expect(RightSidebarMode.visibleModes(defaults: defaults).contains(.snippets))
-        RightSidebarTabPreferences.setHidden(true, for: .snippets, defaults: defaults)
+        _ = RightSidebarTabPreferences.setHidden(true, mode: .snippets, defaults: defaults)
         #expect(!RightSidebarMode.visibleModes(defaults: defaults).contains(.snippets))
         #expect(RightSidebarMode.positionalDigit(for: .snippets, defaults: defaults) == nil)
     }
@@ -566,7 +566,7 @@ struct SnippetsSidebarModeTests {
 }
 ```
 
-Before writing step 2, confirm the `RightSidebarTabPreferences.setHidden` signature with `grep -n 'func setHidden' Sources/RightSidebarTabPreferences.swift` and adjust the call (the plan assumes `setHidden(_ hidden: Bool, for mode: RightSidebarMode, defaults: UserDefaults)`); likewise `hasPriorityShortcutRouting` is in `Sources/KeyboardShortcutActionContext.swift:233`.
+`RightSidebarTabPreferences.setHidden(_:mode:defaults:)` returns a Bool (discarded above); `hasPriorityShortcutRouting` is in `Sources/KeyboardShortcutActionContext.swift:233`.
 
 - [ ] **Step 2: Wire the test and verify it fails**
 
