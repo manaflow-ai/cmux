@@ -126,6 +126,11 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     let outcome = execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents");
     drop(notes);
     match outcome {
+        // A wait that timed out prints its receipt and exits 1, as
+        // `screen wait` does (docs/cli-contract.md).
+        Ok(value) if matches!(command, AgentCommand::Wait(_)) && value["matched"] == false => {
+            wire::print_local_success(&value, global.output).max(1)
+        }
         Ok(value) => wire::print_local_success(&value, global.output),
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {

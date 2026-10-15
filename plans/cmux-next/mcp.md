@@ -83,7 +83,14 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     output); `idle` and `dialog` hold `session.events` open and check on each event, and
     every second for what only the app knows (chat agent state, dialogs), which has no
     event. A call with `_meta.progressToken` gets `notifications/progress` every 5 s
-    (`progress` seconds waited, `total` the timeout). Read-only: it reads what
+    (`progress` seconds waited, `total` the timeout). An invalid regex, and a `term_`,
+    `tab_` or `agent_` target no owner knows (for every `until`), are refused as
+    `not_run`; a dialog target of another kind (a request id) may name a dialog that
+    has not appeared yet, so it waits. A `text` target that closes mid-wait reports
+    `match.state: "closed"`, as `idle` does. The server answers one call at a time,
+    so a wait holds later calls for up to its timeout (120 s), as `terminal_wait`
+    does. `cmux agents wait` exits 1 when it times out, as `screen wait` does.
+    Read-only: it reads what
     `agents_snapshot`, `agents_dialog_list` and `terminal_wait` already read;
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is

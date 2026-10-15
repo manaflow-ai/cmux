@@ -143,6 +143,12 @@ pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
         }
         _ => {}
     }
+    // The daemon's terminal.wait compiles it with the same crate and limits;
+    // a pattern it would refuse never starts a wait.
+    if regex && let Some(pattern) = &text {
+        regex::Regex::new(pattern)
+            .map_err(|error| usage(format!("--text is not a valid regular expression: {error}")))?;
+    }
     let timeout = match timeout {
         None => Duration::from_secs(DEFAULT_TIMEOUT_SECONDS),
         Some(value) => match value.parse::<f64>() {
@@ -179,7 +185,7 @@ pub(in crate::cli) fn run<B: Backend>(
         }
         Until::Dialog => {
             let target = request.target.as_deref();
-            wait_for(backend, session, deadline, |first| dialog(backend, target, first))?
+            wait_for(backend, session, deadline, |first| dialog(backend, session, target, first))?
         }
     };
     let waited = started.elapsed().as_millis() as f64 / 1000.0;
@@ -282,7 +288,21 @@ fn wait_text<B: Backend>(
         resolve: Vec::new(),
         view: ResponseView::Full,
     };
-    let result = backend.resource(session, plan, &[]).map_err(AgentFailure::Owner)?;
+    let result = match backend.resource(session, plan, &[]) {
+        Ok(result) => result,
+        // A terminal that closed mid-wait ends it as `idle` reports one.
+        Err(failure) => {
+            let closed = backend.resource(session, snapshot_plan(), &[]).is_ok_and(|daemon| {
+                !terminals(&daemon).any(|shown| shown["id"] == terminal.as_str())
+            });
+            if closed {
+                return Ok(Some(
+                    json!({"target": target, "terminal": terminal, "state": "closed"}),
+                ));
+            }
+            return Err(AgentFailure::Owner(failure));
+        }
+    };
     Ok((result["matched"] == true).then(|| {
         json!({
             "target": target,
@@ -398,6 +418,11 @@ fn activity(target: &str, daemon: Option<&Value>, app_tabs: &[&Value]) -> Activi
     }))
 }
 
+/// `term_…`, `tab_…` or `agent_…`: an id the snapshot shows for an agent.
+fn names_agent(target: &str) -> bool {
+    ["term_", "tab_", "agent_"].iter().any(|prefix| target.starts_with(prefix))
+}
+
 /// Every tab object under the app's topology.
 fn app_tabs(topology: &Value) -> Vec<&Value> {
     fn visit<'a>(value: &'a Value, out: &mut Vec<&'a Value>) {
@@ -425,9 +450,23 @@ fn app_tabs(topology: &Value) -> Vec<&Value> {
 /// `agents_dialog_list` read), those of `target` when given.
 fn dialog<B: Backend>(
     backend: &B,
+    session: Option<&str>,
     target: Option<&str>,
     first: bool,
 ) -> Result<Option<Value>, AgentFailure> {
+    // A target that names an agent (a terminal, tab or agent id) must exist,
+    // as for idle and text. Any other target (a request id, a chat session,
+    // a harness name) may belong to a dialog that has not appeared yet.
+    if first && let Some(target) = target.filter(|target| names_agent(target)) {
+        let daemon = backend.resource(session, snapshot_plan(), &[]);
+        let app = backend.app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false);
+        let tabs = app.as_ref().map(|app| app_tabs(&app["topology"])).unwrap_or_default();
+        if daemon.is_ok()
+            && matches!(activity(target, daemon.as_ref().ok(), &tabs), Activity::Missing)
+        {
+            return Err(not_found(target));
+        }
+    }
     let feed = match backend.app(
         "feed.list",
         json!({"pending_only": true}),
