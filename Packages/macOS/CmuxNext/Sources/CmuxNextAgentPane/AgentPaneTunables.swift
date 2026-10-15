@@ -69,6 +69,14 @@ public nonisolated struct AgentPaneTunables {
         help: "Agent chats show the live plan card and the recap card.",
         default: false, code: "AgentPaneTunables.sessionStatus")
 
+    /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
+    /// beside it.
+    /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
+    public static let sideSessions = Tunable<Bool>.toggle(
+        "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
+        help: "The composer's /btw opens a read-only side session beside the chat.",
+        default: false, code: "AgentPaneTunables.sideSessions")
+
     /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
     /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
     /// full (Leo 2026-10-13, #20330) until Leo picks the default. New agent tabs read it.
@@ -134,5 +142,5 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor] }
 }
