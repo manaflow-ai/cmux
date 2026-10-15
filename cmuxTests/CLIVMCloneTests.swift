@@ -65,10 +65,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     /// One CLI run, optionally from `directory` (through `/bin/sh -c 'cd …'`, since the
-    /// shared process runner has no working-directory parameter).
-    private func runVMCloneCLI(arguments: [String], home: URL, socketPath: String, directory: URL? = nil) throws -> ProcessRunResult {
+    /// shared process runner has no working-directory parameter). `terminalInput` runs
+    /// it under `script(1)`, so stdin and stderr are a terminal (the setup prompt asks
+    /// there) and this text is typed into it; both streams then arrive on stdout.
+    private func runVMCloneCLI(arguments: [String], home: URL, socketPath: String, directory: URL? = nil, terminalInput: String? = nil) throws -> ProcessRunResult {
         let cliPath = try bundledCLIPath()
         let environment = vmCloneEnvironment(socketPath: socketPath, home: home)
+        if let terminalInput {
+            return runProcess(
+                executablePath: "/usr/bin/script",
+                arguments: ["-q", "/dev/null", cliPath] + arguments,
+                environment: environment,
+                standardInput: terminalInput,
+                timeout: 60
+            )
+        }
         if let directory {
             return runProcess(
                 executablePath: "/bin/sh",
@@ -102,6 +113,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         _ name: String,
         arguments: [String],
         home: URL,
+        terminalInput: String? = nil,
         respond: @escaping @Sendable (_ method: String, _ params: [String: Any]) -> [String: Any]?
     ) throws -> (result: ProcessRunResult, log: VMCloneRequestLog) {
         let socketPath = makeSocketPath(name)
@@ -126,7 +138,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             return self.v2Response(id: id, ok: true, result: result)
         }
-        let result = try runVMCloneCLI(arguments: arguments, home: home, socketPath: socketPath)
+        let result = try runVMCloneCLI(arguments: arguments, home: home, socketPath: socketPath, terminalInput: terminalInput)
         wait(for: [handled], timeout: 60)
         XCTAssertFalse(result.timedOut, "\(arguments) timed out: \(result.stderr)")
         return (result, log)
@@ -143,6 +155,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let branch: String?
             let project: String
             let dir: String
+            /// The workspace name when the checkout is not the default `work/<name>`.
+            var workspace: String? = nil
         }
         let cases: [Case] = [
             Case(arguments: ["manaflow-ai/cmux"], url: "https://github.com/manaflow-ai/cmux.git", name: "cmux", owner: "manaflow-ai", branch: nil, project: "github.com/manaflow-ai/cmux", dir: "work/cmux"),
@@ -158,8 +172,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             // Any other host clones exactly what was given.
             Case(arguments: ["https://gitlab.com/group/sub/proj.git"], url: "https://gitlab.com/group/sub/proj.git", name: "proj", owner: "group/sub", branch: nil, project: "gitlab.com/group/sub/proj", dir: "work/proj"),
             Case(arguments: ["git@git.example.com:team/svc.git", "--branch", "release/1.2"], url: "git@git.example.com:team/svc.git", name: "svc", owner: "team", branch: "release/1.2", project: "git.example.com/team/svc", dir: "work/svc"),
-            Case(arguments: ["o/r", "--dir", "~/src/r/"], url: "https://github.com/o/r.git", name: "r", owner: "o", branch: nil, project: "github.com/o/r", dir: "src/r"),
-            Case(arguments: ["o/r", "--dir", "/srv/app"], url: "https://github.com/o/r.git", name: "r", owner: "o", branch: nil, project: "github.com/o/r", dir: "/srv/app"),
+            Case(arguments: ["o/r", "--dir", "~/src/r/"], url: "https://github.com/o/r.git", name: "r", owner: "o", branch: nil, project: "github.com/o/r", dir: "src/r", workspace: "r (src/r)"),
+            Case(arguments: ["o/r", "--dir", "/srv/app"], url: "https://github.com/o/r.git", name: "r", owner: "o", branch: nil, project: "github.com/o/r", dir: "/srv/app", workspace: "r (app)"),
         ]
         let root = try vmCloneScratch("forms")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -179,7 +193,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertTrue(repo["branch"] is NSNull, "\(label): expected the default branch, got \(String(describing: repo["branch"]))")
             }
             XCTAssertEqual(plan["dir"] as? String, testCase.dir, label)
-            XCTAssertEqual(plan["workspace_name"] as? String, testCase.name, label)
+            XCTAssertEqual(plan["workspace_name"] as? String, testCase.workspace ?? testCase.name, label)
         }
     }
 
@@ -270,7 +284,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (plan, _, log) = try vmCloneDryRunAgainstList("vco1", vms: vms, home: home)
         XCTAssertEqual(plan["machine"] as? String, "vm-brave")
         XCTAssertEqual(plan["would_provision"] as? Bool, false)
-        XCTAssertEqual(plan["machine_plan"] as? String, "vm-brave (your only running machine)")
+        // People read the label `vm ls` shows; the JSON plan keeps the id for scripts.
+        XCTAssertEqual(plan["machine_plan"] as? String, "proud-white-sloth (your only running machine)")
+        XCTAssertEqual(plan["machine_label"] as? String, "proud-white-sloth")
         XCTAssertFalse(log.methods.contains("vm.create"), log.methods.description)
 
         // The real run says which machine it took and how to get a fresh one instead.
@@ -295,7 +311,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
             result.stderr
         )
         XCTAssertTrue(result.stdout.contains("Cloned github.com/o/r into work/r on proud-white-sloth."), result.stdout)
-        XCTAssertTrue(result.stdout.contains("Open: cmux vm open vm-brave/ws_4"), "copy/paste addresses keep the id: \(result.stdout)")
+        // The label is the address people copy (`cmux vm open` resolves it); no raw id.
+        XCTAssertTrue(result.stdout.contains("Open: cmux vm open proud-white-sloth/ws_4"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("vm-brave"), "no raw id in the human summary: \(result.stdout)")
+
+        // A label two machines share is no address: the id stays in the Open line.
+        let twins: [[String: Any]] = [
+            ["id": "vm-brave", "displayName": "twin", "status": "running"],
+            ["id": "vm-other", "displayName": "twin", "status": "paused"],
+        ]
+        let (twinResult, _) = try runVMCloneAgainstMock(
+            "vco3",
+            arguments: ["vm", "clone", "o/r", "--no-open"],
+            home: home
+        ) { method, _ in
+            switch method {
+            case "vm.list": return ["vms": twins]
+            case "vm.secrets_sync": return ["sent": [], "removed": [], "noop": true]
+            case "vm.exec": return ["exit_code": 0, "stdout": "cmux-clone=cloned\n", "stderr": ""]
+            case "vm.workspace_new": return ["remote_workspace_id": "ws_4", "existing": false, "opened": false]
+            default: return nil
+            }
+        }
+        XCTAssertEqual(twinResult.status, 0, "stdout=\(twinResult.stdout) stderr=\(twinResult.stderr)")
+        XCTAssertTrue(twinResult.stdout.contains("Open: cmux vm open vm-brave/ws_4"), twinResult.stdout)
     }
 
     func testVMCloneDoesNotGuessBetweenSeveralRunningMachines() throws {
@@ -325,7 +364,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
         let (plan, _, _) = try vmCloneDryRunAgainstList("vcs6", vms: vms, home: home)
         XCTAssertEqual(plan["machine"] as? String, "vm-b")
-        XCTAssertEqual(plan["machine_plan"] as? String, "vm-b (reused, holds this repository's checkout)")
+        XCTAssertEqual(plan["machine_plan"] as? String, "vivid-newt (reused, holds this repository's checkout)")
     }
 
     func testVMCloneNamesAFreshMachinesFirstWorkspaceForTheRepository() throws {
@@ -637,6 +676,40 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("Machine") && result.stderr.contains(" \u{00B7} Secrets"), "summary line: \(result.stderr)")
     }
 
+    func testVMCloneNamesTheWorkspaceForANonDefaultCheckoutDirectory() throws {
+        let root = try vmCloneScratch("dirws")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        // The workspace is found again by name, so a second checkout of the same
+        // repository must not share the first one's name (and so its workspace).
+        let cases: [(arguments: [String], name: String)] = [
+            (["o/r"], "r"),
+            (["o/r", "--dir", "work/x"], "r (x)"),
+            (["o/r", "--dir", "~/work/x/"], "r (x)"),
+            (["o/r", "--dir", "other/r"], "r (other/r)"),
+        ]
+        for (index, testCase) in cases.enumerated() {
+            let (plan, _) = try vmCloneDryRunPlan(testCase.arguments + ["--machine", "brave-otter"], home: home)
+            XCTAssertEqual(plan["workspace_name"] as? String, testCase.name, testCase.arguments.description)
+            let (result, log) = try runVMCloneAgainstMock(
+                "vcdw\(index)",
+                arguments: ["vm", "clone"] + testCase.arguments + ["--machine", "brave-otter", "--no-open"],
+                home: home
+            ) { method, _ in
+                switch method {
+                case "vm.secrets_sync": return ["sent": [], "removed": [], "noop": true]
+                case "vm.exec": return ["exit_code": 0, "stdout": "cmux-clone=cloned\n", "stderr": ""]
+                case "vm.workspace_new": return ["remote_workspace_id": "ws_\(index)", "existing": false, "opened": false]
+                default: return nil
+                }
+            }
+            XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+            let workspace = try XCTUnwrap(log.params(ofFirst: "vm.workspace_new"), log.methods.description)
+            XCTAssertEqual(workspace["name"] as? String, testCase.name, testCase.arguments.description)
+            XCTAssertEqual(workspace["reuse"] as? Bool, true)
+        }
+    }
+
     func testVMCloneExplainsAuthFailuresAndMissingSecrets() throws {
         let root = try vmCloneScratch("auth")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -802,6 +875,57 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual((setup["steps"] as? [[String: Any]])?.compactMap { $0["exit_code"] as? Int }, [0, 0])
         XCTAssertEqual(payload["agent_terminal_id"] as? String, "term_agent")
         XCTAssertNotNil((payload["timings"] as? [String: Any])?["setup"])
+    }
+
+    /// A checkout whose `.cmux/cloud.json` declares exactly one setup command.
+    private static func vmCloneOneStepResponder(setupOutput: String) -> @Sendable (String, [String: Any]) -> [String: Any]? {
+        let base = vmCloneSetupResponder(setupOutput: setupOutput)
+        let manifest = #"{"setup": "bun install"}"#
+        return { method, params in
+            method == "vm.exec"
+                ? ["exit_code": 0, "stdout": vmCloneOutput(withCloudJSON: manifest), "stderr": ""]
+                : base(method, params)
+        }
+    }
+
+    func testVMCloneCountsOneSetupStepInTheSingular() throws {
+        let root = try vmCloneScratch("setupone")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let output = "[cmux setup 1/1] $ bun install\nok\n[cmux setup 1/1] exit 0\n[cmux setup] done\n"
+        let (result, _) = try runVMCloneAgainstMock(
+            "vcs1o",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open", "--setup"],
+            home: home,
+            respond: Self.vmCloneOneStepResponder(setupOutput: output)
+        )
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertTrue(result.stderr.contains("\u{2014} 1 step in terminal term_setup"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("1 steps"), result.stderr)
+    }
+
+    func testVMCloneSetupPromptNamesTheRepositoryAndCountsInTheSingular() throws {
+        let root = try vmCloneScratch("setupprompt")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        // A terminal to ask on, and "n" typed at the prompt: nothing runs.
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcsp",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open"],
+            home: home,
+            terminalInput: "n\n",
+            respond: Self.vmCloneOneStepResponder(setupOutput: "")
+        )
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertFalse(log.methods.contains("vm.terminal_wait"), "declined setup never runs: \(log.methods)")
+        let screen = result.stdout.replacingOccurrences(of: "\r", with: "")
+        // A lead-in names where the commands come from, then the list, then the question.
+        XCTAssertTrue(
+            screen.contains("Setup commands from acme/api:\n  1. bun install\nRun 1 setup command from acme/api on brave-otter? It runs with your Cloud Secrets. [y/N] "),
+            screen
+        )
+        XCTAssertFalse(screen.contains("Run these 1"), screen)
+        XCTAssertTrue(screen.contains("Setup skipped."), screen)
     }
 
     func testVMCloneStopsAtAFailedSetupStepAndKeepsItsTerminal() throws {
@@ -1042,6 +1166,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(log.params(ofFirst: "vm.secrets_sync")?["id"] as? String, "vm-f944")
         XCTAssertEqual(log.params(ofFirst: "vm.exec")?["id"] as? String, "vm-f944")
         XCTAssertTrue(result.stdout.contains("on proud-white-sloth."), result.stdout)
+        XCTAssertTrue(result.stdout.contains("Open: cmux vm open proud-white-sloth/ws_2"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("vm-f944"), "the label, not the id, in the summary: \(result.stdout)")
         XCTAssertFalse(result.stderr.contains("is the label of"), result.stderr)
 
         // An unknown machine stops before any request to it; no binding is recorded.

@@ -50,6 +50,7 @@ extension CMUXCLI {
                                Memory for a new machine (24g and up need cmux Max).
           --branch <b>         Check out this branch (wins over /tree/<branch>).
           --dir <path>         Checkout on the machine, relative to home (default: work/<repo>).
+                               Its workspace is named "<repo> (<dir name>)".
           --agent <claude|codex|opencode|pi> [-- <prompt>]
                                Start an agent in the checkout; with a prompt it runs one-shot.
           --setup              Run the repository's setup commands without asking (also
@@ -298,6 +299,17 @@ extension CMUXCLI {
         return dir
     }
 
+    /// The machine workspace a checkout opens in, found again by this name on the next
+    /// clone. The default checkout (`work/<repo>`) uses the repository's name; any other
+    /// `--dir` adds the directory, so two checkouts of one repository never share (and
+    /// never reuse) one workspace: `api (x)` for `work/x`, `api (other/api)` when only
+    /// the parent differs.
+    static func vmCloneWorkspaceName(name: String, dir: String) -> String {
+        if dir == "work/\(name)" { return name }
+        let last = dir.split(separator: "/").last.map(String.init) ?? dir
+        return last.isEmpty || last == name ? "\(name) (\(dir))" : "\(name) (\(last))"
+    }
+
     /// The directory as a shell word that resolves the same way in any shell the
     /// machine starts: absolute stays absolute, relative hangs off "$HOME".
     static func vmCloneShellDirectory(_ dir: String) -> String {
@@ -411,7 +423,7 @@ extension CMUXCLI {
 
     /// The `--dry-run` machine line: the pinned machine, the routed one, or "a new 4g
     /// machine" when routing would create one. `memoryMb` is the `--size` request.
-    static func vmCloneDryRunMachineText(pinned: String?, forceNew: Bool, routed: VMRunSelection?, memoryMb: Int?) -> String {
+    static func vmCloneDryRunMachineText(pinned: String?, forceNew: Bool, routed: VMRunSelection?, routedLabel: String? = nil, memoryMb: Int?) -> String {
         if let pinned {
             return String(format: String(localized: "cli.vm.clone.plan.machinePinned", defaultValue: "%@ (pinned with --machine)"), pinned)
         }
@@ -427,7 +439,8 @@ extension CMUXCLI {
             return String(localized: "cli.vm.clone.plan.machineRouted", defaultValue: "the one this repository used last, else your only running machine, else an idle pool machine, else a new one")
         }
         if routed.wouldProvision { return newMachine }
-        return "\(routed.id) (\(routed.reason))"
+        // The label people know the machine by (`vm ls`); the JSON plan keeps the id.
+        return "\(routedLabel ?? routed.id) (\(routed.reason))"
     }
 
     /// What `.` leaves behind, from this folder's git state: uncommitted changes and
@@ -623,6 +636,9 @@ extension CMUXCLI {
         let label: String?
         /// The machine's status in the `vm.list` the choice was read from, when known.
         var status: String? = nil
+        /// The label when it names only this machine (``vmCloneAddressLabel``), so the
+        /// `cmux vm open <label>/<ws>` lines can use it instead of the id.
+        var addressLabel: String? = nil
 
         var id: String { run.id }
         var created: Bool { run.created }
@@ -666,6 +682,16 @@ extension CMUXCLI {
             .first { !$0.isEmpty && $0 != id }
     }
 
+    /// The machine's label when it is a usable address: it resolves back to exactly this
+    /// machine (no other machine's id or label is spelled that way) and contains nothing
+    /// an `<m>/<ws>/<term>` address splits on. Nil otherwise, and the id is used.
+    static func vmCloneAddressLabel(_ id: String, vms: [[String: Any]]) -> String? {
+        guard let label = vmCloneMachineLabel(id, vms: vms),
+              !label.contains(where: { $0 == "/" || $0 == ":" || $0.isWhitespace }),
+              VMMachineSelectorResolver().resolve(label, vms: vms) == .label(id: id) else { return nil }
+        return label
+    }
+
     /// The status `vm ls` shows for a machine, when the list carries it.
     static func vmCloneMachineStatus(_ id: String, vms: [[String: Any]]) -> String? {
         (vms.first { ($0["id"] as? String) == id }?["status"] as? String).flatMap { $0.isEmpty ? nil : $0.lowercased() }
@@ -677,6 +703,7 @@ extension CMUXCLI {
     func selectVMForClone(
         machineOverride: String?,
         pinnedLabel: String? = nil,
+        pinnedAddressLabel: String? = nil,
         forceNew: Bool,
         memoryMb: Int?,
         routingDirectory: String,
@@ -696,7 +723,8 @@ extension CMUXCLI {
                 run: run,
                 pick: pick,
                 label: pinnedLabel ?? Self.vmCloneMachineLabel(run.id, vms: vms),
-                status: run.created ? nil : Self.vmCloneMachineStatus(run.id, vms: vms)
+                status: run.created ? nil : Self.vmCloneMachineStatus(run.id, vms: vms),
+                addressLabel: pinnedAddressLabel ?? Self.vmCloneAddressLabel(run.id, vms: vms)
             )
         }
         if machineOverride != nil || forceNew { return try routed(.explicit, vms: []) }
@@ -714,19 +742,25 @@ extension CMUXCLI {
             run: VMRunSelection(id: choice.id, created: false, reason: reason),
             pick: choice.pick,
             label: Self.vmCloneMachineLabel(choice.id, vms: vms),
-            status: Self.vmCloneMachineStatus(choice.id, vms: vms)
+            status: Self.vmCloneMachineStatus(choice.id, vms: vms),
+            addressLabel: Self.vmCloneAddressLabel(choice.id, vms: vms)
         )
     }
 
     /// `--machine <id|label>` → the machine id and its label, through the resolver every
     /// `cmux vm` verb uses. An unknown machine is an error before anything runs; an app
     /// that cannot list machines gets the argument as typed (it then names the failure).
-    func resolveVMCloneMachine(_ selector: String, client: SocketClient) throws -> (id: String, label: String?, status: String?) {
+    func resolveVMCloneMachine(_ selector: String, client: SocketClient) throws -> (id: String, label: String?, status: String?, addressLabel: String?) {
         guard let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
-              let vms = listed["vms"] as? [[String: Any]] else { return (selector, nil, nil) }
+              let vms = listed["vms"] as? [[String: Any]] else { return (selector, nil, nil, nil) }
         switch VMMachineSelectorResolver().resolve(selector, vms: vms) {
         case .id(let id), .label(id: let id):
-            return (id, Self.vmCloneMachineLabel(id, vms: vms), Self.vmCloneMachineStatus(id, vms: vms))
+            return (
+                id,
+                Self.vmCloneMachineLabel(id, vms: vms),
+                Self.vmCloneMachineStatus(id, vms: vms),
+                Self.vmCloneAddressLabel(id, vms: vms)
+            )
         case .ambiguous(let matches):
             let list = matches.map { "  \($0.id)  \($0.label)" }.joined(separator: "\n")
             throw CLIError(message: String(
@@ -940,11 +974,13 @@ extension CMUXCLI {
         // requests to the machine, so the lazy retry every other verb uses would repeat them.
         var pinnedLabel: String?
         var pinnedStatus: String?
+        var pinnedAddressLabel: String?
         if let typed = machineOverride {
             let resolved = try resolveVMCloneMachine(typed, client: client)
             machineOverride = resolved.id
             pinnedLabel = resolved.label
             pinnedStatus = resolved.status
+            pinnedAddressLabel = resolved.addressLabel
         }
         if let agent, !Self.vmAgentNames.contains(agent) {
             throw CLIError(message: "vm clone: --agent must be one of \(Self.vmAgentNames.joined(separator: ", "))\n\n\(Self.vmCloneUsage)")
@@ -991,7 +1027,7 @@ extension CMUXCLI {
             routingDirectory = Self.vmCloneRoutingDirectory(projectKey: spec.projectKey)
         }
         let remoteDir = try Self.vmCloneRemoteDirectory(name: spec.name, dirOption: dirOption)
-        let workspaceName = spec.name
+        let workspaceName = Self.vmCloneWorkspaceName(name: spec.name, dir: remoteDir)
         let open = !noOpen
         let focusValue = focus ?? Self.defaultFocusForUserOpen()
         // The repository's warm start replaces only a new machine: a pinned machine,
@@ -1029,7 +1065,13 @@ extension CMUXCLI {
                     client: client
                 )
             }
-            let machineText = Self.vmCloneDryRunMachineText(pinned: machineOverride, forceNew: forceNew, routed: routed?.run, memoryMb: memoryMb)
+            let machineText = Self.vmCloneDryRunMachineText(
+                pinned: pinnedLabel ?? machineOverride,
+                forceNew: forceNew,
+                routed: routed?.run,
+                routedLabel: routed?.label,
+                memoryMb: memoryMb
+            )
             // Unknown routing (no app to ask) still names the warm start a new machine would use.
             let plannedWarm = warmStart.flatMap { warm in
                 forceNew || routed == nil || routed?.wouldProvision == true ? warm : nil
@@ -1041,6 +1083,7 @@ extension CMUXCLI {
                 plan["dir"] = remoteDir
                 plan["workspace_name"] = workspaceName
                 plan["machine"] = orNull(machineOverride ?? routed.flatMap { $0.wouldProvision ? nil : $0.id })
+                plan["machine_label"] = orNull(pinnedLabel ?? routed.flatMap { $0.wouldProvision ? nil : $0.label })
                 plan["machine_plan"] = machineText
                 plan["would_provision"] = forceNew || routed?.wouldProvision == true
                 plan["new"] = forceNew
@@ -1102,6 +1145,7 @@ extension CMUXCLI {
             try selectVMForClone(
                 machineOverride: machineOverride,
                 pinnedLabel: pinnedLabel,
+                pinnedAddressLabel: pinnedAddressLabel,
                 forceNew: forceNew,
                 memoryMb: memoryMb,
                 routingDirectory: routingDirectory,
@@ -1412,11 +1456,7 @@ extension CMUXCLI {
                     setupLabel,
                     setupStarted,
                     detail: outcome.failure == nil
-                        // One key with plural variations in the catalog (localization-plurals.json).
-                        ? String(
-                            format: String(localized: "cli.vm.clone.setup.doneDetail", defaultValue: "%ld steps in terminal %@"),
-                            outcome.steps.count, outcome.terminalID
-                        )
+                        ? Self.vmCloneSetupDoneDetail(steps: outcome.steps.count, terminalID: outcome.terminalID)
                         : String(format: String(localized: "cli.vm.clone.setup.failedDetail", defaultValue: "stopped in terminal %@"), outcome.terminalID)
                 )
             }
@@ -1509,7 +1549,10 @@ extension CMUXCLI {
             phase("agent", agentLabel, agentStarted, detail: "\(agent) \(agentTerminal ?? "?")")
         }
 
+        // Scripts read the id-based address from --json; people read the label `vm ls`
+        // shows, which `cmux vm open` resolves the same way (when it names one machine).
         let address = "\(machine)/\(remoteWorkspace)"
+        let displayAddress = "\(selection.addressLabel ?? machine)/\(remoteWorkspace)"
         let summary = timings
             .map { "\($0.label) \(String(format: "%.1fs", $0.seconds))" }
             .joined(separator: " \u{00B7} ")
@@ -1549,13 +1592,13 @@ extension CMUXCLI {
             if let agentSurface { payload["agent_surface_id"] = agentSurface }
             print(jsonString(payload))
             if let setupOutcome, setupFailed {
-                throw vmCloneSetupFailure(setupOutcome, machine: machine, machineName: machineName, address: address, repoArg: repoArg)
+                throw vmCloneSetupFailure(setupOutcome, machine: selection.addressLabel ?? machine, machineName: machineName, address: displayAddress, repoArg: repoArg)
             }
             return
         }
         cliWriteStderr(summary + "\n")
         if let setupOutcome, setupFailed {
-            throw vmCloneSetupFailure(setupOutcome, machine: machine, machineName: machineName, address: address, repoArg: repoArg)
+            throw vmCloneSetupFailure(setupOutcome, machine: selection.addressLabel ?? machine, machineName: machineName, address: displayAddress, repoArg: repoArg)
         }
         print(String(
             format: updated
@@ -1565,12 +1608,12 @@ extension CMUXCLI {
         ))
         print(String(
             format: String(localized: "cli.vm.clone.openAddress", defaultValue: "Open: cmux vm open %@"),
-            address
+            displayAddress
         ))
         if let agentTerminal, let agent {
             print(String(
                 format: String(localized: "cli.vm.clone.agentAddress", defaultValue: "%1$@: cmux vm open %2$@/%3$@"),
-                agent, address, agentTerminal
+                agent, displayAddress, agentTerminal
             ))
         }
     }
@@ -1714,18 +1757,41 @@ extension CMUXCLI {
         }
     }
 
-    /// Lists the setup commands on stderr and asks once; only `y` or `yes` runs them.
-    static func vmCloneConfirmSetup(commands: [String], repository: String, machineName: String) -> Bool {
+    /// The setup phase's detail line. English picks the form here (the CLI formats
+    /// with `String(format:)`, which never consults a catalog plural); other languages
+    /// carry plural variations on the count (scripts/localization-plurals.json).
+    static func vmCloneSetupDoneDetail(steps: Int, terminalID: String) -> String {
+        let format = steps == 1
+            ? String(localized: "cli.vm.clone.setup.doneDetail.one", defaultValue: "%ld step in terminal %@")
+            : String(localized: "cli.vm.clone.setup.doneDetail", defaultValue: "%ld steps in terminal %@")
+        return String(format: format, steps, terminalID)
+    }
+
+    /// The setup prompt: a lead-in naming where the commands come from, the numbered
+    /// commands, and the question, singular or plural by the count (as above).
+    static func vmCloneSetupConfirmText(commands: [String], repository: String, machineName: String) -> String {
+        var text = String(
+            format: String(localized: "cli.vm.clone.setup.confirmLeadIn", defaultValue: "Setup commands from %@:"),
+            repository
+        ) + "\n"
         for (index, command) in commands.enumerated() {
-            cliWriteStderr("  \(index + 1). \(Self.vmSecretsPrintable(command, limit: 200))\n")
+            text += "  \(index + 1). \(Self.vmSecretsPrintable(command, limit: 200))\n"
         }
-        cliWriteStderr(String(
-            format: String(
+        let format = commands.count == 1
+            ? String(
+                localized: "cli.vm.clone.setup.confirm.one",
+                defaultValue: "Run %1$ld setup command from %2$@ on %3$@? It runs with your Cloud Secrets. [y/N] "
+            )
+            : String(
                 localized: "cli.vm.clone.setup.confirm",
                 defaultValue: "Run these %1$ld setup commands from %2$@ on %3$@? They run with your Cloud Secrets. [y/N] "
-            ),
-            commands.count, repository, machineName
-        ))
+            )
+        return text + String(format: format, commands.count, repository, machineName)
+    }
+
+    /// Lists the setup commands on stderr and asks once; only `y` or `yes` runs them.
+    static func vmCloneConfirmSetup(commands: [String], repository: String, machineName: String) -> Bool {
+        cliWriteStderr(vmCloneSetupConfirmText(commands: commands, repository: repository, machineName: machineName))
         guard let answer = readLine(strippingNewline: true)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() else { return false }

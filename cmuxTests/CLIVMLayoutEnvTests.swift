@@ -355,6 +355,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(log.methods, ["vm.list", "vm.env_set"], log.methods.description)
         XCTAssertEqual(vmEnvSetEntryLines(log), ["FROM_STDIN=1", "SECOND=2"])
         XCTAssertFalse(result.stderr.contains("is the label of"), result.stderr)
+        // The summary names the machine the way it was typed, never the id behind it.
+        XCTAssertTrue(result.stdout.contains("OK set 2 variables on proud-white-sloth: FROM_STDIN, SECOND"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("vm-f944"), result.stdout)
     }
 
     func testVMEnvSetRejectsInvalidKeysWithoutTouchingTheSocket() throws {
@@ -1010,6 +1013,55 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, "\(arguments) timed out: \(result.stderr)")
         return (result, log)
+    }
+
+    // MARK: - vm tree
+
+    func testVMTreeResolvesAMachineLabelAndNamesAnUnknownOne() throws {
+        let vms: [[String: Any]] = [["id": "vm-f944", "displayName": "proud-white-sloth", "status": "running"]]
+        // The catalog filters by id: a label reaches it as the machine's id.
+        let (labeled, labeledLog) = try runVMCommandAgainstMock(
+            "vm-tree-label",
+            arguments: ["vm", "tree", "proud-white-sloth"]
+        ) { method, params in
+            switch method {
+            case "vm.list": return ["vms": vms]
+            case "surface.catalog":
+                guard params["machine"] as? String == "vm-f944" else { return ["machines": [], "resources": []] }
+                return ["machines": [["id": "vm-f944", "name": "proud-white-sloth"]], "resources": []]
+            default: return nil
+            }
+        }
+        XCTAssertEqual(labeled.status, 0, "stdout=\(labeled.stdout) stderr=\(labeled.stderr)")
+        XCTAssertEqual(labeledLog.methods, ["vm.list", "surface.catalog"], labeledLog.methods.description)
+        XCTAssertEqual(labeledLog.params(ofFirst: "surface.catalog")?["machine"] as? String, "vm-f944")
+        XCTAssertFalse(labeled.stdout.contains("No cloud machines"), labeled.stdout)
+
+        // A name nothing knows is said to be unknown, not "no cloud machines".
+        let (unknown, unknownLog) = try runVMCommandAgainstMock(
+            "vm-tree-unknown",
+            arguments: ["vm", "tree", "ghost"]
+        ) { method, _ in
+            switch method {
+            case "vm.list": return ["vms": vms]
+            case "surface.catalog": return ["machines": [], "resources": []]
+            default: return nil
+            }
+        }
+        XCTAssertNotEqual(unknown.status, 0, unknown.stdout)
+        XCTAssertEqual(unknownLog.params(ofFirst: "surface.catalog")?["machine"] as? String, "ghost")
+        XCTAssertTrue(unknown.stderr.contains("No machine named ghost. Run `cmux vm ls`."), unknown.stderr)
+        XCTAssertFalse(unknown.stdout.contains("No cloud machines"), unknown.stdout)
+
+        // Without a machine, an empty catalog still teaches `vm new`.
+        let (empty, _) = try runVMCommandAgainstMock(
+            "vm-tree-empty",
+            arguments: ["vm", "tree"]
+        ) { method, _ in
+            method == "surface.catalog" ? ["machines": [], "resources": []] : nil
+        }
+        XCTAssertEqual(empty.status, 0, "stdout=\(empty.stdout) stderr=\(empty.stderr)")
+        XCTAssertTrue(empty.stdout.contains("No cloud machines. Try: cmux vm new"), empty.stdout)
     }
 
     func testVMExecTimeoutFlagBecomesTimeoutMsAndStaysOutOfTheCommand() throws {

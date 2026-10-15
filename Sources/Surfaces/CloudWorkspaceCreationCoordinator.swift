@@ -147,30 +147,13 @@ final class CloudWorkspaceCreationCoordinator {
                       && (placement.remoteWorkspaceID == nil || placement.remoteWorkspaceID == workspace.id)
         }) else { throw CancellationError() }
         try validateOperation()
-        if let local = host.manager?.tabs.first(where: { candidate in
-            candidate.cloudVMBinding?.vmID == provider.machine.rawValue
-                && candidate.cloudVMBinding?.remoteWorkspaceID == workspace.id
-        }) {
-            let projections = catalog.projections.filter { $0.workspaceID == local.id }
-            if !projections.isEmpty {
-                if focus, let manager = host.manager {
-                    manager.selectWorkspace(local)
-                }
-                return (local.id, Array(projections))
-            }
-        }
-        if let existing = catalog.cloudWorkspaceProjectionCoordinator.environment.bindings().first(where: { localID, binding in
-            binding.vmID == provider.machine.rawValue
-                && binding.remoteWorkspaceID == workspace.id
-                && Workspace.liveWorkspace(id: localID)?.owningTabManager === host.manager
-        }) {
-            let projections = catalog.projections.filter { $0.workspaceID == existing.key }
-            if !projections.isEmpty {
-                if focus, let local = Workspace.liveWorkspace(id: existing.key), let manager = host.manager {
-                    manager.selectWorkspace(local)
-                }
-                return (existing.key, Array(projections))
-            }
+        if let open = alreadyOpenLocalWorkspace(
+            machine: provider.machine,
+            remoteWorkspaceID: workspace.id,
+            scope: .window(host.manager),
+            focus: focus
+        ) {
+            return open
         }
         if let pending = operations.values.first(where: {
             $0.isExistingWorkspaceOpen && $0.provider === provider
@@ -203,6 +186,59 @@ final class CloudWorkspaceCreationCoordinator {
     /// The pending local identity is the row's projection fence. Callers use
     /// it to make a repeated activation a navigation, even before the next
     /// catalog notification repaints the tree.
+    /// Where to look for a local workspace already showing a machine workspace: the
+    /// tabs of one window (the sidebar row opens in the window it was clicked in), or
+    /// every window (the CLI and socket, which have no window of their own).
+    enum AlreadyOpenScope {
+        case window(TabManager?)
+        case anyWindow
+    }
+
+    /// The local workspace already showing `remoteWorkspaceID` on `machine`, with its
+    /// projections, selected in its window when `focus` is set; nil when no live local
+    /// workspace shows any of it. Every way of opening an existing machine workspace (the
+    /// sidebar row, `vm.workspace_open`, `vm.workspace_new` with `reuse`, so `cmux vm
+    /// open`, `vm dev` and `vm clone`) asks this first, so opening one twice comes back
+    /// to the first copy instead of adding another local workspace beside it.
+    func alreadyOpenLocalWorkspace(
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String,
+        scope: AlreadyOpenScope,
+        focus: Bool
+    ) -> (workspaceID: UUID, projections: [SurfaceProjection])? {
+        guard let catalog else { return nil }
+        func shown(_ localID: UUID) -> [SurfaceProjection]? {
+            let projections = catalog.projections.filter { $0.workspaceID == localID }
+            return projections.isEmpty ? nil : Array(projections)
+        }
+        func inScope(_ workspace: Workspace) -> Bool {
+            switch scope {
+            case .window(let manager): return workspace.owningTabManager === manager
+            case .anyWindow: return workspace.owningTabManager != nil
+            }
+        }
+        if case .window(let manager) = scope,
+           let local = manager?.tabs.first(where: { candidate in
+               candidate.cloudVMBinding?.vmID == machine.rawValue
+                   && candidate.cloudVMBinding?.remoteWorkspaceID == remoteWorkspaceID
+           }),
+           let projections = shown(local.id) {
+            if focus { manager?.selectWorkspace(local) }
+            return (local.id, projections)
+        }
+        let candidates = catalog.cloudWorkspaceProjectionCoordinator.environment.bindings()
+            .filter { _, binding in binding.vmID == machine.rawValue && binding.remoteWorkspaceID == remoteWorkspaceID }
+            .keys
+            .sorted { $0.uuidString < $1.uuidString }
+        for localID in candidates {
+            guard let local = Workspace.liveWorkspace(id: localID), inScope(local),
+                  let projections = shown(localID) else { continue }
+            if focus { local.owningTabManager?.selectWorkspace(local) }
+            return (localID, projections)
+        }
+        return nil
+    }
+
     func pendingLocalWorkspaceID(
         machine: SurfaceMachineID,
         remoteWorkspaceID: String,

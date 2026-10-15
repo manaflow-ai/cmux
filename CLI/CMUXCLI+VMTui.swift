@@ -1458,7 +1458,19 @@ extension CMUXCLI {
             throw CLIError(message: Self.vmTreeUsage)
         }
         var params: [String: Any] = [:]
-        if let machine = positional.first { params["machine"] = machine }
+        if let typed = positional.first {
+            // The catalog filters by id and answers an unknown one with no machines, so a
+            // label is resolved first, through the same resolver every `cmux vm` verb uses
+            // (an ambiguous label is an error there). A name `vm ls` does not know (another
+            // Mac, say) is sent as typed.
+            var machine = typed
+            if let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
+               let vms = listed["vms"] as? [[String: Any]],
+               let resolved = try vmMachineLabelResolvedArguments(verb: "tree", arguments: [typed], vms: vms)?.first {
+                machine = resolved
+            }
+            params["machine"] = machine
+        }
         if refresh { params["refresh"] = true }
         let response = try client.sendV2(method: "surface.catalog", params: params, responseTimeout: 180)
         if jsonOutput {
@@ -1468,6 +1480,9 @@ extension CMUXCLI {
         let machines = (response["machines"] as? [[String: Any]]) ?? []
         let resources = (response["resources"] as? [[String: Any]]) ?? []
         guard !machines.isEmpty else {
+            if let typed = positional.first {
+                throw CLIError(message: Self.vmTreeUnknownMachineMessage(typed))
+            }
             print(String(localized: "cli.vm.tree.empty", defaultValue: "No cloud machines. Try: cmux vm new"))
             return
         }
@@ -1492,6 +1507,14 @@ extension CMUXCLI {
                 print(line)
             }
         }
+    }
+
+    /// `vm tree <machine>` for a machine that neither `vm ls` nor the catalog knows.
+    static func vmTreeUnknownMachineMessage(_ typed: String) -> String {
+        String(
+            format: String(localized: "cli.vm.tree.unknownMachine", defaultValue: "No machine named %@. Run `cmux vm ls`."),
+            typed
+        )
     }
 
     /// Renders one machine and its resources using the shared catalog formatter.

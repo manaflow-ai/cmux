@@ -352,7 +352,8 @@ extension CMUXCLI {
             let format = keys.count == 1
                 ? String(localized: "cli.vm.env.set.one", defaultValue: "OK set %1$ld variable on %2$@: %3$@")
                 : String(localized: "cli.vm.env.set.many", defaultValue: "OK set %1$ld variables on %2$@: %3$@")
-            print(String(format: format, keys.count, machine, keys.joined(separator: ", ")))
+            // The machine as the person typed it (a resolved label), not the id behind it.
+            print(String(format: format, keys.count, Self.vmMachineDisplayName(machine), keys.joined(separator: ", ")))
 
         case "ls", "list":
             let show = hasFlag(tail, name: "--show")
@@ -401,7 +402,7 @@ extension CMUXCLI {
                 let format = keys.count == 1
                     ? String(localized: "cli.vm.env.remove.one", defaultValue: "OK removed %1$ld variable on %2$@: %3$@")
                     : String(localized: "cli.vm.env.remove.many", defaultValue: "OK removed %1$ld variables on %2$@: %3$@")
-                print(String(format: format, keys.count, machine, keys.joined(separator: ", ")))
+                print(String(format: format, keys.count, Self.vmMachineDisplayName(machine), keys.joined(separator: ", ")))
             } else {
                 Self.printVerbatim(result.stdout)
             }
