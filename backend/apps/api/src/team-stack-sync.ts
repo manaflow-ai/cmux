@@ -266,7 +266,8 @@ export class StackTeamSync {
     } else {
       const r = await stack.getTeamMember(ev.stack_team, ev.stack_user)
       if (r === "team_gone") return missing()
-      if (fresh && r?.anonymous === true) return "anonymous_team_ignored"
+      // Only the named member was read: the team itself is mirrored by its team event if it has a signed-in member.
+      if (fresh && r?.anonymous === true) return "member_anonymous"
       member = r
     }
     const mirrored = commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, display_name: displayName(team.display_name, "Team") })

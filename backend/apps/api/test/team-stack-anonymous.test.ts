@@ -22,7 +22,7 @@ describe("Stack anonymous users are not mirrored", { timeout: 60_000 }, () => {
     expect(created.status).toBe(200)
     expect(created.body).toMatchObject({ ok: true, outcome: "anonymous_team_ignored" })
     const joined = await deliver("team_membership.created", { team_id: stackTeam, user_id: visitor })
-    expect(joined.body).toMatchObject({ ok: true, outcome: "anonymous_team_ignored" })
+    expect(joined.body).toMatchObject({ ok: true, outcome: "member_anonymous" })
     expect((await teamState(teamIdOf(stackTeam))).team).toBeNull()
     expect(await memberRow(teamIdOf(stackTeam), userIdFor(PROJECT, visitor))).toBeNull()
   })
