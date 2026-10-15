@@ -43,7 +43,7 @@ import Testing
     /// A child started with `--type=renderer` in its argv and killed with
     /// SIGKILL is reported as a killed renderer; one that exits 0 is not
     /// reported as abnormal.
-    @Test func reportsHelperExitWithWaitStatus() async throws {
+    @Test(.timeLimit(.minutes(1))) func reportsHelperExitWithWaitStatus() async throws {
         let exits = AsyncStream<ChromiumChildProcessMonitor.Exit>.makeStream()
         let watched = AsyncStream<Int32>.makeStream()
         let monitor = ChromiumChildProcessMonitor(
@@ -73,6 +73,9 @@ import Testing
         #expect(reported?.identity.processType == "renderer")
         #expect(reported?.abnormalKind == .killed)
         child.waitUntilExit()
+        monitor.stop()
+        exits.continuation.finish()
+        watched.continuation.finish()
         withExtendedLifetime((monitor, input)) {}
     }
 }

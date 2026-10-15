@@ -36,8 +36,11 @@ extension String {
     /// True for URL text a Chromium pane hands to another app instead of
     /// loading (see above).
     public var isChromiumExternalAppURL: Bool {
-        guard let colon = firstIndex(of: ":"), colon != startIndex else { return false }
-        let scheme = self[..<colon].lowercased()
+        // Bytes, as the C++ copy reads them: a grapheme search would miss a
+        // `:` followed by a combining mark.
+        let bytes = Array(utf8)
+        guard let colon = bytes.firstIndex(of: 0x3A), colon != 0 else { return false }
+        let scheme = String(decoding: bytes[..<colon].map { (0x41...0x5A).contains($0) ? $0 + 0x20 : $0 }, as: UTF8.self)
         if Self.chromiumLoadedSchemes.contains(scheme) { return false }
         return !scheme.hasPrefix("web+") && !scheme.hasPrefix("ext+")
     }
