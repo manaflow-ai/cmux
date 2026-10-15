@@ -102,6 +102,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
     var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
+    /// Live mode: the Mac's screen as text for a tab's grid card (D5).
+    var screenTextProvider: (@MainActor (WorkspaceTab) async -> String?)?
+    /// When each card's screen text was last asked for.
+    private var screenTextFetched: [String: Date] = [:]
     /// Live mode: Files and Links previews from the Mac.
     var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
@@ -253,8 +257,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
-        let slot = slot(for: tab.id, host: host(for: tab, in: workspace))
+        let host = host(for: tab, in: workspace)
+        let slot = slot(for: tab.id, host: host)
+        refreshScreenText(for: tab, model: host.model)
         return AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+    }
+
+    /// A tab not opened in this launch shows the Mac's screen in its card
+    /// (D5): asked for when the card is built, at most every 3 s per tab.
+    private func refreshScreenText(for tab: WorkspaceTab, model: TerminalModel) {
+        guard let provider = screenTextProvider, !model.pageStarted else { return }
+        let now = Date()
+        if let last = screenTextFetched[tab.id], now.timeIntervalSince(last) < 3 { return }
+        screenTextFetched[tab.id] = now
+        Task { @MainActor [weak model] in
+            guard let text = await provider(tab), let model, !model.pageStarted else { return }
+            if model.cardScreenText != text { model.cardScreenText = text }
+        }
     }
 
     func overviewWillAppear(active tab: WorkspaceTab) {

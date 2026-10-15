@@ -341,3 +341,16 @@ final class ChannelLog: @unchecked Sendable {
     func append(_ channel: any LinkChannel) { lock.withLock { channels.append(channel) } }
     var last: (any LinkChannel)? { lock.withLock { channels.last } }
 }
+
+/// Verifier round 3: every reattach logged `attach surface 14: unknown surface
+/// 14` and retried it six times: the session of a tab closed earlier (its
+/// host kept for the card) was attached again on every new link.
+@Suite struct ReattachSurfacesTests {
+    @Test func aClosedTabsSurfaceIsNotAttachedAgain() {
+        #expect(DaemonTerminalSession.surfacesToReattach([14, 16, 17], tree: [16, 17]) == [16, 17])
+    }
+
+    @Test func beforeTheTreeIsKnownEverySessionReattaches() {
+        #expect(DaemonTerminalSession.surfacesToReattach([14, 16], tree: nil) == [14, 16])
+    }
+}

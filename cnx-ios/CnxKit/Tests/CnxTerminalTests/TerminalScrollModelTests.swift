@@ -75,3 +75,35 @@ import Testing
         #expect(model.isInteracting)
     }
 }
+
+/// User report 2026-10-14 (real iPhone): "Jump to bottom only works when
+/// scroll acceleration is 0". A tap mid-fling or mid-drag follows, and the
+/// end of that gesture (UIKit's deceleration ending, the finger lifting)
+/// does not take the page back to reading where it stopped.
+@Suite struct TerminalJumpToBottomTests {
+    let cell: CGFloat = 16
+
+    @Test(arguments: [0.1, 0.3, 0.6])
+    func jumpToBottomMidFlingStaysFollowing(fractionOfHistory: Double) {
+        var model = TerminalScrollModel()
+        let layout = TerminalDocumentLayout(originRow: 0, endRow: 2000)
+        let bottom = TerminalDocumentLayout.bottomOffset(contentHeight: layout.contentHeight(cellHeight: cell), viewportHeight: 874,
+                                                         topInset: 62, bottomInset: 140)
+        model.began()  // the fling's drag
+        model.jumpToBottom()  // the tap while it decelerates
+        #expect(model.isFollowing)
+        // The deceleration it interrupted ends somewhere in the history.
+        model.settled(offsetY: bottom * fractionOfHistory, bottomOffsetY: bottom, layout: layout, rowHeight: cell)
+        #expect(model.isFollowing)
+        #expect(model.target(layout: layout, rowHeight: cell, topInset: 62, bottomOffsetY: bottom) == bottom)
+    }
+
+    @Test func aDragThatBeginsAfterTheJumpStillReads() {
+        var model = TerminalScrollModel()
+        let layout = TerminalDocumentLayout(originRow: 0, endRow: 2000)
+        model.jumpToBottom()
+        model.began()
+        model.settled(offsetY: 500 * cell, bottomOffsetY: 1900 * cell, layout: layout, rowHeight: cell)
+        #expect(model.state == .reading(.init(row: 500, delta: 0)))
+    }
+}
