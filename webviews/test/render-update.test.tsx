@@ -93,9 +93,10 @@ async function draw(rows: AcpmuxRow[], open?: (artifact: unknown) => void) {
     root!.render(
       <ArtifactContext.Provider value={open}>
         <RenderPages.Provider value={renderPages(rows)}>
-          {rows.map((row) => (
-            <RenderToolCard key={row.id} tool={row.items![0]!.tool!} />
-          ))}
+          {rows.flatMap((row) => {
+            const tool = row.items?.[0]?.tool;
+            return tool ? [<RenderToolCard key={row.id} tool={tool} />] : [];
+          })}
         </RenderPages.Provider>
       </ArtifactContext.Provider>,
     ),
