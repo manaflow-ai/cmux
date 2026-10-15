@@ -418,6 +418,9 @@ app = subprocess.Popen([os.path.join(APP, "Contents/MacOS/cmux DEV")], env=env, 
 try:
     until(lambda: os.path.exists(SOCK) and (res(rpc("debug.windows")) or {}).get("windows"), 240)
     R["home_show"] = rpc("action.run", {"id": "home.show", "focus": True, "wait": True}, 30)
+    # The Home dock opens the native Messages view by default (a23b52396134): the Channels page is one switch away.
+    R["home_channels"] = rpc("action.run", {"id": "home.switchView", "focus": True, "wait": True,
+                                            "arguments": {"view": "channels"}}, 30)
 
     # 1. The app restarted the keyless owner once, with its key.
     def owner():
