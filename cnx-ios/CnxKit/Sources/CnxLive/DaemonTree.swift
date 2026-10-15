@@ -21,7 +21,14 @@ public struct DaemonTree: Sendable {
     /// The pane a new tab of each workspace goes to: its active screen's
     /// active pane, else its first pane.
     public var panes: [String: Int] = [:]
+    /// Each tab's pane and position in it (`move-tab`, a duplicate next to it).
+    public var tabPlaces: [String: TabPlace] = [:]
     public var revision: Int?
+
+    public struct TabPlace: Hashable, Sendable {
+        public var pane: Int
+        public var index: Int
+    }
     /// Each tab's retained notification marker (`Tab.notification`), by daemon surface.
     public var notificationMarkers: [Int: NotificationMarker] = [:]
 
@@ -54,6 +61,7 @@ public struct DaemonTree: Sendable {
         var surfaces: [String: Int] = [:]
         var directories: [String: String] = [:]
         var panes: [String: Int] = [:]
+        var places: [String: TabPlace] = [:]
         var markers: [Int: NotificationMarker] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
@@ -79,6 +87,7 @@ public struct DaemonTree: Sendable {
                         }
                         let id = Self.tabID(surface: surface)
                         surfaces[id] = surface
+                        if let paneID = pane["id"] as? Int { places[id] = TabPlace(pane: paneID, index: index) }
                         if let marker = tab["notification"] as? [String: Any], let notification = marker["notification"] as? Int {
                             markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
                         }
@@ -128,6 +137,7 @@ public struct DaemonTree: Sendable {
         self.surfaces = surfaces
         self.directories = directories
         self.panes = panes
+        self.tabPlaces = places
         notificationMarkers = markers
     }
 

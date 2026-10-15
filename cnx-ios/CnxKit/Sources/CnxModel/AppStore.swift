@@ -313,6 +313,28 @@ public final class AppStore {
         workspaces[index].lastActivityAt = Date()
     }
 
+    /// Renames a tab in place; returns the old title (for a rollback).
+    @discardableResult
+    public func renameTab(_ tabID: String, in workspaceID: String, to title: String) -> String? {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              let position = workspaces[index].tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let old = workspaces[index].tabs[position].title
+        workspaces[index].tabs[position].title = title
+        return old
+    }
+
+    /// Moves a tab to `position` in its workspace; returns where it was (for a rollback).
+    @discardableResult
+    public func moveTab(_ tabID: String, in workspaceID: String, to position: Int) -> Int? {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              let from = workspaces[index].tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let tab = workspaces[index].tabs.remove(at: from)
+        workspaces[index].tabs.insert(tab, at: max(0, min(position, workspaces[index].tabs.count)))
+        return from
+    }
+
     /// Puts back a tab whose close the Mac refused, at its old position.
     public func insertTab(_ tab: WorkspaceTab, at position: Int, in workspaceID: String) {
         let workspaceID = resolvedWorkspaceID(workspaceID)

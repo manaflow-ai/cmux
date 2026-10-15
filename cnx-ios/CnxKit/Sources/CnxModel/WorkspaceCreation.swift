@@ -107,6 +107,15 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab
     /// Closes a tab on the Mac.
     func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// Whether tabs can be renamed, duplicated and moved on `macID` now.
+    func canEditTabs(on macID: String) -> Bool
+    /// Renames a tab on the Mac (empty: the Mac's own label again).
+    func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws
+    /// Opens a copy of a tab next to it on the Mac (a terminal in its pane's folder,
+    /// the same page in a browser tab) and returns it once the Mac lists it.
+    func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Moves a tab to the place of `target` (its pane and position there).
+    func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws
 }
 
 extension WorkspaceCreationBackend {
@@ -126,6 +135,16 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func canEditTabs(on macID: String) -> Bool { false }
+    public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
 }
@@ -461,6 +480,22 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     }
 
     public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+    }
+
+    public func canEditTabs(on macID: String) -> Bool { true }
+
+    public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
+        try await settle()
+    }
+
+    public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: tab.kind, title: tab.title,
+                     subtitle: tab.subtitle, harness: tab.harness, url: tab.url)
+    }
+
+    public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         try await settle()
     }
 

@@ -11,6 +11,10 @@ public struct TabNotice: Equatable, Sendable {
         case open(optionTitle: String)
         /// Closing the tab named `title`.
         case close(title: String)
+        /// Renaming the tab named `title`.
+        case rename(title: String)
+        /// Moving the tab named `title`.
+        case move(title: String)
     }
 
     /// The one line the toast shows.
@@ -64,11 +68,16 @@ public struct TabNotice: Equatable, Sendable {
             case .notAllowed: return "\(macName) didn't allow \(thing) from your iPhone."
             case .other: return "Couldn't open \(thing) on \(macName)."
             }
-        case .close(let title):
+        case .close(let title), .rename(let title), .move(let title):
+            let verb = switch action {
+            case .rename: "rename"
+            case .move: "move"
+            default: "close"
+            }
             switch cause {
             case .offline: return "Connect to \(macName) first."
             case .gone: return "This workspace is no longer on \(macName)."
-            default: return "Couldn't close \(title)."
+            default: return "Couldn't \(verb) \(title)."
             }
         }
     }

@@ -37,6 +37,8 @@ public struct WorkspaceScreen: View {
     @State private var holder = SourceHolder()
     private let makeSource: @MainActor () -> WorkspaceTabsSource
     @State private var showsGrid: Bool
+    @State private var renameText = ""
+    @State private var renameID: String?
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
@@ -89,6 +91,22 @@ public struct WorkspaceScreen: View {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
                              start: { [source] start in source.startAgentChat(start) })
                     .presentationDetents([.medium, .large])
+            }
+            // Rename Tab… (page and card menus), as the Mac's.
+            .onChange(of: source.renamingTab?.id) { _, id in
+                guard let id else { return }
+                renameID = id
+                renameText = source.renamingTab?.title ?? ""
+            }
+            .alert("Rename Tab", isPresented: Binding(
+                get: { source.renamingTab != nil },
+                set: { shown in if !shown { source.renamingTab = nil } }
+            )) {
+                TextField("Name", text: $renameText)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") {
+                    if let id = renameID { Task { await source.rename(id, to: renameText) } }
+                }
             }
             // Closing a tab with a running program asks first (Codex QA F9).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(

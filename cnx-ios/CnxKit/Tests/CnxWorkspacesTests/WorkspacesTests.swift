@@ -93,7 +93,7 @@ import SwiftUI
         #expect(WorkspaceTabsSource.kind(of: source.newTabOptions[0]) == .agentChat)
     }
 
-    @Test func newAgentChatWithOpensTheChooser() async {
+    @Test func newAgentChatWithOpensTheChooser() async throws {
         let (_, source) = make()
         let count = source.tabs.count
         _ = await source.createTab(try #require(source.newTabOptions.first { $0.title == "New Agent Chat With…" }))
@@ -115,7 +115,7 @@ import SwiftUI
 
     /// User report 2026-10-14: no browser tabs from the phone, with no word why (an older
     /// Mac that does not stream them). The entry stays, and a tap says why.
-    @Test func aKindTheMacCantOpenStaysWithItsReason() async {
+    @Test func aKindTheMacCantOpenStaysWithItsReason() async throws {
         let older = MockWorkspaceCreationBackend(latency: .zero)
         older.kinds = [.agentChat, .terminal]
         older.unavailable = [(.browser, "Update cmux on your Mac to open browser tabs from your phone.")]
@@ -132,6 +132,41 @@ import SwiftUI
         older.kinds = [.terminal]
         older.unavailable = [(.agentChat, "Agents on this Mac aren't connected yet. Try again in a moment.")]
         #expect(source.newTabOptions.map(\.title) == ["New Terminal", "New Agent Chat"])
+    }
+
+    /// Parity with the Mac's Rename Tab…, Duplicate Tab and tab drag (verify/parity-mac.md).
+    @Test func renameDuplicateAndMoveTabs() async {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let terminal = source.tabs[1]
+        #expect(source.cardMenu(for: terminal).flatMap { $0 }.map(\.title) == ["Rename Tab…", "Duplicate Tab", "Close Tab"])
+        #expect(source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Rename Tab…" })
+        #expect(!source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Duplicate Tab" })
+        source.startRename(terminal.id)
+        #expect(source.renamingTab?.id == terminal.id)
+        await source.rename(terminal.id, to: "build")
+        #expect(source.renamingTab == nil)
+        #expect(store.workspace(id: "ws-cmux")?.tabs[1].title == "build")
+        backend.failNext = "no such surface"
+        await source.rename(terminal.id, to: "other")
+        #expect(store.workspace(id: "ws-cmux")?.tabs[1].title == "build")
+        #expect(source.toastText == "Couldn't rename build.")
+
+        let count = source.tabs.count
+        await source.duplicate(terminal.id)
+        #expect(source.tabs.count == count + 1)
+        #expect(source.activeTabID == source.tabs.last?.id)
+        #expect(source.pendingTabTitle == nil)
+
+        #expect(source.supportsReordering)
+        let order = source.tabs.map(\.id)
+        source.moveTab(order[0], to: 2)
+        #expect(source.tabs.map(\.id) == [order[1], order[2], order[0]] + order.dropFirst(3))
+        backend.failNext = "pane is gone"
+        source.moveTab(order[1], to: 1)
+        for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.tabs.first?.id == order[1])
+        #expect(source.toastText?.hasPrefix("Couldn't move") == true)
     }
 
     @Test func aConfirmedNewTabOpensOnceTheMacListsIt() async {

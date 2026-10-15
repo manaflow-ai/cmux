@@ -1,5 +1,6 @@
 import CnxAgentChat
 import CnxModel
+import CnxTransport
 import Foundation
 import OSLog
 
@@ -222,6 +223,77 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         do {
             try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
+            _ = try? await sync.listNow()
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    // MARK: Tab edits
+
+    public func canEditTabs(on macID: String) -> Bool { canManage(on: macID) }
+
+    /// `rename-surface {surface, name}` (the Mac's Rename Tab…), then a fresh list.
+    public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        try await run(client, "rename-surface", ["surface": surface, "name": title])
+    }
+
+    /// The Mac's Duplicate Tab: a terminal is a new terminal in the tab's pane (the Mac
+    /// picks the folder, as for any new terminal from a phone); a browser tab is the same
+    /// web page in a new browser tab there. An agent chat has no copy from a phone.
+    public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        let (client, _) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        let reply: Data
+        do {
+            switch tab.kind {
+            case .terminal:
+                reply = try await client.request("new-tab", params: ["pane": place.pane])
+            case .browser:
+                let url = tab.url.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0.absoluteString : nil }
+                reply = try await client.request("new-browser-tab", params: ["url": url ?? "about:blank", "pane": place.pane])
+            case .agent:
+                throw WorkspaceCreationError("Duplicate an agent chat on the Mac, or use Continue in… here.", isForPerson: true)
+            }
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            let id = DaemonTree.tabID(surface: surface)
+            let tree = try await sync.listNow()
+            guard let copy = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+                throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+            }
+            return copy
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    /// `move-tab {surface, pane, index}`: to the target's pane and place.
+    public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
+        let (client, surface) = try self.target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[target.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        try await run(client, "move-tab", ["surface": surface, "pane": place.pane, "index": place.index])
+    }
+
+    private func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {
+        guard canManage(on: workspace.macID), let client = sync.daemon else {
+            throw WorkspaceCreationError("Not connected")
+        }
+        guard let surface = sync.tree?.surfaces[tab.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        return (client, surface)
+    }
+
+    private func run(_ client: DaemonClient, _ command: String, _ params: [String: Any]) async throws {
+        do {
+            try WorkspaceSync.check(await client.request(command, params: params))
             _ = try? await sync.listNow()
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)

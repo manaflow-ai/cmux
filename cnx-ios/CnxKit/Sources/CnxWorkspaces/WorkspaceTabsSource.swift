@@ -500,8 +500,97 @@ public final class WorkspaceTabsSource: TabsDataSource {
         browser(tab).navigate(to: text)
     }
 
+    // MARK: Tab edits (the Mac's Rename Tab…, Duplicate Tab, drag to reorder)
+
+    private var canEditTabs: Bool {
+        guard let workspace, let creator else { return false }
+        return creator.backend.canEditTabs(on: workspace.macID)
+    }
+
+    /// The tab whose name the person is editing (the screen shows the field).
+    public var renamingTab: WorkspaceTab?
+
+    public func startRename(_ id: TabsKitTab.ID) {
+        renamingTab = workspaceTab(id)
+    }
+
+    /// Renames at once; the old title comes back if the Mac refuses.
+    public func rename(_ id: TabsKitTab.ID, to title: String) async {
+        renamingTab = nil
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workspace, let creator, let tab = workspaceTab(id), title != tab.title,
+              let old = store.renameTab(id, in: workspaceID, to: title) else { return }
+        do {
+            try await creator.backend.renameTab(tab, in: workspace, to: title)
+        } catch {
+            store.renameTab(id, in: workspaceID, to: old)
+            show(TabNotice(action: .rename(title: old), macName: macName, reason: Self.message(error)))
+            CnxTheme.standard.haptics.error()
+        }
+    }
+
+    /// Opens a copy of the tab on the Mac and goes to it once the Mac lists it.
+    public func duplicate(_ id: TabsKitTab.ID) async {
+        guard let workspace, let creator, let tab = workspaceTab(id), pendingTabTitle == nil else { return }
+        pendingTabTitle = "Duplicate Tab"
+        defer { pendingTabTitle = nil }
+        do {
+            let copy = try await creator.backend.duplicateTab(tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == copy.id }) != true {
+                store.appendTab(copy, to: workspaceID)
+            }
+            activate(copy.id)
+            openedTab = copy.id
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            show(error.message)
+        } catch {
+            show(TabNotice(action: .open(optionTitle: "New \(tab.kind == .browser ? "Browser Tab" : "Terminal")"), macName: macName,
+                           reason: Self.message(error)))
+            CnxTheme.standard.haptics.error()
+        }
+    }
+
+    public var supportsReordering: Bool { canEditTabs }
+
+    /// Drag in the grid: here at once, then on the Mac (`move-tab` to the place of the
+    /// tab it lands on); a refusal puts it back.
+    public func moveTab(_ id: TabsKitTab.ID, to index: Int) {
+        guard let workspace, let creator, let tab = workspaceTab(id),
+              let from = workspace.tabs.firstIndex(where: { $0.id == id }), from != index,
+              workspace.tabs.indices.contains(index) else { return }
+        let target = workspace.tabs[index]
+        store.moveTab(id, in: workspaceID, to: index)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await creator.backend.moveTab(tab, to: target, in: workspace)
+            } catch {
+                self.store.moveTab(id, in: self.workspaceID, to: from)
+                self.show(TabNotice(action: .move(title: tab.title), macName: self.macName, reason: Self.message(error)))
+            }
+        }
+    }
+
+    private func editItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
+        guard canEditTabs else { return [] }
+        var items = [TabsKitMenuItem(title: "Rename Tab…", systemImage: "pencil") { [weak self] in self?.startRename(tab.id) }]
+        if tab.kind != .agent {
+            items.append(TabsKitMenuItem(title: "Duplicate Tab", systemImage: "plus.square.on.square") { [weak self] in
+                Task { await self?.duplicate(tab.id) }
+            })
+        }
+        return items
+    }
+
+    public func cardMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
+        guard let tab = workspaceTab(kit.id) else { return [] }
+        let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
+        return [editItems(tab), [close]].filter { !$0.isEmpty }
+    }
+
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
+        let edit = editItems(tab)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
@@ -523,12 +612,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     : []) + [
                     TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
                 ],
+                edit,
                 [leave],
                 [
                     TabsKitMenuItem(title: "Stop Agent", systemImage: "stop.circle", isEnabled: store.isRunning, isDestructive: true) { store.cancel() },
                     close,
                 ],
-            ]
+            ].filter { !$0.isEmpty }
         case .terminal:
             let own = terminal.actions(for: tab, in: workspace).map { action in
                 TabsKitMenuItem(title: action.title, systemImage: action.systemImage, isEnabled: action.isEnabled,
@@ -537,7 +627,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let copy = TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }
             // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [own, [copy], [close]].filter { !$0.isEmpty }
+            return [own, [copy], edit, [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -545,9 +635,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ],
+                edit,
                 [leave],
                 [close],
-            ]
+            ].filter { !$0.isEmpty }
         }
     }
 }
