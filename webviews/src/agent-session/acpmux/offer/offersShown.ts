@@ -1,20 +1,21 @@
 import { experimentArm } from "../../../experiments/experiment";
 import { sessionOffer } from "./sessionOffer.experiment";
 
-/// Labs preview features as the host last said (`applyPreview`, `labs.previewFeatures`).
-let preview = false;
+/// The Debug toggle `agent.suggestedTasks` (DEV and NIGHTLY) as the host last said
+/// (`applySuggestedTasks`).
+let toggle = false;
 
-/// Records the host's Labs preview setting; true when it changed what draws.
-export function setOffersPreview(on: boolean): boolean {
+/// Records the host's suggested tasks toggle; true when it changed what draws.
+export function setSuggestedTasks(on: boolean): boolean {
   const before = offersShown();
-  preview = on;
+  toggle = on;
   return offersShown() !== before;
 }
 
-/// Whether an agent's offers draw (cx-lo9yf): with Labs preview features on, or the
+/// Whether an agent's offers draw (cx-lo9yf): with the `agent.suggestedTasks` Debug toggle on, or the
 /// `session-offer` experiment's `on` arm. Off by default; off, offers draw nothing.
 export function offersShown(): boolean {
-  return preview || experimentArm(sessionOffer) === "on";
+  return toggle || experimentArm(sessionOffer) === "on";
 }
 
 /// The row kind of a task's result while its prompt waits in the chat's queue: its received line

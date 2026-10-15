@@ -3,7 +3,7 @@
 // it here and Start; an offer made alone is the same card with one task. A started task becomes
 // one quiet row hung off the card by an elbow, with what its chat is doing now, which opens that
 // chat. The prompt that brings a task's result back draws as one "Received message from" line.
-// Gated by Labs preview features or the session-offer experiment (offersShown.ts).
+// Gated by the `agent.suggestedTasks` Debug toggle or the session-offer experiment (offersShown.ts).
 import { useId, useState } from "react";
 import { Icon } from "../icons/Icon";
 import { useT, type Translate } from "../i18n";

@@ -2177,8 +2177,8 @@ export class AcpmuxDirectClient {
     const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
     return shown.length === this.queue.length ? this.queue : shown;
   }
-  /// Labs preview features turned on or off (`applyPreview`): offers draw or go at once.
-  offersPreviewChanged(): void {
+  /// The `agent.suggestedTasks` Debug toggle turned on or off: offers draw or go at once.
+  suggestedTasksChanged(): void {
     if (!this.selectedSessionId || this.events.length === 0) return;
     this.rebuildKeepingLiveState();
     this.emit();

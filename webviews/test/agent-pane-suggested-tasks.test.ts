@@ -12,7 +12,8 @@
 //   which ends when the chat's turn ends.
 // - The parent's prompt that carries a task's result (`_meta.provenance.kind: "offer_result"`)
 //   draws as "Received message from <title>", not as the person's bubble.
-// - Off (no Labs preview, no experiment) nothing draws; Labs preview alone draws the card.
+// - Off (no Debug toggle, no experiment) nothing draws; the `agent.suggestedTasks` Debug toggle
+//   (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -229,7 +230,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   const card = (page: Page) => page.locator(".acpmux-tasks");
 
   describe("suggested tasks", () => {
-    test("with neither Labs preview nor the experiment, the tasks draw nothing", async () => {
+    test("with neither the Debug toggle nor the experiment, the tasks draw nothing", async () => {
       const page = await openChat({ offered: group, experiment: "off" });
       await page.waitForTimeout(500);
       expect(await card(page).count()).toBe(0);
@@ -237,10 +238,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("Labs preview alone draws the card", async () => {
+    test("the Debug toggle alone draws the card; preview features do not", async () => {
       const page = await openChat({ offered: group, experiment: "off" });
-      await page.waitForFunction(() => typeof window.cmuxAcpmuxBridge?.applyPreview === "function");
+      await page.waitForFunction(() => typeof window.cmuxAcpmuxBridge?.applySuggestedTasks === "function");
       await page.evaluate(() => window.cmuxAcpmuxBridge?.applyPreview?.(true));
+      await page.waitForTimeout(500);
+      expect(await card(page).count()).toBe(0);
+      await page.evaluate(() => window.cmuxAcpmuxBridge?.applySuggestedTasks?.(true));
       await card(page).getByText(group[0]!.title).waitFor({ timeout: 10_000 });
       await page.close();
     });

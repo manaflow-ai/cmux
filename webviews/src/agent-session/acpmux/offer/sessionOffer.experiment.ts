@@ -2,7 +2,7 @@
 import { defineExperiment } from "../../../experiments/experiment";
 
 /// Session offers (cx-807da) and suggested tasks (cx-lo9yf, SuggestedTasks.tsx): off by default;
-/// Labs preview features turn them on too (offersShown.ts). Dogfood without Labs: set
+/// the `agent.suggestedTasks` Debug toggle turns them on too (offersShown.ts). Without it: set
 /// `cmux.experiments` to `{"session-offer":"on"}` in the pane's web inspector and reload.
 export const sessionOffer = defineExperiment({
   id: "session-offer",

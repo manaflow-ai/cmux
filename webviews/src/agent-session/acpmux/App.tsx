@@ -240,7 +240,7 @@ import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
-import { OFFER_RESULT, setOffersPreview } from "./offer/offersShown";
+import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
@@ -287,6 +287,9 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
+      /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
+      applySuggestedTasks?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
       /// Start Agent's floating chat (floatingState.ts, cx-b9qi).
       applyFloatingState?(state: unknown): void;
@@ -3408,8 +3411,9 @@ function AcpmuxPane() {
       },
       applyPreview(on) {
         setPreview(on === true);
-        // Offers draw with preview features on (offer/offersShown.ts).
-        if (setOffersPreview(on === true)) directClient.current?.offersPreviewChanged();
+      },
+      applySuggestedTasks(on) {
+        if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
       applyHeaderState(state) {
         setHeaderState(state);
