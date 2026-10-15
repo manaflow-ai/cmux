@@ -35,9 +35,9 @@ public final class AgentPaneLoadingView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var isFlipped: Bool { true }
+    override public var isFlipped: Bool { true }
 
-    override func layout() {
+    override public func layout() {
         super.layout()
         let side = Self.markSide
         indicator.frame = NSRect(x: ((bounds.width - side) / 2).rounded(), y: ((bounds.height - side) / 2).rounded(),
