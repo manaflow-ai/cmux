@@ -429,6 +429,15 @@ describe("agent page variants", () => {
     expect(sitemapPaths).toContain("/docs/remote-tmux");
     expect(sitemapPaths).toContain("/ja/docs/remote-tmux");
     expect(sitemapPaths).not.toContain("/de/docs/remote-tmux");
+
+    for (const path of ["/docs/cloud/secrets", "/docs/cloud/open-repo"]) {
+      expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/de${path}.md`)).toBeNull();
+      expect(sitemapPaths).toContain(path);
+      expect(sitemapPaths).toContain(`/ja${path}`);
+      expect(sitemapPaths).not.toContain(`/de${path}`);
+    }
   });
 
   test("limits English-only blog variants to their canonical routes", () => {

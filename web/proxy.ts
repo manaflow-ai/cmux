@@ -11,6 +11,8 @@ import {
   hasFallbackContent,
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
+  cloudSecretsDocsLocales,
+  cloudOpenRepoDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -419,64 +421,44 @@ function handleLegalAndDocsRoutes(
     return NextResponse.rewrite(url);
   }
 
-  const remoteTmuxMatch = pathname.match(
-    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/remote-tmux\/?$/,
-  );
-  if (
-    remoteTmuxMatch &&
-    !remoteTmuxDocsLocales.includes(
-      remoteTmuxMatch[1] as (typeof remoteTmuxDocsLocales)[number],
-    )
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/docs/remote-tmux";
-    return NextResponse.redirect(url, 301);
-  }
-  if (pathname === "/docs/remote-tmux" || pathname === "/docs/remote-tmux/") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/en/docs/remote-tmux";
-    return NextResponse.rewrite(url);
-  }
+  return localeLimitedDocsResponse(request, pathname);
+}
 
-  const managedPoliciesMatch = pathname.match(
-    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/managed-policies\/?$/,
-  );
-  if (
-    managedPoliciesMatch &&
-    !managedPoliciesDocsLocales.includes(
-      managedPoliciesMatch[1] as (typeof managedPoliciesDocsLocales)[number],
-    )
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/docs/managed-policies";
-    return NextResponse.redirect(url, 301);
-  }
-  if (
-    pathname === "/docs/managed-policies" ||
-    pathname === "/docs/managed-policies/"
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/en/docs/managed-policies";
-    return NextResponse.rewrite(url);
-  }
+// Docs pages authored in only some locales. An unsupported locale redirects to
+// the unprefixed canonical URL, which is served as English without locale
+// detection so browser language preferences cannot select a 404.
+const localeLimitedDocsPages: readonly {
+  path: string;
+  locales: readonly string[];
+}[] = [
+  { path: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
+  { path: "/docs/managed-policies", locales: managedPoliciesDocsLocales },
+  { path: "/docs/cloud-security", locales: cloudSecurityDocsLocales },
+  { path: "/docs/cloud/secrets", locales: cloudSecretsDocsLocales },
+  { path: "/docs/cloud/open-repo", locales: cloudOpenRepoDocsLocales },
+];
 
-  const cloudSecurityMatch = pathname.match(
-    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/cloud-security\/?$/,
-  );
-  if (
-    cloudSecurityMatch &&
-    !cloudSecurityDocsLocales.includes(
-      cloudSecurityMatch[1] as (typeof cloudSecurityDocsLocales)[number],
-    )
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/docs/cloud-security";
-    return NextResponse.redirect(url, 301);
-  }
-  if (pathname === "/docs/cloud-security" || pathname === "/docs/cloud-security/") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/en/docs/cloud-security";
-    return NextResponse.rewrite(url);
+function localeLimitedDocsResponse(
+  request: NextRequest,
+  pathname: string,
+): NextResponse | undefined {
+  const localized = pathname.match(/^\/([a-z]{2}(?:-[A-Z]{2})?)(\/docs\/.+?)\/?$/);
+  const unprefixed = pathname.replace(/(.)\/$/, "$1");
+  for (const page of localeLimitedDocsPages) {
+    if (
+      localized &&
+      localized[2] === page.path &&
+      !page.locales.includes(localized[1])
+    ) {
+      const url = request.nextUrl.clone();
+      url.pathname = page.path;
+      return NextResponse.redirect(url, 301);
+    }
+    if (unprefixed === page.path) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/en${page.path}`;
+      return NextResponse.rewrite(url);
+    }
   }
   return undefined;
 }

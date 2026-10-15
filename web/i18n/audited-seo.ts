@@ -78,7 +78,9 @@ export type AuditedDocsPageKey =
   | "coderouterOverview"
   | "coderouterAgents"
   | "coderouterCli"
-  | "cloudSecurity";
+  | "cloudSecurity"
+  | "cloudSecrets"
+  | "cloudOpenRepo";
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 
