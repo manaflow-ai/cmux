@@ -13,7 +13,7 @@ export default agentPaneEntry({
   title: "Todo list",
   area: "Agent pane",
   height: 420,
-  covers: ["agent-session/acpmux/conversation/PlanList.tsx"],
+  covers: ["agent-session/acpmux/conversation/PlanList.tsx", "agent-session/acpmux/conversation/ActivityLine.tsx"],
   variants: {
     running: {
       note: "A turn under way: one item done, one in progress (bold), one waiting.",
