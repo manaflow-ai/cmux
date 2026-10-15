@@ -37,6 +37,7 @@ import json
 import os
 import pathlib
 import platform
+import plistlib
 import re
 import select
 import socket
@@ -355,7 +356,8 @@ class TaggedApp:
         self.app = app
         self.tag = slug
         self.bundle_id = f"com.cmuxterm.app.debug.{sanitize(tag, '.')}"
-        self.executable = app / "Contents/MacOS/cmux DEV"
+        # Debug builds name the executable "cmux DEV", Release-configuration tagged builds "cmux".
+        self.executable = app / "Contents/MacOS" / TaggedApp.bundle_executable(app)
         # Tagged Debug builds bind this path (scripts/reload.sh, perf-activation-session.py).
         self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{slug}.sock")
         self.debug_log = workdir / f"bench-{slug}.log"
@@ -363,6 +365,14 @@ class TaggedApp:
         self.pid: int | None = None
         # Extra app environment for a scenario (for example CMUX_CEF_DEBUG_URL).
         self.extra_env: dict[str, str] = {}
+
+    @staticmethod
+    def bundle_executable(app: pathlib.Path) -> str:
+        try:
+            with open(app / "Contents/Info.plist", "rb") as handle:
+                return plistlib.load(handle).get("CFBundleExecutable") or "cmux DEV"
+        except (OSError, plistlib.InvalidFileException):
+            return "cmux DEV"
 
     def env(self) -> dict[str, str]:
         return {
@@ -534,8 +544,14 @@ def parse_open_params(raw: list[str]) -> dict[str, dict[str, Any]]:
 def key_latency(app: TaggedApp, args: argparse.Namespace) -> dict[str, Any]:
     """Every repeat's samples pooled, so one quiet or noisy burst cannot pick the result."""
     samples: list[float] = []
-    for _ in range(args.key_repeats):
-        samples += app.raw_command_burst(f"simulate_shortcut {args.key_combo}", args.key_events)
+    try:
+        for _ in range(args.key_repeats):
+            samples += app.raw_command_burst(f"simulate_shortcut {args.key_combo}", args.key_events)
+    except BenchFailure as exc:
+        # Release-configuration builds compile the test-only key command out.
+        if "Unknown command" not in str(exc):
+            raise
+        return {"unavailable": "simulate_shortcut is not in this build (Release configuration)"}
     return stats(samples)
 
 
