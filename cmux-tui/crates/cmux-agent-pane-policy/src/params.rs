@@ -42,6 +42,10 @@ pub fn breaks_params_rule(
     if setting && meta.contains_key(&p.gesture_ticket_key) {
         return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
+    // A permission answer's `_meta` holds the pick's ticket and nothing else.
+    if method == "_acpmux/permission_respond" {
+        return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
+    }
     // A prompt held for the folder trust answer redeems its ticket beside its
     // acpmux.promptId (AcpmuxPaneMethods.swift `breaksParamsRule`).
     let prompt = method == "session/prompt";

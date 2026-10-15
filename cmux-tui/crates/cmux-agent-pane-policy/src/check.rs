@@ -46,7 +46,8 @@ pub struct FrameState<'a> {
 
 /// The pick a gesture ticket is bound to (`AgentPaneGesturePick`): the method
 /// and the scalar params but `sessionId` and `_meta`; `params` is None when a
-/// param is an object or a list.
+/// param is an object or a list. A session/prompt picks its promptId, and a
+/// permission answer its session, permission and option.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GesturePick {
     pub method: Option<String>,
@@ -63,6 +64,24 @@ impl GesturePick {
             let params = id
                 .and_then(Value::as_str)
                 .map(|id| BTreeMap::from([("promptId".to_owned(), Value::String(id.to_owned()))]));
+            return GesturePick { method: method.map(str::to_owned), params };
+        }
+        // A permission answer's pick names its session too (the ticket binds
+        // the prompt); one with answers picks nothing (AgentPaneGesturePick).
+        if method == Some("_acpmux/permission_respond") {
+            let text = |key: &str| params.get(key).and_then(Value::as_str);
+            let params = match (text("sessionId"), text("permissionId"), text("optionId")) {
+                (Some(session), Some(permission), Some(option))
+                    if !params.contains_key("answers") =>
+                {
+                    Some(BTreeMap::from([
+                        ("sessionId".to_owned(), Value::String(session.to_owned())),
+                        ("permissionId".to_owned(), Value::String(permission.to_owned())),
+                        ("optionId".to_owned(), Value::String(option.to_owned())),
+                    ]))
+                }
+                _ => None,
+            };
             return GesturePick { method: method.map(str::to_owned), params };
         }
         let mut scalars = BTreeMap::new();
