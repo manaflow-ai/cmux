@@ -1198,12 +1198,13 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
         // first (acpmux bounds its own grace), then the folder goes. An acpmux of a build
         // before the flag refuses it (usage error, exit 2); its plain shutdown ends them.
-        // No acpmux to ask, or a stop that failed: its daemon may still run; keep the folder.
+        // A stop that failed (no acpmux to ask, or no daemon there: acpmux exits 1) removes the
+        // folder only when no daemon holds its lock; a running one keeps it.
         let stopped = match stop(true) {
             Some(status) if status.code() == Some(2) => stop(false),
             other => other,
         };
-        if !stopped.is_some_and(|status| status.success()) {
+        if !stopped.is_some_and(|status| status.success()) && lock_held(&old.join("daemon.lock")) {
             continue;
         }
         if let Err(error) = std::fs::remove_dir_all(&old) {

@@ -31,8 +31,8 @@ if [[ -x "$BRAIN/bin/acpmux" ]]; then
   # `--end-agents` (cx-qryd0: a plain shutdown keeps hosted agents); an acpmux of a build before
   # the flag refuses it (exit 2), and its plain shutdown ends them.
   stop() { ACPMUX_HOME="$BRAIN/acpmux" ACPMUX_SOCKET="$BRAIN/acpmux/acpmux.sock" "$BRAIN/bin/acpmux" daemon shutdown "$@" 2>/dev/null; }
-  stop --end-agents; rc=$?
-  if [[ $rc -eq 2 ]]; then stop; rc=$?; fi
+  rc=0; stop --end-agents || rc=$?
+  if [[ $rc -eq 2 ]]; then rc=0; stop || rc=$?; fi
   if [[ $rc -eq 0 ]]; then echo "acpmux: daemon shutdown ended its sessions"; else echo "acpmux: no daemon answered (already stopped)"; fi
 fi
 bootout acpmux
