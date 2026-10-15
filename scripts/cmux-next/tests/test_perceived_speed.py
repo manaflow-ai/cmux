@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""perceived-speed.py analyze: a recorded opening reads as painted at once, piecemeal, stalled or unsettled."""
+"""perceived-speed.py analyze: a recorded opening reads as painted at once, piecemeal, stalled or unsettled;
+find-socket picks the slot app's debug socket by bundle id."""
 
 from __future__ import annotations
 
 import json
+import os
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -69,6 +74,56 @@ class AnalyzeTest(unittest.TestCase):
             record(Path(tmp), ["blank"] * 24 + ["skeleton"] * 30 + ["final"] * 10)
             result = analyze(Path(tmp))
         self.assertIsNone(result["settle_ms"])
+
+
+def serve(path: str, bundle_id: str) -> socket.socket:
+    """A debug socket that answers system.identify for one app."""
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen()
+
+    def loop():
+        while True:
+            try:
+                conn, _ = server.accept()
+            except OSError:
+                return
+            with conn:
+                conn.recv(65536)
+                conn.sendall((json.dumps({"id": 1, "result": {"bundle_id": bundle_id}}) + "\n").encode())
+
+    threading.Thread(target=loop, daemon=True).start()
+    return server
+
+
+class FindSocketTest(unittest.TestCase):
+    def find(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(SCRIPT), "find-socket", *args], capture_output=True, text=True, timeout=30)
+
+    def test_picks_the_socket_whose_app_names_the_bundle_id(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            stale = Path(tmp, "cmux-debug-old.sock")
+            stale.touch()  # left by a quit app: nobody listens
+            other = serve(os.path.join(tmp, "cmux-debug--aaaa.sock"), "com.cmuxterm.app.debug.other.capslot1")
+            mine = serve(os.path.join(tmp, "cmux-debug--bbbb.sock"), "com.cmuxterm.app.debug.mine.capslot2")
+            try:
+                done = self.find("com.cmuxterm.app.debug.mine.capslot2", tmp)
+                missing = self.find("com.cmuxterm.app.debug.gone.capslot3", tmp)
+            finally:
+                other.close()
+                mine.close()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), os.path.join(tmp, "cmux-debug--bbbb.sock"))
+        self.assertEqual(missing.returncode, 1)
+
+    def test_skips_sockets_older_than_the_launch(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            server = serve(os.path.join(tmp, "cmux-debug--cccc.sock"), "com.cmuxterm.app.debug.mine.capslot2")
+            try:
+                done = self.find("com.cmuxterm.app.debug.mine.capslot2", "--since", str(time.time() + 3600), tmp)
+            finally:
+                server.close()
+        self.assertEqual(done.returncode, 1)
 
 
 if __name__ == "__main__":
