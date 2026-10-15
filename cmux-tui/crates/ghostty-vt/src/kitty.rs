@@ -150,6 +150,31 @@ impl KittyInFlightTracker {
             && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
     }
 
+    pub(crate) fn has_unreplayable_command(&self) -> bool {
+        // A tracker-level overflow can also mean that a completed multipart
+        // chunk exceeded the retention budget. CAN cannot undo that command
+        // after the parser has returned to ground, so only an actively
+        // overflowed command is recoverable here.
+        !self.overflowed
+            && matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
+    }
+
+    pub(crate) fn has_unreplayable_prefix(&self) -> bool {
+        self.overflowed
+    }
+
+    pub(crate) fn discard_unreplayable(&mut self) {
+        self.scan = KittyStreamScan::Ground;
+        self.overflowed = false;
+        // CAN aborts only the command that is currently being parsed. Keep a
+        // completed m=1 prefix so checkpoint replay can still resume the
+        // native upload when a later m=0 chunk arrives. An overflowed first
+        // chunk has no prefix to preserve, so leave the tracker idle there.
+        if self.prefix.is_empty() {
+            self.loading = false;
+        }
+    }
+
     /// The completed upload chunks and the partial command, separately, under
     /// the same budget as [`Self::replay_prefix_checked`].
     pub(crate) fn replay_prefix_and_partial_checked(
