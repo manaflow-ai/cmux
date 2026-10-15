@@ -101,9 +101,15 @@ final class CloudPortSharingStore {
 
 enum CloudPortShareError: Error, CustomStringConvertible {
     case signedOut
+    case mutationDidNotConverge
 
     var description: String {
-        String(localized: "cloudPort.share.signedOut", defaultValue: "Sign in to cmux Cloud to share a port.")
+        switch self {
+        case .signedOut:
+            return String(localized: "cloudPort.share.signedOut", defaultValue: "Sign in to cmux Cloud to share a port.")
+        case .mutationDidNotConverge:
+            return String(localized: "cloudPort.share.changeFailed", defaultValue: "Could not change who can open the port")
+        }
     }
 }
 

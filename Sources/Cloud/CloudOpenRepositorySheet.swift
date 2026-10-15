@@ -208,6 +208,8 @@ struct CloudOpenRepositorySheet: View {
                 .accessibilityIdentifier("CloudOpenRepositorySheet.cancel")
             Button(String(localized: "cloudOpenRepository.run", defaultValue: "Open in Cloud")) { model.run() }
                 .disabled(!model.canRun)
+                .buttonStyle(.borderedProminent)
+                .tint(Color.accentColor)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("CloudOpenRepositorySheet.run")
         }

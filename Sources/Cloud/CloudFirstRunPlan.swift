@@ -179,7 +179,10 @@ enum CloudFirstRunCommand {
     ) -> [String] {
         var arguments = ["vm", "clone", repo.cloneArgument]
         if let branch = repo.branch { arguments += ["--branch", branch] }
-        arguments += ["--machine", machineID, "--agent", agent.rawValue, "--json"]
+        // The tour is an explicit user action even though its CLI process is
+        // launched in the background; carry focus intent through so the new
+        // Cloud workspace and agent terminal are selected when it succeeds.
+        arguments += ["--machine", machineID, "--agent", agent.rawValue, "--focus", "--json"]
         let task = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !task.isEmpty {
             arguments += ["--", "--", String(task.prefix(CloudFirstRunRepo.maxPromptLength))]

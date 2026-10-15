@@ -693289,6 +693289,124 @@
           }
         }
       }
+    },
+    "cli.vm.clone.warm.workspaceReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the restored machine's workspaces could not be read"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Arbeitsbereiche der wiederhergestellten Maschine konnten nicht gelesen werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire les espaces de travail de la machine restaurée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة مساحات عمل الآلة المستعادة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron leer los espacios de trabajo de la máquina restaurada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取還原機器的工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取恢复机器的工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 머신의 작업 공간을 읽을 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元したマシンのワークスペースを読み取れませんでした"
+          }
+        }
+      }
+    },
+    "cli.vm.share.changeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not change who can open the port; the authoritative publication list did not settle."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Berechtigung für den Port konnte nicht geändert werden; die maßgebliche Veröffentlichungsliste wurde nicht konsistent."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de modifier les personnes autorisées à ouvrir le port ; la liste des publications ne s’est pas stabilisée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تغيير من يمكنه فتح المنفذ؛ لم تستقر قائمة النشر المعتمدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar quién puede abrir el puerto; la lista de publicaciones autorizada no se estabilizó."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法變更可開啟連接埠的對象；權威發佈清單未穩定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更改端口开放对象；权威发布列表未稳定。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트를 열 수 있는 사람을 변경하지 못했습니다. 권위 있는 게시 목록이 안정되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートを開けるユーザーを変更できませんでした。正規の公開リストが確定しませんでした。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

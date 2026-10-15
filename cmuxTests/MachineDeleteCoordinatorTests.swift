@@ -11,6 +11,23 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct MachineDeleteCoordinatorTests {
+    @Test func projectionChangesArePublishedForImmediatePanelRefresh() {
+        let fixture = MachineDeleteFixture()
+        let coordinator = fixture.makeCoordinator()
+        var changes = 0
+        let observer = fixture.accountEvents.addObserver(
+            forName: MachineDeleteCoordinator.didChangeNotification,
+            object: coordinator,
+            queue: .main
+        ) { _ in changes += 1 }
+        defer { fixture.accountEvents.removeObserver(observer) }
+
+        #expect(coordinator.begin("m1"))
+        #expect(changes == 1)
+        coordinator.launchEnded("m1")
+        #expect(changes == 2)
+    }
+
     @Test func repeatedDestroyJoinsTheRequestInFlightThenAnswersAlreadyGone() async throws {
         let fixture = MachineDeleteFixture()
         let coordinator = fixture.makeCoordinator()

@@ -218,8 +218,23 @@ describe("Cloud Secrets provider routing guard (running machines)", () => {
     await guard(m, "keep", "direct");
     expect(envLine(m, "ANTHROPIC_BASE_URL")).toBe("export ANTHROPIC_BASE_URL='https://api.anthropic.com'");
     expect(envLine(m, "OPENAI_BASE_URL")).toBeUndefined();
+    const claudeConfig = JSON.parse(readFileSync(path.join(m.home, ".claude.json"), "utf8"));
+    expect(claudeConfig.customApiKeyResponses.approved).toContain("sk-ant-user".slice(-20));
     // No OpenAI key: codex keeps CodeRouter.
     expect(readFileSync(m.codex, "utf8")).toContain('model_provider = "cmux"\n');
+  });
+
+  test("refreshes Claude's approval when a delivered key rotates", async () => {
+    const m = machine();
+    writeFileSync(path.join(m.home, ".claude.json"), JSON.stringify({
+      hasCompletedOnboarding: true,
+      customApiKeyResponses: { approved: ["old-key-suffix"], rejected: [] },
+    }));
+    writeFileSync(m.envFile, `export ANTHROPIC_API_KEY='sk-ant-rotated-key'\n`);
+    await guard(m, "keep", "direct");
+    const approved = JSON.parse(readFileSync(path.join(m.home, ".claude.json"), "utf8")).customApiKeyResponses.approved;
+    expect(approved).toContain("sk-ant-rotated-key".slice(-20));
+    expect(approved).toContain("old-key-suffix");
   });
 
   test("keep changes nothing; plane releases only what cmux added", async () => {

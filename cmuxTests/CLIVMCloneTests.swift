@@ -1312,13 +1312,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.status": return ["id": "vm-warm", "status": "running"]
             case "vm.rename": return ["id": "vm-warm"]
             case "vm.secrets_sync": return ["sent": [], "removed": [], "noop": true]
+            case "vm.tree":
+                return ["machines": [[
+                    "id": "vm-warm",
+                    "remote_workspaces": [
+                        ["id": "ws-old", "name": "source-repository"],
+                        ["id": "ws-old-agent", "name": "source-agent"],
+                    ],
+                ]]
+                ]
+            case "vm.workspace_delete": return ["deleted": true]
             case "vm.exec":
                 let command = (params["command"] as? String) ?? ""
                 if command.contains("cmux-clone=") {
                     return ["exit_code": 0, "stdout": "cmux-clone=updated\ncmux-clone-path=/home/cmux/work/r\n", "stderr": ""]
                 }
                 return ["exit_code": 0, "stdout": "", "stderr": ""]
-            case "vm.workspace_new": return ["remote_workspace_id": "ws_r", "existing": true, "opened": false]
+            case "vm.workspace_new": return ["remote_workspace_id": "ws_r", "existing": false, "opened": false]
             default: return nil
             }
         }
@@ -1326,7 +1336,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(log.methods.contains("vm.create"), "no cold machine: \(log.methods)")
         XCTAssertEqual(log.params(ofFirst: "vm.restore")?["snapshot_id"] as? String, "snap_warm")
         XCTAssertNotNil(log.params(ofFirst: "vm.restore")?["idempotency_key"] as? String)
-        XCTAssertFalse(log.methods.contains("vm.workspace_rename"), "the restored machine already has the repository's workspace: \(log.methods)")
+        XCTAssertEqual(log.snapshot().filter { ($0["method"] as? String) == "vm.workspace_delete" }.count, 2)
+        XCTAssertFalse(log.methods.contains("vm.workspace_rename"), "warm restore clears the source workspace graph: \(log.methods)")
         // The snapshot's machine env is cleared before Cloud Secrets deliver this machine's own.
         let execs = log.snapshot().filter { ($0["method"] as? String) == "vm.exec" }.compactMap { $0["params"] as? [String: Any] }
         XCTAssertTrue(execs.allSatisfy { $0["id"] as? String == "vm-warm" }, "\(execs)")

@@ -103,7 +103,7 @@ struct CloudFirstRunPlanTests {
             repo: repo, machineID: "vm-1", agent: .claude, prompt: "  Explain it.  "
         )
         #expect(arguments == [
-            "vm", "clone", "octocat/Spoon-Knife", "--machine", "vm-1", "--agent", "claude", "--json",
+            "vm", "clone", "octocat/Spoon-Knife", "--machine", "vm-1", "--agent", "claude", "--focus", "--json",
             "--", "--", "Explain it.",
         ])
     }
@@ -111,7 +111,7 @@ struct CloudFirstRunPlanTests {
     @Test func branchTravelsAsAFlagAndEmptyTaskSendsNoPrompt() throws {
         let repo = try #require(CloudFirstRunRepo.reference("https://github.com/a/b/tree/dev"))
         let arguments = CloudFirstRunCommand.cloneArguments(repo: repo, machineID: "vm-1", agent: .codex, prompt: " ")
-        #expect(arguments == ["vm", "clone", "a/b", "--branch", "dev", "--machine", "vm-1", "--agent", "codex", "--json"])
+        #expect(arguments == ["vm", "clone", "a/b", "--branch", "dev", "--machine", "vm-1", "--agent", "codex", "--focus", "--json"])
     }
 
     // MARK: Clone output

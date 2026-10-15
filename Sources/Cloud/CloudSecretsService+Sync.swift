@@ -458,6 +458,87 @@ route() {
 route "$openai" OPENAI_BASE_URL https://api.openai.com/v1 openai
 route "$anthropic" ANTHROPIC_BASE_URL https://api.anthropic.com anthropic
 
+# Claude Code asks once whether a custom API key should be used. The answer is
+# keyed by the last 20 characters of the key, so refresh it after every
+# delivery, including rotations. The guest derives the suffix from its own
+# env file; neither the key nor its suffix is an argument, output, or socket
+# response. Keep this best-effort: an approval file is a usability aid, not a
+# routing decision, and a failure must never make a delivered key unavailable.
+approve_claude_key() {
+  [ -f "$envf" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$envf" "$home/.claude.json" <<'CMUX_CLAUDE_APPROVAL' >/dev/null 2>&1 || :
+import json
+import os
+import tempfile
+import sys
+
+env_path, config_path = sys.argv[1:]
+names = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+placeholder = "cmux-vm-edge-placeholder"
+
+def value_from_line(line):
+    if not line.startswith("export ") or "=" not in line:
+        return None
+    name, raw = line[7:].split("=", 1)
+    if name not in names:
+        return None
+    raw = raw.rstrip("\n")
+    if len(raw) >= 2 and raw[0] == raw[-1] == "'":
+        raw = raw[1:-1].replace("'\\''", "'")
+    elif len(raw) >= 2 and raw[0] == raw[-1] == '"':
+        raw = bytes(raw[1:-1], "utf-8").decode("unicode_escape")
+    return raw
+
+key = None
+with open(env_path, encoding="utf-8") as stream:
+    for line in stream:
+        candidate = value_from_line(line)
+        if candidate and candidate != placeholder:
+            key = candidate
+if not key:
+    raise SystemExit(0)
+
+try:
+    with open(config_path, encoding="utf-8") as stream:
+        config = json.load(stream)
+except (FileNotFoundError, OSError, ValueError):
+    config = {}
+if not isinstance(config, dict):
+    config = {}
+responses = config.get("customApiKeyResponses")
+if not isinstance(responses, dict):
+    responses = {}
+approved = responses.get("approved")
+if not isinstance(approved, list):
+    approved = []
+suffix = key[-20:]
+if suffix not in approved:
+    approved.append(suffix)
+responses["approved"] = approved
+if not isinstance(responses.get("rejected"), list):
+    responses["rejected"] = []
+config["customApiKeyResponses"] = responses
+
+directory = os.path.dirname(config_path)
+os.makedirs(directory, mode=0o700, exist_ok=True)
+fd, temporary = tempfile.mkstemp(prefix=".cmux-claude-", dir=directory, text=True)
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(config, stream, separators=(",", ":"))
+        stream.write("\n")
+    os.replace(temporary, config_path)
+except Exception:
+    try:
+        os.unlink(temporary)
+    except OSError:
+        pass
+    raise
+CMUX_CLAUDE_APPROVAL
+}
+approve_claude_key
+
 # The image's agent-config, run in a shell that carries only the baked plane
 # (as the machine's first login shell does), then $1, whose status it returns.
 # Its writes to the model-plane copy land in /dev/null (step 1).

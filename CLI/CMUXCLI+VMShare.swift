@@ -79,22 +79,64 @@ extension CMUXCLI {
         if before.requiresPublicConfirmation(target) {
             try Self.confirmVMSharePublic(name: name, port: port, confirmed: confirmed)
         }
-        let steps = before.steps(to: target)
-        var teamID: String?
-        if target == .audience(.team), !steps.isEmpty {
-            // The same team resolution as `cloud domains publish --access team`.
-            teamID = try validatedPublicationAccess("team", teamID: teamIDOption, client: client).teamID
+        var current = before
+        var after = before
+        var changed = false
+        var lastError: Error?
+        // A publication mutation can time out after the server committed it.
+        // Reconcile before retrying so a 503 cannot leave the CLI claiming a
+        // private port while a wider publication is still live. Recompute the
+        // plan after every attempt because one request may have partially run.
+        for attempt in 0..<3 {
+            let steps = current.steps(to: target)
+            if steps.isEmpty {
+                after = current
+                break
+            }
+            do {
+                var teamID: String?
+                if target == .audience(.team) {
+                    // The same team resolution as `cloud domains publish --access team`.
+                    teamID = try validatedPublicationAccess("team", teamID: teamIDOption, client: client).teamID
+                }
+                for step in steps {
+                    try runVMShareStep(step, machine: machine, port: port, teamID: teamID, client: client)
+                }
+                let refreshed = try vmSharePlan(machine: machine, port: port, client: client)
+                if refreshed.steps(to: target).isEmpty {
+                    after = refreshed
+                    changed = true
+                    break
+                }
+                current = refreshed
+                if attempt == 2 {
+                    throw lastError ?? CLIError(message: String(
+                        localized: "cli.vm.share.changeFailed",
+                        defaultValue: "Could not change who can open the port; the authoritative publication list did not settle."
+                    ))
+                }
+            } catch {
+                lastError = error
+                guard let refreshed = try? vmSharePlan(machine: machine, port: port, client: client) else {
+                    // The authoritative list is unavailable, so do not repeat
+                    // a create/delete whose commit status is unknown.
+                    throw error
+                }
+                if refreshed.steps(to: target).isEmpty {
+                    after = refreshed
+                    changed = true
+                    break
+                }
+                current = refreshed
+                if attempt == 2 { throw error }
+            }
         }
-        for step in steps {
-            try runVMShareStep(step, machine: machine, port: port, teamID: teamID, client: client)
-        }
-        let after = steps.isEmpty ? before : try vmSharePlan(machine: machine, port: port, client: client)
         if jsonOutput {
-            print(jsonString(Self.vmShareJSON(machine: machine, port: port, plan: after, changed: !steps.isEmpty)))
+            print(jsonString(Self.vmShareJSON(machine: machine, port: port, plan: after, changed: changed)))
             return
         }
         var lines = Self.vmShareStatusLines(name: name, port: port, plan: after)
-        if steps.isEmpty {
+        if !changed {
             lines[0] = String(
                 format: String(localized: "cli.vm.share.unchanged", defaultValue: "Nothing to change: port %1$@ on %2$@ is already %3$@."),
                 String(port),
@@ -183,6 +225,7 @@ extension CMUXCLI {
     /// The question before anything becomes public. It names the audience, and only
     /// "y" (or `--yes`) continues; a script without a terminal is refused.
     static func confirmVMSharePublic(name: String, port: Int, confirmed: Bool) throws {
+        if confirmed { return }
         let warning = String(
             format: String(
                 localized: "cli.vm.share.confirmPublic",
@@ -192,7 +235,6 @@ extension CMUXCLI {
             name
         )
         cliWriteStderr(warning + "\n")
-        if confirmed { return }
         guard readLine()?.trimmingCharacters(in: .whitespaces).lowercased() == "y" else {
             throw CLIError(message: String(
                 localized: "cli.vm.share.publicCancelled",

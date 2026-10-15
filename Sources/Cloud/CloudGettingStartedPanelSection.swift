@@ -96,6 +96,7 @@ struct CloudGettingStartedPanelSection: View {
             },
             openRepository: {
                 AppDelegate.shared?.performOpenRepositoryInCloudAction(
+                    agent: .claude,
                     preferredWindow: tabManager?.window,
                     debugSource: "cloud.gettingStarted"
                 )

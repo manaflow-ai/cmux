@@ -1668,7 +1668,45 @@ extension CMUXCLI {
             params: ["id": id, "command": Self.vmCloneWarmEnvResetCommand, "timeout_ms": 30_000],
             responseTimeout: 60
         )
+        do {
+            try resetVMCloneWarmWorkspaces(machine: id, client: client)
+        } catch {
+            // A restored machine still carrying the source machine's workspace graph
+            // is not a safe warm clone. Remove it before falling back to a cold machine;
+            // otherwise the old workspaces would remain visible in the pool.
+            _ = try? client.sendV2(
+                method: "vm.destroy",
+                params: ["id": id],
+                responseTimeout: 120
+            )
+            return (nil, Self.vmCloneWarmFailureReason((error as? CLIError)?.message ?? String(describing: error)))
+        }
         return (id, nil)
+    }
+
+    /// Removes every remote workspace restored from a warm snapshot. The machine id is
+    /// newly allocated by `vm.restore`, so this cannot delete a workspace owned by the
+    /// source machine or another user machine.
+    private func resetVMCloneWarmWorkspaces(machine: String, client: SocketClient) throws {
+        guard let catalog = try? client.sendV2(
+            method: "vm.tree",
+            params: ["id": machine, "refresh": true],
+            responseTimeout: 120
+        ), let payload = VMRemoteWorkspaceResolver().vmMachinePayload(machine, from: catalog),
+              let rawWorkspaces = payload["remote_workspaces"] as? [[String: Any]] else {
+            throw CLIError(message: String(
+                localized: "cli.vm.clone.warm.workspaceReadFailed",
+                defaultValue: "the restored machine's workspaces could not be read"
+            ))
+        }
+        for workspace in rawWorkspaces {
+            guard let workspaceID = workspace["id"] as? String, !workspaceID.isEmpty else { continue }
+            _ = try client.sendV2(
+                method: "vm.workspace_delete",
+                params: ["id": machine, "workspace_id": workspaceID],
+                responseTimeout: 240
+            )
+        }
     }
 
     // MARK: - Setup trust

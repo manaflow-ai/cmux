@@ -43,6 +43,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Unread terminals whose notification reports a failure, per machine.
     @Published private(set) var unreadFailureTerminalIDs: [String: Set<String>] = [:]
     private var unreadObserver: NSObjectProtocol?
+    private var deletionObserver: NSObjectProtocol?
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
@@ -298,6 +299,13 @@ final class MachinesPanelViewModel: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
+        deletionObserver = NotificationCenter.default.addObserver(
+            forName: MachineDeleteCoordinator.didChangeNotification,
+            object: MachineDeleteCoordinator.shared,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.objectWillChange.send() }
+        }
         readUnreadTerminalIDs()
         vmSync?.setEventHandler { [weak self] event in
             self?.vmSyncDidEmit(event)
@@ -360,7 +368,7 @@ final class MachinesPanelViewModel: ObservableObject {
         treeTask?.cancel()
         freeAccessTransitionTask?.cancel()
         resourceUpdatesTask?.cancel()
-        for observer in authScopeObservers + [treeChangeObserver, unreadObserver, createChangeObserver].compactMap({ $0 }) {
+        for observer in authScopeObservers + [treeChangeObserver, unreadObserver, deletionObserver, createChangeObserver].compactMap({ $0 }) {
             NotificationCenter.default.removeObserver(observer)
         }
         if let wakeObserver { wakeNotificationCenter.removeObserver(wakeObserver) }

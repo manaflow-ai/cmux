@@ -94,18 +94,40 @@ enum CloudPortShareFlow {
     ) async throws {
         let store = CloudPortSharingStore.shared
         try await store.reload()
-        let plan = store.plan(machineID: context.machineID, port: context.port)
-        if plan.requiresPublicConfirmation(target), !confirmPublic(portLabel: context.portLabel) { return }
-        let steps = plan.steps(to: target)
-        guard !steps.isEmpty else { return }
-        do {
-            try await execute(steps, context: context, client: client)
-        } catch {
-            // A partial write still changed something: show the truth, then the error.
-            store.invalidate()
-            throw error
+        let initial = store.plan(machineID: context.machineID, port: context.port)
+        if initial.requiresPublicConfirmation(target), !confirmPublic(portLabel: context.portLabel) { return }
+
+        var current = initial
+        var lastError: Error?
+        // A timeout or 503 can arrive after the server committed a mutation.
+        // Re-read after every attempt and only finish once the authoritative
+        // publication list satisfies the requested audience. This keeps the
+        // preview control safe when a narrowing request partially succeeds.
+        for attempt in 0..<3 {
+            let steps = current.steps(to: target)
+            if steps.isEmpty { return }
+            do {
+                try await execute(steps, context: context, client: client)
+                try await store.reload()
+                let refreshed = store.plan(machineID: context.machineID, port: context.port)
+                if refreshed.steps(to: target).isEmpty { return }
+                current = refreshed
+            } catch let mutationError {
+                lastError = mutationError
+                do {
+                    try await store.reload()
+                } catch {
+                    // The authoritative list is unavailable, so do not repeat
+                    // a create/delete whose commit status is unknown.
+                    throw mutationError
+                }
+                let refreshed = store.plan(machineID: context.machineID, port: context.port)
+                if refreshed.steps(to: target).isEmpty { return }
+                current = refreshed
+                if attempt == 2 { throw mutationError }
+            }
         }
-        store.invalidate()
+        throw lastError ?? CloudPortShareError.mutationDidNotConverge
     }
 
     /// Runs a plan's writes. Creating a public link reserves it privately first,
