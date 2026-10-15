@@ -2,15 +2,11 @@ import AppKit
 import CmuxNextAgentPane
 import WebKit
 
-/// An agent page cannot take the keyboard by itself (cx-3hw0i.2). A page's own `element.focus()`
-/// (a subagent pane's composer as its page loads) makes WebKit ask the window to make its web
-/// view first responder (`WebPageProxy::makeFirstResponder`). The focus model accepts every
-/// responder change as the user's choice, so a pane that opened beside the chat took the keyboard
-/// and the daemon focus, although its move ran with `keep_focus`. Such a request is refused when
-/// no input event is in dispatch, the focus model is not applying its own target, and the page is
-/// in another pane than the focused one that no pending focus expectation names (a person's move
-/// or open landing there); a click or a key into the page, and the focus model's
-/// own moves, still give it the keyboard.
+/// An agent page cannot take the keyboard by itself (cx-3hw0i.2): a page's own `element.focus()`
+/// makes WebKit ask for first responder (`WebPageProxy::makeFirstResponder`), and the focus model
+/// takes every responder change as the user's choice, so a subagent pane that opened with
+/// `keep_focus` took the keyboard. Refused outside an input event and the model's own moves, for a
+/// page outside the focused pane that no pending focus expectation names.
 extension ShellWindow {
     func refusesPageSelfFocus(_ responder: NSResponder?) -> Bool {
         guard let webView = responder as? WKWebView, Self.agentPage(of: webView) != nil,
