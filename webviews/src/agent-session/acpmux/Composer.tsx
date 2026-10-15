@@ -25,6 +25,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
+import { showsLocationRow } from "./locationRow";
 import { ComposerQueue } from "./ComposerQueue";
 import {
   ArrowUpIcon,
@@ -48,6 +49,7 @@ import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
+import { cliOnlyCommand } from "./cliOnlyCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import {
   flushPendingDraftWrites,
@@ -606,6 +608,19 @@ export function Composer({
       plusDraft.current = undefined;
       return false;
     }
+    // A Claude command that needs its terminal is not sent: the composer keeps it and says what to use.
+    const cliOnly = attachments.length === 0 ? cliOnlyCommand(prompt, snapshot.summary?.harness) : undefined;
+    if (cliOnly) {
+      const values = { command: cliOnly.name };
+      setAttachError(
+        cliOnly.use === "access"
+          ? t("composer.cliOnly.access", values)
+          : cliOnly.use === "model"
+            ? t("composer.cliOnly.model", values)
+            : t("composer.cliOnly.terminal", values),
+      );
+      return false;
+    }
     const owned = commands?.find(
       (command): command is CmuxCommand => command.source === "cmux" && commandArgs(prompt, command) !== undefined,
     );
@@ -962,8 +977,10 @@ export function Composer({
   ];
 
   // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
-  // composer location strip), so the card holds one controls row.
-  const context = (
+  // composer location strip), so the card holds one controls row. Only a new chat has it, before
+  // its first send (locationRow.ts): a started chat cannot change folder or machine, so it draws
+  // nothing there and the queue and the card close up (the strip's rules are `:has()` on it).
+  const context = showsLocationRow(snapshot) && (
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
@@ -973,7 +990,6 @@ export function Composer({
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
-      started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
       onProject={
         onProject &&
         ((cwd, peer) => {
@@ -1570,8 +1586,18 @@ function SlashMenu({
             /<Highlighted name={match.command.name} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && <span className="acpmux-slash-source">{match.command.source}</span>}
-          <span className="acpmux-slash-description">{match.command.description}</span>
+          {match.command.source && match.command.source !== "agent" && (
+            <span className="acpmux-slash-source">
+              {match.command.source === "skill"
+                ? t("composer.slashSkill")
+                : match.command.source === "prompt"
+                  ? t("composer.slashPrompt")
+                  : "cmux"}
+            </span>
+          )}
+          <span className="acpmux-slash-description">
+            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
+          </span>
         </div>
       ))}
     </div>

@@ -677,6 +677,47 @@
   }
  },
  {
+  "name": "start_mode's cwd waits for the path check",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"_acpmux/start_mode\",\"params\":{\"harness\":\"claude\",\"cwd\":\"/x\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "method": "_acpmux/start_mode",
+    "params": {
+     "harness": "claude",
+     "cwd": "/x"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/start_mode",
+    "page_id": "16",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
   "name": "Trust needs a gesture and the path check",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"acp.trust.set\",\"params\":{\"cwd\":\"/x\",\"level\":\"trusted\"}}",
   "state": {
