@@ -664,16 +664,17 @@ public struct WorkspacesList: View {
     /// The Mac filter: All Macs, then each Mac (online first) with its
     /// presence (and the live link line) as the subtitle.
     private var filterMenu: some View {
-        Menu {
+        let entries = macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
+                                                          linkStatus: store.macLinkStatus, live: store.tracksMacData,
+                                                          now: MinuteClock.shared.now))
+        return Menu {
             // Toggles, not an inline Picker: a Picker drops each Mac's
             // presence subtitle. The chosen row shows the checkmark.
             Toggle(isOn: chosen(.all)) {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
-            ForEach(macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
-                                                         linkStatus: store.macLinkStatus, live: store.tracksMacData,
-                                                         now: MinuteClock.shared.now))) { mac in
+            ForEach(entries) { mac in
                 // A title and a subtitle Text directly in the label: a menu
                 // shows the second as the subtitle (not inside a Label).
                 Toggle(isOn: chosen(.mac(mac.id))) {
@@ -688,7 +689,12 @@ public struct WorkspacesList: View {
             Label("Filter", systemImage: scope == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
         }
         .accessibilityIdentifier("workspaces.filter")
-        .accessibilityValue(scopedMac.map(displayName) ?? "All Macs")
+        // The chosen Mac and its presence and link line ("Online · Connected
+        // over WebRTC"), so VoiceOver (and the rig's link reader) hears the
+        // link without opening the menu.
+        .accessibilityValue(scopedMac.map { mac in
+            [displayName(mac), entries.first { $0.id == mac.id }?.detail].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
+        } ?? "All Macs")
     }
 
     /// On for the chosen scope; turning one on chooses it (turning the chosen one off does nothing).
