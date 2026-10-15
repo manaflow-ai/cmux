@@ -570,7 +570,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       moved: string[];
       kept: string[];
       header: number;
-      motions: { id: string; property: string; duration: number }[];
+      motions: { id: string; property: string; duration: number; from: number }[];
     };
     const toggles: Record<string, Toggle[]> = {};
     for (const mode of ["slide", "fade", "none"]) {
@@ -621,6 +621,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
               id,
               property: Object.keys(keyframes[0] ?? {}).find((key) => key !== "offset") ?? "?",
               duration: Number(typeof options === "number" ? options : options?.duration),
+              from: Number((keyframes[0] as Keyframe | undefined)?.opacity ?? 1),
             });
           return animate.call(this, keyframes, options);
         };
@@ -668,6 +669,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       fadeLong: all("fade").filter((motion) => motion.duration < 120 || motion.duration > 180),
       // Rows the fold did not move stay in full ink: a fade of the whole view reads as a blank frame.
       fadeKept: toggles.fade!.flatMap(({ kept, motions }) => motions.filter((motion) => kept.includes(motion.id))),
+      // A row the fold moved stays in sight while it fades: a fade from nothing of every moved row
+      // left the view near empty for a frame (#20610 capture).
+      fadeBlank: toggles.fade!.flatMap(({ moved, motions }) =>
+        motions.filter((motion) => moved.includes(motion.id) && motion.from <= 0),
+      ),
       none: all("none").length,
       // The header the reader toggled stays where it was, in every mode.
       headers: Object.fromEntries(
@@ -680,6 +686,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       fadeSlides: 0,
       fadeLong: [],
       fadeKept: [],
+      fadeBlank: [],
       none: 0,
       headers: { slide: [0, 0], fade: [0, 0], none: [0, 0] },
     });
