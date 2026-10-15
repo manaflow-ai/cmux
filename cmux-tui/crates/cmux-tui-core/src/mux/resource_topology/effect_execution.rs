@@ -392,7 +392,7 @@ impl Mux {
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
                         None,
-                        tab_slot::effect_index(fields),
+                        tab_strip::tab_slot::effect_index(fields),
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -722,7 +722,7 @@ impl Mux {
                 Some(pane) => {
                     // At its end, or at the strip index the creation names
                     // (`tab_slot`: Reopen Closed puts a tab back in place).
-                    let index = tab_slot::slot(index, pane.tabs.len());
+                    let index = tab_strip::tab_slot::slot(index, pane.tabs.len());
                     pane.tabs.insert(index, surface.id);
                     pane.active_tab = index;
                     pane.active_at = active_at;

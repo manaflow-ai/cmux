@@ -45,7 +45,7 @@ pub(crate) struct FrontendTabPlacement {
     /// The tab goes right after this tab of the pane, else at the end.
     pub(crate) after: Option<SurfaceId>,
     /// The tab goes at this index of the pane's strip (clamped), before
-    /// `after` ([`super::tab_slot`]: Reopen Closed puts a tab back in place).
+    /// `after` ([`super::tab_strip::tab_slot`]: Reopen Closed puts a tab back in place).
     pub(crate) index: Option<usize>,
 }
 
@@ -126,7 +126,7 @@ impl Mux {
         let placement = FrontendTabPlacement {
             activate: fields.get(ACTIVATE_FIELD).and_then(Value::as_bool).unwrap_or(true),
             after: fields.get(AFTER_FIELD).and_then(Value::as_u64),
-            index: tab_slot::effect_index(fields),
+            index: tab_strip::tab_slot::effect_index(fields),
         };
         let transaction = effect_transaction(fields);
         self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, transaction)
@@ -389,7 +389,7 @@ impl Mux {
                 Some(pane) => {
                     let end = pane.tabs.len();
                     let index = match strip_index {
-                        Some(index) => tab_slot::slot(Some(index), end),
+                        Some(index) => tab_strip::tab_slot::slot(Some(index), end),
                         None => slot.unwrap_or(end),
                     };
                     pane.tabs.insert(index, surface.id);
