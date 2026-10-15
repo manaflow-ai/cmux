@@ -372,19 +372,19 @@
   background: var(--agent-accent, var(--agent-text));
   color: var(--agent-on-accent, var(--acpmux-base));
 }
-/* Stop is Send's circle at rest (styles.css: the faint disc of an empty draft), never a disc of its
-   own, with a small square in the text color so it reads in light and dark themes; hover and
-   press step the circle as the bar's other controls do. Send and Stop are the bar's 28 px. */
+/* Stop is Send's circle at rest (styles.css: the off disc of an empty draft, --acpmux-send-off-bg),
+   never a disc of its own, with a small square in the text color so it reads in light and dark
+   themes; hover and press step the circle as the bar's other controls do. Send and Stop are the bar's 28 px. */
 .acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel {
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--acpmux-send-off-bg);
   color: var(--agent-text);
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 22%, transparent);
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-text) 17%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 26%, transparent);
 }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,
