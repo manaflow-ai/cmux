@@ -84,3 +84,24 @@ describe("diffs draw at the regular weight with calm tints", () => {
     expect(words[0]).toBeLessThanOrEqual(24);
   });
 });
+
+describe("Diff Colors stays ordered under the calmer tints", () => {
+  test("Muted's change color sits nearer the page than Theme's, so its row tint stays quieter", async () => {
+    const { applyDiffViewerAppearance, setDiffChangeColors } = await import("../src/appearance");
+    const style = dom.window.document.documentElement.style;
+    applyDiffViewerAppearance({
+      themes: { dark: { background: "#000000", foreground: "#ffffff", palette: { "2": "#50e050" } } },
+    });
+    const green = () => style.getPropertyValue("--cmux-diff-addition-fg-dark");
+    setDiffChangeColors("theme");
+    const theme = green();
+    setDiffChangeColors("muted");
+    const muted = green();
+    setDiffChangeColors("theme");
+    const channel = (hex: string) => Number.parseInt(hex.slice(3, 5), 16);
+    expect(theme).toBe("#50e050");
+    // Both modes take the same row tint (diffWeight.ts) of their own color: Muted's dimmer green
+    // makes the quieter row, and Theme, the default, draws the calmer 14% tint itself.
+    expect(channel(muted)).toBeLessThan(channel(theme));
+  });
+});
