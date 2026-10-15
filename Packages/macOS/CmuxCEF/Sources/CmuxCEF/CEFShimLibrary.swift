@@ -124,6 +124,8 @@ public struct CEFShimLibrary: @unchecked Sendable {
     public let downloadControl: @convention(c) (Int32, Int32) -> Int32
     /// Answers PERMISSION_PROMPT: 1 allow, 2 deny, else no answer.
     public let permissionContinue: @convention(c) (Int32, Int32) -> Int32
+    /// Answers JS_DIALOG: accept, prompt text.
+    public let jsDialogReply: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
 
     // Page Info site state (ABI 3).
     public let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
@@ -311,6 +313,7 @@ public struct CEFShimLibrary: @unchecked Sendable {
         downloadContinue = try r("cmux_shim_download_continue")
         downloadControl = try r("cmux_shim_download_control")
         permissionContinue = try r("cmux_shim_permission_continue")
+        jsDialogReply = try r("cmux_shim_js_dialog_reply")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")

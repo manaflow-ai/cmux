@@ -99,6 +99,8 @@ class Client : public CefClient,
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
   // Location requests ask in the host's prompt bar (shim_permissions.mm).
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return PermissionHandler(); }
+  // alert/confirm/prompt/beforeunload ask the host (shim_js_dialogs.mm).
+  CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return JSDialogHandler(); }
 
   // MARK: Focus
 
@@ -386,6 +388,7 @@ class Client : public CefClient,
     ForgetOwnBackground(id);
     ForgetDevTools(id);
     ForgetPopups(id);
+    ForgetJSDialogs(id);
     Emit(CMUX_SHIM_BEFORE_CLOSE, id);
   }
 
