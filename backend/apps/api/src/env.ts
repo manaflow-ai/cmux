@@ -119,6 +119,23 @@ export interface Env {
   readonly BILLING_LEVELS_KEY?: string
   /** Payment service key of the usage sync (billing-usage-sync.ts). Test mode only in this phase: a live key is refused. */
   readonly STRIPE_USAGE_KEY?: string
+  /** Prepaid Cloud Chief credits (credits.ts): the top-up key (test mode only; default STRIPE_USAGE_KEY) and the top-up webhook's signing secret. */
+  readonly STRIPE_CREDITS_KEY?: string
+  readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
+  /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
+  readonly CHIEF_CREDITS_MARGIN?: string
+  /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
+  readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
+  /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
+  readonly CHIEF_CREDITS_ENFORCE?: string
+  /** Top-up amounts a person may pick, comma list of whole USD (default 10,20,50,100). */
+  readonly CHIEF_CREDITS_TOPUP_USD?: string
+  /** Optional payment-service product id for the top-up line (else an inline "cmux Cloud credits" line). */
+  readonly CHIEF_CREDITS_PRODUCT?: string
+  /** Dogfood grant (credits-admin.ts): comma list of team_ or user_ ids, the USD per entry, and the round (raise to grant again). */
+  readonly CHIEF_CREDITS_DOGFOOD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_USD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
   /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
   readonly BILLING_USAGE_PRICE_SET?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
@@ -198,6 +215,18 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
+  /** The Claude route's auth: "stack" (default, X-Stack-Auth) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-routes.ts. */
+  readonly CHIEF_BRAIN_CLAUDE_AUTH?: string
+  readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
+  /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
+  readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
+  /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */
+  readonly CHIEF_BRAIN_CLAUDE_EFFORT_BODY?: string
+  /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
+  readonly CHIEF_BRAIN_CACHE_TTL?: string
+  /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
+  readonly OPENROUTER_API_KEY?: string
+  readonly OPENROUTER_BASE_URL?: string
   readonly CHIEF_BRAIN_CLAUDE_REFRESH_URL?: string
   readonly CHIEF_BRAIN_CLAUDE_PROJECT?: string
   /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */

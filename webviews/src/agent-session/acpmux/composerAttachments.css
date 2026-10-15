@@ -142,7 +142,7 @@
   color: var(--agent-accent, var(--agent-text));
   /* Part of the sheet drawing: it scales with the sheet, from the body step. */
   font-size: calc(var(--text-body) * 6 / 13);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.03em;
 }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-mark {
@@ -180,6 +180,8 @@
   border-radius: 12px;
   background: var(--agent-page-bg);
   color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   box-shadow: var(--elevation-2);
 }
 .acpmux-pdf-viewer-bar {
@@ -190,7 +192,8 @@
   padding: 0 10px 0 14px;
   border-bottom: 0.5px solid var(--agent-border);
 }
-.acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; font-weight: var(--weight-emphasis); }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-count { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .acpmux-pdf-viewer-preview {
   display: grid;
   place-items: center;

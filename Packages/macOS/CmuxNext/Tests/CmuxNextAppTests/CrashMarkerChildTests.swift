@@ -54,6 +54,75 @@ struct CrashMarkerChildTests {
     }
 }
 
+/// A fault signal sent by software (`raise`, `pthread_kill`) reads like a
+/// CPU fault on Darwin arm64: XNU gives SIGSEGV, SIGBUS and SIGILL fixed
+/// fault codes and SIGTRAP code 0, never `SI_USER`. The handler returned
+/// as for a fault, nothing ran the signal again, and the process went on
+/// (cx-sjv65). A Swift trap (`brk`, also SIGTRAP code 0) must still end on
+/// its own instruction. The syndrome check reads arm64 state only.
+#if arch(arm64)
+struct CrashMarkerSentSignalTests {
+    @Test func aRaisedSegmentationFaultEndsTheProcess() async throws {
+        let directory = CrashChild.directory("raise-segv", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .signal(SIGSEGV)) {
+            await CrashChild.send(SIGSEGV, name: "raise-segv", toSelf: false)
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGSEGV, "a raised SIGSEGV recorded \(previous.signal.map(String.init) ?? "none")")
+    }
+
+    @Test func aTrapSentToTheThreadEndsTheProcess() async throws {
+        let directory = CrashChild.directory("kill-trap", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .signal(SIGTRAP)) {
+            await CrashChild.send(SIGTRAP, name: "kill-trap", toSelf: true)
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGTRAP, "a SIGTRAP from pthread_kill recorded \(previous.signal.map(String.init) ?? "none")")
+    }
+
+    @Test func aSwiftTrapStillEndsOnItsInstruction() async throws {
+        let directory = CrashChild.directory("swift-trap", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .signal(SIGTRAP)) {
+            await CrashChild.trap()
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGTRAP, "a Swift trap recorded \(previous.signal.map(String.init) ?? "none")")
+    }
+
+    /// The classifier on a built context: only a supervisor-call syndrome
+    /// with `svc #0x80` before the pc reads as sent; a data abort, a `brk`,
+    /// a supervisor call that restored some other pc (`sigreturn`) and an
+    /// unreadable pc read as faults.
+    @Test func onlyAReturningSystemCallReadsAsSent() throws {
+        let code: [UInt32] = [0xD400_1001, 0xD503_201F, 0xD503_201F] // svc #0x80; nop; nop
+        try code.withUnsafeBufferPointer { buffer in
+            let start = try #require(buffer.baseAddress)
+            let afterSvc = UInt64(UInt(bitPattern: start) + 4)
+            #expect(Self.arrived(esr: 0x5600_0080, pc: afterSvc))
+            #expect(!Self.arrived(esr: 0x9200_0046, pc: afterSvc), "a data abort read as sent")
+            #expect(!Self.arrived(esr: 0xF200_0001, pc: afterSvc), "a brk read as sent")
+            #expect(!Self.arrived(esr: 0x5600_0080, pc: afterSvc + 4), "a sigreturn to a fault pc read as sent")
+            #expect(!Self.arrived(esr: 0x5600_0080, pc: 4), "an unreadable pc read as sent")
+        }
+        #expect(arrivedOnASystemCall(nil), "no context must re-raise")
+    }
+
+    private static func arrived(esr: UInt32, pc: UInt64) -> Bool {
+        var machine = __darwin_mcontext64()
+        machine.__es.__esr = esr
+        machine.__ss.__pc = pc
+        return withUnsafeMutablePointer(to: &machine) { state in
+            var context = ucontext_t()
+            context.uc_mcontext = state
+            return withUnsafeMutablePointer(to: &context) { arrivedOnASystemCall(UnsafeMutableRawPointer($0)) }
+        }
+    }
+}
+#endif
+
 /// What the exit-test children run. An exit test captures nothing, so the
 /// child finds its marker folder from its parent's pid.
 enum CrashChild {
@@ -98,8 +167,7 @@ enum CrashChild {
 
     /// Chromium fails to start (no runtime at this layout) after it reset
     /// the signal actions, as `CefInitialize` does before it can fail; then
-    /// the app crashes on a bad memory access. (A `raise(SIGSEGV)` reads as
-    /// a fault on macOS, whose handler returns and the process goes on.)
+    /// the app crashes on a bad memory access.
     @MainActor
     static func crashAfterAFailedChromiumStart() async {
         let marker = await markRun("chromium")
@@ -111,6 +179,24 @@ enum CrashChild {
         await engine.warmStart(reason: "test")
         #expect(!engine.isRunning)
         badAccess()
+        withExtendedLifetime(marker) {}
+    }
+
+    /// Sends `signal` with `raise`, or with `pthread_kill` to this thread,
+    /// then returns: a lost signal lets the child exit normally.
+    @MainActor
+    static func send(_ signal: Int32, name: String, toSelf: Bool) async {
+        let marker = await markRun(name)
+        _ = toSelf ? pthread_kill(pthread_self(), signal) : raise(signal)
+        withExtendedLifetime(marker) {}
+    }
+
+    /// A Swift runtime trap (`brk` on arm64).
+    @MainActor
+    static func trap() async {
+        let marker = await markRun("swift-trap")
+        let values: [Int] = []
+        _ = values[Int(getpid() & 1) + 1]
         withExtendedLifetime(marker) {}
     }
 
