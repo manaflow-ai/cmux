@@ -370,6 +370,9 @@ async fn answer_session(
     let path_watch = tokio::spawn(async move {
         while paths.changed().await.is_ok() {
             let path = *paths.borrow_and_update();
+            // The label at link up is often `Relay` (a WireGuard link starts
+            // on the relay until the phone confirms UDP); this says when it moved.
+            tracing::info!(session_id = path_session, ?path, "link path changed");
             control::emit(&Event::PhonePath {
                 session_id: path_session.clone(),
                 path: control::path_name(path).into(),
