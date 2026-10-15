@@ -78,7 +78,8 @@ extension TabStripView {
                     // its tab overlap (a tab 18 wide shows nothing); ours do not overlap, so the token
                     // is 0: the tab opens from nothing at the previous right edge (hq-4e 2026-10-15).
                     let open = metrics.chrome.openStartWidth
-                    m = TabMotion(x: previousMaxX.map { $0 - open } ?? slot.x, width: open, alpha: 1)
+                    m = previousMaxX.map { TabMotion(x: $0 - open, width: open, alpha: 1) }
+                        ?? TabMotion(x: slot.x, width: slot.width, alpha: 1) // Chrome: the first tab does not animate
                 } else {
                     m = TabMotion(x: slot.x, width: slot.width, alpha: 1)
                 }
@@ -116,7 +117,7 @@ extension TabStripView {
             guard var m = motion[id] else { continue }
             let previous = result.slots.last { $0.id != Self.placeholderID && $0.x < m.x.target - 0.5 }
             m.use(.tabClose)
-            m.x.retarget(previous.map { $0.maxX - closeWidth } ?? 0, scale: scale)
+            m.x.retarget(previous.map { $0.maxX - closeWidth } ?? m.x.target, scale: scale)
             motion[id] = m
         }
     }
