@@ -346,7 +346,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRow.tsx",
     "agent-session/acpmux/chips/ReplyMedia.tsx",
     "agent-session/acpmux/conversation/icons.tsx#Expand",
-    "agent-session/acpmux/conversation/ToolRun.tsx",
+    "agent-session/acpmux/conversation/icons.tsx#AgentFigures",
+    "agent-session/acpmux/conversation/icons.tsx#Plug",
+    "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
@@ -543,7 +545,7 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: "Play: a thought shows in full on its row, wrapped after a muted Thought label, with nothing to open and no tooltip (Leo 2026-10-13).",
+      note: "Play: a thought is one closed, muted 'Thought for Ns' line that opens to its full text, with no tooltip (Leo 2026-10-13).",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -563,12 +565,15 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
-        await ctx.waitFor(() => row()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
+        await ctx.waitFor(() => row()?.textContent?.startsWith("Thought") ?? false);
+        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought starts closed");
+        await ctx.click({ selector: ".cv-thought" });
+        const text = () => ctx.document.querySelector<HTMLElement>(".cv-thought__text");
+        await ctx.waitFor(() => text()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
         // Hovering the thought used to pop its full text as a tooltip.
         await ctx.hover({ selector: ".cv-thought__text" });
-        if (row()!.matches("button") || row()!.hasAttribute("aria-expanded"))
-          throw new Error("a thought is a row of text, not a toggle");
-        if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
+        if (text()!.closest("[title]") || text()!.querySelector("[title]"))
+          throw new Error("a thought shows no tooltip");
       },
     },
     "thought-find": {

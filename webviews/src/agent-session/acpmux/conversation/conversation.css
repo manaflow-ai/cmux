@@ -794,8 +794,10 @@ pre.cv-math-source {
   height: 1px;
   background: var(--cv-rule);
 }
+/* Centered on the label's x-height, not on its 20px line: 4px down puts the 14px chevron's middle
+   on the lowercase text's middle (worked-chevron-center.test.tsx). */
 .cv-worked__chevron {
-  margin-top: 3px;
+  margin-top: 4px;
   margin-left: 2px;
 }
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
@@ -830,12 +832,6 @@ pre.cv-math-source {
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
-/* An opened run's calls; past nine 26px rows the list scrolls. */
-.cv-tool-run {
-  max-height: 234px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
 .cv-tool {
   all: unset;
   box-sizing: border-box;
@@ -869,19 +865,20 @@ pre.cv-math-source {
   margin-left: -4px;
   color: var(--cv-text-dim);
 }
-/* A thought in full: a muted "Thought", then its text wrapped on the tool rows' 20px lines, the
-   first line where a single-line row's text sits (Leo 2026-10-13). */
-.cv-thought {
-  align-items: flex-start;
-  gap: 6px;
-  padding-block: 3px;
-}
+/* A thought: one muted, italic "Thought for 4s" line that opens to its text, wrapped on the tool
+   rows' 20px lines (Leo 2026-10-13, as Codex and Claude desktop draw one). */
 .cv-thought__label {
-  flex: none;
+  color: var(--cv-text-dim);
+  font-style: italic;
+}
+.cv-thought.is-live .cv-thought__label {
+  color: var(--cv-text-muted);
 }
 .cv-thought__text {
-  min-width: 0;
+  margin: 0 0 6px 24px;
   color: var(--cv-text-muted);
+  font-style: italic;
+  line-height: 20px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -933,6 +930,23 @@ pre.cv-math-source {
   justify-content: space-between;
   height: 20px;
 }
+.cv-shell__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* The folder the command ran in, by its last part ("cg-next-reds" for ~/wt/lanes/cg-next-reds). */
+.cv-shell__folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 18px;
+}
 .cv-shell__label .cv-codeblock__action {
   margin-right: -6px;
 }
@@ -943,7 +957,9 @@ pre.cv-math-source {
   margin: 6px 0 0;
   max-height: 240px;
   overflow: auto;
-  font: 12px/18px var(--cv-mono);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 18px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -982,7 +998,9 @@ pre.cv-math-source {
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text-muted);
-  font: 12px/18px var(--cv-mono);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 18px;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1122,6 +1140,19 @@ pre.cv-math-source {
 .cv-message__more:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
+}
+/* How far the message got: a glyph and one line under it, always shown (Sending…, Sent, Delivered to …). */
+.cv-message__receipt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -3px 10px 7px 32.5px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.cv-message[data-delivery="failed"] .cv-message__receipt {
+  color: var(--agent-danger);
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);

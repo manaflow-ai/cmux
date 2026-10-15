@@ -49,7 +49,7 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
           <React.Fragment key={item.permissionId}>
             <details>
               <summary>
-                <span>{typeof tool?.title === "string" ? tool.title : t("permission.toolRequest")}</span>
+                <span>{typeof tool?.title === "string" && tool.title ? tool.title : t("permission.toolRequest")}</span>
                 <span className="acpmux-permission-item-kind">{typeof tool?.kind === "string" ? tool.kind : ""}</span>
                 {item.state !== "pending" && (
                   <span>{t(item.state === "cancelled" ? "permission.itemCancelled" : "permission.itemResolved")}</span>
