@@ -3,9 +3,9 @@ import CmuxNextDesign
 import Foundation
 
 /// The row's state badge (`SidebarRowBadgeStyle`, Leo and Lawrence 2026-10-14): no count number.
-/// The row leads with its harness logo or its kind icon (a user's icon still wins), the badge sits
-/// on that icon's bottom-right corner (or, as a stack, in the trailing slot), and the right side
-/// shows the dim time since the last change.
+/// The badge sits on the bottom-right corner of the row's icon when the row has one (the user's
+/// icon or a favicon); a text-only row (WORKSPACE-ROWS-NO-DEFAULT-ICON) and the stack draw it in
+/// the trailing slot. The right side shows the dim time since the last change.
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
@@ -15,7 +15,7 @@ extension WorkspaceRowView {
             rowBadge.configure([], look: .corner)
             return
         }
-        // The kind icon, the cleared unread badge and the idle activity are set in `configure`.
+        // The icon, the cleared unread badge and the idle activity are set in `configure`.
         if timeText == nil, let time = shown.badgeTime {
             timeText = time
             timeLabel.setString(time)

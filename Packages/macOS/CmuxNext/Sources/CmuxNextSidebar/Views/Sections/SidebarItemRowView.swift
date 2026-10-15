@@ -135,7 +135,8 @@ class SidebarItemRowView: NSView {
             // A tile's well is the raised surface on the tiles card (Safari's
             // favorites); a list row's well is the quieter hover step.
             let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
-            chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
+            // A favicon draws in its own colors: on the resting well, not the workspace color.
+            chip.backgroundColor = wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
@@ -201,6 +202,7 @@ class SidebarItemRowView: NSView {
         let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
         if bare {
             icon.image = nil
+            icon.frame = .zero
         } else if style == .icon, !isRailButton, info.favicon == nil, !info.textOnly,
                   let (image, frame) = inkSizedGlyph(centeredIn: b) {
             icon.image = image
@@ -259,7 +261,8 @@ class SidebarItemRowView: NSView {
     private func glyphImage(side: CGFloat) -> NSImage? {
         if let favicon = info.favicon { return NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side)) }
         if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
-        if info.textOnly { return Self.initialImage(info.caption ?? info.title, side: side) }
+        // An empty title has no initial: the item's neutral symbol keeps an icon-only look visible.
+        if info.textOnly, let initial = Self.initialImage(info.caption ?? info.title, side: side) { return initial }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
         var glyphIcon = info.icon, symbolName = info.symbol
         // The Notifications item draws the Debug Settings glyph (`NotificationIconLook`, cx-epgo).
