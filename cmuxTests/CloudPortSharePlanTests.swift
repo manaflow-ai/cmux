@@ -104,7 +104,7 @@ import Testing
             hasLoaded: true
         )
         #expect(team.audiences.map(\.isChecked) == [false, true, false])
-        #expect(team.linkActions.allSatisfy(\.isEnabled))
+        #expect(team.linkActions.allSatisfy { $0.isEnabled })
         #expect(team.linkActions.last?.action == .change(.stopSharing))
         #expect(team.linkActions.last?.isDestructive == true)
 
