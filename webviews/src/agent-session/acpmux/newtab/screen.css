@@ -275,7 +275,7 @@
    (and scroll) as without it. Each radio fills its option's target, unseen (the pane does not load
    ui.css, and a native dot drew beside every style, cg-design-judge). */
 .nt-style{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);margin:0;padding:0;border:0;min-width:0;font-family:system-ui;-webkit-font-smoothing:antialiased}
-.nt-style:has(.nt-style-options:not([data-look=names])){bottom:0}
+.nt-style:has(.nt-style-options:not([data-look=names],[data-look=round])){bottom:0}
 .nt-style-options{position:relative;display:flex;gap:2px}
 .nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:inherit}
 .nt-style-mark{position:absolute;top:0;left:0;height:100%;box-sizing:border-box;border-radius:5px;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent);pointer-events:none}
@@ -318,7 +318,7 @@
 .nt-style-options[data-look=strip] .nt-style-option{display:grid;place-items:center;width:26px;height:22px;padding:0}
 .nt-style-options[data-look=strip] .nt-style-option:hover:not(:has(:checked)){background:var(--agent-control-hover)}
 .nt-style-sketch{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}
-@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option,.nt-style-option::before,.nt-style-option::after,.nt-style-dot,.nt-style-name{transition:none}}
+@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option,.nt-style-option::before,.nt-style-option::after,.nt-style-dot{transition:none}}
 
 /* The browser omnibar's pointer and hover (OmnibarPointer, cx-d0d.80): the field row is the
    text area, so the I-beam shows over all of it (a press there focuses the field, focusFromRow);
