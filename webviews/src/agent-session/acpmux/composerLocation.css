@@ -625,6 +625,9 @@
   box-shadow: none;
   transition: none;
 }
+/* The default tab's foot (the strip's sides carried down over the card's corner) has no tab to
+   carry here; left on, its side hairlines stood in the gap above the card's top corners. */
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
 :root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
 :root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {

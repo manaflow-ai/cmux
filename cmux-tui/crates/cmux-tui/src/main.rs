@@ -2478,7 +2478,7 @@ fn run_server(
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
-    mux.set_acpmux_starter(acp::daemon_acpmux_starter(&socket_path));
+    acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
