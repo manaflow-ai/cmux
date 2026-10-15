@@ -131,9 +131,15 @@ public actor AcpmuxConnection {
         }
     }
 
-    /// Joins the data frames of one JSON message.
+    /// Joins the data frames of one JSON message. The link writes a message in
+    /// chunks of at most `chunk` bytes (cnx-link `DATA_CHUNK`, 16 KiB; older Macs
+    /// 256 KiB), so a frame of that size or more may continue; a shorter frame ends
+    /// the message. A short frame that does not complete what is pending, but is a
+    /// whole message itself, starts over (an earlier chunk was lost).
     struct MessageJoiner {
-        /// The link's largest frame payload: a frame this size may continue.
+        /// The link's smallest full chunk: a frame this size or larger may continue.
+        static let chunk = 16 * 1024
+        /// The largest frame an older Mac's link sends (kept for the tests' split).
         static let fullFrame = 256 * 1024
         static let maxMessage = 64 << 20
         private var pending = Data()
@@ -141,14 +147,20 @@ public actor AcpmuxConnection {
         /// The message once complete, else nil (waiting, or a frame that was dropped).
         mutating func push(_ frame: Data) -> JSONValue? {
             pending.append(frame)
-            if let value = try? JSONDecoder().decode(JSONValue.self, from: pending) {
+            if let value = Self.decode(pending) {
                 pending = Data()
                 return value
             }
-            if frame.count < Self.fullFrame || pending.count > Self.maxMessage {
-                pending = Data()
+            if frame.count >= Self.chunk, pending.count <= Self.maxMessage {
+                return nil
             }
-            return nil
+            let stale = pending.count > frame.count
+            pending = Data()
+            return stale ? Self.decode(frame) : nil
+        }
+
+        private static func decode(_ data: Data) -> JSONValue? {
+            try? JSONDecoder().decode(JSONValue.self, from: data)
         }
     }
 
