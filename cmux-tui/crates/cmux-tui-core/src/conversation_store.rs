@@ -63,6 +63,20 @@ impl ConversationRejected {
     pub const CODE: &'static str = "conversation_rejected";
 }
 
+/// The conversation an idempotency key made, on the `idempotency_conflict`
+/// refusal of a create that reused the key with another request (a context
+/// of that [`ConversationRejected`]; its text is the same reason). Given only
+/// to a creator that takes part in it: a Chief brain whose grown DM was also
+/// retitled finds its DM again (hq-6d 2026-10-14), `error_details.conversation`.
+#[derive(Debug)]
+pub struct KeyedConversation(pub String);
+
+impl std::fmt::Display for KeyedConversation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(Reject::IdempotencyConflict.code())
+    }
+}
+
 impl std::fmt::Display for ConversationRejected {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.0.code())
@@ -259,6 +273,14 @@ impl ConversationStore {
         Ok(token)
     }
 
+    /// Removes `participant`'s credential (`chief.profile.adopt`): no token
+    /// issued for it before binds again; the next credential is minted anew.
+    pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
+        self.connection
+            .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        Ok(())
+    }
+
     /// Whether `token` is the current credential of `participant`.
     pub(crate) fn verify_agent_token(
         &mut self,
@@ -333,7 +355,17 @@ impl ConversationStore {
             .optional()?;
         if let Some((stored, conversation)) = existing {
             if stored != fingerprint {
-                return Err(rejected(Reject::IdempotencyConflict));
+                let error = rejected(Reject::IdempotencyConflict);
+                // A failed lookup only leaves the detail out: the refusal stays.
+                let takes_part = load_head(&transaction, &conversation)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|head| head.participants.iter().any(|p| p.id == actor));
+                return Err(if takes_part {
+                    error.context(KeyedConversation(conversation))
+                } else {
+                    error
+                });
             }
             let head = load_head(&transaction, &conversation)?
                 .context("created conversation is missing")?;
@@ -794,6 +826,13 @@ pub enum ConversationEvent {
     /// capability in `set-client-info` (never the remote relay or
     /// `conversation.events`).
     Avatar { participant: String, avatar: Option<Value> },
+    /// A Chief was created, edited (a picture too) or deleted
+    /// (`chief-events-v1`, cx-ebm.60.4): its id and `created`, `updated` or
+    /// `deleted`; a client reads the record with `chief.profile.get`. Not
+    /// conversation state; `subscribe` delivers it only to a connection that
+    /// echoed the capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Chief { chief: String, change: &'static str },
 }
 
 impl ConversationEvent {
@@ -838,6 +877,11 @@ impl ConversationEvent {
                 "participant": participant,
                 "avatar": avatar,
             }),
+            Self::Chief { chief, change } => json!({
+                "event": "chief-changed",
+                "chief": chief,
+                "change": change,
+            }),
         }
     }
 
@@ -849,6 +893,11 @@ impl ConversationEvent {
     /// Avatar changes go on `subscribe` only to a connection that asked.
     pub(crate) const fn is_avatar(&self) -> bool {
         matches!(self, Self::Avatar { .. })
+    }
+
+    /// Chief changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_chief(&self) -> bool {
+        matches!(self, Self::Chief { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a

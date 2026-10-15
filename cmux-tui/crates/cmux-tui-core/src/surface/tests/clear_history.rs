@@ -519,3 +519,42 @@ fn clear_history_preserves_wrapped_prompt_input() {
     });
     assert!(writer.0.lock().unwrap().is_empty());
 }
+
+/// cx-6so.48: a prompt longer than the screen is wide, wrapped again by a
+/// narrower viewport (0.75 width), stays whole above its pending input.
+#[test]
+fn clear_history_keeps_a_long_prompt_rewrapped_by_a_narrower_viewport() {
+    let mux = Mux::new_for_test("clear-long-prompt-narrowed", SurfaceOptions::default());
+    let surface = Surface::spawn_for_test(
+        1,
+        SurfaceOptions { cols: 20, rows: 8, ..SurfaceOptions::default() },
+        Arc::downgrade(&mux),
+    )
+    .unwrap();
+    let writer = CapturingWriter::default();
+    replace_local_writer(&surface, Box::new(writer.clone()));
+    surface.with_terminal(|term| {
+        for line in 0..12 {
+            term.vt_write(format!("history-{line}\r\n").as_bytes());
+        }
+        term.vt_write(b"visible-output\r\n");
+        term.vt_write(b"\x1b]133;A\x07leo@long-host:~/projects/cmux$ \x1b]133;B\x07pending-input");
+    });
+    surface.resize(15, 8).unwrap();
+    surface.with_terminal(|term| assert!(term.history_rows() > 0));
+
+    surface.clear_history().unwrap();
+
+    surface.with_terminal(|term| {
+        assert_eq!(term.history_rows(), 0);
+        let viewport = term.viewport_text().unwrap();
+        let compact =
+            viewport.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+        assert!(
+            compact.starts_with("leo@long-host:~/projects/cmux$pending-input"),
+            "the wrapped prompt and its input did not move whole to the top: {viewport:?}"
+        );
+        assert!(!viewport.contains("history-") && !viewport.contains("visible-output"));
+    });
+    assert!(writer.0.lock().unwrap().is_empty());
+}
