@@ -274,7 +274,7 @@ final class NotificationCenterService {
         // history keeps it, read. An agent that asks or fails stays unread even there, and so does
         // an earlier ask or error the tab still holds (acknowledging reads the whole tab).
         let shown = visibility ?? self.visibility(of: located)
-        if Self.isFinishedTurn(notification), shown.isVisible, !Self.holdsUnreadAsk(located.tab, besides: notification) {
+        if notification.isFinishedTurn, shown.isVisible, !located.tab.holdsUnreadAsk(besides: notification) {
             note("finished turn visible: read at once")
             acknowledge(located.tab)
             return
@@ -288,18 +288,6 @@ final class NotificationCenterService {
             return
         }
         deliver(notification, source: source, located: located, decision: decision, program: program, visibility: shown)
-    }
-
-    /// An agent's turn completion (`agent.turn.completed`, "<Agent> finished"): the agent source's
-    /// info level. Its asks (approval, question, plan review) are warnings and its errors errors.
-    nonisolated static func isFinishedTurn(_ notification: DaemonNotification) -> Bool {
-        notification.source == NotificationSource.agent.rawValue && notification.level == .info
-    }
-
-    /// The tab's unread marker is another notification's warning or error, still to be seen.
-    static func holdsUnreadAsk(_ tab: TabModel, besides notification: DaemonNotification) -> Bool {
-        guard let marker = tab.notification, marker.unread, marker.notification != notification.notification else { return false }
-        return marker.level == .warning || marker.level == .error
     }
 
     /// The rest of an arrival once its OSC 7501 record (if any) is known.
@@ -326,8 +314,7 @@ final class NotificationCenterService {
         feedDriver?.run()
         if decision.desktop {
             // Agents finishing together in one workspace share one silent digest banner (FinishedBannerBursts).
-            let digest = !Self.isFinishedTurn(notification) || program != nil || notification.reply ? nil : finishedBursts.join(
-                workspace: located.workspace.id, tab: located.tab.id, banner: "cmux-notification-\(notification.notification.rawValue)", clock: clock)
+            let digest = program == nil ? finishedBursts.join(notification, workspace: located.workspace.id, tab: located.tab.id, clock: clock) : nil
             desktop.withdraw(digest?.replacing ?? [])
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: digest == nil ? decision.sound : nil,
                  subtitle: digest == nil ? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,

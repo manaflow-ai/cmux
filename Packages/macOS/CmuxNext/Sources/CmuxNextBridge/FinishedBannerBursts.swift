@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 import CmuxNextWakeups
 
 /// Agent-finished banners that land in one burst, per workspace (cx-kz6m0.1, parity with the old
@@ -35,10 +36,12 @@ public final class FinishedBannerBursts {
     /// Whether `workspace` has a burst open.
     public func isOpen(workspace: String) -> Bool { bursts[workspace] != nil }
 
-    /// Adds a finished turn on `tab` in `workspace` (its banner id `banner`) to the burst, opening
-    /// one if none is open. A digest only while another unread agent's banner is still showing;
-    /// nil: the banner posts on its own.
-    public func join(workspace: String, tab: String, banner: String, clock: any Clock<Duration>) -> Digest? {
+    /// Adds `notification`, on `tab` in `workspace`, to the burst when it is a finished turn without
+    /// a reply field, opening one if none is open. A digest only while another unread agent's
+    /// banner is still showing; nil: the banner posts on its own.
+    public func join(_ notification: DaemonNotification, workspace: String, tab: String, clock: any Clock<Duration>) -> Digest? {
+        guard notification.isFinishedTurn, !notification.reply else { return nil }
+        let banner = "cmux-notification-\(notification.notification.rawValue)"
         var burst = bursts[workspace] ?? {
             let timer = DemandTimer(owner: "notifications.finishedBurst", clock: clock)
             timer.schedule(after: Self.window) { @MainActor [weak self] in self?.bursts[workspace] = nil }
@@ -66,5 +69,19 @@ public final class FinishedBannerBursts {
                 bursts[workspace] = burst
             }
         }
+    }
+}
+
+extension DaemonNotification {
+    /// An agent's turn completion (`agent.turn.completed`, "<Agent> finished"): the agent source's
+    /// info level. Its asks (approval, question, plan review) are warnings and its errors errors.
+    public nonisolated var isFinishedTurn: Bool { source == "agent" && level == .info }
+}
+
+extension TabModel {
+    /// The tab's unread marker is another notification's warning or error, still to be seen.
+    public func holdsUnreadAsk(besides other: DaemonNotification) -> Bool {
+        guard let marker = notification, marker.unread, marker.notification != other.notification else { return false }
+        return marker.level == .warning || marker.level == .error
     }
 }
