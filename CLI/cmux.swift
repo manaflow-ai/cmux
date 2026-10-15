@@ -20252,7 +20252,15 @@ struct CMUXCLI {
             case "get":
                 try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.cookies.get", params: params)
-                output(payload, fallback: "OK")
+                if effectiveJSONOutput {
+                    output(payload, fallback: "OK")
+                } else {
+                    // One `name=value` line per cookie, like `get value` prints its value.
+                    let cookies = payload["cookies"] as? [[String: Any]] ?? []
+                    for cookie in cookies {
+                        print("\(cookie["name"] as? String ?? "")=\(cookie["value"] as? String ?? "")")
+                    }
+                }
             case "set":
                 var setParams = params
                 if parsed.flags.contains("--http-only") {
@@ -20308,7 +20316,16 @@ struct CMUXCLI {
                     params["key"] = key
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.get", params: params)
-                output(payload, fallback: "OK")
+                if effectiveJSONOutput {
+                    output(payload, fallback: "OK")
+                } else if let value = payload["value"] as? String {
+                    print(value)
+                } else {
+                    // A whole store (no key) or a missing key (null) prints as JSON.
+                    let value = payload["value"] ?? NSNull()
+                    let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+                    print(data.flatMap { String(data: $0, encoding: .utf8) } ?? "null")
+                }
             case "set":
                 try rejectBrowserCommandExtras(positional.dropFirst(2), commandName: commandName)
                 guard positional.count >= 2 else {
