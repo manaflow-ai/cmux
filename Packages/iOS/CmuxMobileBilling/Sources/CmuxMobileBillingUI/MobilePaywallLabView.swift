@@ -196,7 +196,8 @@ struct MobilePaywallLabVariantView: View {
             highlightedPlanID: base.highlightedPlanID,
             defaultBillingPeriod: base.defaultBillingPeriod,
             ctaStyle: base.ctaStyle,
-            showYearlySavings: base.showYearlySavings
+            showYearlySavings: base.showYearlySavings,
+            entryPointHeadlines: base.entryPointHeadlines
         ) ?? base
     }
 }

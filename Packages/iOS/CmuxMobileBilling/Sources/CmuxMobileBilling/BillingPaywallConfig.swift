@@ -9,6 +9,18 @@ public enum BillingPaywallLayout: String, Sendable, Equatable, Hashable, Codable
     /// One large card for the highlighted plan; the others sit behind
     /// "See all plans".
     case focus
+    /// A Free and Pro check table and one purchase button; "See Max" opens
+    /// ``planTabs`` on Max.
+    case checklist
+    /// Pro and Max tabs with each plan's benefits and its billing periods
+    /// as two large cards.
+    case planTabs
+    /// A dark header with cmux art, four benefit rows, and a Pro and Max
+    /// selector by the button.
+    case hero
+    /// A trial timeline (today, the reminder, the first charge). Shown only
+    /// with a granted free trial; otherwise the paywall shows ``cards``.
+    case trialTimeline
 }
 
 /// What the purchase button says.
@@ -69,6 +81,10 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
     public let ctaStyle: BillingPaywallCTAStyle
     /// Whether the yearly savings computed from StoreKit prices is shown.
     public let showYearlySavings: Bool
+    /// Headlines for specific entry points, keyed by `entry_point` value,
+    /// such as `locked_vm_size`. An entry point without one uses
+    /// ``headline``. Entries over ``headlineLimit`` are dropped.
+    public let entryPointHeadlines: [String: String]
 
     /// Maximum headline length in characters.
     public static let headlineLimit = 60
@@ -91,7 +107,8 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         highlightedPlanID: BillingPlanID?,
         defaultBillingPeriod: BillingPeriod,
         ctaStyle: BillingPaywallCTAStyle,
-        showYearlySavings: Bool
+        showYearlySavings: Bool,
+        entryPointHeadlines: [String: String] = [:]
     ) {
         let headline = Self.plain(headline)
         let subheadline = Self.plain(subheadline)
@@ -116,6 +133,16 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         self.defaultBillingPeriod = defaultBillingPeriod
         self.ctaStyle = ctaStyle
         self.showYearlySavings = showYearlySavings
+        self.entryPointHeadlines = entryPointHeadlines.reduce(into: [:]) { result, entry in
+            let text = Self.plain(entry.value)
+            if !text.isEmpty, text.count <= Self.headlineLimit { result[entry.key] = text }
+        }
+    }
+
+    /// The headline for `entryPoint`: its own when the server sent one,
+    /// else ``headline``.
+    public func headline(for entryPoint: BillingEntryPoint) -> String {
+        entryPointHeadlines[entryPoint.rawValue] ?? headline
     }
 
     /// The built-in configuration, equal to the server's `control` variant.
@@ -144,6 +171,7 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         case defaultBillingPeriod
         case ctaStyle
         case showYearlySavings
+        case entryPointHeadlines
     }
 
     /// Decodes the schema exactly; any violation throws, so the caller falls
@@ -161,7 +189,9 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
             highlightedPlanID: highlighted.map { BillingPlanID(rawValue: $0) },
             defaultBillingPeriod: try container.decode(BillingPeriod.self, forKey: .defaultBillingPeriod),
             ctaStyle: try container.decode(BillingPaywallCTAStyle.self, forKey: .ctaStyle),
-            showYearlySavings: try container.decode(Bool.self, forKey: .showYearlySavings)
+            showYearlySavings: try container.decode(Bool.self, forKey: .showYearlySavings),
+            // Optional and lenient: a bad map drops the map, not the config.
+            entryPointHeadlines: (try? container.decodeIfPresent([String: String].self, forKey: .entryPointHeadlines)) ?? [:]
         ) else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: decoder.codingPath,
@@ -183,6 +213,9 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         try container.encode(defaultBillingPeriod, forKey: .defaultBillingPeriod)
         try container.encode(ctaStyle, forKey: .ctaStyle)
         try container.encode(showYearlySavings, forKey: .showYearlySavings)
+        if !entryPointHeadlines.isEmpty {
+            try container.encode(entryPointHeadlines, forKey: .entryPointHeadlines)
+        }
     }
 
     /// Plain single-line text: control characters (including line breaks)

@@ -62,6 +62,7 @@ enum BillingPriceCopy {
 /// The paywall's title block: plain text from the server configuration.
 struct MobilePaywallHeader: View {
     let config: BillingPaywallConfig
+    let entryPoint: BillingEntryPoint
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -73,7 +74,7 @@ struct MobilePaywallHeader: View {
                 .accessibilityHidden(true)
                 .padding(.bottom, 6)
             // Verbatim: server text is plain, never Markdown.
-            Text(verbatim: config.headline)
+            Text(verbatim: config.headline(for: entryPoint))
                 .font(.title.bold())
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
@@ -456,6 +457,10 @@ struct MobilePaywallPurchaseBar: View {
     let isBusy: Bool
     let isPreview: Bool
     let statusMessage: String?
+    /// A layout's own button title, such as "Upgrade for $74.99/month".
+    var titleOverride: String? = nil
+    /// A layout's own renewal line; the button must then name the price.
+    var renewalOverride: String? = nil
     let buy: () -> Void
 
     var body: some View {
@@ -501,7 +506,7 @@ struct MobilePaywallPurchaseBar: View {
                 .monospacedDigit()
                 .accessibilityIdentifier("BillingPaywallMonthlyEquivalent")
             }
-            Text(renewal)
+            Text(renewalOverride ?? renewal)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -523,6 +528,7 @@ struct MobilePaywallPurchaseBar: View {
         if isCurrent {
             return L10n.string("mobile.billing.offer.current", defaultValue: "Current Plan")
         }
+        if let titleOverride { return titleOverride }
         if trial != nil {
             return L10n.string("mobile.billing.trial.cta", defaultValue: "Start Free Trial")
         }

@@ -69,6 +69,11 @@ public struct MobilePaywallView: View {
     @State private var reportedTrial: BillingTrialGrant?
     /// The Paywall Lab's trial, built from real StoreKit prices.
     @State private var previewTrial: BillingTrialGrant?
+    /// "See Max" in the checklist layout switches to the plan tabs.
+    @State private var layoutOverride: BillingPaywallLayout?
+    /// False once the user declined notifications: the trial timeline then
+    /// drops the reminder it could not send.
+    @State private var reminderAllowed = true
 
     /// Creates the paywall.
     /// - Parameters:
@@ -81,24 +86,35 @@ public struct MobilePaywallView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if let context {
-                    if case .completed(let planID) = billing.purchase, preview == nil {
-                        MobilePaywallSuccess(planID: planID, done: { dismiss() })
-                    } else {
-                        MobilePaywallHeader(config: context.config)
-                        content(context)
-                    }
-                } else {
-                    loadingRow
+            VStack(spacing: 0) {
+                if let context, effectiveLayout == .hero, !isCompleted, isShowingOffers {
+                    MobilePaywallHeroHeader(
+                        headline: context.config.headline(for: context.entryPoint),
+                        subheadline: context.config.subheadline
+                    )
                 }
+                VStack(alignment: .leading, spacing: 24) {
+                    if let context {
+                        if case .completed(let planID) = billing.purchase, preview == nil {
+                            MobilePaywallSuccess(planID: planID, done: { dismiss() })
+                        } else {
+                            if effectiveLayout != .hero || !isShowingOffers {
+                                MobilePaywallHeader(config: context.config, entryPoint: context.entryPoint)
+                            }
+                            content(context)
+                        }
+                    } else {
+                        loadingRow
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, effectiveLayout == .hero && isShowingOffers ? 24 : 8)
+                .padding(.bottom, 24)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
         }
+        .ignoresSafeArea(.container, edges: effectiveLayout == .hero && isShowingOffers ? .top : [])
         .scrollBounceBehavior(.basedOnSize)
         .background(Color(.systemGroupedBackground))
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -112,6 +128,8 @@ public struct MobilePaywallView: View {
                     isBusy: billing.purchase.isPurchasing,
                     isPreview: preview != nil,
                     statusMessage: statusMessage,
+                    titleOverride: ctaTitleOverride(offer),
+                    renewalOverride: renewalOverride,
                     buy: { buy(offer, context: context) }
                 )
             }
@@ -126,8 +144,19 @@ public struct MobilePaywallView: View {
                 .accessibilityLabel(L10n.string("mobile.billing.paywall.close", defaultValue: "Close"))
                 .accessibilityIdentifier("BillingPaywallClose")
             }
+            if effectiveLayout == .planTabs, isShowingOffers {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(L10n.string("mobile.billing.restoreShort", defaultValue: "Restore")) {
+                        guard preview == nil else { return }
+                        Task { await billing.restorePurchases() }
+                    }
+                    .disabled(billing.restore == .restoring || billing.purchase.isPurchasing)
+                    .accessibilityIdentifier("BillingPaywallRestoreTop")
+                }
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(effectiveLayout == .hero && isShowingOffers ? .dark : nil, for: .navigationBar)
         .task { await start() }
         .onDisappear(perform: reportDismissed)
         .accessibilityIdentifier("BillingPaywallView")
@@ -160,6 +189,7 @@ public struct MobilePaywallView: View {
             // Lead with the trial: select its plan and period.
             period = grant.billingOffer.billingPeriod
             selectedPlan = grant.planID
+            reminderAllowed = await BillingTrialReminder.canRemind()
         }
     }
 
@@ -199,7 +229,20 @@ public struct MobilePaywallView: View {
         guard preview == nil else { return }
         reachedPurchase = true
         billing.paywallCTATapped(offer, context: context)
-        Task { await billing.buy(offer, context: context, trial: trial(for: offer)) }
+        let trial = trial(for: offer)
+        let promisesReminder = trial != nil && effectiveLayout == .trialTimeline && reminderAllowed
+        Task {
+            if promisesReminder {
+                // Ask in context: the timeline promised this reminder.
+                reminderAllowed = await BillingTrialReminder.requestIfNeeded()
+            }
+            await billing.buy(offer, context: context, trial: trial)
+            guard let trial, promisesReminder, reminderAllowed else { return }
+            switch billing.purchase {
+            case .completed, .awaitingServer: await BillingTrialReminder.schedule(grant: trial)
+            default: break
+            }
+        }
     }
 
     // MARK: Content
@@ -243,16 +286,57 @@ public struct MobilePaywallView: View {
             }
         } else {
             let config = context.config
-            if !config.bullets.isEmpty {
+            if !config.bullets.isEmpty, effectiveLayout.showsBullets {
                 MobilePaywallBullets(bullets: config.bullets)
             }
-            if hasPeriodChoice {
+            if hasPeriodChoice, effectiveLayout.showsPeriodPicker {
                 MobilePaywallPeriodPicker(
                     period: $period,
                     savingsPercent: config.showYearlySavings ? offers.bestYearlySavingsPercent : nil
                 )
             }
-            switch config.layout {
+            switch effectiveLayout {
+            case .checklist:
+                MobilePaywallChecklist()
+                if offers.contains(where: { $0.planID == .max }) {
+                    Button {
+                        withAnimation(.snappy) {
+                            layoutOverride = .planTabs
+                            selectedPlan = .max
+                        }
+                    } label: {
+                        Text(L10n.string("mobile.billing.checklist.seeMax", defaultValue: "See Max"))
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("BillingPaywallSeeMax")
+                }
+            case .planTabs:
+                MobilePaywallPlanTabs(
+                    plans: tabPlans,
+                    selectedPlan: Binding(
+                        get: { selectedOffer.map(\.planID) ?? .pro },
+                        set: { selectedPlan = $0 }
+                    ),
+                    offers: periodOffers(for: selectedOffer?.planID ?? .pro),
+                    period: $period,
+                    savingsPercent: config.showYearlySavings
+                        ? offers.yearlySavingsPercent(for: selectedOffer?.planID ?? .pro)
+                        : nil
+                )
+            case .hero:
+                MobilePaywallHeroBenefits(bullets: config.bullets)
+                MobilePaywallTierSelector(
+                    offers: visibleOffers.filter { $0.planID == .pro || $0.planID == .max }.sorted { $0.planID < $1.planID },
+                    selectedPlan: selectedOffer?.planID,
+                    select: { selectedPlan = $0 }
+                )
+            case .trialTimeline:
+                if let grant = activeTrial {
+                    MobilePaywallTrialTimeline(grant: grant, showsReminder: reminderAllowed)
+                }
             case .cards:
                 VStack(spacing: 12) {
                     ForEach(visibleOffers) { offer in
@@ -454,6 +538,57 @@ public struct MobilePaywallView: View {
         selectedOffer
     }
 
+    /// The layout on screen: the configured one, "See Max"'s plan tabs, or
+    /// cards for a trial timeline without a granted trial.
+    private var effectiveLayout: BillingPaywallLayout {
+        if let layoutOverride { return layoutOverride }
+        guard let layout = context?.config.layout else { return .cards }
+        if layout == .trialTimeline, activeTrial == nil { return .cards }
+        return layout
+    }
+
+    /// Pro and Max, as sold.
+    private var tabPlans: [BillingPlanID] {
+        let sold = Set(offers.map(\.planID))
+        return [BillingPlanID.pro, .max].filter { sold.contains($0) }
+    }
+
+    /// One plan's offers, one per period; a granted trial replaces its
+    /// period's product.
+    private func periodOffers(for plan: BillingPlanID) -> [BillingOffer] {
+        var byPeriod: [BillingPeriod: BillingOffer] = [:]
+        for offer in offers where offer.planID == plan { byPeriod[offer.billingPeriod] = offer }
+        if let grant = activeTrial, grant.planID == plan { byPeriod[grant.billingOffer.billingPeriod] = grant.billingOffer }
+        return Array(byPeriod.values)
+    }
+
+    private func ctaTitleOverride(_ offer: BillingOffer) -> String? {
+        switch effectiveLayout {
+        case .checklist where trial(for: offer) == nil:
+            return String(
+                format: L10n.string("mobile.billing.checklist.cta", defaultValue: "Upgrade for %@"),
+                BillingPriceCopy.price(offer)
+            )
+        case .planTabs where trial(for: offer) == nil:
+            return String(
+                format: L10n.string("mobile.billing.paywall.subscribeFor", defaultValue: "Subscribe for %@"),
+                BillingPriceCopy.price(offer)
+            )
+        case .trialTimeline:
+            guard let trial = trial(for: offer) else { return nil }
+            return BillingTrialReminder.trialDays(trial.offer) == 7
+                ? L10n.string("mobile.billing.timeline.cta", defaultValue: "Start My Free Week")
+                : nil
+        default:
+            return nil
+        }
+    }
+
+    private var renewalOverride: String? {
+        guard effectiveLayout == .checklist, let offer = selectedOffer, trial(for: offer) == nil else { return nil }
+        return L10n.string("mobile.billing.checklist.renewal", defaultValue: "Auto-renews. Cancel anytime in Settings.")
+    }
+
     private var comparisonPlans: [BillingPlanID] {
         // Paid plans first, the recommended one leading; Free last, for
         // contrast.
@@ -471,6 +606,25 @@ public struct MobilePaywallView: View {
             return L10n.string("mobile.billing.lab.purchasesOff", defaultValue: "Purchases are off in Paywall Lab.")
         }
         return BillingStatusCopy.resultMessage(purchase: billing.purchase, restore: billing.restore)
+    }
+}
+
+extension BillingPaywallLayout {
+    /// Layouts with the Monthly/Yearly picker above the plans.
+    var showsPeriodPicker: Bool {
+        switch self {
+        case .cards, .comparison, .focus: true
+        case .checklist, .planTabs, .hero, .trialTimeline: false
+        }
+    }
+
+    /// Layouts that list the configured bullets above the plans (hero
+    /// shows them as its benefit rows).
+    var showsBullets: Bool {
+        switch self {
+        case .hero, .checklist: false
+        default: true
+        }
     }
 }
 
