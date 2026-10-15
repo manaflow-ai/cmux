@@ -247,7 +247,10 @@
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
               "ui.animationSpeed",
-              "ui.paneAnimations"
+              "ui.paneAnimations",
+              "ui.animations.newTab",
+              "ui.animations.newWorkspace",
+              "ui.animations.bounce"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -670,6 +673,16 @@
             }
           },
           {
+            "key" : "settings.group.extensions",
+            "rows" : [
+              "browser.builtInAdBlocker"
+            ],
+            "title" : {
+              "key" : "settings.group.extensions",
+              "text" : "Extensions"
+            }
+          },
+          {
             "key" : "settings.group.links",
             "rows" : [
               "browser.links.cmdClick",
@@ -907,6 +920,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -10148,6 +10162,164 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.newTab.help",
+        "text" : "A new tab grows into its place in the tab bar. Off shows it there at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.newTab",
+      "keywords" : [
+        "motion",
+        "animation",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "newTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.newTab",
+        "text" : "Animate New Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.newWorkspace.help",
+        "text" : "A new workspace row opens in the sidebar. Off shows it there at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.newWorkspace",
+      "keywords" : [
+        "motion",
+        "animation",
+        "workspace",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "newWorkspace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.newWorkspace",
+        "text" : "Animate New Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "subtle"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.subtle",
+            "text" : "Subtle"
+          },
+          "value" : "subtle"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.bounce.help",
+        "text" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.bounce",
+      "keywords" : [
+        "motion",
+        "spring",
+        "bounce"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "bounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.bounce",
+        "text" : "Animation Bounce"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "none",
         "dividers",
         "borders",
@@ -18910,6 +19082,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.extensions",
+        "text" : "Extensions"
+      },
+      "help" : {
+        "key" : "settings.browser.builtInAdBlocker.help",
+        "text" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.builtInAdBlocker",
+      "keywords" : [
+        "ublock",
+        "ad blocker",
+        "adblock",
+        "extensions",
+        "trackers"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "builtInAdBlocker"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.builtInAdBlocker",
+        "text" : "Built-in uBlock Origin"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "moderate",
         "aggressive",
         "off",
@@ -22164,6 +22384,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.classicHome.help",
+        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.classicHome",
+      "keywords" : [
+        "home",
+        "chief",
+        "classic",
+        "dock",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "classicHome"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.classicHome",
+        "text" : "Classic Home"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23562,7 +23830,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f590edffcb3e42e89831d8e96c6ba3eece1917143936341f49819ccb666cb37c",
+  "schema_hash" : "dc122bbb3b7899a72fbc748646938fb914310c91351a798ccfedea1e292126a8",
   "sections" : [
     {
       "id" : "general",

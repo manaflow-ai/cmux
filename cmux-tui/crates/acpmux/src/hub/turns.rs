@@ -273,12 +273,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
             clear_sent_draft(&mut m, &text);
-            if m.title.is_none() {
-                let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-                if !first.is_empty() {
-                    m.title = Some(short_text(first, 80));
-                }
-            }
+            super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
@@ -616,13 +611,11 @@ impl Hub {
             drop(state);
         }
         self.save_meta(session);
+        self.send_offer_result(session);
         result
     }
 
-    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
-    /// A turn refused after it was accepted (the dispatch check again, or
-    /// the remote floor): failed as an unstarted turn, the agent kept.
+    /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     fn refuse_started_turn(
         &self,
         session: &Arc<Session>,
@@ -636,6 +629,8 @@ impl Hub {
         }
     }
 
+    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
+    /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
         &self,
         session: &Arc<Session>,
@@ -834,8 +829,8 @@ impl Hub {
         {
             let mut applied =
                 session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if super::start_defaults::is_effort_id(config_id) {
-                applied.effort = value.as_str().map(str::to_owned);
+            if let Some(effort) = super::start_defaults::effort_of(config_id, &value) {
+                applied.effort = Some(effort.to_owned());
             }
         }
         Ok(r)

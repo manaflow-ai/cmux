@@ -1316,6 +1316,8 @@ mod quit_spawn;
 mod fork_through;
 #[path = "hub_integration/last_message.rs"]
 mod last_message;
+#[path = "hub_integration/session_git_state.rs"]
+mod session_git_state;
 #[cfg(unix)]
 #[path = "hub_integration/session_list_order.rs"]
 mod session_list_order;

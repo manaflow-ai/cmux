@@ -177,6 +177,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         models: None,
         permission_policy: d.policy.map(|p| p.to_string()),
         title: None,
+        title_source: None,
+        title_prompt: None,
         last_prompt: None,
         preview: None,
         event_count: 0,
@@ -196,5 +198,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         composer_draft: None,
         bookmarks: Default::default(),
         tools: Default::default(),
+        // Read off the async runtime by `session/new` (`adoption::start_folder`).
+        git_branch: None,
+        git_head: None,
     }
 }

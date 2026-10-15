@@ -16,6 +16,8 @@ is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs.
+A prompt ending in "settings-probe" replies with the prompt text as Claude
+read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
 A stop_task control request ends its task killed (task_updated);
@@ -58,6 +60,7 @@ def stored(sid):
     return os.path.join(STORE, sid + (LAYOUT or ""))
 SESSION = "fake-claude-session"
 RESUME = None
+FLAG_SETTINGS = []
 if STORE:
     for flag in ("--session-id", "--resume"):
         if flag in sys.argv[:-1]:
@@ -200,6 +203,8 @@ while True:
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
+        if request.get("subtype") == "apply_flag_settings":
+            FLAG_SETTINGS.append(request.get("settings"))
         # Like Claude Code, a stopped task ends killed (task_updated); FAKE_CLAUDE_STOP_NOTIFY=1 also
         # sends its task_notification, as a Claude Code that does not suppress it would.
         if request.get("subtype") == "stop_task":
@@ -294,6 +299,8 @@ while True:
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        if said.endswith("settings-probe"):
+            text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
         if said.strip() == "history-probe" and STORE and LAYOUT:
             with open(stored(SESSION)) as f:
                 records = [json.loads(line) for line in f if line.strip()]

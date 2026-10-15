@@ -5,12 +5,22 @@ public import Foundation
 extension BrowserEmulation {
     /// `extra.emulation` of a tab record; nil when absent or unreadable.
     public init?(record json: Data?) {
-        guard let json, let fields = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],
-              let width = (fields["width"] as? NSNumber)?.intValue, let height = (fields["height"] as? NSNumber)?.intValue,
-              let ratio = (fields["device_scale_factor"] as? NSNumber)?.doubleValue else { return nil }
+        guard let json, let fields = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { return nil }
         let calls = (fields["chromium_calls"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        let callsJSON = calls.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        if fields["mode"] as? String == "fit" {
+            guard let fit = fields["fit"] as? [String: Any],
+                  let aspectWidth = (fit["aspect_width"] as? NSNumber)?.intValue, let aspectHeight = (fit["aspect_height"] as? NSNumber)?.intValue,
+                  let minWidth = (fit["min_width"] as? NSNumber)?.intValue, let maxWidth = (fit["max_width"] as? NSNumber)?.intValue
+            else { return nil }
+            self.init(width: 0, height: 0, deviceScaleFactor: 0, userAgent: "", chromiumCallsJSON: callsJSON,
+                      fit: Fit(aspectWidth: aspectWidth, aspectHeight: aspectHeight, minWidth: minWidth, maxWidth: maxWidth))
+            return
+        }
+        guard let width = (fields["width"] as? NSNumber)?.intValue, let height = (fields["height"] as? NSNumber)?.intValue,
+              let ratio = (fields["device_scale_factor"] as? NSNumber)?.doubleValue else { return nil }
         self.init(width: width, height: height, deviceScaleFactor: ratio, userAgent: fields["user_agent"] as? String ?? "",
-                  chromiumCallsJSON: calls.flatMap { String(data: $0, encoding: .utf8) } ?? "[]")
+                  chromiumCallsJSON: callsJSON)
     }
 }
 
