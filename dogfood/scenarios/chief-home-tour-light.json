@@ -38,6 +38,9 @@
       "shot": "home-first-run-light"
     },
     {
+      "tree": "home-first-run-light"
+    },
+    {
       "click": {
         "id": "ChiefFirstRunStarter.list.bullet.rectangle"
       }
@@ -92,6 +95,9 @@
       "shot": "approval-requested-light"
     },
     {
+      "tree": "approval-requested-light"
+    },
+    {
       "socket": "chief.stop",
       "params": {}
     },
@@ -103,6 +109,9 @@
     },
     {
       "shot": "settings-panel-light"
+    },
+    {
+      "tree": "settings-panel-light"
     },
     {
       "click": "HomeHeaderNamePill"
@@ -133,6 +142,9 @@
     },
     {
       "shot": "chief-pane-in-split-light"
+    },
+    {
+      "tree": "chief-pane-in-split-light"
     }
   ]
 }
