@@ -22,11 +22,15 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         (issued, issuedContinuation) = AsyncStream.makeStream()
     }
 
-    func find(_ text: String, forward: Bool, matchCase: Bool, findNext: Bool) {
+    var canFind = true
+
+    func find(_ text: String, forward: Bool, matchCase: Bool, findNext: Bool) -> Bool {
         let call = Call(text: text, forward: forward, matchCase: matchCase, findNext: findNext)
         calls.append(call)
+        guard canFind else { return false }
         issuedContinuation.yield(call)
         onFind?(call)
+        return true
     }
 
     func stopFinding(clearSelection: Bool) {
@@ -116,6 +120,14 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         #expect(session.hasPendingRequest)
         session.cancelPending()
         #expect(await pending.value == BrowserFindMatchCount(total: 0, selected: nil))
+    }
+
+    @Test func anEngineThatCannotSearchAnswersAtOnce() async {
+        let driver = FakeNativeFindDriver()
+        driver.canFind = false
+        let session = BrowserNativeFindSession(driver: driver)
+        #expect(await session.search(needle: "x") == nil)
+        #expect(!session.hasPendingRequest)
     }
 
     @Test func matchCountMapsChromiumOrdinals() {

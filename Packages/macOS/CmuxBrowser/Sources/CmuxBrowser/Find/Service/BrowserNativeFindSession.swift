@@ -107,7 +107,12 @@ public final class BrowserNativeFindSession: BrowserFinding {
         let needle = self.needle
         return await withCheckedContinuation { continuation in
             pending = continuation
-            driver.find(needle, forward: forward, matchCase: matchCase, findNext: findNext)
+            guard driver.find(needle, forward: forward, matchCase: matchCase, findNext: findNext) else {
+                // No result event follows; answer now so the find bar keeps its count.
+                pending = nil
+                continuation.resume(returning: nil)
+                return
+            }
         }
     }
 }
