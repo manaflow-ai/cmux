@@ -19,10 +19,12 @@ public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting 
     ///   - remembered: The frame the user last left the window at.
     public convenience init(near owner: NSWindow?, remembered: CGRect? = nil) {
         self.init(contentRect: Self.frame(near: owner, remembered: remembered))
-        for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification] {
-            frameObservers.append(NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
+        // Moves, the end of a live resize, and resizes outside one (Zoom, a title bar double click).
+        for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification, NSWindow.didResizeNotification] {
+            frameObservers.append(NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     guard let self else { return }
+                    if note.name == NSWindow.didResizeNotification, self.inLiveResize { return }
                     self.onFrameChange?(self.frame)
                 }
             })
@@ -99,7 +101,18 @@ public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting 
     ///   - remembered: The frame the user last left the window at.
     /// - Returns: The frame.
     public static func frame(near window: NSWindow?, remembered: CGRect? = nil) -> CGRect {
-        let visible = window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
+        let ownerVisible = window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
+        // A remembered frame stays on the screen it was left on, not the cmux window's.
+        let visible = remembered.flatMap(Self.visibleFrame(mostOverlapping:)) ?? ownerVisible
         return BrowserDevToolsWindowPlacement().frame(owner: window?.frame, visible: visible, remembered: remembered)
+    }
+
+    private static func visibleFrame(mostOverlapping rect: CGRect) -> CGRect? {
+        let overlaps = NSScreen.screens.map { screen -> (CGRect, CGFloat) in
+            let overlap = screen.frame.intersection(rect)
+            return (screen.visibleFrame, overlap.isNull ? 0 : overlap.width * overlap.height)
+        }
+        guard let best = overlaps.max(by: { $0.1 < $1.1 }), best.1 > 0 else { return nil }
+        return best.0
     }
 }

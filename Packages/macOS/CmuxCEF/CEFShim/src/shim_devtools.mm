@@ -98,11 +98,11 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
   }
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
-    pending_console().erase(inspected_);
     auto& map = devtools_browsers();
     auto it = map.find(inspected_);
     if (it != map.end() && it->second->IsSame(browser)) {
       map.erase(it);
+      pending_console().erase(inspected_);
     }
     Emit(CMUX_SHIM_DEVTOOLS_CLOSED, inspected_, 0, browser->GetIdentifier());
   }
@@ -151,6 +151,7 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
 
 void ForgetDevTools(int inspected) {
   placements().erase(inspected);
+  pending_console().erase(inspected);
 }
 
 }  // namespace cmux_shim

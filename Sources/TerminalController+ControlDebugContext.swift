@@ -436,7 +436,12 @@ extension TerminalController: ControlDebugContext {
             if let point {
                 page.features.capturesNextContextMenu = true
                 Task { @MainActor in
-                    try? await page.dispatchInput(.click(at: point, button: .right, clickCount: 1, modifiers: []))
+                    do {
+                        try await page.dispatchInput(.click(at: point, button: .right, clickCount: 1, modifiers: []))
+                    } catch {
+                        // No menu will come: don't swallow the next real right-click.
+                        page.features.capturesNextContextMenu = false
+                    }
                 }
             }
             return .ok([

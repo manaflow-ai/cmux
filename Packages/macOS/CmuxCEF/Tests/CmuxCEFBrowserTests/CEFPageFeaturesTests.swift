@@ -102,6 +102,22 @@ private final class RecordingShim: CEFPageFeatureShim {
         }
     }
 
+    @Test func devToolsOpenAtACrashReopenOnTheReloadedPage() {
+        let shim = RecordingShim()
+        let (features, _, _) = makeFeatures(shim: shim)
+        features.handle(.devToolsWillOpen(browser: 7))
+        features.handle(.devToolsOpened(browser: 7, devTools: 99, docked: true))
+        features.handle(.renderTerminated(browser: 7, status: 2, code: 11, text: "crashed"))
+        features.handle(.devToolsClosed(browser: 7, devTools: 99))
+        let before = shim.calls.count
+        features.handle(.loadEnd(browser: 7, httpStatus: 200))
+        #expect(shim.calls.count == before + 1)
+        #expect(shim.calls.last == .devTools(7, CEFShimLibrary.DevToolsCommand.show.rawValue, 0, 0))
+        // Only once: the next load doesn't reopen closed DevTools.
+        features.handle(.loadEnd(browser: 7, httpStatus: 200))
+        #expect(shim.calls.count == before + 1)
+    }
+
     @Test func otherBrowsersEventsAreIgnored() {
         let shim = RecordingShim()
         let (features, _, _) = makeFeatures(shim: shim)
