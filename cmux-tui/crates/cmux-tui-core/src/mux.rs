@@ -156,6 +156,7 @@ mod closed_workspace_replay;
 #[cfg(test)]
 mod legacy_actor_test_wrappers;
 mod spawn_options;
+pub(crate) mod tab_slot;
 #[cfg(test)]
 mod test_actor_wrappers;
 mod test_hooks;

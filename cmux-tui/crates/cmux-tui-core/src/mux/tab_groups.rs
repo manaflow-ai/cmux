@@ -821,7 +821,8 @@ impl Mux {
         Ok(commit)
     }
 
-    /// Add a new view of a running terminal to `pane` (its last tab).
+    /// Add a new view of a running terminal to `pane`: its last tab, or at
+    /// the strip index of a [`super::tab_slot::scoped`] creation in `pane`.
     pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
         actor: &Actor,
@@ -840,8 +841,13 @@ impl Mux {
             terminal: Some(public.as_str().to_string()),
             ..Self::ordinary_resource_selectors()
         };
-        let index =
-            self.with_state(|state| state.panes.get(&pane).map_or(0, |record| record.tabs.len()));
+        let requested = super::tab_slot::take_for(pane);
+        let index = self.with_state(|state| {
+            super::tab_slot::slot(
+                requested,
+                state.panes.get(&pane).map_or(0, |record| record.tabs.len()),
+            )
+        });
         self.resource_project_terminal_selected(
             selectors,
             destination,
