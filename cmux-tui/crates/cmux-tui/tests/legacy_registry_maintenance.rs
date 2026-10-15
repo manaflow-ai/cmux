@@ -9,6 +9,11 @@
 //! shape, the owner is started on it with a short maintenance interval and a
 //! small live-data bound (debug-build overrides), and the registry file is
 //! read after maintenance ticks.
+//!
+//! `server compact-registry` (cx-ossub) gives a large legacy registry's free
+//! pages back offline: refused while the owner runs, and with the owner
+//! stopped it rewrites the file smaller with the same rows and incremental
+//! auto-vacuum, which the next owner opens.
 
 #![cfg(all(unix, debug_assertions))]
 
@@ -203,4 +208,95 @@ fn a_small_legacy_registry_is_converted() {
     }
     owner.stop();
     assert_eq!(state, (2, true), "a small legacy registry converts to incremental auto-vacuum");
+}
+
+/// Row count of every table, in name order: the content a compaction must keep.
+fn table_rows(registry: &Path) -> Vec<(String, i64)> {
+    let db =
+        Connection::open_with_flags(registry, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let tables: Vec<String> = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    tables
+        .into_iter()
+        .map(|table| {
+            let count = db
+                .query_row(&format!("SELECT COUNT(*) FROM \"{table}\""), [], |row| row.get(0))
+                .unwrap();
+            (table, count)
+        })
+        .collect()
+}
+
+fn compact(dir: &Path, session: &str) -> (bool, String) {
+    let output = command(dir)
+        .args(["--json", "server", "compact-registry", "--session", session])
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.success(), text)
+}
+
+#[test]
+fn compact_registry_is_refused_while_the_owner_runs_and_shrinks_it_offline() {
+    let dir = state_dir("compact");
+    let session = "lrm-compact";
+    let registry = first_start(&dir.0, session);
+    make_legacy(&registry, 2 * TEST_BOUND_BYTES);
+    {
+        // Free most of the filler: a legacy file keeps those pages.
+        let db = Connection::open(&registry).unwrap();
+        db.execute("DELETE FROM legacy_filler WHERE rowid > 4", []).unwrap();
+        db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+    }
+    let before_len = fs::metadata(&registry).unwrap().len();
+    let before_rows = table_rows(&registry);
+
+    let owner = Owner::start(&dir.0, session);
+    let (ok, text) = compact(&dir.0, session);
+    assert!(!ok, "compaction must be refused while the owner runs: {text}");
+    assert!(text.contains("server.compact_owner_running"), "refusal code: {text}");
+    assert!(owner.answers(), "the owner keeps serving after a refused compaction");
+    owner.stop();
+    let stopped_rows = table_rows(&registry);
+
+    let (ok, text) = compact(&dir.0, session);
+    assert!(ok, "compaction with the owner stopped: {text}");
+    assert!(text.contains("\"compacted\""), "status: {text}");
+    let after_len = fs::metadata(&registry).unwrap().len();
+    assert!(
+        after_len + TEST_BOUND_BYTES as u64 <= before_len,
+        "the file gives its free pages back: {before_len} -> {after_len} bytes"
+    );
+    assert_eq!(table_rows(&registry), stopped_rows, "every table keeps its rows");
+    assert_eq!(
+        before_rows.iter().find(|(table, _)| table == "legacy_filler"),
+        Some(&("legacy_filler".to_string(), 4)),
+        "the fixture kept 4 filler rows"
+    );
+    {
+        let db = Connection::open_with_flags(&registry, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+        assert_eq!(auto_vacuum(&db), 2, "the compacted registry is incremental auto-vacuum");
+    }
+
+    // The next owner opens the compacted registry and marks it migrated.
+    let owner = Owner::start(&dir.0, session);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut state = conversion(&registry);
+    while state != (2, true) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+        state = conversion(&registry);
+    }
+    assert!(owner.answers(), "the owner serves the compacted registry");
+    owner.stop();
+    assert_eq!(state, (2, true), "the owner marks the compacted registry migrated");
 }
