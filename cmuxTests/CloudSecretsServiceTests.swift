@@ -250,6 +250,28 @@ struct CloudSecretsServiceTests {
         #expect(recorder.events.count == 3)
     }
 
+    @Test func aUsersOwnEndpointIsRoutedAgainAfterItIsDelivered() async throws {
+        let recorder = RecordingTransport()
+        let service = makeService(recorder)
+        try await service.set([
+            CloudSecretInput(name: "OPENAI_API_KEY", value: "sk-proj-user"),
+            CloudSecretInput(name: "OPENAI_BASE_URL", value: "https://proxy.example.test/v1"),
+            CloudSecretInput(name: "ANTHROPIC_API_KEY", value: "sk-ant-user"),
+        ], scope: .all, source: .manual, sync: false)
+
+        let result = await service.sync(machineID: "m1")
+
+        // The guard reads the user's endpoint on the machine (by name) to point
+        // codex at it, so it runs again once that endpoint has landed.
+        #expect(result.error == nil)
+        let routing = CloudSecretsProviderRouting(openAI: .user, anthropic: .direct)
+        #expect(recorder.events == [
+            "exec:" + routing.command,
+            "deliver:ANTHROPIC_API_KEY,OPENAI_API_KEY,OPENAI_BASE_URL",
+            "exec:" + routing.command,
+        ])
+    }
+
     @Test func aGuardThatFailsKeepsTheKeyOffTheMachine() async throws {
         let recorder = RecordingTransport()
         recorder.execExitCode = { command in command.contains("cmux-provider-routing") ? 1 : 0 }

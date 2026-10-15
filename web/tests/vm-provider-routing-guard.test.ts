@@ -251,6 +251,31 @@ describe("Cloud Secrets provider routing guard (running machines)", () => {
     expect(envLine(m, "ANTHROPIC_BASE_URL")).toBeUndefined();
   });
 
+  test("codex with the user's own OpenAI endpoint uses that endpoint, never api.openai.com or CodeRouter", async () => {
+    const m = machine();
+    const PROXY = "https://proxy.example.test/v1";
+    const block = (url: string) => `[model_providers.cmux-openai-key]\nname = "OpenAI"\nbase_url = "${url}"\nenv_key = "OPENAI_API_KEY"`;
+    // The Mac's sync: the protecting pass, the key and endpoint over the link, then the full pass.
+    await guard(m, "user", "keep");
+    await cmux(m, "env", "set", `OPENAI_API_KEY=${USER_KEY}`, `OPENAI_BASE_URL=${PROXY}`);
+    await guard(m, "user", "plane");
+    expect(readFileSync(m.codex, "utf8")).toContain('model_provider = "cmux-openai-key"');
+    expect(readFileSync(m.codex, "utf8")).toContain(block(PROXY));
+    // A changed endpoint follows, in the one block.
+    await cmux(m, "env", "set", "OPENAI_BASE_URL=https://other.example.test/v1");
+    await guard(m, "user", "plane");
+    expect(readFileSync(m.codex, "utf8")).toContain(block("https://other.example.test/v1"));
+    expect(readFileSync(m.codex, "utf8").match(/\[model_providers\.cmux-openai-key\]/g)).toHaveLength(1);
+    // The user drops their endpoint: back to OpenAI's own.
+    await cmux(m, "env", "rm", "OPENAI_BASE_URL");
+    await guard(m, "direct", "plane");
+    expect(readFileSync(m.codex, "utf8")).toContain(block(OPENAI));
+    // An endpoint on the model router never carries the user's key.
+    await cmux(m, "env", "set", `OPENAI_BASE_URL=${ORIGIN}/v1`);
+    await guard(m, "user", "plane");
+    expect(readFileSync(m.codex, "utf8")).toContain(block(OPENAI));
+  });
+
   test("leaves codex to a launcher that already applies the precedence per launch", async () => {
     const m = machine({ newLauncher: true });
     const before = readFileSync(m.codex, "utf8");
