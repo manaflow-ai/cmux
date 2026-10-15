@@ -230,8 +230,11 @@ public final class BillingModel {
     /// Runs once per account; later calls return at once.
     public func prepareTrial() async {
         switch trial {
-        case .checking, .available, .unavailable: return
-        case .none: break
+        case .checking, .available: return
+        // A network failure is retried the next time the paywall opens;
+        // a refusal or an unsupported device is final for this account.
+        case .unavailable(let reason) where !reason.hasSuffix("network"): return
+        case .none, .unavailable: break
         }
         guard let account = account.account, let offer = account.trial, offer.offered,
               account.eligible, account.currentPlan.planID == .free
@@ -374,15 +377,16 @@ public final class BillingModel {
     /// - Parameters:
     ///   - offer: The offer to buy.
     ///   - context: The paywall session.
-    ///   - introductoryOfferJWS: The server-signed introductory offer
-    ///     eligibility, when the server granted a free trial.
-    public func buy(_ offer: BillingOffer, context: BillingPaywallContext, introductoryOfferJWS: String? = nil) async {
+    ///   - trial: The granted free trial, when `offer` is its product; its
+    ///     signed eligibility goes to StoreKit.
+    public func buy(_ offer: BillingOffer, context: BillingPaywallContext, trial: BillingTrialGrant? = nil) async {
+        let trial = trial?.productID == offer.product.id ? trial : nil
         guard !purchase.isPurchasing else { return }
         var properties = context.analyticsProperties
         properties["product_id"] = .string(offer.product.id)
         properties["plan_id"] = .string(offer.planID.rawValue)
         properties["billing_period"] = .string(offer.billingPeriod.rawValue)
-        properties["trial"] = .bool(introductoryOfferJWS != nil)
+        properties["trial"] = .bool(trial != nil)
         purchaseContext = context
         purchaseOffer = offer
         capture(.purchaseStarted, properties)
@@ -400,7 +404,7 @@ public final class BillingModel {
             result = try await store.purchase(
                 productID: offer.product.id,
                 appAccountToken: account.appAccountToken,
-                introductoryOfferJWS: introductoryOfferJWS
+                introductoryOfferJWS: trial?.introductoryOfferJWS
             )
         } catch StoreKitClientError.userCancelled {
             purchase = .idle

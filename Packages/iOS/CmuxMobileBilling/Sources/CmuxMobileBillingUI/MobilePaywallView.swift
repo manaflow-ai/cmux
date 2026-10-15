@@ -196,8 +196,7 @@ public struct MobilePaywallView: View {
         guard preview == nil else { return }
         reachedPurchase = true
         billing.paywallCTATapped(offer, context: context)
-        let jws = activeTrial.flatMap { $0.productID == offer.product.id ? $0.introductoryOfferJWS : nil }
-        Task { await billing.buy(offer, context: context, introductoryOfferJWS: jws) }
+        Task { await billing.buy(offer, context: context, trial: trial(for: offer)) }
     }
 
     // MARK: Content
@@ -423,15 +422,25 @@ public struct MobilePaywallView: View {
 
     private var selectedOffer: BillingOffer? {
         let visible = visibleOffers
-        let plan = selectedPlan ?? highlightedPlan ?? (visible.contains { $0.planID == .pro } ? .pro : nil)
-        return visible.first { $0.planID == plan } ?? visible.first
+        if let selectedPlan, let offer = visible.first(where: { $0.planID == selectedPlan }) { return offer }
+        return defaultOffer
+    }
+
+    /// The plan the paywall leads with: the configured recommendation, else
+    /// Pro, among the plans above the account's current one.
+    private var defaultOffer: BillingOffer? {
+        let visible = visibleOffers
+        let current = billing.account.account?.currentPlan.planID ?? .free
+        let upgrades = visible.filter { $0.planID.rank > current.rank }
+        let candidates = upgrades.isEmpty ? visible : upgrades
+        return candidates.first { $0.planID == highlightedPlan }
+            ?? candidates.first { $0.planID == .pro }
+            ?? candidates.first
     }
 
     /// The plan the focus layout shows large.
     private var focusOffer: BillingOffer? {
-        let visible = visibleOffers
-        let plan = highlightedPlan ?? (visible.contains { $0.planID == .pro } ? .pro : nil)
-        return visible.first { $0.planID == plan } ?? visible.first
+        selectedOffer
     }
 
     private var comparisonPlans: [BillingPlanID] {
