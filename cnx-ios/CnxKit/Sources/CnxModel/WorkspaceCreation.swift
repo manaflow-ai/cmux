@@ -5,7 +5,8 @@ import Observation
 public enum NewWorkspaceStart: Hashable, Sendable {
     /// The Mac's default: one terminal (cmux-tui `new-workspace`).
     case terminal
-    /// An agent chat for a harness (`claude`, `codex`).
+    /// An agent chat for a harness (`claude`, `codex`); "" is the Mac's default agent
+    /// (New Agent Chat in a folder: a workspace whose only tab is the chat).
     case agent(String)
     /// A browser tab.
     case browser
@@ -446,7 +447,7 @@ public final class WorkspaceCreator {
         let tab = switch request.start {
         case .terminal: WorkspaceTab(id: tabID, kind: .terminal, title: "zsh", subtitle: directory)
         case .agent(let harness):
-            WorkspaceTab(id: tabID, kind: .agent, title: harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized,
+            WorkspaceTab(id: tabID, kind: .agent, title: harness.isEmpty ? "Agent Chat" : harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized,
                          subtitle: "New session", harness: harness)
         case .browser: WorkspaceTab(id: tabID, kind: .browser, title: "New Tab")
         }

@@ -41,8 +41,62 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// the new workspace's terminal changes to it with `cd`, as the person would type, since
     /// the phone never sends a working directory (`cwd`) to the daemon.
     public func options(on macID: String) -> WorkspaceCreationOptions {
-        // A plain tap opens at the Mac's default folder, as its New Workspace does.
-        WorkspaceCreationOptions(directories: true, agents: [], browser: true, cloneFromGit: false, tapUsesLastDirectory: false)
+        // A plain tap opens at the Mac's default folder, as its New Workspace does. The
+        // agent entry ("", the Mac's default agent) is New Agent Chat in a folder.
+        WorkspaceCreationOptions(directories: true, agents: acpmux?.isReady == true ? [""] : [], browser: true,
+                                 cloneFromGit: false, tapUsesLastDirectory: false)
+    }
+
+    /// The Mac's New Agent Chat over Home: a new workspace whose only tab is the
+    /// chat, in `request.directory` (a folder of one of the Mac's workspaces, so
+    /// acpmux's remote guard takes it). The chat starts first, so a folder that
+    /// is not trusted yet leaves no empty workspace behind; then `create-workspace`
+    /// (an empty workspace) and `new-conversation-tab {workspace}`, which makes its
+    /// first pane. Nothing new on the daemon lane.
+    func createChatWorkspace(_ request: NewWorkspaceRequest, start: AgentChatStart, placeholder: Workspace,
+                             client: DaemonClient) async throws -> Workspace {
+        let folders = Set((sync.tree?.directories ?? [:]).values)
+        guard let cwd = Self.chatFolder(request.directory, known: folders) else {
+            throw WorkspaceCreationError(Self.chatFolderRefusal, isForPerson: true)
+        }
+        guard !Self.isHomeOrAbove(cwd) else {
+            throw WorkspaceCreationError("Agent chats start in a project folder, not the home folder. Pick a project folder.", isForPerson: true)
+        }
+        let (harness, session) = try await startAgentSession(start, cwd: cwd, macID: request.macID)
+        do {
+            let created = try WorkspaceSync.check(await client.request("create-workspace", params: ["name": placeholder.title]))
+            let data = created["data"] as? [String: Any] ?? created
+            guard let id = data["workspace"] as? Int, let key = data["key"] as? String else {
+                throw WorkspaceCreationError("The Mac didn't say which workspace it created")
+            }
+            do {
+                try WorkspaceSync.check(await client.request("new-conversation-tab", params: [
+                    "workspace": id, "agent_session": ["harness": harness, "session": session],
+                ]))
+            } catch {
+                // An empty workspace is never left behind.
+                _ = try? await client.request("close-workspace", params: ["key": key])
+                throw error
+            }
+            let tree = try await sync.listNow()
+            guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
+                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            }
+            return workspace
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
+
+    /// The absolute folder for a chat workspace: `directory` as one of the Mac's
+    /// workspace folders (`known`, absolute), matched as given or as the phone
+    /// shows it (`~/…`). Nil for any other folder.
+    nonisolated static func chatFolder(_ directory: String?, known: Set<String>) -> String? {
+        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty else { return nil }
+        if known.contains(directory) { return directory }
+        return known.sorted().first { DaemonTree.abbreviated($0) == directory }
     }
 
     /// The line the new terminal runs for `directory` ("~/x" or "/x"): `cd` to it, then a
@@ -63,6 +117,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
         guard canCreate(on: request.macID), let client = sync.daemon else {
             throw WorkspaceCreationError("Not connected")
+        }
+        if case .agent(let harness) = request.start {
+            return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness),
+                                                 placeholder: placeholder, client: client)
         }
         do {
             // One screen, one pane, one terminal at the daemon's default
@@ -214,7 +272,13 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Open Folder… or Recent Directories) or cd into one in its terminal.",
                                          isForPerson: true)
         }
-        let catalog = try await agentCatalog(on: workspace.macID, models: start.model != nil)
+        return try await startAgentSession(start, cwd: cwd, macID: workspace.macID)
+    }
+
+    /// The new chat's acpmux session in `cwd` (an absolute folder on the Mac).
+    func startAgentSession(_ start: AgentChatStart, cwd: String, macID: String) async throws -> (harness: String, session: String) {
+        guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true) }
+        let catalog = try await agentCatalog(on: macID, models: start.model != nil)
         guard let (choice, model) = catalog.resolve(start, folder: cwd) else {
             if let id = start.harness, let reason = catalog.harness(id)?.unavailableReason {
                 throw WorkspaceCreationError(reason, isForPerson: true)

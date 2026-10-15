@@ -79,6 +79,19 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         _ = try? await sync.listNow()
     }
 
+    public func setIcon(_ workspace: Workspace, _ icon: String?) async throws {
+        let client = try daemonClient(workspace.macID)
+        try await metadata(client, workspace, ["icon": icon.map { $0 as Any } ?? NSNull()])
+        _ = try? await sync.listNow()
+    }
+
+    /// The Mac's Clear Workspace Name: its `title` (the display name) cleared.
+    public func clearName(_ workspace: Workspace) async throws {
+        let client = try daemonClient(workspace.macID)
+        try await metadata(client, workspace, ["title": NSNull()])
+        _ = try? await sync.listNow()
+    }
+
     public func canClearNotifications(on macID: String) -> Bool { canManage(on: macID) }
 
     public func clearAllNotifications(on macID: String) async throws {

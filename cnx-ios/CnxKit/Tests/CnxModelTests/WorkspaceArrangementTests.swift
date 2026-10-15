@@ -106,6 +106,17 @@ import Testing
 }
 
 /// New Workspace › Open Folder…: a typed full path, with the same rules as the typed `cd`.
+@Suite struct WorkspaceIconTests {
+    @Test func oneEmojiOnly() {
+        #expect(WorkspaceIcon.emoji(" 🚀 ") == "🚀")
+        #expect(WorkspaceIcon.emoji("👩‍💻") == "👩‍💻")
+        #expect(WorkspaceIcon.emoji("🚀🚀") == nil)
+        #expect(WorkspaceIcon.emoji("a") == nil)
+        #expect(WorkspaceIcon.emoji("1") == nil)
+        #expect(WorkspaceIcon.emoji("") == nil)
+    }
+}
+
 @Suite struct WorkspaceFolderPathTests {
     @Test func acceptsFullPaths() {
         #expect(WorkspaceFolderPath("  ~/code/app/ ")?.path == "~/code/app")
@@ -145,6 +156,8 @@ import Testing
             try record("move \(workspace.id) \(offset) \(visible.map(\.id).joined(separator: ","))")
         }
         func setUnread(_ workspace: Workspace, _ unread: Bool) async throws { try record("unread \(workspace.id) \(unread)") }
+        func setIcon(_ workspace: Workspace, _ icon: String?) async throws { try record("icon \(workspace.id) \(icon ?? "nil")") }
+        func clearName(_ workspace: Workspace) async throws { try record("clearName \(workspace.id)") }
     }
 
     private func setup() -> (AppStore, WorkspaceCreator, Recorder) {
@@ -201,6 +214,21 @@ import Testing
         creator.move(order[2], by: -1, among: order)
         await creator.settle()
         #expect(store.workspaces.first { $0.id == "c" }?.sidebarIndex == 2)
+    }
+
+    @Test func iconAndClearName() async {
+        let (store, creator, recorder) = setup()
+        creator.setIcon(store.workspaces[0], "hammer")
+        #expect(store.workspaces[0].icon == "hammer")
+        creator.setIcon(store.workspaces[0], nil)
+        #expect(store.workspaces[0].icon == nil)
+        // Only a workspace with a display name over its own name.
+        creator.clearName(store.workspaces[1])
+        store.updateWorkspace("c") { $0.hasCustomTitle = true }
+        creator.clearName(store.workspaces[2])
+        #expect(!store.workspaces[2].hasCustomTitle)
+        await creator.settle()
+        #expect(recorder.calls == ["icon a hammer", "icon a nil", "clearName c"])
     }
 
     @Test func aPinnedWorkspaceDoesNotMove() async {

@@ -51,6 +51,9 @@ public struct WorkspacesList: View {
     @State private var closing: Workspace?
     /// Close Other / Above / Below: what was chosen, on which workspace, and what it closes.
     @State private var bulkClosing: BulkClose?
+    /// Set Icon… › Emoji…: the workspace and the typed emoji.
+    @State private var iconEmoji: Workspace?
+    @State private var emojiText = ""
     /// The rows' status gutter (32 pt at Large), for the separator inset.
     @Environment(\.dynamicTypeSize) private var typeSize
     private var gutter: CGFloat { WorkspaceRow.scaled(WorkspaceRow.gutter, typeSize) }
@@ -151,6 +154,14 @@ public struct WorkspacesList: View {
                 Button("OK", role: .cancel) {}
             } message: { ws in
                 Text(unavailableMessage(ws))
+            }
+            .alert("Set Icon", isPresented: isPresented($iconEmoji), presenting: iconEmoji) { ws in
+                TextField("Emoji", text: $emojiText)
+                Button("Cancel", role: .cancel) {}
+                Button("Set") { if let emoji = WorkspaceIcon.emoji(emojiText) { creator.setIcon(ws, emoji) } }
+                    .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+            } message: { _ in
+                Text("One emoji.")
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
@@ -518,6 +529,20 @@ public struct WorkspacesList: View {
                 if ws.colorHex != nil {
                     Button("Reset Workspace Color", systemImage: "circle.slash") { creator.setColor(ws, nil) }
                 }
+                Menu {
+                    ForEach(WorkspaceIcon.symbols, id: \.self) { symbol in
+                        Button(symbol, systemImage: ws.icon == symbol ? "checkmark" : symbol) { creator.setIcon(ws, symbol) }
+                    }
+                    Button("Emoji…", systemImage: "face.smiling") {
+                        emojiText = ""
+                        iconEmoji = ws
+                    }
+                } label: {
+                    Label("Set Icon…", systemImage: "app.badge")
+                }
+                if ws.icon != nil {
+                    Button("Remove Icon", systemImage: "minus.circle") { creator.setIcon(ws, nil) }
+                }
             } label: {
                 Label("Appearance", systemImage: "paintbrush")
             }
@@ -526,6 +551,9 @@ public struct WorkspacesList: View {
                     Button("Mark Workspace as Read", systemImage: "envelope.open") { creator.setUnread(ws, false) }
                 } else {
                     Button("Mark Workspace as Unread", systemImage: "envelope.badge") { creator.setUnread(ws, true) }
+                }
+                if ws.hasCustomTitle {
+                    Button("Clear Workspace Name", systemImage: "textformat") { creator.clearName(ws) }
                 }
             } label: {
                 Label("Options", systemImage: "ellipsis.circle")
@@ -994,9 +1022,20 @@ struct WorkspaceRow: View {
     }
 
     private var name: some View {
-        Text(workspace.title)
-            .font(theme.type.rowTitle.weight(.semibold))
-            .foregroundStyle(status == .offline ? theme.colors.label3 : theme.colors.label)
+        HStack(spacing: 5) {
+            // The Mac's workspace icon: an SF Symbol the phone draws, else an emoji.
+            if let icon = workspace.icon, !icon.isEmpty {
+                if UIImage(systemName: icon) != nil {
+                    Image(systemName: icon).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2)
+                        .accessibilityIdentifier("workspace.icon")
+                } else if WorkspaceIcon.emoji(icon) != nil {
+                    Text(icon).font(theme.type.rowTitle).accessibilityIdentifier("workspace.icon")
+                }
+            }
+            Text(workspace.title)
+                .font(theme.type.rowTitle.weight(.semibold))
+                .foregroundStyle(status == .offline ? theme.colors.label3 : theme.colors.label)
+        }
     }
 
     /// Only a real activity time: none for a live workspace with no activity
@@ -1289,6 +1328,25 @@ struct NewWorkspaceButton: View {
                     }
                 }
             }
+            if options.agents.contains(""), !recents.isEmpty {
+                // The Mac's New Agent Chat over Home: a workspace whose only tab is the
+                // chat, in one of the Mac's workspace folders.
+                Section("New Agent Chat") {
+                    ForEach(recents, id: \.self) { directory in
+                        Button {
+                            create(.agent(""), directory)
+                        } label: {
+                            Label {
+                                Text(Self.folderName(directory))
+                                Text(directory)
+                            } icon: {
+                                Image(systemName: "sparkle")
+                            }
+                        }
+                        .accessibilityIdentifier("workspaces.newAgentChat.\(Self.folderName(directory))")
+                    }
+                }
+            }
             if options.directories {
                 Section {
                     // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
@@ -1314,7 +1372,7 @@ struct NewWorkspaceButton: View {
 
     @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
         Button("New Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
-        ForEach(options.agents, id: \.self) { harness in
+        ForEach(options.agents.filter { !$0.isEmpty }, id: \.self) { harness in
             Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
         }
         if options.browser {
