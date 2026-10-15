@@ -313,6 +313,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         show(notice.text)
     }
 
+    /// "this Mac" / "your Mac" in a phone-written line, as the Mac's name.
+    private func named(_ text: String) -> String {
+        text.replacingOccurrences(of: "your Mac", with: macName).replacingOccurrences(of: "this Mac", with: macName)
+    }
+
     /// A kind the Mac can't open yet: say why, in the Mac's name.
     private func showUnavailable(_ option: TabsKitNewTabOption) {
         let kind = Self.kind(of: TabsKitNewTabOption(id: String(option.id.dropFirst(Self.unavailablePrefix.count)),
@@ -323,7 +328,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             show("\(option.title) isn't available on \(macName) right now.")
             return
         }
-        show(reason.replacingOccurrences(of: "your Mac", with: macName).replacingOccurrences(of: "this Mac", with: macName))
+        show(named(reason))
         CnxTheme.standard.haptics.error()
     }
 
@@ -385,7 +390,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             tab = try await creator.backend.createTab(kind, in: workspace)
         } catch let error as WorkspaceCreationError where error.isForPerson {
             tabsLog.error("tab request refused on \(self.macName, privacy: .public): \(error.message, privacy: .public)")
-            show(error.message)
+            show(named(error.message))
             CnxTheme.standard.haptics.error()
             return nil
         } catch {
@@ -542,7 +547,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             activate(copy.id)
             openedTab = copy.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
-            show(error.message)
+            show(named(error.message))
         } catch {
             show(TabNotice(action: .open(optionTitle: "New \(tab.kind == .browser ? "Browser Tab" : "Terminal")"), macName: macName,
                            reason: Self.message(error)))

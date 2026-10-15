@@ -218,6 +218,14 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 "cwd": .string(cwd), "mcpServers": .array([]),
                 "_meta": .object(["acpmux": .object(["harness": .string(choice.id), "policy": .string("ask")])]),
             ]))
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "trust.pending" || error.reason == "trust.untrusted" {
+            // acpmux asks the person to trust a new folder, and only on the Mac (a phone may
+            // not answer: `acp.trust.set` is refused remotely). Claude's own trust answer counts too.
+            let folder = (cwd as NSString).lastPathComponent
+            throw WorkspaceCreationError(error.reason == "trust.untrusted"
+                ? "\(folder) is marked Don't Trust on this Mac. Trust it in cmux on the Mac to start agent chats there."
+                : "Trust \(folder) on this Mac first: answer its trust question in cmux on the Mac, or run claude in this workspace's terminal and accept it.",
+                isForPerson: true)
         } catch {
             throw WorkspaceCreationError(AcpmuxSessionSource.message(error))
         }

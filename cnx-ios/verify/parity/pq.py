@@ -225,3 +225,16 @@ def ax(contains=None, ident=None, label=None, kind=None):
     s, _, _ = ctx()
     for e in s.find(contains=contains, ident=ident, label=label, kind=kind):
         print(repr(e))
+
+
+def plus_menu(j, title):
+    """From a workspace page or its grid: the grid's (+), then the row `title`."""
+    s = j.sim
+    if not s.find(label="1 Tab") and not s.find(contains=" Tabs"):
+        b = s.find(label="Tabs", kind="Button")
+        check(b, "neither the grid nor a page's Tabs button")
+        s.tap_el(b[0]); time.sleep(1.5)
+    s.tap(62, 812); time.sleep(1.5)
+    e = s.wait(label=title, kind="Button", timeout=5)
+    check(e, f"no {title!r} in the + menu")
+    return s.tap_el(e)
