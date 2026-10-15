@@ -301,11 +301,13 @@ cmux_write_cua_mcp_config() {
   local mode="${1-}" driver
   driver=$(command -v cua-driver 2>/dev/null || true)
   [ -x "$driver" ] || return 0
-  CMUX_CUA_CONFIG_HOME="$HOME" CMUX_CUA_DRIVER_BIN="$driver" CMUX_CUA_ALLOW_MISSING="$mode" python3 - <<'CMUX_CUA_CONFIG'
+  CMUX_CUA_CONFIG_HOME="$HOME" CMUX_CUA_DRIVER_BIN="$driver" CMUX_CUA_ALLOW_MISSING="$mode" \
+    CMUX_CUA_OPENCODE_CONFIG="${OPENCODE_CONFIG-}" python3 - <<'CMUX_CUA_CONFIG'
 import json
 import os
 import pathlib
 import stat
+import sys
 import tempfile
 
 try:
@@ -316,47 +318,67 @@ except ImportError:
 home = pathlib.Path(os.environ["CMUX_CUA_CONFIG_HOME"])
 driver = os.environ["CMUX_CUA_DRIVER_BIN"]
 allow_missing = os.environ.get("CMUX_CUA_ALLOW_MISSING") == "allow-missing"
+opencode_config = os.environ.get("CMUX_CUA_OPENCODE_CONFIG")
 
 
-def load_json(path):
+def report_os_error(label):
+    print(f"cmux: unable to update {label} computer-use configuration; keeping existing settings.", file=sys.stderr)
+
+
+def load_json(path, label):
     # Do not follow a user-owned link, including a dangling one.
-    if path.is_symlink():
-        return None
-    if not path.exists():
-        return {}
     try:
+        if path.is_symlink():
+            return None
+        if not path.exists():
+            return {}
         value = json.loads(path.read_text())
-    except (OSError, ValueError):
+    except OSError:
+        report_os_error(label)
+        return None
+    except ValueError:
         return None
     return value if isinstance(value, dict) else None
 
 
-def atomic_json(path, document):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
-    fd, temporary = tempfile.mkstemp(prefix=".cmux-cua-", dir=str(path.parent))
+def atomic_write(path, contents, label):
+    temporary = None
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+        fd, temporary = tempfile.mkstemp(prefix=".cmux-cua-", dir=str(path.parent))
         with os.fdopen(fd, "w") as stream:
-            json.dump(document, stream, indent=2)
-            stream.write("\n")
+            stream.write(contents)
             os.fchmod(stream.fileno(), mode)
         os.replace(temporary, path)
+        temporary = None
+        return True
+    except OSError:
+        report_os_error(label)
+        return False
     finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+        if temporary is not None and os.path.exists(temporary):
+            try:
+                os.unlink(temporary)
+            except OSError:
+                report_os_error(label)
 
 
-def add_json_server(path, key, name, server, create_if_missing=True):
-    document = load_json(path)
+def atomic_json(path, document, label):
+    return atomic_write(path, json.dumps(document, indent=2) + "\n", label)
+
+
+def add_json_server(path, key, name, server, label, create_if_missing=True):
+    document = load_json(path, label)
     if document is None or (not path.exists() and not create_if_missing):
         return
     servers = document.get(key)
     if servers is None:
         document[key] = {name: server}
-        atomic_json(path, document)
+        atomic_json(path, document, label)
     elif isinstance(servers, dict) and name not in servers:
         servers[name] = server
-        atomic_json(path, document)
+        atomic_json(path, document, label)
 
 
 # Claude Code stores user-scoped MCP servers alongside its onboarding state.
@@ -365,6 +387,7 @@ add_json_server(
     "mcpServers",
     "cua-computer-use",
     {"command": driver, "args": ["mcp"]},
+    "Claude Code",
 )
 
 
@@ -381,11 +404,12 @@ def toml_document(raw):
 
 
 def add_codex_server(path):
-    if path.is_symlink():
-        return
     try:
+        if path.is_symlink():
+            return
         raw = path.read_text() if path.exists() else ""
     except OSError:
+        report_os_error("Codex")
         return
     parsed = toml_document(raw)
     if parsed is None:
@@ -400,17 +424,7 @@ def add_codex_server(path):
             tomllib.loads(candidate)
         except (ValueError, TypeError):
             return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
-    fd, temporary = tempfile.mkstemp(prefix=".cmux-cua-", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w") as stream:
-            stream.write(candidate)
-            os.fchmod(stream.fileno(), mode)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    atomic_write(path, candidate, "Codex")
 
 
 add_codex_server(home / ".codex" / "config.toml")
@@ -419,10 +433,11 @@ add_codex_server(home / ".codex" / "config.toml")
 # function with allow-missing after discovery, so first launch gets the MCP
 # entry without creating a competing provider config during shell startup.
 add_json_server(
-    home / ".config" / "opencode" / "opencode.json",
+    pathlib.Path(opencode_config) if opencode_config else home / ".config" / "opencode" / "opencode.json",
     "mcp",
     "cua-driver",
     {"type": "local", "command": [driver, "mcp"], "enabled": True},
+    "OpenCode",
     create_if_missing=allow_missing,
 )
 CMUX_CUA_CONFIG
