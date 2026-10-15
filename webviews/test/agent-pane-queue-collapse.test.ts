@@ -319,6 +319,100 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    /// The queue list's rows as drawn: how many it shows cut at its edges (a row it hides whole
+    /// does not count), whether a row draws over the "Queued" header, and whether the focused row
+    /// is whole and in sight.
+    const drawn = (page: Page) =>
+      page.evaluate(
+        () =>
+          new Promise<Record<string, unknown>>((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+                const box = list.getBoundingClientRect();
+                const shows = (el: Element) => {
+                  const r = el.getBoundingClientRect();
+                  return (
+                    getComputedStyle(el).visibility !== "hidden" && r.bottom > box.top + 1 && r.top < box.bottom - 1
+                  );
+                };
+                const whole = (r: DOMRect) => r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+                const parts = [...list.querySelectorAll<HTMLElement>(".acpmux-queued, .acpmux-queue-header")];
+                // A row whose text runs out of it (over the next row) is cut too.
+                const spills = (el: Element) =>
+                  [...el.querySelectorAll(".acpmux-queued-text")].some(
+                    (text) => text.getBoundingClientRect().bottom > el.getBoundingClientRect().bottom + 1,
+                  );
+                const cut = parts.filter(
+                  (el) => shows(el) && (!whole(el.getBoundingClientRect()) || spills(el)),
+                ).length;
+                const header = list.querySelector<HTMLElement>(".acpmux-queue-header");
+                let headerCovered = false;
+                if (header && shows(header)) {
+                  const r = header.getBoundingClientRect();
+                  const at = document.elementFromPoint(r.left + 20, (r.top + r.bottom) / 2);
+                  headerCovered = !at?.closest(".acpmux-queue-header");
+                }
+                const focused = document.activeElement as HTMLElement;
+                const row = focused.closest<HTMLElement>(".acpmux-queued");
+                resolve({
+                  cut,
+                  headerCovered,
+                  focusedWhole: row ? shows(row) && whole(row.getBoundingClientRect()) : true,
+                });
+              }),
+            ),
+          ),
+      );
+    const clean = { cut: 0, headerCovered: false, focusedWhole: true };
+
+    test("an opened queue with a two-line row shows whole rows only, its header never under a row (capture, 2026-10-15)", async () => {
+      // The capture at 436917b: opened, a two-line first row left a sliver of row 3 over Show less,
+      // and after ↑↑↑ row 5 drew over the pinned "Queued" header.
+      const long = "words that wrap across the row ".repeat(12);
+      const page = await openChat([long, "two", "three", "four", "five", "six", "seven", "eight"]);
+      await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
+      expect(await drawn(page)).toEqual(clean);
+      for (let i = 8; i >= 1; i--) {
+        await page.keyboard.press("ArrowUp");
+        expect({ i, ...(await drawn(page)) }).toEqual({ i, ...clean });
+      }
+      for (let i = 2; i <= 8; i++) {
+        await page.keyboard.press("ArrowDown");
+        expect({ i, ...(await drawn(page)) }).toEqual({ i, ...clean });
+      }
+      await page.close();
+    });
+
+    test("a folded queue with a long row opened shows only whole rows above the fold (capture, 2026-10-15)", async () => {
+      // The capture at 436917b: the first row opened whole, and row 2 showed as a sliver above the fold.
+      // Lengths from three lines to six, so row 2 meets the list's edge at some of them.
+      for (const lines of [2, 3, 4, 5, 6]) {
+        const long = "after the story, check three things in this chat and answer each in one short line ".repeat(
+          lines,
+        );
+        const page = await openChat([
+          long,
+          "then name three fruits.",
+          "three",
+          "four",
+          "five",
+          "six",
+          "seven",
+          "eight",
+        ]);
+        await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
+        await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text').click();
+        await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text[data-open]').waitFor();
+        expect({ lines, ...(await drawn(page)) }).toEqual({ lines, ...clean });
+        await page.close();
+      }
+    });
+
     test("sending the next prompt keeps the fold's count right; a move into the fold opens it", async () => {
       const page = await openChat(PROMPTS);
       await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
