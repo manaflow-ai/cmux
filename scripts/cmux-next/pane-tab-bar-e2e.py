@@ -4,9 +4,9 @@
 Any pane can show or hide its horizontal tab bar: its own Show Tab Bar choice (`pane.toggleTabBar`),
 else its kind's `tabs.tabBar.<terminal|browser|agent>`. Every pane shows it by default, agent chats
 included: a lone chat with one tab, and a chat in the left chat dock (cx-v4dmy, Lawrence 2026-10-15).
-Only the person hides it (Show Tab Bar in the palette, or `never`). Cmd-T follows the tab bar: a pane
-that shows it gets a tab, one that hides it a new workspace. New Horizontal Tab (`newTab.horizontal`,
-no default key) turns the bar on and adds a tab.
+Only the person hides it (Show Tab Bar in the palette, or `never`). A lone chat still moves into the
+left chat dock when a tool opens from it. Cmd-T adds a tab in the focused pane. New Horizontal Tab
+(`newTab.horizontal`, no default key) turns the bar on and adds a tab.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a tagged
 build) through its debug socket. It presses keys as the user does (`debug.key`), runs actions the way
@@ -119,17 +119,6 @@ NEEDS_PAGE = [True]  # a script's action.run opens a terminal tab, not the New T
 FOCUSED = [None]  # the workspace the user is in: the one the last step opened or grew
 
 
-def opened(step):
-    """Run `step`, then remember the workspace it opened as the focused one."""
-    before = set(workspaces())
-    reply = step()
-    fresh = wait(lambda: [k for k in workspaces() if k not in before], 15)
-    if fresh:
-        FOCUSED[0] = fresh[0]
-    time.sleep(2)  # test harness: the workspace mounts
-    return reply
-
-
 def row(check, expected, observed, ok):
     ROWS.append(ok)
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
@@ -231,51 +220,65 @@ def press_with(step, case, expects):
         NEEDS_PAGE[0] = True
 
 
+def opened_workspace(step, case):
+    """Run `step`; a row that it opened a new workspace."""
+    before = set(workspaces())
+    print(case, step(), flush=True)
+    fresh = wait(lambda: [k for k in workspaces() if k not in before], 15)
+    if fresh:
+        FOCUSED[0] = fresh[0]
+    time.sleep(2)  # test harness: the workspace mounts
+    row(case, "a new workspace", f"new workspaces {len(fresh or [])}", bool(fresh))
+
+
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     swap = setting("tabs.swapCmdTAndCmdN", False)
     terminal = setting("tabs.tabBar.terminal", "auto")
     agent = setting("tabs.tabBar.agent", "auto")
+    warn = setting("app.warnBeforeClosingTab", False)
     try:
-        # A new agent chat alone in its workspace, one tab: it shows its tab bar by default.
-        print("Cmd-I:", opened(lambda: key("i")), flush=True)
-        strip("a new lone agent chat (one tab) shows its tab bar", False, kind="agent", choice=None)
-        snapshot("pane-tab-bar-chat-default.png")
-
-        # The palette's Show Tab Bar (checked while shown) hides it; running it again shows it.
-        print("palette Show Tab Bar (hide):", action("pane.toggleTabBar", focus=True), flush=True)
-        strip("the palette action hides the chat's tab bar", True, kind="agent", choice=False)
-        snapshot("pane-tab-bar-chat-hidden.png")
-        print("palette Show Tab Bar (show):", action("pane.toggleTabBar", focus=True), flush=True)
-        strip("the palette action shows it again (back to the default, no choice)", False, kind="agent", choice=None)
-        press("t", "Cmd-T on a chat that shows its tab bar opens a tab there", "tab")
-        snapshot("pane-tab-bar-chat-shown.png")
-
-        # A chat in the left chat dock: hide a lone chat's bar, then a new terminal tab docks the chat
-        # (ChatColumnPlacement.dockChat). The docked chat is a new pane: it shows its tab bar.
-        print("Cmd-I:", opened(lambda: key("i")), flush=True)
-        strip("a second lone chat shows its tab bar", False, kind="agent", choice=None)
-        print("palette Show Tab Bar (hide):", action("pane.toggleTabBar", focus=True), flush=True)
-        strip("hidden before the dock", True, kind="agent", choice=False)
-        print("New Terminal Tab:", rpc("debug.key", {"key": "`", "modifiers": ["control"]}), flush=True)
+        # Cmd-I in a terminal workspace docks a chat left (cx-ihyx2): the chat dock shows its tab bar.
+        opened_workspace(lambda: action("newTab", focus=True), "New Workspace (script: a terminal)")
+        strip("a new terminal pane shows its tab bar", False, kind="terminal", choice=None)
+        print("Cmd-I:", key("i"), flush=True)
         strip("a chat in the left chat dock (one tab) shows its tab bar", False, kind="agent", choice=None,
               pick=docked_chat)
         snapshot("pane-tab-bar-chat-dock.png")
 
-        # New Horizontal Tab on a hidden lone chat: the bar turns on and the pane gets a tab.
-        print("Cmd-I:", opened(lambda: key("i")), flush=True)
+        # Close the terminal: the screen undocks and the chat is alone in its column, one tab.
+        print("focusRight:", action("focusRight", focus=True), flush=True)
+        print("closePane:", action("closePane", focus=True), flush=True)
+        strip("a lone agent chat (one tab) shows its tab bar", False, kind="agent", choice=None)
+        snapshot("pane-tab-bar-chat-default.png")
+
+        # The palette's Show Tab Bar (checked while shown) hides it; running it again shows it.
         print("palette Show Tab Bar (hide):", action("pane.toggleTabBar", focus=True), flush=True)
-        strip("a third lone chat hidden by the palette action", True, kind="agent", choice=False)
-        run("newTab.horizontal", "New Horizontal Tab opens a tab in the chat's pane", "tab")
+        strip("the palette action hides the lone chat's tab bar", True, kind="agent", choice=False)
+        snapshot("pane-tab-bar-chat-hidden.png")
+        print("palette Show Tab Bar (show):", action("pane.toggleTabBar", focus=True), flush=True)
+        strip("the palette action shows it again (the default, no choice)", False, kind="agent", choice=None)
+        snapshot("pane-tab-bar-chat-shown.png")
+
+        # A tool opened from the lone chat still docks the chat left; the docked chat shows its tab bar.
+        print("New Terminal Tab (Ctrl-`):", rpc("debug.key", {"key": "`", "modifiers": ["control"]}), flush=True)
+        strip("a lone chat moves into the left chat dock on its first tool, tab bar shown", False, kind="agent",
+              choice=None, pick=docked_chat)
+
+        # A terminal pane: hidden by the palette, then New Horizontal Tab turns the bar on and adds a tab.
+        opened_workspace(lambda: action("newTab", focus=True), "New Workspace (script: a terminal)")
+        print("palette Show Tab Bar (hide):", action("pane.toggleTabBar", focus=True), flush=True)
+        strip("the palette action hides a terminal pane's tab bar", True, kind="terminal", choice=False)
+        run("newTab.horizontal", "New Horizontal Tab opens a tab in that pane", "tab")
         strip("New Horizontal Tab turned the tab bar on", False, choice=None)
 
         # The per-kind setting: `never` still hides (a person's explicit choice).
-        setting("tabs.tabBar.agent", "never")
-        print("Cmd-I:", opened(lambda: key("i")), flush=True)
-        strip("tabs.tabBar.agent never hides a lone chat's tab bar", True, kind="agent", choice=None)
-        press("t", "Cmd-T on a pane that hides its tab bar opens a workspace", "workspace")
+        setting("tabs.tabBar.terminal", "never")
+        opened_workspace(lambda: action("newTab", focus=True), "New Workspace (script: a terminal)")
+        strip("tabs.tabBar.terminal never hides a terminal pane's tab bar", True, kind="terminal", choice=None)
     finally:
+        restore("app.warnBeforeClosingTab", warn)
         restore("tabs.tabBar.agent", agent)
         restore("tabs.tabBar.terminal", terminal)
         restore("tabs.swapCmdTAndCmdN", swap)

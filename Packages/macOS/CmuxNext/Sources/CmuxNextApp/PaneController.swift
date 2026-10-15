@@ -50,8 +50,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var hidesStrip = false // PaneTabBar: the pane's choice, else its kind's tabs.tabBar
     }
 
-    /// `workspace` is set before the first apply: the chat's no-strip rule reads its layout, and
-    /// a strip shown on the first frame and hidden a turn later moves the whole page.
+    /// `workspace` is set before the first apply, so the first frame is the settled one.
     init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState,
          workspace: WorkspaceContentController? = nil) {
         self.pane = pane
