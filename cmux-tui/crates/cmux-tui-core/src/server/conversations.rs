@@ -225,6 +225,14 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
 }
 
+/// The `error_details` of a conversation reject that has them: the keyed
+/// conversation of a create's `idempotency_conflict`.
+pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
+    error
+        .downcast_ref::<crate::conversation_store::KeyedConversation>()
+        .map(|keyed| json!({"conversation": keyed.0}))
+}
+
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     let rejected = error.downcast_ref::<ConversationRejected>().is_some()
