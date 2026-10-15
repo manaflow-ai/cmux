@@ -361,10 +361,6 @@ os.write(fd, b"c"); expect(gray + rb"laude --dangerously-skip-permissions")
 os.write(fd, b"l"); expect(gray + rb"aude --dangerously-skip-permissions")
 os.write(fd, b"\r"); out = expect(rb"[\r\n]ran-cl\r\n[\s\S]*" + prompt)
 if b"ran-claude" in out: sys.exit("Enter ran the suggestion instead of the typed text")
-# Control bytes in history are display data, never terminal controls.
-os.write(fd, b"echo "); out = expect(rb"echo ")
-os.write(fd, b"\x03"); cancelled = expect(prompt)
-if gray in out + cancelled or b"\x1b[31m" in out + cancelled: sys.exit("control bytes from history reached the terminal")
 # Right accepts; Enter runs the accepted line.
 os.write(fd, b"echo acc"); expect(gray + rb"epted-ghost")
 run(b"\x1b[C\r", rb"[\r\n]accepted-ghost\r\n")
@@ -393,6 +389,10 @@ os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*" + prompt)
 # set -e survives the accept keys at column 0.
 run(b"set -e\r", rb"set -e")
 os.write(fd, b"\x1b[C\x1bf"); run(b"echo still-here\r", rb"[\r\n]still-here\r\n")
+# Control bytes in history are display data, never terminal controls.
+os.write(fd, b"echo "); out = expect(rb"echo ")
+os.write(fd, b"\x03"); cancelled = expect(prompt)
+if gray in out + cancelled or b"\x1b[31m" in out + cancelled: sys.exit("control bytes from history reached the terminal")
 print("ghost-ok")
 `;
         const result = await runChild("python3", ["-c", driver, directory], { timeout: 60_000 });
