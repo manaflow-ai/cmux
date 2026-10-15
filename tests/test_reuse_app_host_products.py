@@ -171,6 +171,26 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse())
                 self.contract = original
 
+    def test_an_embedded_chromium_engine_is_its_own_product(self):
+        # test-e2e.yml's Chromium runs set CMUX_EMBED_CEF=1 and embed the CEF
+        # engine; that product must not answer a WebKit run, nor the reverse,
+        # and every other build keeps the contract it had before the variable.
+        def contract_with(value):
+            environment = {k: v for k, v in os.environ.items() if k != "CMUX_EMBED_CEF"}
+            if value is not None:
+                environment["CMUX_EMBED_CEF"] = value
+            with mock.patch.dict(os.environ, environment, clear=True), \
+                    mock.patch.object(reuse, "read", return_value="fixed"), \
+                    mock.patch.object(reuse.shutil, "which", return_value=None), \
+                    mock.patch.object(reuse.product_inputs, "local_identity", return_value={"id": "same"}):
+                return reuse.contract(self.producer)
+
+        unset, empty, embedded = contract_with(None), contract_with(""), contract_with("1")
+        self.assertNotIn("CMUX_EMBED_CEF", unset["environment"])
+        self.assertEqual(reuse.key(unset), reuse.key(empty))
+        self.assertEqual(embedded["environment"]["CMUX_EMBED_CEF"], "1")
+        self.assertNotEqual(reuse.key(unset), reuse.key(embedded))
+
     def test_product_identity_separates_orchestration_from_product_inputs(self):
         identity = reuse.product_inputs
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
