@@ -37,6 +37,15 @@ on:
         required: false
         default: true
         type: boolean
+      browser_engine:
+        description: "Browser engine for browser panels under test (default keeps the app's configured engine; chromium falls back to WebKit when the build has no CEF)"
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - webkit
+          - chromium
       runner:
         description: "Runner OS (auto follows MACOS_RUNNER_TESTS; on the 6vcpu macOS 26 default it takes the pool pull request CI would: an owned Mac with a free slot when CI_PR_POOL_OWNED is 1, else 12vcpu while it has headroom, else 6vcpu; glaeda-* are the owned Macs and record no video)"
         required: false
@@ -58,7 +67,7 @@ on:
 # scenario run adds its dispatch id: agents dispatch several tours of one
 # commit at once, and each must not cancel the others.
 concurrency:
-  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}${{ inputs.dogfood_scenario && format('-{0}', inputs.dispatch_id) || '' }}
+  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}${{ inputs.dogfood_scenario && format('-{0}', inputs.dispatch_id) || '' }}${{ (inputs.browser_engine == 'webkit' || inputs.browser_engine == 'chromium') && format('-{0}', inputs.browser_engine) || '' }}
   cancel-in-progress: true
 
 # This lane checks out and compiles a dispatcher-chosen ref, so it should hold
@@ -1186,6 +1195,7 @@ jobs:
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
           dogfood-scenario: ${{ inputs.dogfood_scenario }}
+          browser-engine: ${{ inputs.browser_engine }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ steps.upload-product.outputs.artifact-id }}
@@ -1406,6 +1416,7 @@ jobs:
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
           dogfood-scenario: ${{ inputs.dogfood_scenario }}
+          browser-engine: ${{ inputs.browser_engine }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ needs.build.outputs.artifact_id }}

@@ -47,6 +47,13 @@ inputs:
       the test runner as CMUX_DOGFOOD_SCENARIO_B64. Empty for every other run.
     required: false
     default: ""
+  browser-engine:
+    description: >-
+      Browser engine the app under test uses for browser panels, "webkit" or
+      "chromium", passed to the test runner as CMUX_UI_TEST_BROWSER_ENGINE.
+      Empty keeps the app's configured default.
+    required: false
+    default: ""
   ref-display:
     description: The ref the dispatch named, for the summary.
     required: true
@@ -439,6 +446,7 @@ runs:
         TEST_TIMEOUT: ${{ inputs.test-timeout }}
         RECORD_VIDEO: ${{ inputs.record-video == 'true' && steps.capture.outputs.available != 'false' && 'true' || 'false' }}
         DOGFOOD_SCENARIO_B64: ${{ inputs.dogfood-scenario }}
+        BROWSER_ENGINE: ${{ inputs.browser-engine }}
         # App-host crash recovery must not stall on interactive backtraces
         # (mirrors ci.yml's tests job hardening).
         SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -534,6 +542,14 @@ runs:
         if [ -n "${DOGFOOD_SCENARIO_B64:-}" ]; then
           XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_DOGFOOD_SCENARIO_B64=$DOGFOOD_SCENARIO_B64")
         fi
+        case "${BROWSER_ENGINE:-}" in
+          ""|default) ;;
+          webkit|chromium)
+            XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_UI_TEST_BROWSER_ENGINE=$BROWSER_ENGINE")
+            echo "Browser engine under test: $BROWSER_ENGINE"
+            ;;
+          *) echo "::error::browser-engine must be webkit or chromium, got '$BROWSER_ENGINE'"; exit 1 ;;
+        esac
 
         RUN_XCODEBUILD=(env "${XCODEBUILD_ENV[@]}")
         if [ "$TEST_TARGET" = "cmuxUITests" ]; then
