@@ -437,7 +437,7 @@ fn chief_says_at_once_that_agents_are_disabled_and_starts_nothing() {
         let json = sandbox
             .chief_with(&["--chief-home", home_arg, "--json", "-p", "hello"], &[(key, value)]);
         assert_eq!(json.status.code(), Some(1), "{key}: {}", stderr_of(&json));
-        let error: serde_json::Value = serde_json::from_str(stderr_of(&json).trim())
+        let error: Value = serde_json::from_str(stderr_of(&json).trim())
             .unwrap_or_else(|e| panic!("{key}: typed JSON error: {e}: {}", stderr_of(&json)));
         assert_eq!(error["code"], "operation.failed", "{key}: {error}");
         assert_eq!(error["details"]["reason"], "agent_launch_disabled", "{key}: {error}");
