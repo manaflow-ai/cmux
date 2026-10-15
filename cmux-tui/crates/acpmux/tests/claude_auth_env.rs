@@ -505,6 +505,34 @@ async fn an_edited_rc_file_behind_a_symlink_refreshes_the_login_env() {
     );
 }
 
+/// A startup file the login shell rewrites on every read (a tool that
+/// appends to ~/.zshrc) never settles; the daemon stops reading it again
+/// instead of running login shells back to back.
+#[tokio::test]
+async fn an_rc_file_the_shell_rewrites_stops_being_read_again() {
+    let dir = scratch(
+        "rewrite",
+        "echo run >> \"$HOME/../runs\"\necho '#' >> \"$HOME/.zshrc\"\nexport NO_PROXY=self-rewriting\n",
+    );
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(
+        cached_no_proxy(&dir, "self-rewriting", Duration::from_secs(8)).await,
+        "the first read"
+    );
+    let runs = || std::fs::read_to_string(dir.join("runs")).map(|s| s.lines().count()).unwrap_or(0);
+    // The watcher's burst (300 ms quiet, 2 s at most) and any re-read end well
+    // within this; after it the shell runs no more.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let settled = runs();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        runs(),
+        settled,
+        "the daemon kept running the login shell ({settled} runs, then more)"
+    );
+}
+
 /// A login shell that hangs: the daemon stops waiting after 3 s, and
 /// agents start without it (falling back to the daemon's environment).
 #[tokio::test]
