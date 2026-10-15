@@ -115,6 +115,41 @@ describe("Stripe catalog provisioning", () => {
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
   });
 
+  test("provisions the Team Max product and its $220 monthly per-seat price", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const productCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/products") &&
+        call.args.includes("POST") &&
+        call.args.includes("name=cmux Team Max"),
+    );
+    expect(productCreate).toBeDefined();
+    expect(productCreate!.args).toContain("metadata[app]=cmux");
+    expect(productCreate!.args).toContain("metadata[plan]=team_max");
+    const priceCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/prices") &&
+        call.args.includes("POST") &&
+        call.args.includes("lookup_key=cmux-team-max-monthly-220"),
+    );
+    expect(priceCreate).toBeDefined();
+    expect(priceCreate!.args).toContain("product=prod_new_team_max");
+    expect(priceCreate!.args).toContain("unit_amount=22000");
+    expect(priceCreate!.args).toContain("recurring[interval]=month");
+    expect(priceCreate!.args).toContain("currency=usd");
+    const description = result.calls
+      .find((call) => call.args.includes("https://api.stripe.com/v1/products/prod_new_team_max") && call.args.includes("POST"))
+      ?.args.find((argument) => argument.startsWith("description="));
+    expect(description).toBe("description=Max machines for every member: up to 5 Cloud VMs per paid seat, sharing 80 vCPUs and 160 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+    // Team Max is never offered in the personal Pro/Max switch portal.
+    const portalCreate = result.calls.find(
+      (call) => call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") && call.args.includes("POST"),
+    );
+    expect(portalCreate!.args.join("\n")).not.toContain("prod_new_team_max");
+  });
+
   test("provisions monthly and yearly Max prices and the Pro/Max plan switch portal", async () => {
     const result = await runProvision("test", "valid");
 
@@ -527,7 +562,9 @@ if (url.endsWith("/prices") && !isPost) {
         ? "prod_new_max"
         : dataValue === "cmux Go"
           ? "prod_new_go"
-          : "prod_new_team",
+          : dataValue === "cmux Team Max"
+            ? "prod_new_team_max"
+            : "prod_new_team",
   });
 } else if (url.includes("/products/prod_") && isPost) {
   respond({ id: url.split("/").at(-1) });

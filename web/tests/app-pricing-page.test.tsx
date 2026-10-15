@@ -376,6 +376,22 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Max");
   });
 
+  test("sells Team Max next to Team with an app-attributed team_max checkout", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+    });
+    const html = (await renderSettled(element));
+    const section = html.match(/aria-labelledby="team-enterprise-pricing-category"[\s\S]*?<\/section>/)?.[0] ?? "";
+
+    expect(section).toContain("Team Max");
+    expect(section).toMatch(/>Team Max<\/h2>[\s\S]*?>\$220<\/span><span[^>]*>\/user\/mo<\/span>/);
+    expect(section).toMatch(
+      /href="[^"]*\/api\/billing\/checkout\?plan=team_max&amp;[^"]*interval=month[^"]*cmux_source=app_pricing[^"]*"[^>]*><span>Get Team Max/,
+    );
+    expect(section).toContain("sharing 80 vCPUs and 160 GB RAM per paid seat across the team");
+    expect(section.indexOf("<span>Get Team Max")).toBeGreaterThan(section.indexOf("<span>Get Teams"));
+  });
+
   for (const [name, params, message] of [
     ["welcomeTeam", { welcome: "team" }, "Your cmux Team purchase is complete."],
     ["billingCancelled", { billing: "cancelled" }, "Checkout cancelled. You have not been charged."],

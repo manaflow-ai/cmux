@@ -33,6 +33,19 @@ import Testing
         #expect(CmuxPlanTier(planID: nil) == nil)
     }
 
+    @Test func teamMaxMapsToTheMaxTier() {
+        // Team Max gives every member the Max sizes and pool.
+        #expect(CmuxPlanTier(planID: "team_max") == .max)
+        #expect(CmuxPlanTier(planID: " Team_Max\n") == .max)
+        #expect(CmuxPlanTier(planID: "teammax") == nil)
+    }
+
+    @Test func teamMaxRaisesAFreeOrProPersonalPlanToMax() {
+        #expect(CmuxPlanTier.resolved(subscriptionPlanID: "free", planID: "free", teamPlanID: "team_max", isPro: false) == .max)
+        #expect(CmuxPlanTier.resolved(subscriptionPlanID: "pro", planID: "pro", teamPlanID: "team_max", isPro: true) == .max)
+        #expect(CmuxPlanTier.resolved(subscriptionPlanID: nil, planID: nil, teamPlanID: "team_max", isPro: false).nextUpgrade == nil)
+    }
+
     @Test func nextUpgradeOffersTheTierAbove() {
         #expect(CmuxPlanTier.free.nextUpgrade == .pro)
         #expect(CmuxPlanTier.go.nextUpgrade == .pro)

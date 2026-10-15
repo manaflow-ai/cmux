@@ -59,26 +59,52 @@ describe("personal plan picker", () => {
 });
 
 describe("team plan picker", () => {
-  const base = { canManageBilling: true, granted: false, subscription: null } as const;
+  const base = { canManageBilling: true, granted: false, subscription: null, planId: "free" } as const;
 
-  test("a Free team's admin upgrades through Team checkout", () => {
-    expect(summary(teamPlanCards(base))).toEqual(["free*:current", "team:checkout/team"]);
+  test("a Free team's admin upgrades through Team or Team Max checkout", () => {
+    expect(summary(teamPlanCards(base))).toEqual(["free*:current", "team:checkout/team", "team_max:checkout/team_max"]);
   });
 
   test("a member sees the plans but cannot change them", () => {
-    expect(summary(teamPlanCards({ ...base, canManageBilling: false }))).toEqual(["free*:current", "team:unavailable/adminOnly"]);
-  });
-
-  test("an active Team subscription cancels from the Free card; a scheduled one resumes", () => {
-    expect(summary(teamPlanCards({ ...base, subscription: { cancelAtPeriodEnd: false } }))).toEqual(["free:cancel", "team*:current"]);
-    expect(summary(teamPlanCards({ ...base, subscription: { cancelAtPeriodEnd: true } }))).toEqual([
-      "free:unavailable/cancelScheduled",
-      "team*:resume",
+    expect(summary(teamPlanCards({ ...base, canManageBilling: false }))).toEqual([
+      "free*:current",
+      "team:unavailable/adminOnly",
+      "team_max:unavailable/adminOnly",
     ]);
   });
 
-  test("a granted Team plan has nothing to change", () => {
-    expect(summary(teamPlanCards({ ...base, granted: true }))).toEqual(["free:unavailable/granted", "team*:current"]);
+  test("an active Team subscription switches to Team Max in place and cancels from the Free card", () => {
+    expect(summary(teamPlanCards({ ...base, planId: "team", subscription: { cancelAtPeriodEnd: false } }))).toEqual([
+      "free:cancel",
+      "team*:current",
+      "team_max:switch/team_max",
+    ]);
+    expect(summary(teamPlanCards({ ...base, planId: "team", subscription: { cancelAtPeriodEnd: true } }))).toEqual([
+      "free:unavailable/cancelScheduled",
+      "team*:resume",
+      "team_max:unavailable/cancelScheduled",
+    ]);
+  });
+
+  test("an active Team Max subscription switches back down to Team in place", () => {
+    expect(summary(teamPlanCards({ ...base, planId: "team_max", subscription: { cancelAtPeriodEnd: false } }))).toEqual([
+      "free:cancel",
+      "team:switch/team",
+      "team_max*:current",
+    ]);
+  });
+
+  test("a granted Team or Team Max plan has nothing to change", () => {
+    expect(summary(teamPlanCards({ ...base, planId: "team", granted: true }))).toEqual([
+      "free:unavailable/granted",
+      "team*:current",
+      "team_max:unavailable/granted",
+    ]);
+    expect(summary(teamPlanCards({ ...base, planId: "team_max", granted: true }))).toEqual([
+      "free:unavailable/granted",
+      "team:unavailable/granted",
+      "team_max*:current",
+    ]);
   });
 });
 
@@ -92,7 +118,7 @@ describe("a reason every other card shares", () => {
 
   test("is null when the other cards have actions", () => {
     expect(sharedUnavailableReason(personalPlanCards({ planId: "free", isPro: false, subscription: null, goPlanEnabled: false }))).toBeNull();
-    expect(sharedUnavailableReason(teamPlanCards({ canManageBilling: true, granted: false, subscription: null }))).toBeNull();
+    expect(sharedUnavailableReason(teamPlanCards({ canManageBilling: true, granted: false, subscription: null, planId: "free" }))).toBeNull();
   });
 });
 
@@ -105,6 +131,7 @@ describe("plan card price", () => {
     expect(planCardPrice("pro", true, { amountUsd: 50, interval: "month" })).toEqual({ amount: "$50", unit: "perMonth", annual: false });
     expect(planCardPrice("pro", true, { amountUsd: 500, interval: "year" })).toEqual({ amount: "$41.67", unit: "perMonth", annual: true });
     expect(planCardPrice("team", true, { amountUsd: 60, interval: "month" })).toEqual({ amount: "$60", unit: "perSeatMonth", annual: false });
+    expect(planCardPrice("team_max", false, undefined)).toEqual({ amount: "$220", unit: "perSeatMonth", annual: false });
     expect(planCardPrice("pro", true, null)).toBeNull();
   });
 });
