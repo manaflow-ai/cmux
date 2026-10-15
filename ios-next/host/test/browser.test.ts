@@ -339,6 +339,39 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     expect(casts().at(-1)).toEqual([1206, 2622]);
   });
 
+  it("sends a full-quality frame once the page is still, and the first frame of a static page", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false, settleMs: 80 } });
+    cleanups.push(() => core.shutdown());
+    const { streamId } = await client.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 3, mobile: true });
+    const frames: ReturnType<typeof decodeBrowserFramePayload>[] = [];
+    client.onStream(streamId, (p) => {
+      const f = decodeBrowserFramePayload(Uint8Array.from(p));
+      frames.push(f);
+      void client.request("browser.ack", { streamId, seq: f.header.seq });
+    });
+    const shots = () => cdp.calls.filter((c) => c.method === "Page.captureScreenshot");
+    // The fake screencast sends 6 frames and goes quiet: one settled capture follows.
+    await waitFor(() => shots().length === 1);
+    expect(shots()[0]!.params).toMatchObject({ format: "jpeg", quality: 92 });
+    await waitFor(() => frames.some((f) => f.header.pxW === 10));
+    const settled = frames.findIndex((f) => f.header.pxW === 10);
+    expect(settled).toBe(6);
+    expect(frames[settled]!.header).toMatchObject({ seq: 7, cssW: 390, cssH: 844 });
+    // Still: no more captures. The one repaint right after the capture is not sent.
+    cdp.emit("Page.screencastFrame", { data: fakeJpeg(1170, 2532).toString("base64"), metadata: { deviceWidth: 390, deviceHeight: 844 }, sessionId: 900 }, "S1");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(shots().length).toBe(1);
+    expect(frames.length).toBe(7);
+    // The page moves again: low-quality frames, then a new settled frame.
+    cdp.emit("Page.screencastFrame", { data: fakeJpeg(1170, 2532).toString("base64"), metadata: { deviceWidth: 390, deviceHeight: 844 }, sessionId: 901 }, "S1");
+    await waitFor(() => shots().length === 2);
+    await waitFor(() => frames.length === 9);
+    expect(frames.map((f) => f.header.pxW).slice(-2)).toEqual([1170, 10]);
+    await client.request("browser.detach", { streamId });
+  });
+
   it("opens phone-created tabs in their own window in the host's Chrome only", async () => {
     const cdp = await startFakeCdp();
     cleanups.push(() => cdp.close());

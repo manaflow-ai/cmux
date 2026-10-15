@@ -14,6 +14,16 @@ import { fetchVersion, findChromeBinaries, ownEndpoint, resolveCdpEndpoint, reti
 export const MAX_UNACKED = envNumber("CMUX_NEXT_SCREENCAST_UNACKED", 3);
 /** JPEG quality of the screencast (one setting: restarting the screencast to change it costs frames). */
 export const SCREENCAST_QUALITY = envNumber("CMUX_NEXT_SCREENCAST_QUALITY", 50);
+/**
+ * After the screencast has been quiet this long (ms), the host sends one
+ * full-quality frame of the settled page, so text at rest is sharp; the
+ * screencast quality only applies while the page moves. 0 disables.
+ */
+export const SETTLE_MS = envNumber("CMUX_NEXT_SCREENCAST_SETTLE_MS", 350);
+/** JPEG quality of the settled frame. */
+export const SETTLE_QUALITY = envNumber("CMUX_NEXT_SCREENCAST_SETTLE_QUALITY", 92);
+/** Screencast frames this soon after a settled frame are the capture's own repaint: not sent. */
+const SETTLE_ECHO_MS = 250;
 /** Highest pixel density the screencast is encoded at (the page still renders at the phone's scale). */
 export const SCREENCAST_MAX_SCALE = envNumber("CMUX_NEXT_SCREENCAST_MAX_SCALE", 3);
 
@@ -62,6 +72,13 @@ interface Cast {
   unacked: number[];
   pendingCdpAck: number | null;
   lastFrame?: Buffer;
+  /** Metadata of the latest screencast frame (reused by the settled frame). */
+  lastMeta?: { cssW: number; cssH: number; pageScale: number; offsetTop: number };
+  settleTimer?: NodeJS.Timeout;
+  /** When the last settled (full-quality) frame was sent. */
+  settledAt?: number;
+  /** The one repaint frame the settled capture may cause is not sent. */
+  echoPending?: boolean;
   scrollScriptId?: string;
   visibilityScriptId?: string;
 }
@@ -117,6 +134,8 @@ export interface BrowserProviderOptions {
   bringForward?: (tabId: string) => Promise<void>;
   /** browser.create while mirroring: a new tab in the Mac app (bridge). */
   createInMirror?: (url: string) => Promise<Tab>;
+  /** Override SETTLE_MS (tests); 0 disables settled frames. */
+  settleMs?: number;
 }
 
 export interface BrowserProviderEvents {
@@ -695,6 +714,10 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   }
 
   private async startCast(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
+    cast.settledAt = undefined;
+    // A page that is not repainting produces no screencast frame: the settle
+    // timer also sends the first frame of a static page.
+    this.armSettle(cast);
     // maxWidth/maxHeight are the phone's pixel size, so Chrome renders the
     // viewport at the phone's scale without downscaling.
     await cdp.send(
@@ -711,6 +734,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   }
 
   private async stopCast(t: TabState, cast?: Cast): Promise<void> {
+    if (cast?.settleTimer) clearTimeout(cast.settleTimer);
     const cdp = this.cdp;
     const sid = t.sessionId;
     if (!cdp || !sid) return;
@@ -742,25 +766,22 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       void cdp.send("Page.screencastFrameAck", { sessionId: params.sessionId }, t.sessionId).catch(() => {});
       return;
     }
-    const image = Buffer.from(params.data, "base64");
-    const dims = jpegSize(image);
-    cast.seq = (cast.seq + 1) >>> 0;
-    const header = {
-      seq: cast.seq,
+    cast.lastMeta = {
       cssW: params.metadata.deviceWidth || cast.width,
       cssH: params.metadata.deviceHeight || cast.height,
-      pxW: dims?.width ?? Math.round(cast.width * cast.scale),
-      pxH: dims?.height ?? Math.round(cast.height * cast.scale),
-      format: 0 as const,
+      pageScale: params.metadata.pageScaleFactor ?? 1,
+      offsetTop: params.metadata.offsetTop ?? 0,
     };
-    const payload = cast.meta
-      ? encodeBrowserFrameMeta(header, { scrollX: t.scroll?.x ?? 0, scrollY: t.scroll?.y ?? 0, pageScale: params.metadata.pageScaleFactor ?? 1, offsetTop: params.metadata.offsetTop ?? 0 }, image)
-      : encodeBrowserFramePayload(header, image);
-    cast.lastFrame = image;
-    t.lastShot = image;
-    cast.session.sendFrame(FrameKind.browserFrame, cast.streamId, payload);
-    if (TRACE) this.log(`trace frame seq=${cast.seq} ${payload.byteLength}B unacked=${cast.unacked.length + 1} scrollY=${t.scroll?.y ?? -1}`);
-    cast.unacked.push(cast.seq);
+    if (cast.echoPending && cast.settledAt !== undefined && Date.now() - cast.settledAt < SETTLE_ECHO_MS) {
+      // The repaint the settled capture caused: the phone already has a
+      // sharper copy. Only one such frame; a second one is a real change.
+      cast.echoPending = false;
+      void cdp.send("Page.screencastFrameAck", { sessionId: params.sessionId }, t.sessionId).catch(() => {});
+      return;
+    }
+    cast.settledAt = undefined;
+    this.sendImage(t, cast, Buffer.from(params.data, "base64"));
+    this.armSettle(cast);
     // CDP sends the next frame only after an ack. Ack right away while the
     // phone has room, otherwise hold the ack until the phone catches up.
     if (cast.unacked.length < MAX_UNACKED) {
@@ -768,6 +789,66 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     } else {
       cast.pendingCdpAck = params.sessionId;
     }
+  }
+
+  /** Sends one JPEG to the stream's phone (screencast or settled frame). */
+  private sendImage(t: TabState, cast: Cast, image: Buffer): void {
+    const dims = jpegSize(image);
+    const m = cast.lastMeta ?? { cssW: cast.width, cssH: cast.height, pageScale: 1, offsetTop: 0 };
+    cast.seq = (cast.seq + 1) >>> 0;
+    const header = {
+      seq: cast.seq,
+      cssW: m.cssW,
+      cssH: m.cssH,
+      pxW: dims?.width ?? Math.round(cast.width * cast.scale),
+      pxH: dims?.height ?? Math.round(cast.height * cast.scale),
+      format: 0 as const,
+    };
+    const payload = cast.meta
+      ? encodeBrowserFrameMeta(header, { scrollX: t.scroll?.x ?? 0, scrollY: t.scroll?.y ?? 0, pageScale: m.pageScale, offsetTop: m.offsetTop }, image)
+      : encodeBrowserFramePayload(header, image);
+    cast.lastFrame = image;
+    t.lastShot = image;
+    cast.session.sendFrame(FrameKind.browserFrame, cast.streamId, payload);
+    if (TRACE) this.log(`trace frame seq=${cast.seq} ${payload.byteLength}B unacked=${cast.unacked.length + 1} scrollY=${t.scroll?.y ?? -1}`);
+    cast.unacked.push(cast.seq);
+  }
+
+  private armSettle(cast: Cast): void {
+    const ms = this.opts.settleMs ?? SETTLE_MS;
+    if (ms <= 0) return;
+    if (cast.settleTimer) clearTimeout(cast.settleTimer);
+    cast.settleTimer = setTimeout(() => {
+      cast.settleTimer = undefined;
+      void this.sendSettled(cast).catch(() => {});
+    }, ms);
+    cast.settleTimer.unref?.();
+  }
+
+  /**
+   * The page has been still: send one full-quality capture at the stream's
+   * pixel density, unless a newer screencast frame arrives meanwhile.
+   */
+  private async sendSettled(cast: Cast): Promise<void> {
+    const t = [...this.tabs.values()].find((x) => x.cast === cast);
+    const cdp = this.cdp;
+    if (!t || !cdp || !t.sessionId || !cast.session.open || cast.settledAt !== undefined) return;
+    if (t.hidden === true) return; // a background tab paints nothing (and the Mac's hidden tabs send no frames)
+    if (cast.unacked.length >= MAX_UNACKED) {
+      this.armSettle(cast); // the phone is behind; try again when it has room
+      return;
+    }
+    const seq = cast.seq;
+    const { data } = await cdp.send<{ data: string }>(
+      "Page.captureScreenshot",
+      { format: "jpeg", quality: SETTLE_QUALITY, fromSurface: true },
+      t.sessionId,
+      4_000,
+    );
+    if (t.cast !== cast || cast.seq !== seq || !cast.session.open) return; // moved meanwhile
+    cast.settledAt = Date.now();
+    cast.echoPending = true;
+    this.sendImage(t, cast, Buffer.from(data, "base64"));
   }
 
   ack(session: ClientSession, streamId: number, seq: number): void {
