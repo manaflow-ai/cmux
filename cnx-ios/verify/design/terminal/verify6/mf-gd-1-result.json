@@ -1,0 +1,183 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv6/mf-gd-1.mp4",
+ "video_t0": 1792052316.1711922,
+ "reps": [
+  {
+   "rep": 0,
+   "delay": 0.1,
+   "swipe_v": 6.53,
+   "touch_up_v": 7.14,
+   "tap_cmd_v": 7.24,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 0,
+   "delay": 0.3,
+   "swipe_v": 15.69,
+   "touch_up_v": 16.29,
+   "tap_cmd_v": 16.6,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 0,
+   "delay": 0.6,
+   "swipe_v": 24.88,
+   "touch_up_v": 25.48,
+   "tap_cmd_v": 26.09,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 1,
+   "delay": 0.1,
+   "swipe_v": 34.57,
+   "touch_up_v": 35.21,
+   "tap_cmd_v": 35.32,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 1,
+   "delay": 0.3,
+   "swipe_v": 43.86,
+   "touch_up_v": 44.52,
+   "tap_cmd_v": 44.83,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 1,
+   "delay": 0.6,
+   "swipe_v": 53.18,
+   "touch_up_v": 53.79,
+   "tap_cmd_v": 54.4,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 2,
+   "delay": 0.1,
+   "swipe_v": 63.02,
+   "touch_up_v": 63.71,
+   "tap_cmd_v": 63.82,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 2,
+   "delay": 0.3,
+   "swipe_v": 72.32,
+   "touch_up_v": 72.96,
+   "tap_cmd_v": 73.26,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 2,
+   "delay": 0.6,
+   "swipe_v": 81.43,
+   "touch_up_v": 82.04,
+   "tap_cmd_v": 82.65,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 3,
+   "delay": 0.1,
+   "swipe_v": 91.1,
+   "touch_up_v": 91.79,
+   "tap_cmd_v": 91.89,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 3,
+   "delay": 0.3,
+   "swipe_v": 100.48,
+   "touch_up_v": 101.14,
+   "tap_cmd_v": 101.44,
+   "jump_gone_after_2.5s": true
+  },
+  {
+   "rep": 3,
+   "delay": 0.6,
+   "swipe_v": 109.86,
+   "touch_up_v": 110.51,
+   "tap_cmd_v": 111.12,
+   "jump_gone_after_2.5s": true
+  }
+ ],
+ "jump_logs": [
+  [
+   "false",
+   "false",
+   "272618",
+   "276996"
+  ],
+  [
+   "false",
+   "false",
+   "253108",
+   "270884"
+  ],
+  [
+   "false",
+   "false",
+   "266825",
+   "278420"
+  ],
+  [
+   "false",
+   "false",
+   "252689",
+   "271716"
+  ],
+  [
+   "false",
+   "false",
+   "267832",
+   "278884"
+  ],
+  [
+   "false",
+   "false",
+   "250889",
+   "272324"
+  ],
+  [
+   "false",
+   "false",
+   "268255",
+   "280244"
+  ],
+  [
+   "false",
+   "false",
+   "262722",
+   "273668"
+  ],
+  [
+   "false",
+   "false",
+   "269918",
+   "281364"
+  ],
+  [
+   "false",
+   "false",
+   "262908",
+   "274740"
+  ],
+  [
+   "false",
+   "false",
+   "271018",
+   "282276"
+  ],
+  [
+   "false",
+   "false",
+   "264026",
+   "275876"
+  ],
+  [
+   "false",
+   "false",
+   "253974",
+   "269812"
+  ]
+ ],
+ "settled_following": 12
+}
