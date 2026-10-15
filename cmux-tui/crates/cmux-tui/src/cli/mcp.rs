@@ -11,6 +11,7 @@
 //! (plans/cmux-next/mcp.md).
 
 mod action_tools;
+mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
@@ -135,11 +136,13 @@ pub(super) trait Backend {
     ) -> Result<Value, CallFailure>;
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
-    /// first), and with `None` after each `tick` without one, until it
-    /// returns `true`. An error means no stream opened.
+    /// first, or with `cursor` the journal batches after it), and with
+    /// `None` after each `tick` without one, until it returns `true`. An
+    /// error means no stream opened.
     fn session_events(
         &self,
         session: Option<&str>,
+        cursor: Option<&Value>,
         deadline: Instant,
         tick: Duration,
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
@@ -184,11 +187,12 @@ impl Backend for LiveBackend {
     fn session_events(
         &self,
         session: Option<&str>,
+        cursor: Option<&Value>,
         deadline: Instant,
         tick: Duration,
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure> {
-        transport::session_events(&self.routed(session)?, deadline, tick, on_wake)
+        transport::session_events(&self.routed(session)?, cursor, deadline, tick, on_wake)
     }
 
     fn app(
@@ -438,6 +442,7 @@ impl<B: Backend> Server<B> {
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
+        tools.push(agent_events_tool::descriptor());
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -574,6 +579,9 @@ impl<B: Backend> Server<B> {
         if name == agent_wait_tool::NAME {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(agent_wait_tool::call(&self.backend, &arguments, progress));
+        }
+        if name == agent_events_tool::NAME {
+            return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments) {
