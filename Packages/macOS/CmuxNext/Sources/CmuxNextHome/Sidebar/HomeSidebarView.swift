@@ -38,13 +38,14 @@ public final class HomeSidebarView: NSView {
     let dragStrip = HomeWindowDragStrip()
     /// Messages' compose button, in the strip above the search field.
     let compose = HomeComposeButton()
+    /// A quiet line under the list (`HomeSidebarModel.note`).
+    let noteLabel = NSTextField(labelWithString: "")
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         list.frame = bounds
-        list.autoresizingMask = [.width, .height]
         addSubview(list)
         SystemScrollers.follow(list.scrollView)
         addSubview(dragStrip)
@@ -58,6 +59,12 @@ public final class HomeSidebarView: NSView {
         compose.action = #selector(newMessage)
         compose.owner = self
         addSubview(compose)
+        noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        noteLabel.textColor = .secondaryLabelColor
+        noteLabel.lineBreakMode = .byTruncatingTail
+        noteLabel.isHidden = true
+        noteLabel.setAccessibilityIdentifier("cmux.home.sidebar.note")
+        addSubview(noteLabel)
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
         list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
@@ -92,6 +99,11 @@ public final class HomeSidebarView: NSView {
         guard model != self.model else { return }
         self.model = model
         list.show((model.pinned + model.rows).map(Self.entry), pinned: model.pinned.map(\.id.rawValue))
+        noteLabel.stringValue = model.note ?? ""
+        if noteLabel.isHidden != (model.note == nil) {
+            noteLabel.isHidden = model.note == nil
+            needsLayout = true
+        }
     }
 
     /// Each pinned tile's and row's frame in window points from the top-left (`debug.home page`).
@@ -106,7 +118,7 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, avatar: item.chiefAvatar.map(avatar))
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar))
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -158,6 +170,10 @@ public final class HomeSidebarView: NSView {
         // The search field starts `stripHeight` down; the button sits centered in that strip.
         let side: CGFloat = 28
         dragStrip.frame = NSRect(x: 0, y: bounds.height - Self.stripHeight, width: bounds.width, height: Self.stripHeight)
+        // The note's strip at the bottom; the list ends above it.
+        let note: CGFloat = noteLabel.isHidden ? 0 : 30
+        list.frame = NSRect(x: 0, y: note, width: bounds.width, height: bounds.height - note)
+        noteLabel.frame = NSRect(x: 14, y: 8, width: max(0, bounds.width - 28), height: 16)
         compose.frame = NSRect(x: bounds.width - side - 12, y: bounds.height - 26 - side / 2, width: side, height: side)
     }
 
