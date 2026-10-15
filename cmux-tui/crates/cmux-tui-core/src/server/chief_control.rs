@@ -65,7 +65,7 @@ pub(super) fn handle_with(
     client: u64,
     request: ParsedResourceRequest,
     writer: &MessageWriter,
-    socket: Option<std::path::PathBuf>,
+    socket: Option<PathBuf>,
 ) -> bool {
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
