@@ -1,3 +1,4 @@
+import AppKit
 import CmuxBrowser
 import Foundation
 
@@ -8,10 +9,14 @@ import Foundation
 /// renderer ends are recorded by their panel instead.
 ///
 /// Started by the first Chromium page this run; a WebKit-only session never
-/// starts it. Quit-time helper ends are normal (SIGTERM) and not recorded.
+/// starts it. It stops when the app begins to terminate: Chromium then ends
+/// every helper, with SIGKILL for any that do not exit in time, and those ends
+/// are not crashes. (Chromium also SIGKILLs a retired helper that ignores its
+/// SIGTERM; such an end is recorded as `killed`, not `crashed`.)
 @MainActor
 enum ChromiumHelperCrashWatch {
     private static var monitor: ChromiumChildProcessMonitor?
+    private static var terminationObserver: (any NSObjectProtocol)?
 
     static func startIfNeeded(log: BrowserCrashLog = .app) {
         guard monitor == nil else { return }
@@ -31,6 +36,18 @@ enum ChromiumHelperCrashWatch {
             }
         }
         Self.monitor = monitor
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { stop() }
+        }
         monitor.start()
+    }
+
+    /// Stops recording (quit). Idempotent.
+    static func stop() {
+        monitor?.stop()
+        if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
+        terminationObserver = nil
     }
 }
