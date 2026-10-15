@@ -28,6 +28,34 @@ extension TerminalController {
         return (engine, nil)
     }
 
+    /// Why a WebKit panel is not on the engine the app prefers, when the
+    /// preferred engine (`CMUX_BROWSER_ENGINE`, then `browser.engine`) is
+    /// another one that cannot open now; nil when the panel has the preferred
+    /// engine. A panel opened with an explicit `--engine webkit` reports the
+    /// same reason while the preferred engine is unavailable.
+    @MainActor
+    func v2BrowserEngineFallbackReason(
+        _ panel: BrowserPanel,
+        runtime: BrowserEngineRuntime = .shared
+    ) -> BrowserEngineUnavailableReason? {
+        guard panel.engineKind == .webkit,
+              case .open(let choice) = runtime.resolve(requested: nil) else {
+            return nil
+        }
+        return choice.fallback
+    }
+
+    /// The `engine` (and, after a fallback, `engine_fallback_reason`) fields
+    /// browser results carry, so a script can tell which engine it drives.
+    @MainActor
+    func v2BrowserEngineFields(_ panel: BrowserPanel) -> [String: Any] {
+        var fields: [String: Any] = ["engine": panel.engineKind.rawValue]
+        if let reason = v2BrowserEngineFallbackReason(panel) {
+            fields["engine_fallback_reason"] = reason.code
+        }
+        return fields
+    }
+
     /// The panel's non-WebKit engine page, or nil for a WebKit panel. The
     /// engine is fixed at panel creation, so a WebKit panel answers without a
     /// main-thread hop and its automation paths cost nothing extra.

@@ -57,6 +57,13 @@ struct BrowserEngineSocketTests {
             #expect(tab["engine"] as? String == panel.engineKind.rawValue)
         }
 
+        // url.get (behind `cmux browser identify`) reports it too.
+        let urlPayload = try successfulResult(call(method: "browser.url.get", params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": openedID.uuidString,
+        ]))
+        #expect(urlPayload["engine"] as? String == openedPanel.engineKind.rawValue)
+
         let panelCount = workspace.panels.count
 
         // An unknown engine is a parameter error.

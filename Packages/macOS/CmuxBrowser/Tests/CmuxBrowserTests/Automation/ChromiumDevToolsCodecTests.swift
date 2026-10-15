@@ -78,4 +78,41 @@ struct ChromiumDevToolsCodecTests {
         #expect(up[0]["modifiers"] as? Int == 0)
     }
 
+    @Test("Tab moves focus without inserting a tab character")
+    func tabInsertsNoText() throws {
+        let tab = try #require(BrowserKeyboardEvent(rawKey: "Tab"))
+        let press = codec.keyEventParams(tab, action: .press, modifiers: [])
+        #expect(press[0]["type"] as? String == "rawKeyDown")
+        #expect(press[0]["text"] == nil)
+    }
+
+    @Test("Command chords name the macOS editing command Chromium needs")
+    func commandChords() throws {
+        let a = try #require(BrowserKeyboardEvent(rawKey: "a"))
+        let z = try #require(BrowserKeyboardEvent(rawKey: "z"))
+        #expect(codec.keyEventParams(a, action: .press, modifiers: [.command])[0]["commands"] as? [String] == ["selectAll"])
+        #expect(codec.keyEventParams(z, action: .press, modifiers: [.command, .shift])[0]["commands"] as? [String] == ["redo"])
+        #expect(codec.keyEventParams(a, action: .press, modifiers: [])[0]["commands"] == nil)
+        #expect(codec.keyEventParams(a, action: .press, modifiers: [.command, .control])[0]["commands"] == nil)
+    }
+
+    @Test("A held Shift types the shifted letter")
+    func shiftedLetter() throws {
+        let a = try #require(BrowserKeyboardEvent(rawKey: "a"))
+        let press = codec.keyEventParams(a, action: .press, modifiers: [.shift])
+        #expect(press[0]["key"] as? String == "A")
+        #expect(press[0]["text"] as? String == "A")
+        #expect(press[0]["modifiers"] as? Int == 8)
+    }
+
+    @Test("A host-only cookie takes the scheme of a page on its host")
+    func hostOnlyCookieScheme() throws {
+        let cookie = try #require(HTTPCookie(properties: [
+            .name: "a", .value: "1", .domain: "example.com", .path: "/",
+        ]))
+        let onPage = codec.setCookieParams(cookie, pageURL: URL(string: "https://example.com/app"))
+        #expect(onPage["url"] as? String == "https://example.com/")
+        let elsewhere = codec.setCookieParams(cookie, pageURL: URL(string: "https://other.test/"))
+        #expect(elsewhere["url"] as? String == "http://example.com/")
+    }
 }

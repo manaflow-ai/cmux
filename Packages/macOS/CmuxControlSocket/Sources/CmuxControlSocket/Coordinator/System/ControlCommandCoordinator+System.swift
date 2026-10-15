@@ -379,6 +379,12 @@ extension ControlCommandCoordinator {
             "render_health": orNull(node.renderHealthRawValue),
         ]
         item["url"] = node.isBrowser ? .string(node.url ?? "") : .null
+        if let engine = node.browserEngineRawValue {
+            item["engine"] = .string(engine)
+        }
+        if let reason = node.browserEngineFallbackReason {
+            item["engine_fallback_reason"] = .string(reason)
+        }
         if let dockScope = node.dockScopeRawValue {
             item["dock_scope"] = .string(dockScope)
         }

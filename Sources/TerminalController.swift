@@ -3755,6 +3755,9 @@ class TerminalController {
                     "surface_type": v2OrNull(projection?.panel.panelType.rawValue),
                     "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser })
                 ]
+                if let browserPanel = projection?.panel as? BrowserPanel {
+                    focused.merge(v2BrowserEngineFields(browserPanel)) { _, engine in engine }
+                }
             } else {
                 focused = [
                     "window_id": v2OrNull(windowId?.uuidString),
@@ -7005,7 +7008,7 @@ class TerminalController {
         let browserPanels = panels.compactMap { $0 as? BrowserPanel }
         let tabs: [[String: Any]] = browserPanels.enumerated().map { index, panel in
             let paneId = paneIdForPanel(panel.id)
-            return [
+            var tab: [String: Any] = [
                 "id": panel.id.uuidString,
                 "ref": v2Ref(kind: .surface, uuid: panel.id),
                 "index": index,
@@ -7013,9 +7016,10 @@ class TerminalController {
                 "url": panel.currentURL?.absoluteString ?? "",
                 "focused": panel.id == focusedPanelId,
                 "pane_id": v2OrNull(paneId?.id.uuidString),
-                "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id),
-                "engine": panel.engineKind.rawValue
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id)
             ]
+            tab.merge(v2BrowserEngineFields(panel)) { _, engine in engine }
+            return tab
         }
         return [
             "workspace_id": workspaceId.uuidString,
@@ -7986,7 +7990,7 @@ class TerminalController {
                 browserPanel: placement.panel,
                 webView: placement.panel.webView
             )
-            let payload = v2BrowserActionPayload(
+            var payload = v2BrowserActionPayload(
                 context,
                 tabManager: tabManager,
                 extra: [
@@ -8016,9 +8020,9 @@ class TerminalController {
                     "show_omnibar": placement.panel.isOmnibarVisible,
                     "transparent_background": transparentBackground,
                     "bypass_remote_proxy": bypassRemoteProxy,
-                    "engine": placement.panel.engineKind.rawValue,
                 ]
             )
+            payload.merge(v2BrowserEngineFields(placement.panel)) { _, engine in engine }
             if focus,
                case .dock = container,
                let appDelegate = AppDelegate.shared {
@@ -10103,13 +10107,16 @@ class TerminalController {
             // A never-navigated surface reports about:blank (matching JS location.href)
             // instead of an empty string, so agents can tell "blank page" from "no data".
             let urlString = browserPanel.currentURL?.absoluteString
+                ?? browserPanel.automationEnginePage?.state.url?.absoluteString
                 ?? browserPanel.webView.url?.absoluteString
                 ?? "about:blank"
-            return .ok([
+            var payload: [String: Any] = [
                 "workspace_id": workspaceId.uuidString,
                 "surface_id": resolvedSurfaceId.uuidString,
                 "url": urlString
-            ])
+            ]
+            payload.merge(v2BrowserEngineFields(browserPanel)) { _, engine in engine }
+            return .ok(payload)
         }
     }
 
@@ -11605,16 +11612,17 @@ class TerminalController {
                     return
                 }
                 dock.focusPanelFromDockInteraction(panelId, window: nil)
-                result = .ok([
+                var payload: [String: Any] = [
                     "workspace_id": dock.workspaceId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: dock.workspaceId),
                     "pane_id": pane.id.uuidString,
                     "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
                     "surface_id": panel.id.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                    "url": panel.currentURL?.absoluteString ?? "",
-                    "engine": panel.engineKind.rawValue
-                ])
+                    "url": panel.currentURL?.absoluteString ?? ""
+                ]
+                payload.merge(v2BrowserEngineFields(panel)) { _, engine in engine }
+                result = .ok(payload)
                 return
             }
 
@@ -11643,16 +11651,17 @@ class TerminalController {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
-            result = .ok([
+            var payload: [String: Any] = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "pane_id": pane.id.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                "url": panel.currentURL?.absoluteString ?? "",
-                "engine": panel.engineKind.rawValue
-            ])
+                "url": panel.currentURL?.absoluteString ?? ""
+            ]
+            payload.merge(v2BrowserEngineFields(panel)) { _, engine in engine }
+            result = .ok(payload)
         }
         return result
     }
