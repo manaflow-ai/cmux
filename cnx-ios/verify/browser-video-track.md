@@ -422,7 +422,86 @@ Option A was chosen and is built (section "WireGuard carrier").
 - Phone, Settings → Transport → Developer → "Browser video on channel"
   (`-cnx.dev.browserVideoOnChannel YES`) is the baseline with no lane.
 
-## Live verification (2026-10-14): blocked by the Mac's browser host
+## Live verification (2026-10-14, rerun): the host streams again
+
+Branch `feat-cnx-ios-rbfix-bench`, evidence
+`verify/evidence/2026-10-14/browser-video-track/162551/` (local, not
+committed).
+
+### The cause of the blocked run
+
+The `CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670` line was a red
+herring: it comes from CEF's GPU process on the host's virtual screen, and
+`data:` and `about:blank` pages render with it. The real fault was the
+login Keychain:
+
+- Chromium's network service waits for the "Chromium Safe Storage" key
+  before it reads cookies. That key's Keychain ACL names the app that made
+  it, so the background host can only get it through a prompt, which a
+  windowless, Dock-less host cannot show.
+- So every http(s) request stalled after `COMPUTED_PRIVACY_MODE` (net log),
+  before its transaction started. No page committed and no frame was
+  produced, on either carrier and on every machine with that Keychain item.
+- Fix (`feat-cnx-ios-rbfix` `d48308b3`): the host starts CEF with
+  `--use-mock-keychain`. Its profile is fresh per launch and removed on
+  exit, so nothing at rest needed the Keychain. New pin `2765fa17` (fleet
+  step `15e910a1`).
+- Offline check: `verify/scripts/rb-host-http-frames.sh` (a loopback http
+  page or any URL, the host's own `--probe` viewer, the last frame decoded to
+  PNG). It fails on the old host and passes on the new one.
+
+The rig had the same class of fault. Writing the drop share into the rig
+app's Info.plist re-signed it ad hoc, so its next Keychain read (the iPhone
+host identity) waited on an unseen prompt and cnx-hostd never started. The
+rig now passes the host override at launch (`open --env`) and the loss share
+through hostd's `video-drop-permille` file.
+
+### What ran
+
+- Mac: the rig app `cnx-e2e-1bd377aa` (as below), started with
+  `CNX_E2E_RB_HOST` set to the fixed host.
+- Phone: this branch's Demo build in one simulator on this Mac, over the
+  real link (TeamHub signaling, WebRTC). No loopback shortcut on the phone.
+- The page: `bench-page/bench.html?scroll=6`, which scrolls every frame.
+- Each configuration: 12 s of streaming, then 10 taps 1.3 s apart.
+
+### Results
+
+| Configuration | Path | Glass to glass p50 / p90 / max (ms) | fps | Frame interval p95 / max (ms) | Stalls > 100 ms | Jitter (ms) | Tap at the page to its frame on the phone p50 / p90 (ms) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `track` | WebRTC direct | 47 / 57 / 2060 | 52.0 | 33.3 / 36.7 | 0 | 6.4 | 62 / 95 |
+| `channel` | WebRTC direct | 29 / 38 / 128 | 53.4 | 33.3 / 35.0 | 0 | 7.4 | 94 / 135 |
+| `track-relay` | TURN | 17 / 33 / 113 | 53.3 | 33.3 / 35.0 | 0 | 6.1 | 48 / 67 |
+| `channel-relay` | TURN | 29 / 47 / 804 | 40.7 | 35.0 / 1221.7 | 4 | 59.9 | 59 / 100 |
+| `track-loss30` | WebRTC direct, 3% RTP drop | 35 / 52 / 627 | 46.3 | 35.0 / 335.0 | 2 | 19.7 | 66 / 120 |
+
+Reading the numbers:
+
+- Every configuration streamed at 41 to 53 fps (60 Hz page), and the carrier
+  the overlay showed was the one asked for.
+- On a clean direct path the track and the channel are close (the track's
+  direct p50 of 47 ms was not seen again on TURN, 17 ms, so treat a 30 ms
+  spread as run-to-run noise). The single 2 s glass-to-glass maxima are one
+  sample each in 350 and were not examined (an OCR misread or a start-up
+  frame). The relay is where the carriers differ: the channel on TURN fell
+  to 40.7 fps with 4 stalls of up to 1.2 s and 60 ms jitter; the track on
+  TURN had none.
+- With 3% of the track's RTP dropped (run `171155`, hostd's file setting;
+  178 NACKs in its media-lane report), the track held 46 fps with 2 stalls
+  (max 335 ms). The rd controller fed by TWCC lowered the lane's target to
+  256 kbit/s, so the picture stayed live at a lower bitrate.
+- A plain `track` rerun in the same session (`171155/track`) gave 16 / 26 /
+  82 ms glass to glass at 53.3 fps. Its recording is the end-to-end video:
+  the page streams over the real link, 10 taps and 4 touch swipes reach the
+  page (its tap counter), and every frame shows `· track`.
+- "Tap at the page to its frame" starts at the page's own `pointerdown`
+  time. The time from the simulator's tap to the page (`tap_to_mac_ms`, about
+  260 to 350 ms) is the simulator's touch injection, not the link.
+- All runs are on one Mac (the simulator and the Mac app share the clock),
+  so these are loopback-network numbers through the real signaling and TURN
+  service; they are not cellular numbers.
+
+## Live verification (2026-10-14): blocked by the Mac's browser host (resolved above)
 
 The comparison did not run. The tools are ready, but the browser host
 produced no video on either machine, on either carrier.

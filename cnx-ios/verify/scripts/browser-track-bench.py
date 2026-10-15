@@ -86,8 +86,10 @@ def extract(video, out_dir, crop_pts, step=1):
     probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time",
                             "-of", "csv=p=0", video], capture_output=True, text=True)
     times = [float(t.strip(",")) for t in probe.stdout.split() if t.strip(",") not in ("", "N/A")]
+    # setpts=N/TB: one JPEG per video frame even where the recording repeats a pts (a
+    # stalled stream), so the files stay aligned with ffprobe's frame times.
     subprocess.run(["ffmpeg", "-v", "error", "-i", video, "-fps_mode", "passthrough",
-                    "-vf", f"crop={w}:{h}:{x}:{y}", "-q:v", "3", os.path.join(out_dir, "f%05d.jpg")], check=True)
+                    "-vf", f"crop={w}:{h}:{x}:{y},setpts=N/TB", "-q:v", "3", os.path.join(out_dir, "f%05d.jpg")], check=True)
     out = []
     for i, t in enumerate(times):
         p = os.path.join(out_dir, f"f{i + 1:05d}.jpg")
@@ -102,17 +104,18 @@ class Bench:
 
     # ---- Mac side ----------------------------------------------------------------
     def mac_env(self, mac, drop_permille):
-        """CNX_VIDEO_DROP_PERMILLE in the rig app's LSEnvironment (the app passes its
-        environment to cnx-hostd); re-signs the rig copy when it changes."""
-        cur = pb(mac.info, "Print :LSEnvironment:CNX_VIDEO_DROP_PERMILLE", check=False)
-        want = str(drop_permille)
-        if (cur or "0") == want:
-            return False
-        pb(mac.info, "Delete :LSEnvironment:CNX_VIDEO_DROP_PERMILLE", check=False)
-        pb(mac.info, f"Add :LSEnvironment:CNX_VIDEO_DROP_PERMILLE string {want}")
-        subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime",
-                        mac.app], check=True, capture_output=True)
-        return True
+        """The loss share for cnx-hostd: $CNX_STATE_DIR/video-drop-permille, read at each
+        new link (the app hands hostd no other environment). Never Info.plist: a changed
+        bundle is a new ad hoc identity, whose Keychain reads then wait on a prompt and
+        hostd never starts. Returns False: no restart is needed."""
+        path = os.path.join(mac.hostd_state, "video-drop-permille")
+        os.makedirs(mac.hostd_state, exist_ok=True)
+        if drop_permille:
+            with open(path, "w") as f:
+                f.write(f"{drop_permille}\n")
+        elif os.path.exists(path):
+            os.remove(path)
+        return False
 
     def hostd_env(self, mac):
         pids = mac.hostd_pids()
@@ -178,6 +181,8 @@ class Bench:
                 mac.wait_hostd(120)
                 time.sleep(3)
             env = self.hostd_env(mac)
+            if drop:
+                env["CNX_VIDEO_DROP_PERMILLE(file)"] = str(drop)
         sim.launch(BUNDLE, args=args, env=sim_env)
         time.sleep(4)
         shown = self.open_bench(j, sim)
@@ -200,6 +205,13 @@ class Bench:
             sim.tap(200, 520)
             taps.append(t)
             time.sleep(1.3)
+        # --swipes: scroll the streamed page by touch (up, then back down), in the video.
+        for i in range(self.a.swipes):
+            if i % 2 == 0:
+                sim.swipe(200, 620, 200, 320, duration=0.35)
+            else:
+                sim.swipe(200, 320, 200, 620, duration=0.35)
+            time.sleep(1.2)
         time.sleep(1.5)
         sim.record_stop()
         shot = sim.shot(f"{name}-end")
@@ -287,6 +299,8 @@ def main():
     ap.add_argument("--configs", default="track,channel,track-relay,channel-relay,track-loss30")
     ap.add_argument("--seconds", type=float, default=12)
     ap.add_argument("--taps", type=int, default=10)
+    ap.add_argument("--swipes", type=int, default=0, help="touch scrolls after the taps (end-to-end video)")
+    ap.add_argument("--page-scroll", type=int, default=6, help="the bench page's own scroll, css px per frame (0: still)")
     ap.add_argument("--sim-name", default="cnx-rbvideo-bench")
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--keep", action="store_true")
@@ -376,7 +390,7 @@ def main():
             return
         j.seed_mac()
         ws = mac.cmux("workspace", "create", "--name", "bench", json_out=True)["value"]
-        url = f"http://127.0.0.1:{PORT}/bench.html?scroll=6"
+        url = f"http://127.0.0.1:{PORT}/bench.html?scroll={a.page_scroll}"
         tab = mac.cmux("tab", "create", "browser", "--workspace", ws["workspace_id"], "--url", url, json_out=True)
         log(f"bench workspace {ws['workspace_id']}, browser tab {tab}")
         if tab and isinstance(tab, dict) and tab.get("value", {}).get("tab_id"):
