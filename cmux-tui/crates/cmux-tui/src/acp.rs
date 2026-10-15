@@ -130,16 +130,19 @@ fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
 /// names when an `agent-session-start` finds nothing there: this binary's
 /// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
-/// the wait for its socket), without the daemon's terminal identity. None
-/// with `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does
-/// not own.
+/// the wait for its socket), without the daemon's terminal identity, and with
+/// `CMUX_TUI_SOCKET` naming this daemon's `socket`, which mints each agent's
+/// launch credential (acpmux `launch_credential.rs`). None with
+/// `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does not
+/// own.
 #[cfg(unix)]
-pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
+pub(crate) fn daemon_acpmux_starter(socket: &Path) -> Option<cmux_tui_core::server::AcpmuxStarter> {
     if env_value("ACPMUX_SOCKET").is_some() {
         return None;
     }
     let home = daemon_acpmux_home()?;
     let exe = std::env::current_exe().ok()?;
+    let socket = socket.to_path_buf();
     Some(std::sync::Arc::new(move || {
         let mut command = std::process::Command::new(&exe);
         // acpmux and every agent it starts outlive this call: none of them
@@ -149,6 +152,7 @@ pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxSta
         }
         let status = command
             .env("ACPMUX_HOME", &home)
+            .env(acpmux::launch_credential::SESSION_SOCKET_ENV, &socket)
             .args(["acp", "daemon", "start"])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -318,7 +322,11 @@ pub(crate) fn build_home(home: &Path) -> Option<PathBuf> {
         |name| std::env::var(name).ok(),
         std::env::current_exe().ok().as_deref(),
     )?;
-    Some(identity.build().acpmux_home(home))
+    let build = identity.build();
+    let acpmux_home = build.acpmux_home(home);
+    // cmux NEXT adopts its pre-isolation home once (build_adopt.rs).
+    crate::build_adopt::acpmux_for_cli(&build, &acpmux_home);
+    Some(acpmux_home)
 }
 
 #[cfg(test)]
