@@ -139,6 +139,8 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** Labs (preview features) on, as the app's `labs.previewFeatures` push sends it. */
+  labs?: boolean;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.

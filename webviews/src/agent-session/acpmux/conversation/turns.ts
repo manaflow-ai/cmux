@@ -25,6 +25,9 @@ export const THINKING = "thinking";
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
 const LIVE_THINKING = `${THINKING}-live`;
 export const WORKING = "working";
+/// The live turn's activity line under its todo card (Labs, cx-ncc.102): what the agent is
+/// doing now and how long the turn has run.
+export const ACTIVITY_LINE = "activityLine";
 /// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
 /// preview card, with the page's address as its text.
 export const PREVIEW = "preview";
@@ -68,7 +71,7 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
-  options: { now?: number; working?: boolean; clockOffset?: number } = {},
+  options: { now?: number; working?: boolean; clockOffset?: number; labs?: boolean } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
 }
@@ -99,7 +102,8 @@ export function turnViewFrom(
     now = Date.now(),
     working = false,
     clockOffset = 0,
-  }: { now?: number; working?: boolean; clockOffset?: number } = {},
+    labs = false,
+  }: { now?: number; working?: boolean; clockOffset?: number; labs?: boolean } = {},
   previous?: TurnView,
 ): TurnView {
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -164,7 +168,7 @@ export function turnViewFrom(
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
-    for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!))
+    for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!, labs))
       out.push(row);
     ends.push(out.length);
   }
@@ -195,6 +199,7 @@ function shapedTurn(
   last: boolean,
   clockOffset: number,
   dated: boolean,
+  labs = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   const open = expanded.size > 0 && expanded.has(`${WORKED}-${user.id}`);
@@ -231,7 +236,7 @@ function shapedTurn(
     shaped = [
       ...date,
       user,
-      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset),
+      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, labs),
       ...held,
     ];
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
@@ -267,6 +272,7 @@ function shapeTurn(
   last: boolean,
   retryable: boolean,
   clockOffset = 0,
+  labs = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status.
@@ -274,7 +280,7 @@ function shapeTurn(
   // a reloaded turn without timing. The last one may only be waiting for its
   // summary, so it draws as it came.
   if (end < 0)
-    return live ? liveTurn(user, turn, clockOffset) : last ? turn : settledWithoutSummary(user, turn, expanded);
+    return live ? liveTurn(user, turn, clockOffset, labs) : last ? turn : settledWithoutSummary(user, turn, expanded);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
   const final = answerAt(body);
@@ -406,7 +412,9 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 /// fold). The line is timed from the prompt and draws its own clock; while text streams, the
 /// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
 /// The client's empty "typing" placeholder gives way to it.
-function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): AcpmuxRow[] {
+/// With Labs on and a todo list, the list sits under the work as a card instead, and the activity
+/// line under it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
+function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, labs = false): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
   const last = rows.at(-1);
   if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
@@ -415,7 +423,34 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): Acpm
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
-  return [status, ...rows];
+  const plan = labs ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+  if (!plan) return [status, ...rows];
+  const work = rows.filter((row) => row !== plan);
+  // The answer streams under the list; the line has nothing left to say.
+  if (answering) return [...work.slice(0, -1), plan, last];
+  return [...work, plan, activityLine(user, work, plan, clockOffset)];
+}
+
+/// The activity line of a live turn: its running tool call, else the todo in progress. Its version
+/// follows what it names, and its clock ticks from the prompt as the status's does.
+function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clockOffset: number): AcpmuxRow {
+  const running = work
+    .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
+    .reverse()
+    .find((item) => item.tool && (item.tool.status === "pending" || item.tool.status === "in_progress"));
+  const step = plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "";
+  const names = running?.tool ? `${running.tool.id}|${running.tool.title}|${running.tool.command ?? ""}` : step;
+  let version = 1;
+  for (let index = 0; index < names.length; index += 1) version = (version * 31 + names.charCodeAt(index)) % 1_000_003;
+  return {
+    id: `${ACTIVITY_LINE}-${user.id}`,
+    version,
+    at: user.at + clockOffset,
+    kind: ACTIVITY_LINE,
+    text: names,
+    ...(running ? { items: [running] } : {}),
+    plan: plan.plan,
+  };
 }
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
