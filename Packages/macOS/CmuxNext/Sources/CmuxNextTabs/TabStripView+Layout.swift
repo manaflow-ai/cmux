@@ -65,17 +65,21 @@ extension TabStripView {
         let insertsAtOnce = !added.isEmpty && drag == nil && pendingDrop == nil && !grows
         let tween: MotionTween = grows ? .tabOpen : token ?? .tabMove
         let scale = window?.backingScaleFactor ?? 2
+        // The previous tab's right edge as it is on screen now (Chrome StartInsertTabAnimation reads the
+        // previous tab's current bounds): a new tab opens there and slides with it to its slot, so the
+        // two move in lockstep on the same tween and never overlap (the proof's open overlap and the
+        // cx-4t1tc hit test: a slot-based start sat under the still-shrinking previous tab).
         var previousMaxX: CGFloat?
         for slot in result.slots where slot.id != Self.placeholderID {
-            defer { previousMaxX = slot.maxX }
+            defer { previousMaxX = motion[slot.id].map { $0.x.value + $0.width.value } ?? slot.maxX }
             guard var m = motion[slot.id] else { continue }
             if added.contains(slot.id) {
                 if let pendingDrop, pendingDrop.id == slot.id {
                     m = TabMotion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
                     self.pendingDrop = nil
                 } else if grows {
-                    // Chrome (StartInsertTabAnimation): from the previous tab's right edge minus the
-                    // open width, that wide, no fade; the first tab starts at its slot. Chrome's 18 is
+                    // Chrome (StartInsertTabAnimation): from the previous tab's current right edge minus
+                    // the open width, that wide, no fade; the first tab starts at its slot. Chrome's 18 is
                     // its tab overlap (a tab 18 wide shows nothing); ours do not overlap, so the token
                     // is 0: the tab opens from nothing at the previous right edge (hq-4e 2026-10-15).
                     let open = metrics.chrome.openStartWidth
