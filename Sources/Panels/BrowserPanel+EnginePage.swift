@@ -113,6 +113,8 @@ extension BrowserPanel {
             historyStore.recordVisit(url: url, title: pageTitle)
         case .closeRequested:
             webViewDidRequestClose?()
+        case .navigationFailed(let url, _, _):
+            applyEnginePageNavigationFailure(url: url)
         default:
             break
         }
