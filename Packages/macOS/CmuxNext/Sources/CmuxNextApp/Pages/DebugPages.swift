@@ -66,6 +66,8 @@ enum DebugPages {
                 members.merge(identity(page)) { _, new in new }
                 members["subscriptions"] = .number(Double(page.router.subscriptionCount))
                 members["in_flight"] = .array(page.router.inFlightCalls())
+                // Whether a first click in an inactive window reaches this page (the view's own answer).
+                members["accepts_first_mouse"] = .bool(page.webKitView.acceptsFirstMouse(for: nil))
                 // The first frame of this document (preflights wait on it with a deadline).
                 members["painted"] = .bool(page.hasPainted)
                 members["painted_uptime"] = page.paintedUptime.map { .number($0) } ?? .null

@@ -9,8 +9,10 @@ Built from s7-proof-v3.py.
    owner once with the install key (debug.home chief_owner.daemon_pid changes, connected again).
 2. Page Chief create WITHOUT a gesture: refused (gesture_required).
 3. New Chief through the page with ONE REAL pointer click on Create Chief while cmux is inactive (debug.focus
-   deactivate; the window stays in place): the Chief is created on the owner (chief list),
-   the page shows no "needs a verified cmux app connection".
+   deactivate; the window stays in place). Immediately before the click the proof asserts that cmux is not active, no
+   cmux window is key and the window server's front app is another app; else it sends no click. The Chief is created
+   on the owner (chief list), the page shows no "needs a verified cmux app connection". The Settings page does not
+   accept the first mouse (its browsing-data Clear acts on one click); the Home page does.
 4. The owner restarts while the page is open: page relay calls during and after the restart answer within the relay
    deadline (16 s, checked at 18 s), and a second real
    click on Create Chief makes a Chief on the new owner (no page call left in flight).
@@ -261,9 +263,10 @@ def find_elements(obj, out):
     return out
 
 
-def real_click_link(pid, mark, text, role="link", front=True):
+def real_click_link(pid, mark, text, role="link", front=True, before_click=None):
     """Finds the link (AXLink whose label or value names `text`/`mark`) in the app's accessibility
-    tree and clicks its center with a real pointer event. Returns what it did."""
+    tree and clicks its center with a real pointer event. Returns what it did. `before_click` runs
+    immediately before the pointer event; when it returns a falsy "ok", the click is not sent."""
     wins = cua("list_windows", {"pid": pid})
     rows = find(wins, lambda o: isinstance(o, dict) and "window_id" in o and o.get("pid") == pid)
     rows = [w for w in rows if (w.get("bounds") or {}).get("width", 0) > 600]
@@ -298,8 +301,35 @@ def real_click_link(pid, mark, text, role="link", front=True):
     # AX frames are screen points; a window-local frame lies inside (0..width).
     if not (b["x"] <= x <= b["x"] + b["width"] and b["y"] <= y <= b["y"] + b["height"]):
         x, y = x + b["x"], y + b["y"]
+    done = {"window": win["window_id"], "bounds": b, "frame": f, "point": [x, y], "role": els[-1].get("role"), "label": els[-1].get("label")}
+    if before_click:
+        done["before_click"] = before_click()
+        if not done["before_click"].get("ok"):
+            done["error"] = "precondition failed; click not sent"
+            return done
     post_click(x, y)
-    return {"window": win["window_id"], "bounds": b, "frame": f, "point": [x, y], "role": els[-1].get("role"), "label": els[-1].get("label")}
+    return done
+
+
+def front_bundle_id():
+    """The bundle id of the frontmost app, as the window server sees it (outside the app's own view)."""
+    asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=10).stdout.strip()
+    info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "bundleid", asn], capture_output=True, text=True,
+                          timeout=10).stdout.strip()
+    return info.split("=", 1)[-1].strip().strip('"') if "=" in info else info
+
+
+def inactive_now():
+    """cmux is NOT active and none of its windows is key: the app's own report (debug.focus) and the
+    window server's front app agree. Read immediately before the click."""
+    f = res(rpc("debug.focus", {}, 30)) or {}
+    keys = [w.get("id") for w in f.get("windows") or [] if w.get("is_key")]
+    front = front_bundle_id()
+    ok = f.get("app_active") is False and f.get("key_window") is None and not keys and front != BUNDLE_ID
+    state = {"ok": ok, "app_active": f.get("app_active"), "key_window": f.get("key_window"), "key_windows": keys,
+             "front_app": front, "app_bundle": BUNDLE_ID, "t": round(time.time(), 3)}
+    say("INACTIVE-BEFORE-CLICK " + json.dumps(state))
+    return state
 
 
 def shutdown_all(app):
@@ -410,9 +440,14 @@ try:
     # The person works in another app: cmux is inactive, its window stays where it is. ONE click on Create Chief
     # must make the Chief (the first click on an inactive window reaches the page, as on the native controls).
     R["deactivate"] = res(rpc("debug.focus", {"deactivate": True}, 30)) or {}
-    inactive = until(lambda: (res(rpc("debug.focus", {}, 30)) or {}).get("app_active") is False, 10)
-    check("app_inactive_before_create_click", bool(inactive), {"app_active": (res(rpc("debug.focus", {}, 30)) or {}).get("app_active")})
-    R["create_click"] = real_click_link(app.pid, "Create Chief", "Create Chief", role="button", front=False)
+    until(lambda: inactive_now().get("ok"), 10)
+    # The precondition is read again immediately before the pointer event (in real_click_link); the click is
+    # sent only when cmux is not active and no cmux window is key, so an active app cannot make a false green.
+    R["create_click"] = real_click_link(app.pid, "Create Chief", "Create Chief", role="button", front=False,
+                                        before_click=inactive_now)
+    pre = R["create_click"].get("before_click") or {}
+    check("app_inactive_and_window_not_key_before_create_click", bool(pre.get("ok")), pre)
+    R["focus_after_click"] = {k: (res(rpc("debug.focus", {}, 30)) or {}).get(k) for k in ("app_active", "key_window")}
     # What the host holds right after the click: the page's calls still running (id, op, age).
     R["in_flight_after_click"] = [(lambda s: {"t": round(time.time(), 3), "in_flight": s.get("in_flight"), "hash": s.get("hash")})(page_state())
                                   for _ in range(1) ]
@@ -427,9 +462,12 @@ try:
     R["page_after_create"] = json.dumps(after_page)[-3000:]
     shot("2-new-chief", app.pid)
     refused_text = "needs a verified cmux app connection"
+    # Red (no first mouse): the click only activates the window, no create call reaches the host and the owner's
+    # chief list has no new Chief. Green: the one click makes it.
     check("new_chief_created_owner_did_not_refuse", bool(made) and refused_text not in json.dumps(after_page)
           and name in json.dumps(after_page),
-          {"click": R["create_click"], "list": (R.get("chief_list") or [{}])[-1], "page_tail": json.dumps(after_page)[-600:]})
+          {"click": R["create_click"], "created_on_owner": bool(made), "focus_after_click": R["focus_after_click"],
+           "list": (R.get("chief_list") or [{}])[-1], "page_tail": json.dumps(after_page)[-600:]})
 
     # 4. The Chief owner restarts while the page is open (the app's main connection ensures a new owner process on
     #    the same socket). A page relay call then answers within the relay's deadline (16 s) plus margin, and a real
@@ -473,6 +511,14 @@ try:
     check("new_chief_created_on_restarted_owner", bool(made2) and not after2.get("in_flight"),
           {"click": R["create_click_2"], "list": (R.get("chief_list") or [{}])[-1], "in_flight": after2.get("in_flight"),
            "hash": after2.get("hash"), "page_tail": json.dumps(after2)[-600:]})
+    # Click-through must not skip a confirmation: Settings (browsing-data Clear acts on one click, no sheet) does
+    # not accept the first mouse; the Home page does.
+    home_fm = page_state().get("accepts_first_mouse")
+    R["open_settings"] = rpc("action.run", {"id": "openSettings", "wait": True}, 30)
+    settings = until(lambda: (lambda s: s if s.get("painted") else None)(
+        res(rpc("debug.page", {"page": "cmux.settings", "action": "state"}, 30)) or {}), 60) or {}
+    check("settings_page_refuses_first_mouse_home_accepts", home_fm is True and settings.get("accepts_first_mouse") is False,
+          {"home_channels": home_fm, "settings": settings.get("accepts_first_mouse"), "settings_painted": settings.get("painted")})
 finally:
     app_pid = app.pid
     shutdown_all(app)
