@@ -125,7 +125,10 @@ const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
   return r.status === 204 ? null : r.json()
 }
 
-const git = (...args: Array<string>) => execFileSync("git", args, { encoding: "utf8" }).trim()
+export type GitRunner = (args: ReadonlyArray<string>, input?: string) => string
+
+const runGit: GitRunner = (args, input) => execFileSync("git", args, { encoding: "utf8", ...(input === undefined ? {} : { input }) }).trim()
+const git = (...args: Array<string>) => runGit(args)
 const fileAt = (sha: string, path: string) => git("show", `${sha}:${path}`)
 
 /**
@@ -167,14 +170,18 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
 export const pickCandidate = (runs: ReadonlyArray<StagingRun>, now: number): StagingRun | undefined =>
   runs.find((r) => r.green && now - r.at >= SOAK_MINUTES * 60_000 && !runs.some((x) => !x.green && x.at > r.at && x.at <= r.at + SOAK_MINUTES * 60_000))
 
-const isAncestor = (a: string, b: string) => {
+const isAncestor = (a: string, b: string, run: GitRunner = runGit) => {
   try {
-    execFileSync("git", ["merge-base", "--is-ancestor", a, b])
+    run(["merge-base", "--is-ancestor", a, b])
     return true
   } catch {
     return false
   }
 }
+
+/** Production must be an ancestor of the staging candidate before a promotion or recheck. */
+export const isPromotableLineage = (productionSha: string, candidateSha: string, run: GitRunner = runGit): boolean =>
+  productionSha === candidateSha || isAncestor(productionSha, candidateSha, run)
 
 const backendCommits = (from: string, to: string) => Number(git("rev-list", "--count", `${from}..${to}`, "--", "backend/"))
 
@@ -212,7 +219,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     const cand = pickCandidate(await stagingRuns(), now)
     if (!cand) return hold("G1", `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
-    if (!isAncestor(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
+    if (!isPromotableLineage(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
     // G2: an open regression issue (P0/P1) blocks; the chief applies the label or the hold.
     const blocking: Array<{ number: number }> = []
     for (const p of ["P0", "P1"]) {
@@ -246,7 +253,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (prod.codeDeployedAt && Date.now() - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold(`production code changed less than ${SPACING_HOURS} h ago`)
     const prodSha = fullSha(prod.sourceTag)
     // Strict ancestor: equal or older candidates (a re-run, a stale job) never deploy.
-    if (prodSha === cand || !isAncestor(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
+    if (!isPromotableLineage(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
     console.log(`prod-promote recheck: ok, ${prodSha.slice(0, 12)} -> ${cand.slice(0, 12)}`)
     return 0
   }
