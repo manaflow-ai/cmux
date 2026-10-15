@@ -241,7 +241,8 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
-import { OfferChip } from "./offer/OfferChip";
+import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
+import { OFFER_RESULT, setOffersPreview } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
@@ -511,6 +512,8 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 const MessageRow = memo(
   function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
+    // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
+    if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     if (row.kind === "user") {
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).
@@ -711,20 +714,28 @@ const EditedFilesRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
 
-/// An agent's offer of a parallel chat (offer/OfferChip.tsx); the reducer draws it only while
-/// the session-offer experiment is on.
+/// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
+const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+const offerActions: OfferActions = {
+  start: (offerId, worktree) => callNative("chat.offer.start", { offerId, worktree }),
+  here: (offerId) => callNative("chat.offer.here", { offerId }),
+  dismiss: (offerId) => callNative("chat.offer.dismiss", { offerId }),
+  open: openOfferChat,
+};
+
+/// An agent's suggested tasks (offer/SuggestedTasks.tsx); the reducer draws them only with Labs
+/// preview features or the session-offer experiment on (offer/offersShown.ts).
 const SessionOfferRow = memo(
   function SessionOfferRow({ row }: RowProps) {
-    if (!row.offer) return null;
-    const offerId = row.offer.offerId;
-    return (
-      <OfferChip
-        offer={row.offer}
-        onStart={() => callNative("chat.offer.start", { offerId })}
-        onDismiss={() => callNative("chat.offer.dismiss", { offerId })}
-        onOpen={(sessionId) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined)}
-      />
-    );
+    return row.offers?.length ? <SuggestedTasks offers={row.offers} actions={offerActions} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+
+/// A task's result waiting in the queue: its received line (offer/SuggestedTasks.tsx).
+const OfferResultRow = memo(
+  function OfferResultRow({ row }: RowProps) {
+    return row.received ? <ReceivedResult result={row.received} onOpen={openOfferChat} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -745,6 +756,7 @@ const defaultRegistry: NativeRegistry = {
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
   sessionOffer: SessionOfferRow,
+  [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -3409,6 +3421,8 @@ function AcpmuxPane() {
       },
       applyPreview(on) {
         setPreview(on === true);
+        // Offers draw with preview features on (offer/offersShown.ts).
+        if (setOffersPreview(on === true)) directClient.current?.offersPreviewChanged();
       },
       applyHeaderState(state) {
         setHeaderState(state);
@@ -3972,12 +3986,23 @@ function AcpmuxPane() {
             await postNative("chat.sideChat", { sessionId });
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
-          "chat.offer.start": async ({ offerId }) => {
+          // `worktree`: the task's Options > Start in a new worktree, else the agent's ask.
+          "chat.offer.start": async ({ offerId, worktree }) => {
             const chat = client.selectedSession;
             const offer = client.offer(String(offerId));
             if (!chat || !offer) throw new Error(translate("offer.failed"));
-            const cwd = offer.worktree ? await offerWorktree(callNative, offer) : offer.cwd;
+            const fresh = typeof worktree === "boolean" ? worktree : offer.worktree;
+            const cwd = fresh ? await offerWorktree(callNative, offer) : offer.cwd;
             return client.startOffer(chat, offer, cwd);
+          },
+          // Do it here (cx-lo9yf): acpmux records the answer, then the task's prompt goes to this
+          // chat as the person's own (queued behind a running turn, as any prompt is).
+          "chat.offer.here": async ({ offerId }) => {
+            const chat = client.selectedSession;
+            const offer = client.offer(String(offerId));
+            if (!chat || !offer) throw new Error(translate("offer.failed"));
+            await client.offerHere(chat, offer.offerId);
+            void send(offer.prompt).catch(() => undefined);
           },
           "chat.offer.dismiss": async ({ offerId }) => {
             const chat = client.selectedSession;
