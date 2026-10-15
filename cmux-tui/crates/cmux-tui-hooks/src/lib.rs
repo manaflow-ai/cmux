@@ -2006,7 +2006,9 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's
-/// environment. Carry that route in the command, using the embedded helper
+/// environment. Carry that route in the command (`CMUX_TUI_HOOK_ROUTE=launch`
+/// marks it as this launch's own, which the helper still trusts below the
+/// daemon), using the embedded helper
 /// so hosts deployed with only the cmux-tui binary work too. Like
 /// `hook_command`, an event that delivers messages lets the helper print the
 /// reply itself and echoes `{}` only when the helper fails.
@@ -2019,7 +2021,7 @@ fn codex_contextual_hook_command(
 ) -> String {
     let reply = if delivers_messages("codex", event) { "||echo {}" } else { "||:;echo {}" };
     format!(
-        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),
@@ -2058,8 +2060,14 @@ fn codex_session_hook_settings_with_context(
     let root = read_json_object(&path)?;
     let key_path =
         codex_state_key_hooks_path(&path, context.provider_path_from_env_override(provider));
+    // One `hooks.state={...}` value: Codex splits a `-c` key on every dot and
+    // ignores TOML quoting there, so a dotted `hooks.state."<path>".x` key
+    // (each path holds `.json` or `.toml`) would land on the wrong entry.
+    let mut state = toml_edit::InlineTable::new();
     for key in codex_owned_entry_keys(&key_path, &root) {
-        settings.push(format!("hooks.state.{}.enabled=false", toml_edit::Key::new(key)));
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("enabled", false.into());
+        state.insert(&key, entry.into());
     }
     for event in CODEX_EVENTS {
         let command = codex_contextual_hook_command(event, socket, terminal, launcher);
@@ -2070,9 +2078,11 @@ fn codex_session_hook_settings_with_context(
             "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
             toml_edit::Value::from(command),
         ));
-        let key = toml_edit::Key::new(format!("/<session-flags>/config.toml:{label}:0:0"));
-        settings.push(format!("hooks.state.{key}.trusted_hash={}", toml_edit::Value::from(hash)));
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("trusted_hash", hash.into());
+        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
     }
+    settings.push(format!("hooks.state={state}"));
     Ok(settings)
 }
 
