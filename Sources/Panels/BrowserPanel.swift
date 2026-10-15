@@ -3716,7 +3716,8 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
-        engineChoice: BrowserEngineChoice? = nil
+        engineChoice: BrowserEngineChoice? = nil,
+        engineRuntime: BrowserEngineRuntime = .shared
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3727,10 +3728,16 @@ final class BrowserPanel: Panel, ObservableObject {
         self.externalNavigationHandler = BrowserExternalNavigationHandler()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
+        // Remote and proxied panels load through the WebKit proxy
+        // configuration; another engine would reach this Mac's own network.
+        let routesThroughBrowserProxy = isRemoteWorkspace || proxyEndpoint != nil || explicitWebsiteDataStore != nil
         let enginePageSetup = Self.makeEnginePage(
-            choice: engineChoice,
+            choice: routesThroughBrowserProxy
+                ? BrowserEngineChoice(engine: .webkit, source: .inherited)
+                : engineChoice,
             panelID: id,
-            profileID: resolvedProfileID
+            profileID: resolvedProfileID,
+            runtime: engineRuntime
         )
         self.engineKind = enginePageSetup.page?.engineKind ?? .webkit
         self.enginePage = enginePageSetup.page
