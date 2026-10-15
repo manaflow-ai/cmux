@@ -76,7 +76,8 @@ def transport(name, relay):
     sim.tap_el(sim.find(ident=f"settings.transport.{kind}")[0]); _time.sleep(1)
     box = sim.find(ident="settings.transport.relayOnly")[0]
     if (box.value == "1") != (relay == "on"):
-        sim.tap_el(box); _time.sleep(1)
+        x, y, w, h = box.frame  # the switch at the row's right edge (a tap on the row's centre is ignored)
+        sim.tap(x + w - 40, y + h / 2); _time.sleep(1.5)
     j.close_transport_page()
     j.tab("Workspaces")
     t = _time.time(); lab = ""
