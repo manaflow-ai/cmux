@@ -30,7 +30,7 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
-import { offersShown } from "./offer/offersShown";
+import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
@@ -149,6 +149,8 @@ const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// An agent's offer of a parallel chat and its answer (cx-807da): transcript on acpmux that has
 /// them (`paging.rs`); asked for by kind too, so an older acpmux's attach still brings them.
 const OFFER_KINDS = ["session_offer", "session_offer_decision"];
+/// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
+const OFFER_RESULT_PROMPT = "offer-result-";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -542,6 +544,9 @@ export class AcpmuxDirectClient {
   private rows = new OrderedRows();
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
   private offerRows = new Map<string, string>();
+  /// Offers whose result prompt reached this chat (its user_message): a replayed `queued` record
+  /// of it draws no second line.
+  private receivedOffers = new Set<string>();
   /// The chats started from this chat's offers, watched while they run for their rows' subtitles.
   private readonly offerChildren = new OfferChildren(
     (method, params) => this.request(method, params, 15000),
@@ -893,6 +898,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.offerRows.clear();
+    this.receivedOffers.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.planRow = undefined;
@@ -1416,6 +1422,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.offerRows.clear();
+    this.receivedOffers.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold();
@@ -1462,6 +1469,8 @@ export class AcpmuxDirectClient {
       this.queue = [...this.queue].sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size));
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
+      // A task's result waiting behind the turn draws its received line now (offer/SuggestedTasks.tsx).
+      if (this.queuedResult(msg, event.at)) return;
       if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
@@ -1564,6 +1573,9 @@ export class AcpmuxDirectClient {
         }
         this.streamingActivity = undefined;
         const received = offersShown() ? offerResult(msg) : undefined;
+        // Its queued line, if the result waited, gives way to this prompt's.
+        if (received) this.rows.delete(`received-${received.offerId}`);
+        if (received) this.receivedOffers.add(received.offerId);
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
@@ -1868,7 +1880,7 @@ export class AcpmuxDirectClient {
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
-      queue: this.queue,
+      queue: this.shownQueue(),
       permission: this.pendingPermission,
       secret: this.pendingSecret,
       catalog: [],
@@ -2118,6 +2130,22 @@ export class AcpmuxDirectClient {
   offer(offerId: string): AcpmuxSessionOffer | undefined {
     const row = this.rows.get(this.offerRows.get(offerId) ?? "");
     return row?.offers?.find((offer) => offer.offerId === offerId);
+  }
+  /// A `queued` record of a task's result (acpmux queues it when the chat is busy and its agent
+  /// does not steer): one received line in the thread, never a queued prompt. False for others.
+  private queuedResult(msg: any, at: number): boolean {
+    const received = offersShown() ? offerResult(msg) : undefined;
+    if (!received) return false;
+    const id = `received-${received.offerId}`;
+    if (!this.receivedOffers.has(received.offerId) && !this.rows.has(id))
+      this.rows.set(id, { id, version: 1, at, kind: OFFER_RESULT, text: String(msg.text ?? ""), received });
+    return true;
+  }
+  /// The queue the composer shows: a task's result waiting there draws as its received line instead.
+  private shownQueue(): { id: string; prompt: string }[] {
+    if (!offersShown()) return this.queue;
+    const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
+    return shown.length === this.queue.length ? this.queue : shown;
   }
   /// Labs preview features turned on or off (`applyPreview`): offers draw or go at once.
   offersPreviewChanged(): void {

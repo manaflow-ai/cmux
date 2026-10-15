@@ -16,3 +16,7 @@ export function setOffersPreview(on: boolean): boolean {
 export function offersShown(): boolean {
   return preview || experimentArm(sessionOffer) === "on";
 }
+
+/// The row kind of a task's result while its prompt waits in the chat's queue: its received line
+/// (SuggestedTasks.tsx `ReceivedResult`), drawn before the prompt itself lands.
+export const OFFER_RESULT = "offerResult";

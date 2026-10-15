@@ -55,8 +55,8 @@ const started = (status: string, activity?: string) => (offer: AcpmuxSessionOffe
 
 const live = [
   started("running", "Reading CartLineItem.tsx")(three[0]!, 0),
-  started("running", "Finding images without loading attributes")(three[1]!, 1),
-  started("waiting")(three[2]!, 2),
+  started("waiting")(three[1]!, 1),
+  started("idle")(three[2]!, 2),
 ];
 
 /// The card with acpmux stood in: Start, Do it here and dismiss record the answer after a beat, as
@@ -72,27 +72,30 @@ function GallerySuggestedTasks({ initial, received = [], fails = false }: Props)
       }, 300),
     );
   return (
-    <div className="acpmux-shell" data-tasks-fixture style={{ padding: 12 }}>
-      {offers.length > 0 && (
-        <SuggestedTasks
-          offers={offers}
-          actions={{
-            start: (offerId) =>
-              answer(offerId, {
-                outcome: "accepted",
-                childSessionId: `child-${offerId}`,
-                childStatus: "running",
-                activity: "Reading CartLineItem.tsx",
-              }),
-            here: (offerId) => answer(offerId, { outcome: "here" }),
-            dismiss: (offerId) => answer(offerId, { outcome: "dismissed" }),
-            open: () => undefined,
-          }}
-        />
-      )}
-      {received.map((result) => (
-        <ReceivedResult key={result.offerId} result={result} onOpen={() => undefined} />
-      ))}
+    // The shell carries the pane's tokens; the fixture inside it is a plain column, as the thread is.
+    <div className="acpmux-shell">
+      <div data-tasks-fixture style={{ flex: 1, minWidth: 0, padding: 12 }}>
+        {offers.length > 0 && (
+          <SuggestedTasks
+            offers={offers}
+            actions={{
+              start: (offerId) =>
+                answer(offerId, {
+                  outcome: "accepted",
+                  childSessionId: `child-${offerId}`,
+                  childStatus: "running",
+                  activity: "Reading CartLineItem.tsx",
+                }),
+              here: (offerId) => answer(offerId, { outcome: "here" }),
+              dismiss: (offerId) => answer(offerId, { outcome: "dismissed" }),
+              open: () => undefined,
+            }}
+          />
+        )}
+        {received.map((result) => (
+          <ReceivedResult key={result.offerId} result={result} onOpen={() => undefined} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -128,20 +131,31 @@ export default componentEntry<Props>({
   load: async () => GallerySuggestedTasks,
   variants: {
     open: {
-      note: "Three tasks the agent suggested together: Start all starts each as its own chat, in order.",
+      note: "Three tasks the agent suggested together, untouched: each with Options, Do it here and Start.",
       props: { initial: three },
+      height: 330,
+    },
+    "start-all": {
+      note: "Play: Start all starts each task as its own chat, in order; the card becomes its started rows.",
+      props: { initial: three },
+      height: 330,
       play: startAll,
     },
     single: {
-      note: "One task offered mid-turn: Options, Do it here, Start; started, it is one quiet row.",
+      note: "One task offered mid-turn, untouched: Options, Do it here, Start and dismiss.",
       props: { initial: single },
-      height: 150,
+      height: 130,
+    },
+    "single-started": {
+      note: "Play: Start turns the lone task into one quiet row with what its chat does now.",
+      props: { initial: single },
+      height: 130,
       play: startOne,
     },
     started: {
-      note: "Every task started: the card is its count and a row per chat with what that chat does now.",
+      note: "Every task started: the card is its count and a row per chat (running, needs input, done).",
       props: { initial: live },
-      height: 160,
+      height: 150,
     },
     received: {
       note: "The tasks' results came back to the chat as one line each, which opens that task's chat.",
@@ -158,12 +172,12 @@ export default componentEntry<Props>({
     worktree: {
       note: "A task the agent asked to start in a new worktree says so beside Options.",
       props: { initial: single.map((offer) => ({ ...offer, worktree: true })) },
-      height: 150,
+      height: 130,
     },
     refused: {
-      note: "A Start acpmux refused keeps the task and says why.",
+      note: "Play: a Start acpmux refused keeps the task and says why.",
       props: { initial: single, fails: true },
-      height: 170,
+      height: 150,
       play: refused,
     },
   },

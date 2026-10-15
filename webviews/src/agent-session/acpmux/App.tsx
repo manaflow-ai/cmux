@@ -239,7 +239,7 @@ import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
-import { setOffersPreview } from "./offer/offersShown";
+import { OFFER_RESULT, setOffersPreview } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
@@ -729,6 +729,14 @@ const SessionOfferRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
+/// A task's result waiting in the queue: its received line (offer/SuggestedTasks.tsx).
+const OfferResultRow = memo(
+  function OfferResultRow({ row }: RowProps) {
+    return row.received ? <ReceivedResult result={row.received} onOpen={openOfferChat} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -745,6 +753,7 @@ const defaultRegistry: NativeRegistry = {
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
   sessionOffer: SessionOfferRow,
+  [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,

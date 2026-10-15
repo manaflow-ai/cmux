@@ -1,6 +1,10 @@
 /* An agent's suggested tasks (SuggestedTasks.tsx): one quiet card, 28px lines, no bold. A started
    task is one row hung off the card by an elbow; a task's result is one muted line. */
 .acpmux-tasks {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin: 4px 0;
   padding: 2px 0 4px;
   border-radius: 10px;
@@ -39,6 +43,7 @@
 .acpmux-task {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   margin: 2px 4px 0;
   padding: 4px 2px 0 8px;
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -82,6 +87,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  min-width: 0;
   height: 28px;
   margin-left: -8px;
 }
@@ -89,7 +95,11 @@
   flex: 1;
 }
 .acpmux-task-actions .acpmux-task-note {
+  flex: 0 1 auto;
+  min-width: 0;
   padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-task-action,
 .acpmux-task-dismiss,
@@ -157,6 +167,7 @@
 
 /* A started task: `⎿ title  subtitle  •  ›`, one 28px line. */
 .acpmux-task-started {
+  min-width: 0;
   padding: 0 4px;
 }
 .acpmux-tasks-head + .acpmux-task-started,
@@ -164,11 +175,14 @@
   margin-top: 2px;
 }
 .acpmux-task-row {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   height: 28px;
+  overflow: hidden;
   padding: 0 6px 0 8px;
   border-radius: 6px;
   text-align: start;
@@ -180,10 +194,11 @@
   flex: none;
   color: var(--acpmux-composer-dim);
 }
+/* The subtitle gives way first (its basis is 0); the title only past 70% of the line. */
 .acpmux-task-row-title {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 60%;
+  max-width: 70%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -219,12 +234,14 @@
 .acpmux-task-row > :last-child,
 .acpmux-task-received-line > :last-child {
   flex: none;
+  margin-left: auto;
   color: var(--acpmux-composer-dim);
 }
 
 /* "Received message from <title> ›": one muted 26px line in the thread. */
 .acpmux-task-received {
   display: flex;
+  min-width: 0;
 }
 .acpmux-task-received-line {
   display: inline-flex;
@@ -234,6 +251,7 @@
   height: 26px;
   padding: 0 6px;
   margin-left: -6px;
+  overflow: hidden;
   border-radius: 6px;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-control);
