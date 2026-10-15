@@ -31,9 +31,14 @@ extension PageWebView {
           data: Object.assign({}, document.documentElement.dataset)
         });
         """
+        // Whether a first click in an inactive window reaches this page (the view's own answer).
+        let firstMouse = JSONValue.bool(webView.acceptsFirstMouse(for: nil))
         guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
-              let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "page not loaded"] }
-        return value
+              case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
+            return ["error": "page not loaded", "accepts_first_mouse": firstMouse]
+        }
+        members["accepts_first_mouse"] = firstMouse
+        return .object(members)
     }
 
     /// SCROLLBARS-THIN audit: the page's `data-scrollers` and every element that would show

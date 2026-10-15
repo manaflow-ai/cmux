@@ -5,18 +5,18 @@
   position: relative;
   /* Keep long drafts inside the composer. Eight lines matches the reference composer and
      leaves the transcript and location shelf anchored while the draft grows. */
-  max-height: calc(22px * 8 + 23px);
+  max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px));
   overflow-y: auto;
-  padding: 15px 16px 8px;
-  font-size: 15px;
-  line-height: 22px;
+  padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
+  font-size: var(--text-title, 15px);
+  line-height: var(--text-title--line-height, 22px);
   color: var(--agent-text);
 }
 .acpmux-md-placeholder {
   position: absolute;
-  left: 16px;
-  top: 15px;
-  right: 16px;
+  left: calc(16px * var(--cmux-interface-scale, 1));
+  top: calc(15px * var(--cmux-interface-scale, 1));
+  right: calc(16px * var(--cmux-interface-scale, 1));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -24,7 +24,7 @@
   pointer-events: none;
 }
 .acpmux-md {
-  min-height: 22px;
+  min-height: var(--text-title--line-height, 22px);
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;

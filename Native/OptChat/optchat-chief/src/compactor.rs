@@ -1614,8 +1614,11 @@ impl AcpmuxCompactor {
         self.delete_transcript(&live.cwd);
         self.wipe_codex(live.slot);
         // The next node's session starts now, in this slot, so it does not
-        // wait for one; else the slot goes back.
-        if self.warm > 0 && !is_describe(node) && self.slots.rewarm(self.warm) {
+        // wait for one; else the slot goes back. Not after the start-up
+        // probe: no chat work follows it, and its warm Claude Code sat idle
+        // from launch until the idle reap (about 100 MB).
+        if self.warm > 0 && node != PROBE_NODE && !is_describe(node) && self.slots.rewarm(self.warm)
+        {
             // Off the node's path: starting Claude Code takes seconds, and
             // the node's line (and any turn waiting for it) must not wait.
             let (slot, system, ours) = (live.slot, live.system.clone(), live.ours);
