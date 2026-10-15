@@ -23,12 +23,14 @@ public enum BrowserExtensionOperation: String, Sendable, CaseIterable {
     case unpin
     /// Reorder a pinned action.
     case move
-    /// Open the options page.
+    /// Open an extension's options page (it can change the extension's settings and access).
     case options
     /// Click the toolbar action (grants `activeTab` on the page).
     case run
     /// Run a keyboard command (grants `activeTab` on the page).
     case command
-    /// Open the Chrome Web Store or the extensions page in a tab.
-    case openPage = "open-page"
+    /// Open the Chrome Web Store in a tab (installing still needs the person).
+    case openWebStore = "open-webstore"
+    /// Open `chrome://extensions` in a tab (it can add, turn on and grant access to extensions).
+    case openManagement = "open-manage"
 }

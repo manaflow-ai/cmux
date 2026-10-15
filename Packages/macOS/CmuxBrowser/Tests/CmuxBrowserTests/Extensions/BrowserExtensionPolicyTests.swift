@@ -10,11 +10,11 @@ struct BrowserExtensionPolicyTests {
     @Test
     func automationNeedsConsentForAnythingThatAddsReach() {
         let policy = BrowserExtensionAutomationPolicy()
-        for operation in [BrowserExtensionOperation.loadUnpacked, .enable, .run, .command] {
+        for operation in [BrowserExtensionOperation.loadUnpacked, .enable, .run, .command, .options, .openManagement] {
             #expect(policy.decision(for: operation) == .requiresConsent, "\(operation)")
         }
         for operation in [BrowserExtensionOperation.list, .disable, .remove, .reload, .pin, .unpin, .move,
-                          .options, .openPage] {
+                          .openWebStore] {
             #expect(policy.decision(for: operation) == .allow, "\(operation)")
         }
         #expect(policy.decision(for: .installPacked) == .deny)

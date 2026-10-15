@@ -30,9 +30,11 @@ public struct BrowserExtensionAutomationPolicy: Equatable, Sendable {
     /// - Returns: Allow, consent first, or deny.
     public func decision(for operation: BrowserExtensionOperation) -> Decision {
         switch operation {
-        case .list, .disable, .remove, .reload, .pin, .unpin, .move, .options, .openPage:
+        case .list, .disable, .remove, .reload, .pin, .unpin, .move, .openWebStore:
             return .allow
-        case .loadUnpacked, .enable, .run, .command:
+        // An options page or chrome://extensions in an agent-driven tab could
+        // change an extension's settings or access without the person.
+        case .loadUnpacked, .enable, .run, .command, .options, .openManagement:
             return .requiresConsent
         case .installPacked:
             return .deny

@@ -658311,6 +658311,65 @@
           }
         }
       }
+    },
+    "browser.automation.error.extensionAccessRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can't drive a page that an enabled extension can read. Use a browser profile without extensions for agent work, or turn the extension off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können keine Seite steuern, die eine aktivierte Erweiterung lesen kann. Verwende für Agentenarbeit ein Browserprofil ohne Erweiterungen oder schalte die Erweiterung aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents ne peuvent pas piloter une page qu’une extension activée peut lire. Utilisez un profil de navigateur sans extensions pour le travail des agents, ou désactivez l’extension."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للوكلاء التحكم في صفحة يمكن لإضافة مفعّلة قراءتها. استخدم ملف تعريف متصفح بلا إضافات لعمل الوكلاء، أو أوقف الإضافة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes no pueden controlar una página que una extensión activada puede leer. Usa un perfil del navegador sin extensiones para el trabajo de agentes o desactiva la extensión."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式無法操作已啟用擴充功能可讀取的頁面。請使用沒有擴充功能的瀏覽器設定檔進行代理工作，或關閉該擴充功能。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理无法操作已启用扩展程序可读取的页面。请使用没有扩展程序的浏览器配置文件进行代理工作，或关闭该扩展程序。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 사용 중인 확장 프로그램이 읽을 수 있는 페이지를 조작할 수 없습니다. 에이전트 작업에는 확장 프로그램이 없는 브라우저 프로필을 사용하거나 확장 프로그램을 끄세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な拡張機能が読み取れるページはエージェントが操作できません。エージェントの作業には拡張機能のないブラウザプロファイルを使うか、拡張機能をオフにしてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
