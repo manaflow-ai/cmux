@@ -21,6 +21,7 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -150,7 +151,7 @@ def promotion_script() -> str:
 def substitute(text: str, sha: str) -> str:
     """Evaluate the expressions this test understands for a promotion request."""
     text = re.sub(
-        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*!=\s*''\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*\|\|\s*''\s*\}\}",
+        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*\|\|\s*''\s*\}\}",
         lambda match: match.group(1).replace("{0}", sha),
         text,
     )
@@ -201,6 +202,7 @@ def queue(running: str, arrivals: list[str]) -> tuple[list[str], list[dict]]:
             "head_branch": "main",
             "status": "completed",
             "conclusion": run["conclusion"],
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         for run in runs
     ]

@@ -1,4 +1,7 @@
 name: Nightly macOS build
+# A promotion request's title names its commit, so promote-nightly-next can find
+# requests GitHub cancelled in its queue. Every other run keeps the default title.
+run-name: ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}
 
 # One workflow, two publish channels. A push to `main` publishes cmux NIGHTLY
 # (bundle id com.cmuxterm.app.nightly, GitHub release `nightly`, feed
@@ -468,6 +471,11 @@ jobs:
   # can Run workflow with the SHA (no debounce). The commit counts only through
   # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
   # "cmux-next Release compile (Xcode 26)" job passed.
+  #
+  # One shared concurrency group keeps a single writer. GitHub keeps only one
+  # waiting job in it and cancels that job when another request arrives, so the
+  # job also promotes the newest recently cancelled request (by run title) that
+  # is newer than its own and passes the same admission check.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     environment: release
@@ -515,31 +523,55 @@ jobs:
             // lag that job by a few seconds, so retry the same exact lookup
             // before rejecting a valid promotion. Never relax the SHA, branch,
             // event, job name or conclusion checks while retrying.
-            const admissionAttempts = 6;
             const admissionDelayMs = 5000;
-            let green = false;
-            for (let attempt = 1; attempt <= admissionAttempts && !green; attempt += 1) {
-              const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
-                owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
-              });
-              for (const run of pushRuns) {
-                if (run.head_sha !== sha || run.head_branch !== source || run.event !== 'push') continue;
-                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-                  owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+            const releaseCompileGreen = async (commit, attempts) => {
+              for (let attempt = 1; attempt <= attempts; attempt += 1) {
+                const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                  owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: commit, per_page: 100,
                 });
-                if (jobs.some((job) => job.status === 'completed' && job.name === requiredJob && job.conclusion === 'success')) {
-                  green = true;
-                  break;
+                for (const run of pushRuns) {
+                  if (run.head_sha !== commit || run.head_branch !== source || run.event !== 'push') continue;
+                  const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                    owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+                  });
+                  if (jobs.some((job) => job.status === 'completed' && job.name === requiredJob && job.conclusion === 'success')) {
+                    return true;
+                  }
+                }
+                if (attempt < attempts) {
+                  core.notice(`The exact ${requiredJob} result is not visible yet; retrying promotion admission (${attempt}/${attempts - 1}).`);
+                  await new Promise((resolve) => setTimeout(resolve, admissionDelayMs));
                 }
               }
-              if (!green && attempt < admissionAttempts) {
-                core.notice(`The exact ${requiredJob} result is not visible yet; retrying promotion admission (${attempt}/${admissionAttempts - 1}).`);
-                await new Promise((resolve) => setTimeout(resolve, admissionDelayMs));
-              }
-            }
-            if (!green) {
+              return false;
+            };
+            if (!(await releaseCompileGreen(sha, 6))) {
               core.setFailed(`${sha} has no cmux-next.yml push run on ${source} with a successful "${requiredJob}" job`);
               return;
+            }
+
+            // This job's concurrency group keeps one waiting request, and a
+            // later request replaces (cancels) it, so a late request for an
+            // older commit can cancel the waiting request for a newer one.
+            // Each request's run title names its commit (run-name): promote
+            // the newest request cancelled in the last day that is newer than
+            // this one and passes the same admission, so it is not lost.
+            let promote = sha;
+            const { data: cancelled } = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: 'nightly.yml', event: 'workflow_dispatch', branch: 'main', status: 'cancelled', per_page: 30,
+            });
+            for (const run of cancelled.workflow_runs) {
+              const candidate = /^Promote nightly-next to ([0-9a-f]{40})$/.exec(run.display_title || '')?.[1];
+              if (!candidate || candidate === promote || run.id === context.runId) continue;
+              if (Date.now() - Date.parse(run.created_at) > 24 * 3_600_000) continue;
+              const { data: order } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${promote}...${candidate}` });
+              if (order.status !== 'ahead') continue;
+              if (!(await releaseCompileGreen(candidate, 1))) {
+                core.notice(`Cancelled request ${candidate} has no successful "${requiredJob}"; not promoting it.`);
+                continue;
+              }
+              core.notice(`Promoting ${candidate}, whose request was cancelled in the queue, instead of the older ${promote}.`);
+              promote = candidate;
             }
 
             // Debounce requested promotions: one nightly-next build per interval.
@@ -566,19 +598,19 @@ jobs:
             } catch (error) {
               if (error.status !== 404) throw error;
             }
-            if (current === sha) {
-              core.notice(`${target} is already at ${sha}.`);
+            if (current === promote) {
+              core.notice(`${target} is already at ${promote}.`);
               return;
             }
             if (!current) {
-              await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${target}`, sha });
+              await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${target}`, sha: promote });
             } else {
-              const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}` });
+              const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${promote}` });
               let force = false;
               if (data.status === 'diverged') {
                 // A hand-made baseline build (a feat-cmux-next commit plus
                 // patches) may be replaced when the point where it left
-                // feat-cmux-next is on feat-cmux-next; `sha` descends from it,
+                // feat-cmux-next is on feat-cmux-next; `promote` descends from it,
                 // so the branch never moves to older history.
                 const base = data.merge_base_commit?.sha;
                 if (base) {
@@ -587,12 +619,12 @@ jobs:
                 }
               }
               if (data.status !== 'ahead' && !force) {
-                core.notice(`${sha} does not move ${target} forward from ${current} (compare status ${data.status}); nothing promoted.`);
+                core.notice(`${promote} does not move ${target} forward from ${current} (compare status ${data.status}); nothing promoted.`);
                 return;
               }
-              await writer.rest.git.updateRef({ owner, repo, ref: `heads/${target}`, sha, force });
+              await writer.rest.git.updateRef({ owner, repo, ref: `heads/${target}`, sha: promote, force });
             }
-            core.notice(`Promoted ${target} to ${sha}; its push run publishes it.`);
+            core.notice(`Promoted ${target} to ${promote}; its push run publishes it.`);
 
   probe-nightly-tag-permission:
     permissions:
