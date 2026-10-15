@@ -120,6 +120,8 @@ struct BrowserExtensionToolbar: View {
         }
         .safeHelp(String(localized: "browser.toolbar.extensions", defaultValue: "Extensions"))
         .accessibilityLabel(String(localized: "browser.toolbar.extensions", defaultValue: "Extensions"))
+        .accessibilityHint(BrowserExtensionAccessibilityText.showsExtensionsHint)
+        .accessibilityAddTraits(isMenuPresented ? .isSelected : [])
         .accessibilityIdentifier("BrowserExtensionsButton")
     }
 

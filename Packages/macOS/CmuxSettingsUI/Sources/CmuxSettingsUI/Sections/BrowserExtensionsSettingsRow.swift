@@ -25,6 +25,7 @@ struct BrowserExtensionsSettingsRow: View {
             ) {
                 Button(String(localized: "settings.browser.extensions.manage", defaultValue: "Manage…"), action: onManage)
                     .controlSize(.small)
+                    .accessibilityLabel(String(localized: "settings.browser.extensions.manageLabel", defaultValue: "Manage Chrome Extensions"))
                     .accessibilityIdentifier("SettingsBrowserExtensionsManageButton")
             }
             SettingsCardDivider()

@@ -54,6 +54,8 @@ struct BrowserExtensionPromptSheetView: View {
         }
         .padding(20)
         .frame(width: 400)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
         .onExitCommand { onAnswer(false) }
     }
 
@@ -101,7 +103,7 @@ struct BrowserExtensionPromptSheetView: View {
             ForEach(Array(content.permissions.enumerated()), id: \.offset) { _, permission in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(verbatim: "\u{2022}").foregroundStyle(.secondary)
+                        Text(verbatim: "\u{2022}").foregroundStyle(.secondary).accessibilityHidden(true)
                         Text(permission.message).font(.callout)
                     }
                     if !permission.details.isEmpty {

@@ -52,7 +52,14 @@ struct BrowserExtensionDialogPresenter {
                 dialog.contentViewController = host
                 dialog.setContentSize(host.view.fittingSize)
                 dialog.identifier = NSUserInterfaceItemIdentifier("browser.extension.prompt")
+                // VoiceOver names the window and announces the question (spec §0.7a).
+                dialog.title = content.title
                 dialog.show(on: window)
+                NSAccessibility.post(
+                    element: dialog,
+                    notification: .announcementRequested,
+                    userInfo: [.announcement: content.title, .priority: NSAccessibilityPriorityLevel.high.rawValue]
+                )
             }
         } onCancel: {
             Task { @MainActor in dialog.answer(false) }

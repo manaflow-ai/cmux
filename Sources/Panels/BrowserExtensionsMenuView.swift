@@ -35,12 +35,15 @@ struct BrowserExtensionsMenuView: View {
     let onChoice: (Choice) -> Void
 
     @State private var pendingRemoval: BrowserExtensionInfo?
+    /// The name in the remove confirmation; kept while the dialog dismisses so it never reads "Remove “”?".
+    @State private var removalName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.extensionsMenuSpacing) {
             Text(String(localized: "browser.toolbar.extensions", defaultValue: "Extensions"))
                 .cmuxFont(size: metrics.extensionsMenuFontSize, weight: .semibold)
                 .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
 
             if extensions.isEmpty {
                 Text(String(localized: "browser.extensions.none", defaultValue: "No extensions installed"))
@@ -53,6 +56,7 @@ struct BrowserExtensionsMenuView: View {
                     Text(String(localized: "browser.extensions.pinnedHeader", defaultValue: "Pinned"))
                         .cmuxFont(size: metrics.extensionsMenuCaptionFontSize, weight: .medium)
                         .foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.isHeader)
                     rows(overflowed)
                     Divider()
                 }
@@ -99,6 +103,7 @@ struct BrowserExtensionsMenuView: View {
                     metrics: metrics,
                     onChoice: { choice in
                         if case .remove = choice {
+                            removalName = info.name
                             pendingRemoval = info
                         } else {
                             onChoice(choice)
@@ -112,7 +117,7 @@ struct BrowserExtensionsMenuView: View {
     private var removalTitle: String {
         String(
             format: String(localized: "browser.extensions.removeTitle", defaultValue: "Remove \u{201C}%@\u{201D}?"),
-            pendingRemoval?.name ?? ""
+            removalName
         )
     }
 
