@@ -85,6 +85,23 @@ export const PRODUCT_FACTS: readonly ProductFact[] = [
   },
 ];
 
+/**
+ * Facts about the iOS Pro free trial. Copy may state them only for the
+ * variant that offers the trial (CopyContext.offersTrial), because only
+ * verified accounts and devices get it.
+ */
+export const TRIAL_FACTS: readonly ProductFact[] = [
+  {
+    text: "The Pro trial is free for 7 days and includes 1 Cloud VM with 2 vCPUs and 4 GB RAM and 20 VM-hours; full Pro starts with the first payment.",
+    plans: ["pro"],
+    source: "services/billing/apple/trialConfig.ts (TRIAL_DAYS, TRIAL_LIMITS) and the trial product's introductory offer",
+    quantities: [[7, "day"], [1, "vm"], [2, "vcpu"], [4, "gb"], [20, "vm-hour"]],
+  },
+];
+
+/** The `number unit` pairs the trial facts state. */
+export const TRIAL_QUANTITIES: readonly string[] = TRIAL_FACTS.flatMap((fact) => fact.quantities.map(([value, unit]) => `${value} ${unit}`));
+
 /** `unlimited` is allowed only in these phrases, because the facts say so. */
 export const UNLIMITED_PHRASES: readonly string[] = ["unlimited workspaces"];
 

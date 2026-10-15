@@ -63,6 +63,9 @@ export function memoryAppleStore(): MemoryAppleStore {
       const now = new Date();
       const current: AppleSubscriptionRow = {
         ...state,
+        offerType: state.offerType ?? null,
+        offerDiscountType: state.offerDiscountType ?? null,
+        freeTrial: state.freeTrial === true,
         userId: plan.userId,
         createdAt: previous?.createdAt ?? now,
         updatedAt: now,

@@ -20,6 +20,8 @@ import {
   IOS_PAYWALL_CONTROL_VARIANT,
   IOS_PAYWALL_EXPERIMENT,
 } from "./iosPaywallV1";
+import { isTrialConfigured } from "../apple/trialConfig";
+import { IOS_TRIAL_VARIANT, iosPaywallCopyContext } from "./experiments";
 import { databasePaywallAssignmentStore, type PaywallAssignmentStore } from "./store";
 import { validateIosPaywallPayload, type IosPaywallConfig } from "./validator";
 
@@ -143,16 +145,19 @@ async function chooseVariant(
   deps: IosPaywallDependencies,
 ): Promise<Chosen | null> {
   const stored = await deps.store.assignment(userId, IOS_PAYWALL_EXPERIMENT);
-  if (stored) {
-    const result = validateIosPaywallPayload(stored.payload, IOS_PAYWALL_EXPERIMENT, stored.variant);
-    if (result.ok) return { config: result.value, sticky: flag.state !== "variant" || flag.variant !== stored.variant };
-    deps.reportInvalidPayload(stored.variant, result.errors);
-    return null;
-  }
-  if (flag.state !== "variant") return null;
-  const result = validateIosPaywallPayload(flag.payload, IOS_PAYWALL_EXPERIMENT, flag.variant);
-  if (result.ok) return { config: result.value, sticky: false };
-  deps.reportInvalidPayload(flag.variant, result.errors);
+  // Variant and copy are frozen per user once served.
+  const candidate = stored
+    ? { variant: stored.variant, payload: stored.payload, sticky: flag.state !== "variant" || flag.variant !== stored.variant }
+    : flag.state === "variant" ? { variant: flag.variant, payload: flag.payload, sticky: false } : null;
+  if (!candidate) return null;
+  const trialAvailable = isTrialConfigured(deps.env);
+  // The trial arm is never served while the trial cannot be granted.
+  if (candidate.variant === IOS_TRIAL_VARIANT && !trialAvailable) return null;
+  const result = validateIosPaywallPayload(
+    candidate.payload, IOS_PAYWALL_EXPERIMENT, candidate.variant, iosPaywallCopyContext(candidate.variant, trialAvailable),
+  );
+  if (result.ok) return { config: result.value, sticky: candidate.sticky };
+  deps.reportInvalidPayload(candidate.variant, result.errors);
   return null;
 }
 

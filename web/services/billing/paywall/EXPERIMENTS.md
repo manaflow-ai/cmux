@@ -141,3 +141,24 @@ run with fewer arms.
 3. Record the exposure with `$feature_flag_called` and the properties in
    rule 3. Keep the assignment sticky through `PaywallAssignmentStore`.
 4. Add a section to this file before the experiment gets traffic.
+
+## ios-paywall-v1 trial arm (pro-trial-7d)
+
+- **Arm:** `pro-trial-7d`, seeded at 0%. Set it live (for example 20%, taken
+  equally from the other arms) only after these exist: the App Store product
+  `com.cmux.app.pro.trial.monthly` with the 7-day free-trial introductory
+  offer, the DeviceCheck key (`DEVICECHECK_KEY_ID`,
+  `DEVICECHECK_PRIVATE_KEY`) and the In-App Purchase key (`APPLE_IAP_*`).
+  While any of them is missing, the server never serves the arm and offers
+  no trial.
+- **Who gets a trial:** an account in the arm, on the free plan, in the App
+  Store app, that never started a trial, on an iPhone that passes App Attest
+  and whose DeviceCheck bit0 is clear. See `services/billing/apple/trial.ts`.
+- **Primary metric:** the same paid metric as the other arms. A trial start is
+  not a conversion. `subscription_entitlement_granted` fires at the first
+  paid renewal, so the arm is judged on paid conversion.
+- **Reported, not used in the decision:** `trial_started`, `trial_converted`
+  and `trial_cancelled` counts, and the day-35 retention of trial converters
+  compared with direct buyers.
+- **Guardrail:** trial cancellations. A trial arm with a high conversion to
+  trial but low paid conversion is not a win.

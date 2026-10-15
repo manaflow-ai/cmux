@@ -259,13 +259,15 @@ export async function GET(request: Request): Promise<Response> {
           usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
           freeAccessWindowDays,
-          ...(listEntitlements.planId === "go" ? {
-            vmHoursIncluded: 40,
-            vmHoursUsed: await getGoVmUsage(user.id)
-              .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
-              .catch(() => null),
-            savedVmLimit: GO_SAVED_VM_LIMIT,
-          } : {}),
+          ...(listEntitlements.planId === "go"
+            ? await getGoVmUsage(user.id)
+              .then((usage) => ({
+                vmHoursIncluded: usage ? usage.includedSeconds / 3600 : 40,
+                vmHoursUsed: usage ? Math.round(usage.usedSeconds / 360) / 10 : null,
+                savedVmLimit: usage?.savedVmLimit ?? GO_SAVED_VM_LIMIT,
+              }))
+              .catch(() => ({ vmHoursIncluded: 40, vmHoursUsed: null, savedVmLimit: GO_SAVED_VM_LIMIT }))
+            : {}),
           // Pro and Max monthly allowance; absent when none applies.
           ...(isBudgetPlanId(listEntitlements.planId)
             ? await getPlanBudgetUsage(user.id).then(planBudgetLimits).catch(() => ({}))

@@ -77,6 +77,28 @@ export const IOS_PAYWALL_V1_SEED: readonly SeedVariant[] = [
     },
   },
   {
+    // Starts at 0%: set it live only after the trial product, the DeviceCheck
+    // key and the In-App Purchase key exist (EXPERIMENTS.md). Until then the
+    // server never serves it.
+    key: "pro-trial-7d",
+    name: "Pro with a 7-day free trial (verified devices only)",
+    rolloutPercentage: 0,
+    payload: {
+      layout: "focus",
+      headline: "Try Pro free for 7 days",
+      subheadline: "During the trial: 1 Cloud VM with 2 vCPUs and 4 GB RAM, and 20 VM-hours. Full Pro starts with the first payment.",
+      bullets: [
+        "Cancel before the trial ends and you pay nothing",
+        "Then up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
+        "Check on your agents from the iOS app",
+      ],
+      highlightedPlanId: "pro",
+      defaultBillingPeriod: "monthly",
+      ctaStyle: "action",
+      showYearlySavings: false,
+    },
+  },
+  {
     key: "outcome-copy",
     name: "Outcome: agents keep working while the Mac sleeps",
     rolloutPercentage: 25,

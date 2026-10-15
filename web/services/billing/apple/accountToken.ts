@@ -23,6 +23,10 @@ import {
   type SignedAppleEnvironment,
 } from "./config";
 import { databaseAppleIapStore, type AppleIapStore } from "./store";
+import { activeAppleEntitlementForUser } from "./entitlement";
+import { trialOffer, type TrialOffer } from "./trial";
+import { isTrialConfigured, TRIAL_BUNDLE_ID, TRIAL_LIMITS, TRIAL_PAYWALL_VARIANT } from "./trialConfig";
+import { databaseTrialStore } from "./trialStore";
 
 export type AppleIneligibleReason = "stripe_subscription_active" | "team_billing" | "purchases_unavailable";
 
@@ -51,6 +55,8 @@ export type AppleAccountTokenResponse = {
     readonly planId: string;
     readonly source: PersonalBillingSource;
     readonly manageUrl?: string;
+    /** Present while the account is in the iOS Pro free trial (limited trial entitlement). */
+    readonly trial?: { readonly endsAt: string; readonly limits: typeof TRIAL_LIMITS };
   };
   readonly products: readonly {
     readonly productId: string;
@@ -61,6 +67,11 @@ export type AppleAccountTokenResponse = {
   readonly paywall?: IosPaywallConfig;
   /** Present and true for cmux staff: the app shows its Paywall Lab. */
   readonly staff?: true;
+  /**
+   * The account may get the 7-day Pro trial if its device passes
+   * `POST /api/billing/apple/trial/verify`. Absent: no trial.
+   */
+  readonly trial?: TrialOffer;
 };
 
 export type AppleAccountUser = ProReconcileUser & BillingTeamUserLike & {
@@ -78,6 +89,12 @@ export type AppleAccountTokenDependencies = {
   readonly planStatus: typeof resolveProPlanStatus;
   /** The paywall for this user; absent in callers that do not serve one. */
   readonly paywall?: (user: AppleAccountUser, request: IosPaywallRequest) => Promise<IosPaywallConfig>;
+  /** Trial state; absent in callers that never offer the trial. */
+  readonly trial?: {
+    readonly accountTrialed: (userId: string) => Promise<boolean>;
+    /** The end of the account's current free-trial period, or null. */
+    readonly activeTrialEndsAt: (userId: string) => Promise<Date | null>;
+  };
   /** Deployment config for the Sandbox entitlement policy; defaults to the process environment. */
   readonly env?: Record<string, string | undefined>;
 };
@@ -95,6 +112,13 @@ const defaultDependencies = (): AppleAccountTokenDependencies => ({
   },
   planStatus: resolveProPlanStatus,
   paywall: (user, request) => resolveIosPaywall(user, request),
+  trial: {
+    accountTrialed: async (userId) => (await databaseTrialStore().claim(userId))?.status === "started",
+    activeTrialEndsAt: async (userId) => {
+      const row = await activeAppleEntitlementForUser(userId);
+      return row?.freeTrial ? row.expiresAt : null;
+    },
+  },
 });
 
 /** Account reasons first: they tell the user where billing lives. */
@@ -146,6 +170,40 @@ function purchasesGrant(
   return appleEnvironmentGrantsEntitlement({ environment, bundleId: app.bundleId, accountEmail }, env);
 }
 
+/**
+ * The trial the account may be offered (assigned to the trial arm, App Store
+ * app, purchasable, free plan, trial configured, never trialed) and the end
+ * of a trial it is in now.
+ */
+async function accountTrialState(
+  userId: string,
+  input: {
+    readonly deps: AppleAccountTokenDependencies;
+    readonly paywallVariant: string | null;
+    readonly bundleIdHeader: string | null;
+    readonly purchasable: boolean;
+    readonly status: { readonly planId: string; readonly billingSource: PersonalBillingSource };
+  },
+): Promise<{ readonly offer: TrialOffer | null; readonly endsAt: Date | null }> {
+  const trial = input.deps.trial;
+  if (!trial) return { offer: null, endsAt: null };
+  const candidate = input.paywallVariant === TRIAL_PAYWALL_VARIANT
+    && input.bundleIdHeader?.trim() === TRIAL_BUNDLE_ID
+    && input.purchasable
+    && input.status.planId === "free"
+    && isTrialConfigured(input.deps.env ?? process.env);
+  // Trial lookups fail closed (no offer, no trial badge) and never fail the
+  // account-token response that sells the regular plans.
+  const offer = candidate && await trial.accountTrialed(userId).then((trialed) => !trialed, () => false)
+    ? trialOffer()
+    : null;
+  // A free-trial period runs on the Go guard but is the Pro subscription.
+  const endsAt = input.status.billingSource === "apple" && input.status.planId === "go"
+    ? await trial.activeTrialEndsAt(userId).catch(() => null)
+    : null;
+  return { offer, endsAt };
+}
+
 /** `POST /api/billing/apple/account-token`. */
 export async function appleAccountTokenResponse(
   user: AppleAccountUser,
@@ -178,17 +236,28 @@ export async function appleAccountTokenResponse(
       currentPlanId: status.planId,
     })
     : undefined;
+  const trial = await accountTrialState(user.id, {
+    deps,
+    paywallVariant: paywall?.variant ?? null,
+    bundleIdHeader: app.bundleIdHeader ?? null,
+    purchasable: reason === null,
+    status,
+  });
+  const offer = trial.offer;
+  const trialEndsAt = trial.endsAt;
   return {
     appAccountToken,
     eligible: reason === null,
     reason,
     currentPlan: {
-      planId: status.planId,
+      planId: trialEndsAt ? "pro" : status.planId,
       source: status.billingSource,
       ...(status.manageUrl ? { manageUrl: status.manageUrl } : {}),
+      ...(trialEndsAt ? { trial: { endsAt: trialEndsAt.toISOString(), limits: TRIAL_LIMITS } } : {}),
     },
-    products,
+    products: offer ? [...products, { productId: offer.productId, planId: "pro", billingPeriod: "monthly" }] : products,
     ...(paywall ? { paywall } : {}),
     ...(isAdminUser({ ...user, isAnonymous: false }) ? { staff: true as const } : {}),
+    ...(offer ? { trial: offer } : {}),
   };
 }

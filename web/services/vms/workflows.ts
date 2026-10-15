@@ -119,7 +119,7 @@ import {
   vmFreeAccessWindowDays,
   type VmResourcePoolPolicy,
 } from "./entitlements";
-import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
+import { getGoVmUsage } from "./goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
@@ -1159,7 +1159,7 @@ function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingP
         catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
       });
       if (usage && usage.remainingSeconds <= 0) {
-        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
+        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: usage.includedSeconds / 3600, usedHours: usage.includedSeconds / 3600 }));
       }
       if (!usage) return yield* Effect.fail(new VmBillingError({ operation: "go_runtime", cause: "Go subscription is not active" }));
       return usage.remainingSeconds;
@@ -3632,7 +3632,7 @@ function resumeUntilRunning(
     if (!resume) return;
     if (vm.billingPlanId === "go") {
       const usage = yield* Effect.tryPromise({ try: () => getGoVmUsage(vm.userId), catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }) });
-      if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: 40, usedHours: 40 }));
+      if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: usage.includedSeconds / 3600, usedHours: usage.includedSeconds / 3600 }));
       yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
     } else {
       yield* requirePlanBudget(vm.billingPlanId, vm.userId, null);
@@ -3777,7 +3777,7 @@ function preflightResumeIfSuspended(
       });
       if (usage && usage.remainingSeconds <= 0) {
         yield* pauseGoVm(repo, providers, vm, providerVmId, usage.usedSeconds);
-        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
+        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: usage.includedSeconds / 3600, usedHours: usage.includedSeconds / 3600 }));
       }
     }
     const forceProviderProbe = options.forceProviderProbe === true;

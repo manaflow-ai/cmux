@@ -8,7 +8,18 @@
 // iOS and web rates are never pooled.
 
 import { IOS_PAYWALL_CONTROL_VARIANT, IOS_PAYWALL_EXPERIMENT } from "./iosPaywallV1";
+import { TRIAL_QUANTITIES } from "./facts";
 import { validateIosPaywallPayload, type ValidationResult } from "./validator";
+
+/** The `ios-paywall-v1` arm that offers the iOS Pro free trial (apple/trialConfig.ts). */
+export const IOS_TRIAL_VARIANT = "pro-trial-7d";
+
+/** Copy rules for one iOS variant: trial wording and trial quantities only in the trial arm. */
+export function iosPaywallCopyContext(variant: string, trialAvailable: boolean) {
+  return variant === IOS_TRIAL_VARIANT
+    ? { offersTrial: true, trialAvailable, extraQuantities: TRIAL_QUANTITIES }
+    : {};
+}
 
 /** A count over people exposed to the experiment, after their first exposure. */
 export type ExperimentMetric = {
@@ -48,6 +59,16 @@ export type ExperimentDefinition = {
   readonly policy: ExperimentPolicy;
   /** Validates one variant's flag payload; invalid payloads are never served. */
   readonly validatePayload: (payload: unknown, variant: string) => ValidationResult<unknown>;
+  /**
+   * Reported only, never used in the allocation: day-N retention of people
+   * who converted from a trial versus people who bought directly.
+   */
+  readonly trialRetention?: {
+    readonly days: number;
+    readonly trialConvertedEvent: string;
+    readonly trialStartedEvent: string;
+    readonly paidEvent: ExperimentMetric;
+  };
 };
 
 export const DEFAULT_EXPERIMENT_POLICY: ExperimentPolicy = {
@@ -95,7 +116,19 @@ export const IOS_PAYWALL_V1: ExperimentDefinition = {
     { key: "revoked", label: "Revoked", event: "subscription_revoked", where: "1 = 1" },
   ],
   policy: DEFAULT_EXPERIMENT_POLICY,
-  validatePayload: (payload, variant) => validateIosPaywallPayload(payload, IOS_PAYWALL_EXPERIMENT, variant),
+  trialRetention: {
+    days: 35,
+    trialConvertedEvent: "trial_converted",
+    trialStartedEvent: "trial_started",
+    paidEvent: {
+      key: "paid",
+      label: "Paid App Store entitlement",
+      event: "subscription_entitlement_granted",
+      where: "properties.source = 'apple' AND properties.environment = 'Production'",
+    },
+  },
+  validatePayload: (payload, variant) =>
+    validateIosPaywallPayload(payload, IOS_PAYWALL_EXPERIMENT, variant, iosPaywallCopyContext(variant, true)),
 };
 
 /** Every experiment the optimizer manages, in run order. */

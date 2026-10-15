@@ -120,7 +120,8 @@ beforeEach(() => {
 
 describe("GET /api/billing/paywall", () => {
   test("serves every seeded variant from its flag payload and records the exposure", async () => {
-    for (const variant of IOS_PAYWALL_V1_SEED) {
+    // The trial arm is covered below: it is served only when the trial is configured.
+    for (const variant of IOS_PAYWALL_V1_SEED.filter((item) => item.key !== "pro-trial-7d")) {
       assignments.clear();
       events.length = 0;
       flagAnswer = { variant: variant.key, payload: variant.payload };
@@ -203,6 +204,32 @@ describe("GET /api/billing/paywall", () => {
     currentUser = { ...currentUser!, primaryEmail: "dev@manaflow.ai" };
     expect((await paywallFor("dev.cmux.app.beta")).variant).toBe("comparison");
     expect(events.at(-1)?.properties).toMatchObject({ paywall_internal: true, paywall_channel: "beta" });
+  });
+});
+
+describe("the trial arm", () => {
+  const trialEnv = {
+    APPLE_IAP_KEY_ID: "IAPKEY1234",
+    APPLE_IAP_ISSUER_ID: "11111111-2222-3333-4444-555555555555",
+    APPLE_IAP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+    DEVICECHECK_KEY_ID: "DCKEY12345",
+    DEVICECHECK_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+  };
+
+  test("is never served while the trial cannot be granted, and its trial copy passes only for it", async () => {
+    flagAnswer = { variant: "pro-trial-7d", payload: seed("pro-trial-7d").payload };
+    expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+    expect(events).toHaveLength(0);
+    Object.assign(process.env, trialEnv);
+    try {
+      expect((await paywallFor()).variant).toBe("pro-trial-7d");
+      // The same trial wording in another arm is refused.
+      assignments.clear();
+      flagAnswer = { variant: "comparison", payload: { ...seed("comparison").payload, headline: seed("pro-trial-7d").payload.headline } };
+      expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+    } finally {
+      for (const key of Object.keys(trialEnv)) delete process.env[key];
+    }
   });
 });
 

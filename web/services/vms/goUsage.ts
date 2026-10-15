@@ -9,6 +9,14 @@ export const GO_INCLUDED_VM_HOURS = 40;
 export const GO_INCLUDED_VM_SECONDS = GO_INCLUDED_VM_HOURS * 3600;
 /** Two retained machines in total, at most one of them running. */
 export const GO_SAVED_VM_LIMIT = 2;
+/**
+ * The iOS Pro free trial runs on Go limits with a smaller allowance: one
+ * retained machine and 20 VM-hours for the whole trial (the trial is one
+ * billing period). Same constants as the database guard.
+ */
+export const TRIAL_INCLUDED_VM_HOURS = 20;
+export const TRIAL_INCLUDED_VM_SECONDS = TRIAL_INCLUDED_VM_HOURS * 3600;
+export const TRIAL_SAVED_VM_LIMIT = 1;
 
 export type GoVmUsage = {
   readonly periodStart: Date;
@@ -16,6 +24,11 @@ export type GoVmUsage = {
   readonly usedSeconds: number;
   readonly remainingSeconds: number;
   readonly savedVms: number;
+  /** The allowance of this period: Go's, or the trial's. */
+  readonly includedSeconds: number;
+  readonly savedVmLimit: number;
+  /** The period is the iOS Pro free trial. */
+  readonly trial: boolean;
 };
 
 /**
@@ -26,7 +39,12 @@ export type GoVmUsage = {
 export async function getGoVmUsage(userId: string, now = new Date()): Promise<GoVmUsage | null> {
   const db = cloudDb();
   const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
-  if (!subscription) return { periodStart: now, periodEnd: now, usedSeconds: GO_INCLUDED_VM_SECONDS, remainingSeconds: 0, savedVms: 0 };
+  if (!subscription) {
+    return {
+      periodStart: now, periodEnd: now, usedSeconds: GO_INCLUDED_VM_SECONDS, remainingSeconds: 0, savedVms: 0,
+      includedSeconds: GO_INCLUDED_VM_SECONDS, savedVmLimit: GO_SAVED_VM_LIMIT, trial: false,
+    };
+  }
   if (subscription.planId !== "go") return null;
   if (!subscription.period) {
     throw new Error("Go billing period is unavailable; reconcile the subscription before granting runtime");
@@ -44,9 +62,14 @@ export async function getGoVmUsage(userId: string, now = new Date()): Promise<Go
     )),
   ]);
   const usedSeconds = runtimeSecondsWithinPeriod(intervals, periodStart, periodEnd, now);
+  const trial = subscription.trial === true;
+  const includedSeconds = trial ? TRIAL_INCLUDED_VM_SECONDS : GO_INCLUDED_VM_SECONDS;
   return { periodStart, periodEnd, usedSeconds,
-    remainingSeconds: Math.max(0, GO_INCLUDED_VM_SECONDS - usedSeconds),
-    savedVms: Number(retained[0]?.total ?? 0) };
+    remainingSeconds: Math.max(0, includedSeconds - usedSeconds),
+    savedVms: Number(retained[0]?.total ?? 0),
+    includedSeconds,
+    savedVmLimit: trial ? TRIAL_SAVED_VM_LIMIT : GO_SAVED_VM_LIMIT,
+    trial };
 }
 
 /** Drizzle wraps PostgreSQL constraints; inspect only the known public limits. */

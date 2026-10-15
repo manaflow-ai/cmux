@@ -470,7 +470,70 @@ export type OptimizerSnapshot = {
   readonly allocationSince: string;
   readonly decision: OptimizerDecision;
   readonly variants: readonly VariantSnapshot[];
+  /** Reported only; absent for experiments without a trial. */
+  readonly trialRetention?: TrialRetention;
 };
+
+export type RetentionCohort = { readonly people: number; readonly retained: number };
+export type TrialRetention = {
+  readonly days: number;
+  readonly trialConverters: RetentionCohort;
+  readonly directBuyers: RetentionCohort;
+};
+
+/**
+ * Day-N retention of paying people, by how they started paying: after a
+ * trial (`trial_converted`) or directly (a paid grant with no earlier
+ * `trial_started`). The cohort start is the first paid moment. Retained means
+ * another paid grant (the next renewal) between day N-10 and day N+5, so
+ * each monthly subscriber is judged on its second renewal around day N.
+ * Only people whose cohort start is at least N+5 days old are counted, and
+ * only people who were exposed to the experiment.
+ */
+export async function fetchTrialRetention(
+  api: PostHogApi,
+  definition: ExperimentDefinition,
+): Promise<TrialRetention | undefined> {
+  const retention = definition.trialRetention;
+  if (!retention) return undefined;
+  const { days } = retention;
+  const paid = retention.paidEvent;
+  const rows = await api.query(`SELECT cohort, count() AS people, countIf(retained) AS retained FROM (
+      SELECT s.person_id AS person_id,
+        if(coalesce(t.converted_at, toDateTime('1970-01-01')) > toDateTime('1971-01-01'), 'trial', 'direct') AS cohort,
+        if(coalesce(t.converted_at, toDateTime('1970-01-01')) > toDateTime('1971-01-01'), t.converted_at, s.first_paid) AS start_at,
+        countIf(coalesce(p.timestamp, toDateTime('1970-01-01')) >= start_at + toIntervalDay(${days - 10}) AND p.timestamp <= start_at + toIntervalDay(${days + 5})) > 0 AS retained
+      FROM (
+        SELECT person_id, min(timestamp) AS first_paid FROM events
+        WHERE event = ${hogqlString(paid.event)} AND (${paid.where}) AND timestamp >= ${hogqlTimestamp(definition.startDate)}
+        GROUP BY person_id
+      ) AS s
+      INNER JOIN (${exposureSubquery(definition)}) AS e ON e.person_id = s.person_id
+      LEFT JOIN (
+        SELECT person_id, min(timestamp) AS converted_at FROM events
+        WHERE event = ${hogqlString(retention.trialConvertedEvent)} AND timestamp >= ${hogqlTimestamp(definition.startDate)}
+        GROUP BY person_id
+      ) AS t ON t.person_id = s.person_id
+      LEFT JOIN (
+        SELECT person_id, min(timestamp) AS started_at FROM events
+        WHERE event = ${hogqlString(retention.trialStartedEvent)} AND timestamp >= ${hogqlTimestamp(definition.startDate)}
+        GROUP BY person_id
+      ) AS ts ON ts.person_id = s.person_id
+      LEFT JOIN (
+        SELECT person_id, timestamp FROM events
+        WHERE event = ${hogqlString(paid.event)} AND (${paid.where}) AND timestamp >= ${hogqlTimestamp(definition.startDate)}
+      ) AS p ON p.person_id = s.person_id
+      WHERE (coalesce(t.converted_at, toDateTime('1970-01-01')) > toDateTime('1971-01-01')
+        OR coalesce(ts.started_at, toDateTime('1970-01-01')) <= toDateTime('1971-01-01'))
+      GROUP BY s.person_id, cohort, start_at
+      HAVING start_at <= now() - toIntervalDay(${days + 5})
+    ) GROUP BY cohort LIMIT 10`);
+  const cohort = (name: string): RetentionCohort => {
+    const row = rows.find((item) => item[0] === name);
+    return { people: Number(row?.[1] ?? 0), retained: Number(row?.[2] ?? 0) };
+  };
+  return { days, trialConverters: cohort("trial"), directBuyers: cohort("direct") };
+}
 
 export type OptimizerRunResult = {
   readonly snapshot: OptimizerSnapshot;
@@ -551,6 +614,10 @@ export function optimizerReport(definition: ExperimentDefinition, snapshot: Opti
     "Decision:",
     ...decision.reasons.map((reason) => `- ${reason}`),
     "",
+    ...(snapshot.trialRetention ? [
+      `Day-${snapshot.trialRetention.days} retention (reported only, not used in the decision): trial converters ${snapshot.trialRetention.trialConverters.retained}/${snapshot.trialRetention.trialConverters.people} (${percent(snapshot.trialRetention.trialConverters.retained, snapshot.trialRetention.trialConverters.people)}), direct buyers ${snapshot.trialRetention.directBuyers.retained}/${snapshot.trialRetention.directBuyers.people} (${percent(snapshot.trialRetention.directBuyers.retained, snapshot.trialRetention.directBuyers.people)}). Mature cohorts only.`,
+      "",
+    ] : []),
     changes.length > 0 ? "Changes logged:" : "No changes logged.",
     ...changes.map((change) => `- ${change.kind}${change.variant ? ` ${change.variant}` : ""}: ${change.reason}`),
   ];
@@ -597,6 +664,11 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
   if (!flag) throw new Error(`Flag ${definition.flagKey} does not exist`);
   const allocationSince = await srmWindowStart(definition, log);
   const stats = await fetchVariantStats(api, definition, flag.variants.map((variant) => variant.key), allocationSince);
+  // A reporting query must never block the allocation.
+  const trialRetention = await fetchTrialRetention(api, definition).catch((error: unknown) => {
+    console.warn("paywall.optimizer.trial_retention_failed", { error: error instanceof Error ? error.message.slice(0, 300) : String(error) });
+    return undefined;
+  });
   const decision = found && !found.active
     ? { ...decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`)), target: Object.fromEntries(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage])), changed: false, reasons: ["hold: the flag is off (kill switch)"] }
     : decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`));
@@ -631,6 +703,7 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
     allocationSince,
     decision,
     variants,
+    ...(trialRetention ? { trialRetention } : {}),
   };
   const previous = log ? await log.latestRun(definition.key) : null;
   const wasHalted = previous?.halted === true;

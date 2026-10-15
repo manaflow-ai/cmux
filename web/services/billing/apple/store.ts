@@ -13,6 +13,7 @@ import {
   appleNotifications,
   appleSubscriptions,
   appleTransactions,
+  appleTrialClaims,
 } from "../../../db/schema";
 import type { AppleSubscriptionState, AppleTransactionRow } from "./state";
 
@@ -247,8 +248,29 @@ function subscriptionValues(state: AppleSubscriptionState, userId: string, now: 
     revokedAt: state.revokedAt,
     revocationReason: state.revocationReason,
     stateSignedAt: state.stateSignedAt,
+    offerType: state.offerType ?? null,
+    offerDiscountType: state.offerDiscountType ?? null,
+    freeTrial: state.freeTrial === true,
     updatedAt: now,
   };
+}
+
+/**
+ * The plan a free-trial period grants: the limited trial entitlement (`go`
+ * limits) only for an owner whose trial the server verified; otherwise
+ * `trial_unverified`, which no reader treats as a plan. Decided inside the
+ * write transaction, after the owner is known.
+ */
+async function trialPlanId(tx: Pick<Db, "select">, userId: string, originalTransactionId: string): Promise<string> {
+  const [claim] = await tx
+    .select({ status: appleTrialClaims.status, originalTransactionId: appleTrialClaims.originalTransactionId })
+    .from(appleTrialClaims)
+    .where(eq(appleTrialClaims.userId, userId))
+    .limit(1);
+  // One trial per account: a started claim covers only the subscription that started it.
+  const granted = claim?.status === "verified"
+    || (claim?.status === "started" && claim.originalTransactionId === originalTransactionId);
+  return granted ? "go" : "trial_unverified";
 }
 
 async function writeSubscriptionState(
@@ -268,7 +290,10 @@ async function writeSubscriptionState(
       .limit(1);
     const plan = planAppleSubscriptionWrite(previous ?? null, state, claim);
     if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
-    const values = subscriptionValues(state, plan.userId, new Date());
+    const values = {
+      ...subscriptionValues(state, plan.userId, new Date()),
+      ...(state.freeTrial ? { planId: await trialPlanId(tx, plan.userId, state.originalTransactionId) } : {}),
+    };
     const [current] = previous
       ? await tx.update(appleSubscriptions)
         .set(values)
