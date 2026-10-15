@@ -1,5 +1,12 @@
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
-import { DIFF_GUTTER_TINT, DIFF_LINE_TINT, DIFF_NUMBER_TINT, DIFF_WEIGHT_CSS, DIFF_WORD_TINT, diffTint } from "./diffWeight";
+import {
+  DIFF_GUTTER_TINT,
+  DIFF_LINE_TINT,
+  DIFF_NUMBER_TINT,
+  DIFF_WEIGHT_CSS,
+  DIFF_WORD_TINT,
+  diffTint,
+} from "./diffWeight";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
