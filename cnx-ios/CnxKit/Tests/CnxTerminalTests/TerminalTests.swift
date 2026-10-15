@@ -229,6 +229,35 @@ import Testing
     /// Signatures of a viewport `top` of `count` rows of numbered stream rows.
     func rows(top: Int, count: Int = 120) -> [UInt64] { (top..<(top + count)).map { UInt64(1000 + $0) } }
 
+    /// termqa round 7 (following cost): following still read all 151 rows of
+    /// every frame (p99 3.36 ms). Only the rows on screen and a margin are
+    /// read; the rows outside the band are `unread` and never compared.
+    func banded(_ rows: [UInt64], _ band: Range<Int>) -> [UInt64] {
+        rows.indices.map { band.contains($0) ? rows[$0] : TerminalPresentMatch.unread }
+    }
+
+    @Test func bandLimitedFramesMatchFollowingShifts() {
+        let t = 900
+        let band = TerminalPresentMatch.readBand(visible: 54..<96, rowCount: 120, margin: 16)
+        #expect(band == 38..<112)
+        for (current, reported) in [(t + 3, t + 3), (t - 1, t), (t + 1, t + 1), (t, t)] {
+            let match = TerminalPresentMatch(presentedTop: t, reportedTop: reported, requestedTop: 780, recentRequests: [],
+                                             activeTop: reported)
+            let result = match.match(previous: banded(rows(top: t), band), current: banded(rows(top: current), band))
+            #expect(result.top == current)
+            #expect(result.matched)
+        }
+    }
+
+    @Test func unreadRowsAreNeverCountedAsBlankOrEqual() {
+        let band = 50..<60
+        let previous = banded(rows(top: 0), band)
+        // Everything outside the band is `unread` in both: only the band counts.
+        #expect(TerminalPresentMatch.score(previous, banded(rows(top: 0), band), shift: 0) == 1)
+        #expect(TerminalPresentMatch.score(previous, banded(rows(top: 40), band), shift: 0) == 0)
+        #expect(TerminalPresentMatch.readBand(visible: 0..<10, rowCount: 20, margin: 16) == 0..<20)
+    }
+
     @Test func aStaleFrameOneRowOlderStaysWhereItsRowsBelong() {
         let t = 900
         let match = TerminalPresentMatch(presentedTop: t, reportedTop: t, requestedTop: 780, recentRequests: [700, 740],
