@@ -293,7 +293,8 @@ pub struct Translator {
     prompt_echo: Mutex<Option<String>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
     /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
-    /// Claude Code's result for them comes before it reads the next prompt.
+    /// Claude Code's result for them comes before it reads the next prompt,
+    /// or after its echo but before any of its output.
     abandoned: Mutex<Vec<String>>,
     /// Steered prompts (user lines written during a turn) Claude Code has
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is

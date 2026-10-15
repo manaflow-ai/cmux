@@ -29,13 +29,13 @@ async fn a_cancel_the_agent_never_answers_still_ends_the_turn() {
         .await
         .unwrap();
     let done = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(15),
         c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end"),
     )
     .await
     .expect("the turn stayed open after Stop");
     assert_eq!(done["msg"]["stopReason"], "cancelled", "{done}");
-    assert!(stopped.elapsed() < Duration::from_secs(10));
+    assert!(stopped.elapsed() < Duration::from_secs(15));
     let result = c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result").await;
     assert_eq!(result["msg"]["cancelForced"], true, "{result}");
 }
@@ -106,7 +106,7 @@ async fn stop_with_a_queued_prompt(c: &mut TestClient, id: &str, queued: &str) -
 }
 
 /// cx-he737: Claude Code slow to answer a Stop. acpmux ended the turn after
-/// 3 s and sent the queued prompt; Claude Code echoed it before the stopped
+/// its grace and sent the queued prompt; Claude Code echoed it before the stopped
 /// turn's result, and that result then answered the queued prompt too, as
 /// cancelled, while its real reply streamed after it with no turn open.
 #[tokio::test]
