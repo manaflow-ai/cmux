@@ -50,4 +50,49 @@ struct HeaderTerminalAddsTests {
             #expect(row.order == ["chat"])
         }
     }
+
+    /// A click adds a terminal and never closes one, so the Terminal button never shows lit, while
+    /// the other buttons still light for their splits.
+    @Test func theTerminalButtonNeverShowsLit() {
+        with(adds: true) {
+            let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
+            row.click("splitRight", toggles: toggles)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
+            row.click("splitBrowserRight", toggles: toggles)
+            row.click("splitRight", toggles: toggles)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight"])
+        }
+    }
+
+    /// Turned off after three adds, the button toggles again: one click closes a terminal, the next
+    /// opens one (not a close per remaining terminal).
+    @Test func turnedOffMidSessionTheButtonTogglesAgain() {
+        let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
+        with(adds: true) {
+            for _ in 0..<3 { row.click("splitRight", toggles: toggles) }
+        }
+        #expect(row.order == ["chat", "terminal", "terminal", "terminal"])
+        with(adds: false) {
+            row.click("splitRight", toggles: toggles)
+            #expect(row.order == ["chat", "terminal", "terminal"])
+            row.click("splitRight", toggles: toggles)
+            #expect(row.order == ["chat", "terminal", "terminal", "terminal"])
+            row.click("splitRight", toggles: toggles)
+            #expect(row.order == ["chat", "terminal", "terminal"])
+        }
+    }
+
+    /// Many adds keep the other buttons' splits: Browser stays lit and its next click closes its
+    /// browser rather than opening a second one.
+    @Test func manyAddsKeepTheOtherButtonsSplits() {
+        with(adds: true) {
+            let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
+            row.click("splitBrowserRight", toggles: toggles)
+            for _ in 0..<8 { row.click("splitRight", toggles: toggles) }
+            #expect(row.order == ["chat", "browser"] + Array(repeating: "terminal", count: 8))
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight"])
+            row.click("splitBrowserRight", toggles: toggles)
+            #expect(row.order == ["chat"] + Array(repeating: "terminal", count: 8))
+        }
+    }
 }
