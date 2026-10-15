@@ -1968,7 +1968,8 @@ class TerminalController {
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
              "browser.addinitscript", "browser.addscript", "browser.addstyle",
-             "browser.geolocation.set", "browser.offline.set":
+             "browser.geolocation.set", "browser.offline.set",
+             "browser.viewport.set":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
@@ -10734,6 +10735,7 @@ class TerminalController {
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
         case "browser.geolocation.set": return v2BrowserGeolocationSet(params: params)
         case "browser.offline.set": return v2BrowserOfflineSet(params: params)
+        case "browser.viewport.set": return v2BrowserViewportSetOnWorker(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }

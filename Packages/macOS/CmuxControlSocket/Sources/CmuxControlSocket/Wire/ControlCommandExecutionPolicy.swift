@@ -348,6 +348,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
         // Offline mode compiles a content rule list before replying.
         "browser.geolocation.set", "browser.offline.set",
+        // A Chromium page applies its viewport over DevTools; the reply waits
+        // for it so a following screenshot or script sees the new size.
+        "browser.viewport.set",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so
@@ -460,6 +463,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // drift.
         "surface.send_text",
         "surface.send_key",
+        // WebKit viewports apply in one inline main hop (the legacy main-lane
+        // body); cmuxTests drive it through handleSocketLine on the main
+        // actor. Only a Chromium page waits, and only off the main thread.
+        "browser.viewport.set",
     ]
 
     /// The v1 sidebar telemetry family, whose worker-lane bodies

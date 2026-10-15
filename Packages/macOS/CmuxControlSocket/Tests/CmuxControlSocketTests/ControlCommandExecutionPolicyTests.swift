@@ -82,6 +82,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
             "browser.design_mode.set", "browser.design_mode.status",
             "browser.geolocation.set", "browser.offline.set",
+            "browser.viewport.set",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
