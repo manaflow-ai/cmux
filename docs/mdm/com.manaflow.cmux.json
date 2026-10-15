@@ -628,6 +628,31 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.fonts.chatSize" : {
+      "default" : 14,
+      "description" : "The size of chat messages.",
+      "maximum" : 20,
+      "minimum" : 11,
+      "title" : "Chat Text Size",
+      "type" : "number"
+    },
+    "appearance.fonts.code" : {
+      "description" : "The face of code in chats, diffs and files. Unset, code uses the terminal's font.",
+      "title" : "Code Font",
+      "type" : "string"
+    },
+    "appearance.fonts.ui" : {
+      "default" : "system",
+      "description" : "The face of chats, the composer, pages and the window's own text.",
+      "enum" : [
+        "system",
+        "rounded",
+        "serif",
+        "mono"
+      ],
+      "title" : "Text Font",
+      "type" : "string"
+    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
@@ -2803,7 +2828,7 @@
     },
     "tabs.tabBar.agent" : {
       "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
@@ -2814,7 +2839,7 @@
     },
     "tabs.tabBar.browser" : {
       "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
@@ -2825,7 +2850,7 @@
     },
     "tabs.tabBar.terminal" : {
       "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
