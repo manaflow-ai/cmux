@@ -13,8 +13,8 @@
   --lg-mark: 20px;
   --lg-list: clamp(232px, 27vw, 296px);
   --lg-header: 44px;
-  /* The reading column: rows, day lines and the composer never grow past it. */
-  --lg-column: 840px;
+  /* The thread and run sheet's widest; a wide pane keeps the conversation beside it. */
+  --lg-sheet: 520px;
 }
 
 .lg-page {
@@ -668,6 +668,15 @@
 }
 
 /* ---------- Thread sheet: over the timeline, from the end edge ---------- */
+/* A wide pane keeps the conversation beside the sheet: the timeline, the typing line and the
+   composer end where the sheet starts (its widest, 520 px), so the sheet never covers the composer.
+   A narrower pane lets the sheet slide over them. */
+@container lg-main (min-width: 1100px) {
+  .lg-stage:has(> .lg-sheet) > :not(.lg-sheet) {
+    width: auto;
+    margin-inline-end: var(--lg-sheet);
+  }
+}
 .lg-sheet {
   position: absolute;
   inset-block: 0;
@@ -675,7 +684,7 @@
   z-index: var(--layer-raised, 2);
   display: flex;
   flex-direction: column;
-  width: min(100%, max(360px, 58%), 520px);
+  width: min(100%, max(360px, 58%), var(--lg-sheet));
   border-inline-start: 1px solid var(--lg-line);
   background: var(--lg-solid);
   box-shadow: var(--elevation-2);
@@ -959,16 +968,9 @@
   color: var(--page-text-3);
 }
 
-/* ---------- The reading column ---------- */
-.lg-main .hc-timeline-row > * {
-  max-width: calc(var(--lg-column) + 2 * var(--lg-pad));
-}
-.lg-main-compose > * {
-  max-width: var(--lg-column);
-}
+/* ---------- The conversation column: the pane's full width, the side padding only ---------- */
 .lg-main-compose,
 .lg-typing {
-  max-width: calc(var(--lg-column) + 2 * var(--lg-pad));
   width: 100%;
   box-sizing: border-box;
 }
@@ -1062,21 +1064,25 @@
   white-space: nowrap;
 }
 
-/* ---------- Agent runs: a quiet card under a Chief's reply, the run sheet over the timeline ---------- */
+/* ---------- Agent runs: an inline disclosure under a Chief's reply (no frame; its steps on an
+   indented rail), the run sheet over the timeline ---------- */
 .lg-run {
+  /* The label's column (after the status mark) and the rail's place (under the first glyph). */
+  --lg-run-lead: 16px;
+  --lg-run-rail: 3px;
   container: lg-run / inline-size;
-  margin: 4px 0 2px;
-  max-width: min(100%, 640px);
-  border: 1px solid var(--lg-line);
-  border-radius: 8px;
-  background: var(--lg-fill);
+  margin: 2px 0 0;
+}
+/* With the author's picture (16 px, then the mark): the rail under the picture's center. */
+.lg-run:has(> .lg-run-bar > .lg-run-toggle > .hc-avatar) {
+  --lg-run-lead: 42px;
+  --lg-run-rail: 7px;
 }
 .lg-run-bar {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   min-height: 28px;
-  padding: 0 8px;
 }
 .lg-run-toggle {
   display: flex;
@@ -1148,19 +1154,36 @@
   }
 }
 .lg-run-title {
-  margin: -4px 8px 6px 24px;
+  margin: -4px 0 4px;
+  margin-inline-start: var(--lg-run-lead);
   font-size: var(--text-detail);
   color: var(--page-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The rail: under the first glyph's center, the steps in the label's column. */
 .lg-run-steps {
-  padding: 0 8px 6px 8px;
-  border-top: 1px solid var(--lg-line);
+  margin-inline-start: var(--lg-run-rail);
+  padding: 0 0 4px;
+  padding-inline-start: calc(var(--lg-run-lead) - var(--lg-run-rail) - 1px);
+  border-inline-start: 1px solid var(--lg-line);
+}
+/* The steps (the agent pane's tool rows) at the card's own type size, not the transcript's. */
+.lg-run-steps {
+  --cv-font-size: var(--text-detail);
+  --cv-line-height: var(--text-detail--line-height);
+}
+/* Nine rows before it scrolls, as in the transcript (nine 26 px rows there, 22 px here). */
+.lg-run-steps .cv-tool-run {
+  max-height: 198px;
+}
+.lg-run-steps .cv-tool {
+  min-height: 22px;
+  line-height: var(--text-detail--line-height);
 }
 .lg-run-more {
-  margin: 6px 0 0 16px;
+  margin: 6px 0 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
 }
@@ -1171,6 +1194,12 @@
   font-size: var(--text-detail);
   color: var(--hc-danger);
   white-space: pre-wrap;
+}
+/* In the card (no frame): the error in the label's column, no line above it. */
+.lg-run > .lg-run-error {
+  padding: 4px 0 0;
+  padding-inline-start: var(--lg-run-lead);
+  border-top: 0;
 }
 .lg-run-status {
   display: inline-flex;
@@ -1240,7 +1269,8 @@
     order: 2;
     flex-basis: 100%;
     overflow: hidden;
-    padding: 0 0 6px 16px;
+    padding: 0 0 6px;
+    padding-inline-start: var(--lg-run-lead);
   }
   .lg-run-metas > .lg-run-meta:first-child::before {
     content: none;

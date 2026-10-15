@@ -644,6 +644,13 @@
       "title" : "Hue",
       "type" : "number"
     },
+    "appearance.interfaceScale" : {
+      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "maximum" : 1.25,
+      "minimum" : 0.9,
+      "title" : "Interface Size",
+      "type" : "number"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
@@ -925,6 +932,12 @@
       },
       "title" : "Theme Edits",
       "type" : "object"
+    },
+    "browser.builtInAdBlocker" : {
+      "default" : true,
+      "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
+      "title" : "Built-in uBlock Origin",
+      "type" : "boolean"
     },
     "browser.customSearchEngine.search" : {
       "default" : "",
@@ -2115,6 +2128,20 @@
       "default" : false,
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
       "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.delay" : {
+      "default" : 1300,
+      "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Hover Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.enabled" : {
+      "default" : true,
+      "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
+      "title" : "Show Hover Cards",
       "type" : "boolean"
     },
     "sidebar.minimal" : {

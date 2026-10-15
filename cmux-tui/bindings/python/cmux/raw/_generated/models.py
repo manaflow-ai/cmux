@@ -101,6 +101,17 @@ class FrontendFocusTarget(str, Enum):
     TABS_RAIL = 'tabs_rail'
     PROJECTION_RAIL = 'projection_rail'
 
+class HomeChiefState(str, Enum):
+    WORKING = 'working'
+    WAITING = 'waiting'
+    IDLE = 'idle'
+
+class HomeInboxKind(str, Enum):
+    CHIEF = 'chief'
+    DIRECT = 'direct'
+    CHANNEL = 'channel'
+    GROUP = 'group'
+
 class NameSource(str, Enum):
     USER = 'user'
     AUTO = 'auto'
@@ -879,6 +890,25 @@ class HistorySearchRange:
     __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchRange'
     end: int
     start: int
+
+
+@dataclass(frozen=True)
+class HomeInboxRow:
+    __cmux_schema_path__: ClassVar[str] = 'types/HomeInboxRow'
+    activity_at: str
+    id: str
+    kind: HomeInboxKind
+    marked_unread: bool
+    muted: bool
+    name: str
+    owner: str
+    pinned: bool
+    unread: int
+    chief: Union[str, MissingType] = field(default=MISSING)
+    chief_state: Union[HomeChiefState, MissingType] = field(default=MISSING)
+    last_author: Union[str, MissingType] = field(default=MISSING)
+    pin_position: Union[int, MissingType] = field(default=MISSING)
+    preview: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2083,6 +2113,7 @@ class BindConversationTabSessionRequest:
     surface: Id
     expected_session: Union[str, None]
     session: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3259,6 +3290,20 @@ class HistorySearchResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/history-search/result'
     hits: List[HistorySearchHit]
     took_us: int
+
+
+@dataclass(frozen=True)
+class HomeInboxRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/home-inbox/request'
+    owners: Union[List[str], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class HomeInboxResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/home-inbox/result'
+    cloud: str
+    me: str
+    rows: List[HomeInboxRow]
 
 
 @dataclass(frozen=True)
@@ -5637,6 +5682,8 @@ __all__ = [
     'CursorStyle',
     'DetachReason',
     'FrontendFocusTarget',
+    'HomeChiefState',
+    'HomeInboxKind',
     'NameSource',
     'NotificationLevel',
     'NotificationSource',
@@ -5715,6 +5762,7 @@ __all__ = [
     'GuestUrlSubscribeResult',
     'HistorySearchHit',
     'HistorySearchRange',
+    'HomeInboxRow',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -5975,6 +6023,8 @@ __all__ = [
     'GetSizeStateRequest',
     'HistorySearchRequest',
     'HistorySearchResult',
+    'HomeInboxRequest',
+    'HomeInboxResult',
     'IdentifyRequest',
     'IdsRequest',
     'ImportBookmarksRequest',

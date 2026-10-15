@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// The chat's bottom stack (hq#1957, Leo 2026-10-14): the pull request dock, the queued prompts,
-// the folder strip and the composer card stack, under a question waiting for an answer, in the layout flow under the transcript, so none
+// The chat's bottom stack (hq#1957, Leo 2026-10-14): the pull request dock, the queued prompts
+// and the composer card stack (a started chat has no folder strip, so the queue meets the card), under a question waiting for an answer, in the layout flow under the transcript, so none
 // overlaps another and none is clipped (the queue never covers Allow and Deny, hq #1893). The stack never takes the whole pane: the transcript keeps
 // room, and the queue and the dock scroll inside their own heights instead. The page is the pane's
 // dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon whose chat opened
@@ -223,7 +223,10 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
 
   /// Every part drawn, inside the chat column, below the transcript, and over no other part.
   function expectStacked({ main, transcript, parts }: { main: Box; transcript: Box; parts: Box[] }) {
-    expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "strip", "card"]);
+    // The chat has started: no location strip, and nothing left where it stood.
+    expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "card"]);
+    const [queue, card] = parts.slice(-2) as [Box, Box];
+    expect({ queueToCard: Math.abs(card.top - queue.bottom) <= 0.5 }).toEqual({ queueToCard: true });
     for (const part of parts) {
       expect({ part: part.name, clipped: part.top < main.top - 0.5 || part.bottom > main.bottom + 0.5 }).toEqual({
         part: part.name,
@@ -250,7 +253,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     return page;
   }
 
-  test("the question, the dock, the queue, the strip and the card stack without overlapping", async () => {
+  test("the question, the dock, the queue and the card stack without overlapping or a gap where the strip was", async () => {
     const page = await open(760);
     const drawn = await layout(page);
     expectStacked(drawn);

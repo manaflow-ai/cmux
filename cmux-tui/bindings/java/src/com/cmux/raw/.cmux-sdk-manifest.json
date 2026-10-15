@@ -117,8 +117,8 @@
     },
     {
       "path": "BindConversationTabSessionRequest.java",
-      "sha256": "c2412ed41a5281068eeff20f00c6fc0a25569e81045a09d44f4b9fcb29a7288d",
-      "size": 3912
+      "sha256": "7261ad51d8b1c5dab2303e11fd0f0e1800d99dba82afd30b8809c8a63c7cd35a",
+      "size": 4760
     },
     {
       "path": "BindConversationTabSessionResult.java",
@@ -642,8 +642,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "03cc6e815f7642c09ec0e4ed974b54e1498150c46639e04149c918cced5ec7ef",
-      "size": 73554
+      "sha256": "dad3aabe0a0d893c8ffa66e047f84100493cec2c9cf22a0475ab6b24f0c2b828",
+      "size": 73769
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1267,8 +1267,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "118e1e7ceeafd131afcb6290c0af97b26414052df9d23e832860df6d89de0961",
-      "size": 63923
+      "sha256": "db265137c96927100e85c1e9935bbecdf89fd7dcf9bfd8ef20fcd675a5092143",
+      "size": 64143
     },
     {
       "path": "GetBlobRequest.java",
@@ -1364,6 +1364,31 @@
       "path": "HistorySearchResult.java",
       "sha256": "61d370af04439a5befc4a5aad910a5914b4aa712bb793e0d7291ceeb003169b3",
       "size": 2701
+    },
+    {
+      "path": "HomeChiefState.java",
+      "sha256": "003f820bb92d86adb718e38ad94e75b45cb679f2e8e8464634e8328900377e9a",
+      "size": 916
+    },
+    {
+      "path": "HomeInboxKind.java",
+      "sha256": "5b794f59f6d9513fb3952cec20d973a91ffa800b1b10cd7f84d2d8a8c10c2525",
+      "size": 931
+    },
+    {
+      "path": "HomeInboxRequest.java",
+      "sha256": "a8f71b0a4c26dfa08d5b44c976e2cb6b18c7a9b08ffda8432ee8fb21abc18c7e",
+      "size": 2069
+    },
+    {
+      "path": "HomeInboxResult.java",
+      "sha256": "85f67b4537e3660defe636a33c972bf09c18fe8dc585df063a4bee19fce37b43",
+      "size": 3192
+    },
+    {
+      "path": "HomeInboxRow.java",
+      "sha256": "d7b201401b9f46162021308155bb834d56a0e1955ef16dbde73944f82699ea00",
+      "size": 10404
     },
     {
       "path": "IdMapping.java",
@@ -1957,7 +1982,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0fe644c0c8ddd41ab24951f9c3bdd36ff0d9827f145ad00024f22c3d0de0e66e",
+      "sha256": "7f609e2ca8f45c27a38988c8e54055b6f125bb3999e590d4bf73d4f6735bd115",
       "size": 6943
     },
     {
@@ -3217,7 +3242,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "6a4ba878d29c643390f0367714f8f8ba922296f984a8e3a5e763773a3aa7ef0c",
+  "ir_sha256": "a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

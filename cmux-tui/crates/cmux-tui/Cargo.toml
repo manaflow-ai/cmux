@@ -69,6 +69,8 @@ unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
+regex.workspace = true
 toml.workspace = true
 base64.workspace = true
 getrandom.workspace = true
@@ -90,6 +92,9 @@ cmux-host.workspace = true
 acpmux = { path = "../acpmux" }
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
+# The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
+# it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
+cmux-build-identity.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true

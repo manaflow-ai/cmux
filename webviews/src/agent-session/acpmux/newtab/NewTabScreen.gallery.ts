@@ -95,6 +95,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "agent-session/acpmux/newtab/ChatFilterMenu.tsx#ChatFilterMenu",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
@@ -213,6 +214,17 @@ export default agentPaneEntry({
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
         page.cmuxAcpmuxBridge?.command?.("showHarnesses");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harnesses") !== null);
+      },
+    },
+    "chats-filter-open": {
+      note: "Threads template with the All chats Filter open (cx-htpk0): All, Working, Needs input, Done, in the pane's own menu style, over the list.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Filter" });
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.nt-chats-filter-list [role="menuitemradio"]').length === 4,
+        );
       },
     },
     "many-chats": {

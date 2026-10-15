@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6a4ba878d29c643390f0367714f8f8ba922296f984a8e3a5e763773a3aa7ef0c.
+// cmux-tui mux protocol 12, IR a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -100,6 +100,9 @@ pub type AttachSurfaceResult = T::EmptyResult;
 pub struct BindConversationTabSessionRequest {
     /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
     pub expected_session: Nullable<String>,
+    /// The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub harness: Optional<String>,
     pub session: String,
     pub surface: T::Id,
 }
@@ -1741,6 +1744,21 @@ pub struct HistorySearchRequest {
 pub struct HistorySearchResult {
     pub hits: Vec<T::HistorySearchHit>,
     pub took_us: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HomeInboxRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owners: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HomeInboxResult {
+    pub cloud: String,
+    pub me: String,
+    pub rows: Vec<T::HomeInboxRow>,
 }
 
 #[rustfmt::skip]
@@ -4468,6 +4486,10 @@ impl CmuxClient {
 
     pub fn history_search(&mut self, request: HistorySearchRequest) -> Result<HistorySearchResult> {
         self.execute(&HISTORY_SEARCH_METADATA, &request)
+    }
+
+    pub fn home_inbox(&mut self, request: HomeInboxRequest) -> Result<HomeInboxResult> {
+        self.execute(&HOME_INBOX_METADATA, &request)
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {

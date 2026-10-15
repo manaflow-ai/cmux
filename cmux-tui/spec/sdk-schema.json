@@ -7791,6 +7791,141 @@
    },
    "additional_properties": false
   },
+  "HomeInboxKind": {
+   "kind": "enum",
+   "values": [
+    "chief",
+    "direct",
+    "channel",
+    "group"
+   ]
+  },
+  "HomeChiefState": {
+   "kind": "enum",
+   "values": [
+    "working",
+    "waiting",
+    "idle"
+   ]
+  },
+  "HomeInboxRow": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "HomeInboxKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "unread": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "activity_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "preview": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "last_author": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "chief": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "chief_state": {
+     "type": {
+      "kind": "ref",
+      "name": "HomeChiefState"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pin_position": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "marked_unread": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "muted": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "AgentSessionSource": {
    "kind": "object",
    "fields": {
@@ -16549,6 +16684,16 @@
       "presence": "required",
       "nullable": true,
       "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches."
+     },
+     "harness": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone."
      }
     },
     "additional_properties": false
@@ -16585,7 +16730,7 @@
    },
    "stream": null,
    "constraints": [
-    "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
+    "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
    ]
   },
   "new-frontend-browser-tab": {
@@ -20784,6 +20929,65 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. op is {kind:\"inbox.pin\", pinned, position?} or {kind:\"inbox.mark_unread\", unread}; it sets the caller's own list state of a conversation it takes part in (not_participant, unknown_conversation), never a conversation op (no rev). position is at most 2^53-2. See spec/commands.md."
+   ]
+  },
+  "home-inbox": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "home-inbox-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "owners": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "me": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "rows": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "HomeInboxRow"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cloud": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. See spec/commands.md."
    ]
   },
   "conversation-search": {

@@ -133,19 +133,24 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
 };
 
 let core: ReturnType<typeof createFauxCore> | undefined;
+let slowCore: ReturnType<typeof createFauxCore> | undefined;
+
+/** A turn whose newest user text holds "SLOW" streams in small tokens over a few seconds (live-frame tests). */
+const isSlow = (context: TranscriptContext | Context): boolean => {
+  const users = (context as { messages: Array<{ role: string; content: unknown }> }).messages.filter((m) => m.role === "user");
+  return (blocksOf(users[users.length - 1]?.content).at(-1) ?? "").includes("SLOW");
+};
 
 export function fakeStreams(): ProviderStreams {
   core ??= createFauxCore({ api: "fake", provider: "fake", tokenSize: { min: 64, max: 64 } });
-  const c = core;
-  const next = () => c.appendResponses([respond]);
+  slowCore ??= createFauxCore({ api: "fake", provider: "fake", tokenSize: { min: 3, max: 3 }, tokensPerSecond: 40 });
+  const pick = (context: TranscriptContext | Context) => {
+    const c = isSlow(context) ? slowCore! : core!;
+    c.appendResponses([respond]);
+    return c;
+  };
   return {
-    stream: (model: Model<Api>, context, options) => {
-      next();
-      return c.stream(model, context, options);
-    },
-    streamSimple: (model: Model<Api>, context, options) => {
-      next();
-      return c.streamSimple(model, context, options);
-    },
+    stream: (model: Model<Api>, context, options) => pick(context).stream(model, context, options),
+    streamSimple: (model: Model<Api>, context, options) => pick(context).streamSimple(model, context, options),
   };
 }

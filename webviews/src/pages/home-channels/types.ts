@@ -62,7 +62,7 @@ export interface HomeCapabilities {
 /** The tools a Chief may be granted (the daemon's closed catalog). */
 export const CHIEF_TOOLS = ["spawn", "tell", "workspaces", "browser", "cloud_vms", "chiefs", "memory_import"] as const;
 /** A new Chief's tools when the person names none (the daemon's default). */
-export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces"] as const;
+export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces", "chiefs"] as const;
 /** The agent harnesses a Chief's subagents may use (none checked: every harness). */
 export const CHIEF_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 
@@ -146,6 +146,8 @@ export interface HomeConversation {
   lastAuthor?: string;
   /** The status of the last message's work part, when it has one (a Chief's live state). */
   lastWork?: "running" | "waiting" | "done" | "failed";
+  /** A Chief's state as the owner derives it (home-inbox-v1): typing, its runs, its last work. */
+  chiefState?: "working" | "waiting" | "idle";
 }
 
 export interface HomeMention {

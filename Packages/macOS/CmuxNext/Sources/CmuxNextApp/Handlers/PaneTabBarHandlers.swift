@@ -15,6 +15,10 @@ enum PaneTabBarHandlers {
         ActionTargetTitles.setState(toggle, in: registry) { invocation in
             ctx.paneController(invocation).map { !$0.view.hidesStrip }
         }
+        // The palette row is checked while the focused pane shows its tab bar: running it hides the bar.
+        ActionTargetTitles.setPaletteState(toggle, in: registry) {
+            ctx.services.windows.active?.focusedPane.map { !$0.view.hidesStrip } ?? false
+        }
         // An app workspace's one pane shows its app without a tab bar (`app-screens-v1`).
         for id in [toggle, newTab] {
             ActionTargetVisibility.hide(id, in: registry) { invocation in ctx.paneController(invocation)?.isAppPane ?? false }
@@ -35,9 +39,7 @@ extension PaneController {
     /// default is no choice, so the pane follows `tabs.tabBar` again.
     func showTabBar(_ shown: Bool) {
         let mode = (services.settings?.snapshot.paneTabBars ?? .init())[tabBarKind]
-        let hiddenByDefault = PaneTabBar.hides(choice: nil, mode: mode) {
-            ChatDockChrome.hidesStrip(self, tabCount: stripModel.tabs.count)
-        }
+        let hiddenByDefault = PaneTabBar.hides(choice: nil, mode: mode)
         services.paneTabBars.set(shown == hiddenByDefault ? shown : nil, for: paneKey)
         apply(snapshot())
     }

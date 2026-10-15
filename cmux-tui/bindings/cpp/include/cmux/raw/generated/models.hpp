@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6a4ba878d29c643390f0367714f8f8ba922296f984a8e3a5e763773a3aa7ef0c";
+inline constexpr std::string_view kProtocolIrSha256 = "a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -86,6 +86,9 @@ struct GuestUrlOpenResult;
 struct GuestUrlSubscribeResult;
 struct HistorySearchHit;
 struct HistorySearchRange;
+enum class HomeChiefState;
+enum class HomeInboxKind;
+struct HomeInboxRow;
 struct Id;
 struct IdMapping;
 struct IdentifyResult;
@@ -361,6 +364,8 @@ struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct HistorySearchRequest;
 struct HistorySearchResult;
+struct HomeInboxRequest;
+struct HomeInboxResult;
 struct IdentifyRequest;
 struct IdsRequest;
 struct ImportBookmarksRequest;
@@ -876,6 +881,7 @@ struct BellEvent {
 
 struct BindConversationTabSessionRequest {
     std::optional<std::string> expected_session{};
+    Field<std::string> harness{};
     std::string session{};
     Id surface{};
     friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;
@@ -2954,6 +2960,49 @@ struct HistorySearchResult {
     std::vector<HistorySearchHit> hits{};
     std::uint64_t took_us{};
     friend bool operator==(const HistorySearchResult&, const HistorySearchResult&) = default;
+};
+
+enum class HomeChiefState {
+    working,
+    waiting,
+    idle,
+};
+
+enum class HomeInboxKind {
+    chief,
+    direct,
+    channel,
+    group,
+};
+
+struct HomeInboxRequest {
+    Field<std::vector<std::string>> owners{};
+    friend bool operator==(const HomeInboxRequest&, const HomeInboxRequest&) = default;
+};
+
+struct HomeInboxRow {
+    std::string activity_at{};
+    std::optional<std::string> chief{};
+    std::optional<HomeChiefState> chief_state{};
+    std::string id{};
+    HomeInboxKind kind{};
+    std::optional<std::string> last_author{};
+    bool marked_unread{};
+    bool muted{};
+    std::string name{};
+    std::string owner{};
+    std::optional<std::uint64_t> pin_position{};
+    bool pinned{};
+    std::optional<std::string> preview{};
+    std::uint64_t unread{};
+    friend bool operator==(const HomeInboxRow&, const HomeInboxRow&) = default;
+};
+
+struct HomeInboxResult {
+    std::string cloud{};
+    std::string me{};
+    std::vector<HomeInboxRow> rows{};
+    friend bool operator==(const HomeInboxResult&, const HomeInboxResult&) = default;
 };
 
 enum class IdMappingKind {
@@ -6083,6 +6132,24 @@ struct Codec<HistorySearchRange> {
 };
 
 template <>
+struct Codec<HomeChiefState> {
+    static Result<Json> encode(const HomeChiefState& value);
+    static Result<HomeChiefState> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxKind> {
+    static Result<Json> encode(const HomeInboxKind& value);
+    static Result<HomeInboxKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxRow> {
+    static Result<Json> encode(const HomeInboxRow& value);
+    static Result<HomeInboxRow> decode(const Json& value);
+};
+
+template <>
 struct Codec<Id> {
     static Result<Json> encode(const Id& value);
     static Result<Id> decode(const Json& value);
@@ -7730,6 +7797,18 @@ template <>
 struct Codec<HistorySearchResult> {
     static Result<Json> encode(const HistorySearchResult& value);
     static Result<HistorySearchResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxRequest> {
+    static Result<Json> encode(const HomeInboxRequest& value);
+    static Result<HomeInboxRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxResult> {
+    static Result<Json> encode(const HomeInboxResult& value);
+    static Result<HomeInboxResult> decode(const Json& value);
 };
 
 template <>

@@ -360,6 +360,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
         tools: Tools::Cli(paths.bin.join("chief").display().to_string()),
         user_env: Default::default(),
         profile_tool: false,
+        chiefs_tool: false,
     };
     optchat_chief::session_dir::write(&paths, &setup).unwrap();
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
@@ -766,6 +767,7 @@ fn the_session_settings_carry_the_users_settings_env() {
         tools: Tools::Mcp,
         user_env,
         profile_tool: false,
+        chiefs_tool: false,
     };
     let settings = settings_json(&setup, &paths, &[]);
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
@@ -795,6 +797,7 @@ fn the_session_settings_files_are_private_and_the_copy_is_gated() {
         tools: Tools::Mcp,
         user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
         profile_tool: false,
+        chiefs_tool: false,
     };
     write(&paths, &setup).unwrap();
     for name in ["settings.json", "settings.local.json"] {
