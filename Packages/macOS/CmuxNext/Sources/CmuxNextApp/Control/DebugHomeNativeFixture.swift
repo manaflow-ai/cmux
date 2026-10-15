@@ -54,12 +54,16 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
+        if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
         let view: HomeNativeTranscriptView?
         if let tab = params["tab"]?.stringValue {
             view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host
                 .flatMap(HomePageTab.transcript(in:))
         } else {
-            view = HomeNativeTranscriptView.shown(in: services.windows.active?.window)
+            // `window`: the Home view shown in that window (default: the active window's).
+            let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }
+            if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
+            view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
         guard let view else {
             return .object(["error": .string("no Home conversation is shown")])
@@ -133,7 +137,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // What the transcript view itself holds (its MessagesLab store), oldest first, to compare
             // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden).
             let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50)
-            return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) })])
+            return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
+                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }

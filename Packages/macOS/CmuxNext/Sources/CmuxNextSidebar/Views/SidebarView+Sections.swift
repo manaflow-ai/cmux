@@ -62,7 +62,7 @@ extension SidebarView {
         }
         let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
-        let shownAbove = (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps)
+        let shownAbove = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps))
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook

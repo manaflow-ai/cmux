@@ -12,11 +12,12 @@ import Foundation
 ///   },
 ///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true,
 ///                // the bar's look (cx-gkz5):
-///                "glass": "transparent",        // regular, clear, off
+///                "glass": "off",                // transparent, regular, clear
 ///                "glassTint": "background",     // accent, none
 ///                "glassTintStrength": 0.35,     // 0 to 1
 ///                "cornerRadius": "theme",       // capsule, or points 0 to 16
-///                "shadow": false }
+///                "shadow": false,
+///                "backgroundOpacity": 0 }       // 0 to 1, over a see-through window
 /// }
 /// ```
 ///
@@ -35,6 +36,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static let glassTintStrengthPath = ["browser", "omnibar", "glassTintStrength"]
     public static let cornerRadiusPath = ["browser", "omnibar", "cornerRadius"]
     public static let shadowPath = ["browser", "omnibar", "shadow"]
+    public static let backgroundOpacityPath = ["browser", "omnibar", "backgroundOpacity"]
     /// `cornerRadius` points; the words are `theme` and `capsule`.
     public static let cornerRadiusRange: ClosedRange<Double> = 0...16
     /// The built-in engines, then `custom`.
@@ -62,12 +64,15 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public var inlineAutocomplete = true
     public var maxRows = 8
     public var calculator = true
-    public var glass = "transparent"
+    public var glass = "off"
     public var glassTint = "background"
     public var glassTintStrength = 0.35
     /// nil: the theme's radius; `.infinity`: a capsule; else points.
     public var cornerRadius: Double?
     public var shadow = false
+    /// How much the flat bar covers a see-through window, 0 to 1; 0 keeps
+    /// the window's transparency down to the text's legibility floor.
+    public var backgroundOpacity = 0.0
 
     public init() {}
 
@@ -101,6 +106,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
                 default: setting.cornerRadius = value.doubleValue
                 }
             case shadowPath: setting.shadow = value.boolValue ?? false
+            case backgroundOpacityPath: setting.backgroundOpacity = value.doubleValue ?? setting.backgroundOpacity
             default: break
             }
         }
