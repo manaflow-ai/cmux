@@ -3760,6 +3760,7 @@
 		D13184000000000000000002 /* TabManager+AppBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000001 /* TabManager+AppBootstrap.swift */; };
 		7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */; };
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
+		B872AA6FEC573CAE81BD89A7 /* TabManager+BrowserSessionFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06F6135FA9B2EC6EC1B3BB7 /* TabManager+BrowserSessionFingerprint.swift */; };
 		2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */; };
 		D13184000000000000000004 /* TabManager+CloudWorkspaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000003 /* TabManager+CloudWorkspaceSelection.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
@@ -8310,6 +8311,7 @@
 		D13184000000000000000001 /* TabManager+AppBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AppBootstrap.swift"; sourceTree = "<group>"; };
 		7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BackgroundWorkspaceMountPolicy.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
+		F06F6135FA9B2EC6EC1B3BB7 /* TabManager+BrowserSessionFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserSessionFingerprint.swift"; sourceTree = "<group>"; };
 		C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TabManager+CloudAgentTitle.swift"; sourceTree = "<group>"; };
 		D13184000000000000000003 /* TabManager+CloudWorkspaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CloudWorkspaceSelection.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
@@ -12341,6 +12343,7 @@
 				6E0312C285F7C7C82024BF62 /* UpgradePromptImpression.swift */,
 				899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */,
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
+				F06F6135FA9B2EC6EC1B3BB7 /* TabManager+BrowserSessionFingerprint.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16802,6 +16805,7 @@
 				D13184000000000000000002 /* TabManager+AppBootstrap.swift in Sources */,
 				7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */,
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
+				B872AA6FEC573CAE81BD89A7 /* TabManager+BrowserSessionFingerprint.swift in Sources */,
 				2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */,
 				D13184000000000000000004 /* TabManager+CloudWorkspaceSelection.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,

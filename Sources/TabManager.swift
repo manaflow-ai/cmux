@@ -6698,6 +6698,7 @@ extension TabManager {
                 } else {
                     hasher.combine(false)
                 }
+                Self.hashBrowserSessionState(workspace.panels[panelId] as? BrowserPanel, into: &hasher)
             }
             if let progress = workspace.progress {
                 hasher.combine(Int((progress.value * 1000).rounded()))
