@@ -555,7 +555,7 @@ fn prompt_cancel_and_permission_need_an_attachment() {
 /// above the cap is still a bad request.
 #[test]
 fn attach_takes_the_agent_panes_whole_kind_list() {
-    let mut fake = FakeAcpmux::start("kinds");
+    let fake = FakeAcpmux::start("kinds");
     let mux = mux_with(&fake, "asa-kinds");
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "kinds");
