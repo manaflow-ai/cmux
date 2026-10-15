@@ -225,6 +225,12 @@
 .nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit;cursor:default}
 .nt-all button.nt-chats-tab:hover,.nt-all .nt-chats-tab.is-selected{color:var(--agent-text)}
 .nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:4px}
+/* Filter (cx-htpk0): quiet text like the view tabs, full ink while it narrows the list. */
+.nt-all .nt-chats-filter-button{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);font-family:inherit;font-size:var(--text-detail);font-weight:500;cursor:default}
+.nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded="true"]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.nt-all .nt-chats-filter-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.nt-chats-filter-chevron{width:10px;height:10px;opacity:.7}
+.nt-chats-filter-list{min-width:150px}
 .nt-all-search{margin-left:auto;display:flex;align-items:center;gap:6px;width:min(200px,45%);height:26px;padding:0 10px;box-sizing:border-box;border-radius:8px;color:var(--acpmux-composer-dim)}
 .nt-all-search:hover,.nt-all-search:focus-within{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .nt-all-search svg{flex:none}
