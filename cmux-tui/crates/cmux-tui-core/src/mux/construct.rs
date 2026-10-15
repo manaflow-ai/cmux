@@ -309,6 +309,7 @@ impl Mux {
             agent_prompts: Mutex::new(HashMap::new()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
+            agent_message_pump: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
