@@ -859,6 +859,32 @@ final class ScriptedSource: AgentSessionSource {
         #expect(joiner.push(Data("{".utf8)) == nil)
         #expect(joiner.push(Data(#"{"b":2}"#.utf8))?["b"]?.numberValue == 2)
     }
+
+    /// Live 2026-10-14 (parity rig): the link writes data in 16 KiB chunks (cnx-link
+    /// `DATA_CHUNK`, the input lane), and the joiner dropped every chunk shorter than
+    /// 256 KiB that did not parse, so any acpmux reply over 16 KiB (`_acpmux/models`,
+    /// 23 KB) never arrived and its request waited forever.
+    @Test func sixteenKiBChunksJoin() {
+        var joiner = AcpmuxConnection.MessageJoiner()
+        let message = Data((#"{"id":3,"result":{"d":""# + String(repeating: "m", count: 40_000) + #""}}"#).utf8)
+        var out: JSONValue?
+        var rest = message[...]
+        while !rest.isEmpty {
+            let chunk = rest.prefix(16 * 1024)
+            rest = rest.dropFirst(chunk.count)
+            out = joiner.push(Data(chunk))
+            if !rest.isEmpty { #expect(out == nil) }
+        }
+        #expect(out?["id"]?.numberValue == 3)
+        // Exactly two full chunks: the message completes on its last full chunk.
+        let exact = Data((#"{"x":""# + String(repeating: "e", count: 32 * 1024 - 8) + #""}"#).utf8)
+        #expect(exact.count == 32 * 1024)
+        #expect(joiner.push(Data(exact.prefix(16 * 1024))) == nil)
+        #expect(joiner.push(Data(exact.dropFirst(16 * 1024)))?["x"] != nil)
+        // A lost chunk does not swallow the next whole message.
+        #expect(joiner.push(Data(message.prefix(16 * 1024))) == nil)
+        #expect(joiner.push(Data(#"{"after":1}"#.utf8))?["after"]?.numberValue == 1)
+    }
 }
 
 // MARK: Subagents and handoff over acpmux
