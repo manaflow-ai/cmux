@@ -18,12 +18,16 @@ on:
     paths:
       - "Packages/macOS/CmuxCEF/CEFShim/**"
       - "scripts/cef/**"
+      - "schemas/agent-url-policy/**"
+      - "schemas/local-file-handoff/**"
       - ".github/workflows/cef-tests.yml"
   push:
     branches: [main]
     paths:
       - "Packages/macOS/CmuxCEF/CEFShim/**"
       - "scripts/cef/**"
+      - "schemas/agent-url-policy/**"
+      - "schemas/local-file-handoff/**"
       - ".github/workflows/cef-tests.yml"
   workflow_dispatch:
 
@@ -72,7 +76,7 @@ jobs:
           failed=()
           for test in "${tests[@]}"; do
             echo "== $test"
-            bash "$test" || failed+=("$test")
+            /bin/bash "$test" || failed+=("$test")
           done
           if [ "${#failed[@]}" -gt 0 ]; then
             printf '::error::CEF pipeline script test failed: %s\n' "${failed[@]}"

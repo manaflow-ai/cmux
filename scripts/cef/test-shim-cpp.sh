@@ -32,7 +32,7 @@ if [ ! -d "$shim_dir" ]; then
 fi
 
 if [ -n "${CXX:-}" ]; then
-  compile=("$CXX")
+  read -ra compile <<<"$CXX"
 elif command -v xcrun >/dev/null 2>&1; then
   compile=(xcrun clang++)
 elif command -v clang++ >/dev/null 2>&1; then
@@ -89,12 +89,17 @@ for test_file in "${tests[@]}"; do
       failed+=("$stem (vectors)")
       continue
     fi
-    python3 - "$vectors" "$column" > "$work/$stem.cases" <<'PY'
+    if ! python3 - "$vectors" "$column" > "$work/$stem.cases" <<'PY'
 import json, sys
 column = sys.argv[2]
 for case in json.load(open(sys.argv[1], encoding="utf-8"))["cases"]:
     print("1" if case[column] else "0", case["url"].encode("utf-8").hex() or "-")
 PY
+    then
+      echo "::error::$stem could not read $vectors" >&2
+      failed+=("$stem (vectors)")
+      continue
+    fi
     "$binary" < "$work/$stem.cases" || failed+=("$stem")
   else
     "$binary" < /dev/null || failed+=("$stem")

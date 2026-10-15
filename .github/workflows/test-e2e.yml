@@ -1,5 +1,5 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
+run-name: ${{ inputs.test_filter }} on ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}${{ inputs.browser_engine == 'chromium' && ' {chromium}' || '' }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
@@ -493,11 +493,22 @@ jobs:
       # artifact id, not the name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
-      # A Chromium run embeds the CEF engine (scripts/cef/embed-cef.sh skips it
-      # under CI=true otherwise). The product contract hashes this when set,
-      # so a Chromium product never answers a WebKit run and the reverse.
-      CMUX_EMBED_CEF: ${{ inputs.browser_engine == 'chromium' && '1' || '' }}
     steps:
+      # A Chromium run embeds the CEF engine (scripts/cef/embed-cef.sh skips it
+      # under CI=true otherwise). The product contract hashes CMUX_EMBED_CEF,
+      # so a Chromium product never answers a WebKit run and the reverse.
+      # Other runs never set it, so their build settings are unchanged.
+      - name: Embed the Chromium engine in a Chromium run
+        if: ${{ inputs.browser_engine == 'chromium' }}
+        env:
+          REQUIRE_ADOPTED: ${{ inputs.require_adopted_product }}
+        run: |
+          if [ "$REQUIRE_ADOPTED" = true ]; then
+            echo "::error::a Chromium run compiles its own product; require_adopted_product cannot be set with it"
+            exit 1
+          fi
+          echo "CMUX_EMBED_CEF=1" >> "$GITHUB_ENV"
+
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
@@ -916,9 +927,19 @@ jobs:
 
       # The Embed CEF build phase reads the engine from the ensure-cef cache
       # and has no credential. Fill the cache here from the private R2 bucket
-      # with the read-only key, which only this step receives (a dispatch is
-      # always a same-repository run). A revision without scripts/cef cannot
-      # embed the engine, and the harness then fails on the engine check.
+      # with the read-only key, which only the next step receives. The tested
+      # ref may be any commit, so the key goes to ensure-cef.sh and its
+      # manifest from this workflow's own revision, never the tested tree.
+      - name: Check out the trusted CEF fetch script
+        if: ${{ inputs.browser_engine == 'chromium' && steps.reuse.outputs.hit != 'true' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .cef-trusted
+          sparse-checkout: scripts/cef
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Fetch the Chromium engine for a Chromium run
         if: ${{ inputs.browser_engine == 'chromium' && steps.reuse.outputs.hit != 'true' }}
         env:
@@ -929,11 +950,19 @@ jobs:
           CMUX_CEF_R2_ENV_FILE: /dev/null
         run: |
           set -euo pipefail
-          if [ ! -x scripts/cef/ensure-cef.sh ]; then
-            echo "::error::this revision has no scripts/cef/ensure-cef.sh, so it cannot embed the Chromium engine"
+          trusted=.cef-trusted/scripts/cef
+          if [ ! -x "$trusted/ensure-cef.sh" ]; then
+            echo "::error::this workflow's revision has no scripts/cef/ensure-cef.sh; dispatch with a --workflow-ref that has it (cef-classic/integration)"
             exit 1
           fi
-          cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cef/ensure-cef.sh)"
+          if [ ! -f scripts/cef/cef-manifest.json ]; then
+            echo "::error::the tested revision has no scripts/cef, so it cannot embed the Chromium engine"
+            exit 1
+          fi
+          if ! cmp -s "$trusted/cef-manifest.json" scripts/cef/cef-manifest.json; then
+            echo "::warning::the tested revision pins another CEF than this workflow's revision; its Embed CEF phase may not find the engine in the cache"
+          fi
+          cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN "$trusted/ensure-cef.sh")"
           echo "Chromium engine cached at $cef_dir; the Embed CEF phase embeds it"
 
       - name: Build the app-host and UI test product
