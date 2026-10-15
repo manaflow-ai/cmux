@@ -210,9 +210,9 @@ public struct RemoteInstallPlan: Hashable, Sendable {
             # A daemon that re-executed itself shows `/proc/self/exe` as its argv[0]: its
             # executable (Linux /proc, else lsof's text file) names cmux-tui, also once replaced
             # ("(deleted)").
-            exe=$(readlink /proc/\(daemonPID)/exe 2>/dev/null || lsof -a -p \(daemonPID) -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true)
+            exe=$(readlink /proc/\(daemonPID)/exe 2>/dev/null || lsof -a -p \(daemonPID) -d txt -Fn 2>/dev/null | sed -n 's/^n//p' || true)
             case "$args" in
-              *"--session \(host.session)"*) case "$exe $args" in *cmux-tui*) kill -TERM \(daemonPID) 2>/dev/null || true ;; esac ;;
+              *"--session \(host.session)"|*"--session \(host.session) "*) case "$exe $args" in *cmux-tui*) kill -TERM \(daemonPID) 2>/dev/null || true ;; esac ;;
             esac
 
             """

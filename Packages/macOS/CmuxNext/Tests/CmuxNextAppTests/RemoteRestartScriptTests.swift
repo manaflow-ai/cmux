@@ -20,18 +20,36 @@ struct RemoteRestartScriptTests {
         cc.arguments = ["-o", binary.path, source.path]
         try cc.run()
         cc.waitUntilExit()
-        #expect(cc.terminationStatus == 0, "cc could not build the stand-in daemon")
+        try #require(cc.terminationStatus == 0, "cc could not build the stand-in daemon")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", "exec -a \"/proc/self/exe --headless --session \(session)\" \"$0\" 120", binary.path]
         try process.run()
+        // Only once bash exec'd the program do the ps args read like the daemon's (before, bash's
+        // own args name the cmux-tui path and the script would stop bash instead).
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, !Self.args(of: process.processIdentifier).hasPrefix("/proc/self/exe") { usleep(20_000) } // bounded
+        try #require(Self.args(of: process.processIdentifier).hasPrefix("/proc/self/exe"))
         return process
+    }
+
+    private static func args(of pid: Int32) -> String {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-o", "args=", "-p", String(pid)]
+        let pipe = Pipe()
+        ps.standardOutput = pipe
+        try? ps.run()
+        ps.waitUntilExit()
+        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func runScript(_ script: String) throws {
         let shell = Process()
         shell.executableURL = URL(fileURLWithPath: "/bin/sh")
         shell.arguments = ["-c", script]
+        // The remote's own PATH has the system tools (lsof is in /usr/sbin on a Mac).
+        shell.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         try shell.run()
         shell.waitUntilExit()
     }
@@ -48,17 +66,15 @@ struct RemoteRestartScriptTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = try SSHHost(destination: SSHDestination(parsing: "drill"), remoteBinary: root.appendingPathComponent("absent").path)
         let daemon = try daemonLike(root, session: host.session)
+        defer { if daemon.isRunning { daemon.terminate() } }
         // A process of another program with the same argv: never signalled.
         let other = try daemonLike(root, session: host.session, name: "other-tool")
-        defer {
-            if daemon.isRunning { daemon.terminate() }
-            if other.isRunning { other.terminate() }
-        }
-        usleep(300_000) // let both exec before the script reads them
+        defer { if other.isRunning { other.terminate() } }
         try runScript(RemoteInstallPlan.restartScript(host: host, daemonPID: daemon.processIdentifier))
         try runScript(RemoteInstallPlan.restartScript(host: host, daemonPID: other.processIdentifier))
-        #expect(exited(daemon, within: 5), "the re-executed session daemon was not stopped")
-        #expect(daemon.terminationReason == .uncaughtSignal && daemon.terminationStatus == SIGTERM)
+        let stopped = exited(daemon, within: 5)
+        #expect(stopped, "the re-executed session daemon was not stopped")
+        if stopped { #expect(daemon.terminationReason == .uncaughtSignal && daemon.terminationStatus == SIGTERM) }
         #expect(other.isRunning, "a process that is not cmux-tui was signalled")
     }
 }
