@@ -21,7 +21,9 @@
 //! Deriving the deltas from the plan's patch here, rather than in each
 //! operation, keeps a future resource operation from forgetting them.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 use super::presentation::tab_delta;
 use super::{Mux, MuxEvent, TreeDelta, TreeDeltaKind};
@@ -264,6 +266,51 @@ fn single_relocation(before: &[SurfaceId], after: &[SurfaceId]) -> Option<Surfac
     [before[first], after[first]]
         .into_iter()
         .find(|tab| without(before, *tab).eq(without(after, *tab)))
+}
+
+thread_local! {
+    /// The client transaction of the tab creation running on this thread, and the tabs whose
+    /// `tab-added` carried it (`CreationTransaction`).
+    static CREATION_TRANSACTION: RefCell<Option<(Arc<str>, Vec<SurfaceId>)>> =
+        const { RefCell::new(None) };
+}
+
+/// While alive, a resource commit on this thread sends its new tab's `tab-added` with the
+/// creating command's client transaction (`conversation-tab-transaction-v1`), so a client sees
+/// the tab once, already naming its create. A `tab-added` sent before the transaction made the
+/// Mac app list the daemon's tab beside its provisional one (cx-veznz).
+pub(crate) struct CreationTransaction(());
+
+impl CreationTransaction {
+    pub(crate) fn begin(transaction: Arc<str>) -> Self {
+        CREATION_TRANSACTION.with(|slot| *slot.borrow_mut() = Some((transaction, Vec::new())));
+        Self(())
+    }
+
+    /// Whether `surface`'s `tab-added` went out with the transaction.
+    pub(crate) fn carried(&self, surface: SurfaceId) -> bool {
+        CREATION_TRANSACTION
+            .with(|slot| slot.borrow().as_ref().is_some_and(|(_, tabs)| tabs.contains(&surface)))
+    }
+
+    /// Called for every tree delta `Mux::emit` sends.
+    pub(super) fn stamp(delta: &mut TreeDelta) {
+        if delta.kind != TreeDeltaKind::TabAdded || delta.transaction.is_some() {
+            return;
+        }
+        CREATION_TRANSACTION.with(|slot| {
+            if let Some((transaction, tabs)) = slot.borrow_mut().as_mut() {
+                delta.transaction = Some(transaction.clone());
+                tabs.extend(delta.surface);
+            }
+        });
+    }
+}
+
+impl Drop for CreationTransaction {
+    fn drop(&mut self) {
+        CREATION_TRANSACTION.with(|slot| *slot.borrow_mut() = None);
+    }
 }
 
 impl Mux {

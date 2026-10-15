@@ -210,16 +210,23 @@ pub(super) fn create(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(mux, conversation, owner, agent_session, page, route)?;
+    // The commit's `tab-added` carries the transaction: the client sees the tab once (cx-veznz).
+    let stamp = transaction
+        .as_deref()
+        .map(|transaction| crate::mux::CreationTransaction::begin(Arc::from(transaction)));
     let outcome =
         mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
+    // A commit that made clients resync sent no `tab-added`: send the one echo here.
     if let Some(transaction) = transaction.as_deref()
         && !outcome.replayed
+        && !stamp.as_ref().is_some_and(|stamp| stamp.carried(outcome.surface.id))
     {
         mux.emit_tab_added_for_transaction(outcome.surface.id, Arc::from(transaction));
     }
+    drop(stamp);
     let mut result = json!({
         "surface": outcome.surface.id,
         "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),

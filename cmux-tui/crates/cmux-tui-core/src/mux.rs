@@ -23,6 +23,7 @@ use terminal_host_records::{
 };
 mod detached_terminals;
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
+pub(crate) use resource_tab_deltas::CreationTransaction;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
     insert_restored_terminal_runtime_checked, insert_surface_checked,

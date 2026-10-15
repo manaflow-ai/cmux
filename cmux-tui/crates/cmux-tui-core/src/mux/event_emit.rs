@@ -67,7 +67,10 @@ impl Mux {
         Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
     }
 
-    pub fn emit(&self, event: MuxEvent) {
+    pub fn emit(&self, mut event: MuxEvent) {
+        if let MuxEvent::TreeDelta(delta) = &mut event {
+            CreationTransaction::stamp(delta);
+        }
         self.activity.observe(&event);
         self.subscribers.emit(event);
     }
