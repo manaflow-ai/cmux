@@ -184,7 +184,7 @@ struct BrowserPanelSessionRestoreTests {
         let sourceBrowser = try #require(source.newBrowserSurface(
             inPane: sourcePane,
             url: URL(string: "about:blank"),
-            focus: true
+            focus: false
         ))
         let snapshot = source.sessionSnapshot(includeScrollback: false)
 
