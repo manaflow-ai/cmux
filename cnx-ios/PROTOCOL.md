@@ -138,12 +138,15 @@ with 4001 `moved`.
   through the relay as well, because reachability can be one-way. An address
   the OS refuses to send to (macOS Local Network privacy answers
   `EHOSTUNREACH` for LAN peers) is never chosen as the route again.
-  A sender queues its socket in strict priority (no wire change): text
-  frames and pings first, then relay control (the marker, handshake
-  messages, keepalives), then input (data datagrams up to 400 bytes), then
-  bulk (larger data datagrams, video included). Each relay class is bounded
-  by bytes (16, 64 and 256 KiB) and drops its oldest frame past it, so
-  media never delays signaling and a slow socket never grows memory.
+  A sender queues its socket by priority (no wire change): text frames and
+  pings first, then relay control (the marker, handshake messages,
+  keepalives), then input (what the tunnel's pacer sends as interactive:
+  keystrokes, ACKs, terminal output at a terminal's pace), then bulk (large
+  transfers) and media (the media lane's video), which share the rest by
+  bytes. A datagram the pacer did not class (a resend after a route change)
+  is input up to 400 bytes, else bulk. Each relay class is bounded by bytes
+  (16, 64, 256 and 256 KiB) and drops its oldest frame past it, so media
+  never delays signaling or input and a slow socket never grows memory.
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the

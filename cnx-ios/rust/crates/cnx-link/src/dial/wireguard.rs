@@ -352,9 +352,15 @@ type RelaySend = Box<dyn Fn(&[u8], RelayClass) + Send + Sync>;
 /// The relay class of a datagram the tunnel's pacer sent in `priority`.
 /// Handshake messages, keepalives and anything not WireGuard data keep the
 /// class their shape gives (control).
-fn relay_class_of(datagram: &[u8], _priority: cmux_wg::Priority) -> RelayClass {
-    // RED: the size heuristic, as before.
-    relay_class(datagram)
+fn relay_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> RelayClass {
+    match relay_class(datagram) {
+        RelayClass::Control => RelayClass::Control,
+        _ => match priority {
+            cmux_wg::Priority::Interactive => RelayClass::Input,
+            cmux_wg::Priority::Bulk => RelayClass::Bulk,
+            cmux_wg::Priority::Media => RelayClass::Media,
+        },
+    }
 }
 
 /// The peer's endpoints this side may use.

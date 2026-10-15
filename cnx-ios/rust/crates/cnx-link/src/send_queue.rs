@@ -75,9 +75,18 @@ impl Class {
 impl Queues {
     /// Bulk or media, whichever sent fewer bytes while both waited.
     fn pop_bulk_or_media(&mut self) -> Option<Vec<u8>> {
-        // RED: strict order, bulk before media.
-        let _ = self.bulk_lead;
-        self.relay[2..].iter_mut().find_map(Class::pop)
+        let (bulk, media) = (index(RelayClass::Bulk), index(RelayClass::Media));
+        let both = !self.relay[bulk].frames.is_empty() && !self.relay[media].frames.is_empty();
+        let from =
+            if self.relay[media].frames.is_empty() || (both && self.bulk_lead <= 0) { bulk } else { media };
+        let frame = self.relay[from].pop()?;
+        if both {
+            let len = frame.len() as i64;
+            self.bulk_lead += if from == bulk { len } else { -len };
+        } else {
+            self.bulk_lead = 0;
+        }
+        Some(frame)
     }
 }
 
