@@ -93,6 +93,7 @@ extension BrowserPanel {
     func startEnginePageEvents() {
         guard let enginePage, enginePageEventsTask == nil else { return }
         syncAgentNavigationGuard()
+        ChromiumHelperCrashWatch.startIfNeeded()
         enginePage.uiDelegate = nil
         applyEnginePageState(enginePage.state)
         let events = enginePage.events
