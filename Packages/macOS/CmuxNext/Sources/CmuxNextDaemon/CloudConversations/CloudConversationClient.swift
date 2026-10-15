@@ -103,7 +103,15 @@ public struct CloudConversationClient: CloudConversationCommands {
 
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
-        return try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
+        var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
+        var pages = 1
+        while all.hasMore == true, pages < 8, let last = all.steps.compactMap(\.seq).max() {
+            let next = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run, afterSeq: last))
+            all.steps += next.steps
+            all.hasMore = next.hasMore
+            pages += 1
+        }
+        return all
     }
 }
 

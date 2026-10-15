@@ -43,9 +43,20 @@ public struct ConversationRunRows: Decodable, Sendable, Hashable {
         public var id: String
         public var kind: String
         public var text: String?
+        /// The row's text was cut (32 KiB): not the step's whole text.
+        public var truncated: Bool?
+        /// Local: the step's write revision; Cloud: its place.
+        public var rev: UInt64?
+        public var seq: UInt64?
     }
 
     public var steps: [Step]
+    public var hasMore: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case steps
+        case hasMore = "has_more"
+    }
 }
 
 /// `conversation-run {conversation, run}` (`conversation-runs-v1`): every step of a local run.
@@ -55,10 +66,12 @@ public struct ConversationRunRequest: DaemonRequest {
     public static let requiredCapability: String? = DaemonCapabilities.shared.conversationRuns
     public var conversation: String
     public var run: String
+    public var afterRev: UInt64?
 
-    public init(conversation: String, run: String) {
+    public init(conversation: String, run: String, afterRev: UInt64? = nil) {
         self.conversation = conversation
         self.run = run
+        self.afterRev = afterRev
     }
 }
 
@@ -70,18 +83,28 @@ public struct CloudConversationRunRequest: DaemonRequest {
     public var conversation: String
     public var agent: String
     public var run: String
+    public var afterSeq: UInt64?
 
-    public init(conversation: String, agent: String, run: String) {
+    public init(conversation: String, agent: String, run: String, afterSeq: UInt64? = nil) {
         self.conversation = conversation
         self.agent = agent
         self.run = run
+        self.afterSeq = afterSeq
     }
 }
 
 extension ConversationClient {
-    /// The steps of `run`; nil from a daemon without `conversation-runs-v1`.
+    /// Every step of `run` (pages read on while `has_more`, at most 8); nil from a daemon without `conversation-runs-v1`.
     public func runRows(_ conversation: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapabilities.shared.conversationRuns) == true else { return nil }
-        return try await connection.request(ConversationRunRequest(conversation: conversation, run: run))
+        var all = try await connection.request(ConversationRunRequest(conversation: conversation, run: run))
+        var pages = 1
+        while all.hasMore == true, pages < 8, let last = all.steps.compactMap(\.rev).max() {
+            let next = try await connection.request(ConversationRunRequest(conversation: conversation, run: run, afterRev: last))
+            all.steps += next.steps
+            all.hasMore = next.hasMore
+            pages += 1
+        }
+        return all
     }
 }
