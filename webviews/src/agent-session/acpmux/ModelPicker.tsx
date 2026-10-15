@@ -236,6 +236,8 @@ export function ModelPicker(props: ModelPickerProps) {
     catalog,
     harness,
     label,
+    chip,
+    effortMenu,
     switching,
     onLand,
     onHarness,
@@ -620,6 +622,11 @@ export function ModelPicker(props: ModelPickerProps) {
     : undefined;
   const chipHarness = switchingMark ?? current?.mark ?? current?.id ?? harness;
   const chipLabel = switchingTo?.name ?? label;
+  // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
+  const rowChip = switchingTo ? undefined : chip;
+  const chipShort = rowChip?.short && rowChip.short !== chipLabel ? rowChip.short : undefined;
+  const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipLabel) ? rowChip.family : undefined;
+  const chipTitle = rowChip?.title ?? chipLabel;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -656,7 +663,7 @@ export function ModelPicker(props: ModelPickerProps) {
         className="acpmux-picker-button"
         data-menu={modelText}
         aria-label={modelText}
-        title={usage ? `${chipLabel} · ${usage}` : undefined}
+        title={usage ? `${chipTitle} · ${usage}` : chipTitle}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -675,7 +682,47 @@ export function ModelPicker(props: ModelPickerProps) {
         {...press}
       >
         <AgentMark agent={chipHarness} size={15} />
-        <span className="acpmux-model-name">{chipLabel}</span>
+        <span
+          className="acpmux-model-name"
+          {...(chipShort
+            ? { "data-short": "" }
+            : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
+        >
+          {chipLabel}
+        </span>
+        {/* The row's forms are drawn, not written: the chip's text stays the model's name. */}
+        {chipShort && (
+          <span
+            className="acpmux-model-short acpmux-fit-label"
+            data-fit-part="model"
+            data-fit-forms={chipFamily ? "full" : "full family"}
+            data-label={chipShort}
+          />
+        )}
+        {chipFamily && (
+          <span
+            className="acpmux-model-short acpmux-fit-label"
+            data-fit-part="model"
+            data-fit-forms="family"
+            data-label={chipFamily}
+          />
+        )}
+        {rowChip?.fast && (
+          <span
+            className="acpmux-model-suffix acpmux-fit-label"
+            data-fit-part="fast"
+            data-fit-forms="full"
+            data-label={rowChip.fast}
+          />
+        )}
+        {rowChip?.effort && (
+          <span
+            className="acpmux-model-suffix acpmux-fit-label"
+            data-fit-part="effort"
+            data-fit-forms="full"
+            data-label={rowChip.effort}
+          />
+        )}
         <ChevronIcon />
       </PickerButton>
       {open && (
@@ -940,6 +987,23 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
+            {effortMenu && (
+              // Effort rides in the chip, so its menu opens from here (the effort menu's own rows).
+              <div className="flex-none border-t-[0.5px] border-edge p-1.5">
+                <button
+                  type="button"
+                  className={`acpmux-mp-effort ${modelRow} ${rowFill(false)} justify-between`}
+                  aria-haspopup="menu"
+                  onClick={() => {
+                    close(false);
+                    requestAnimationFrame(() => effortMenu.open());
+                  }}
+                >
+                  <span>{effortMenu.title}</span>
+                  <span className="text-detail text-dim">{effortMenu.value}</span>
+                </button>
+              </div>
+            )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">
                 <button

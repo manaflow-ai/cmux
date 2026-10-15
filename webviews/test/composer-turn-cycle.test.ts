@@ -65,7 +65,6 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     footer: ".acpmux-composer-context",
     plus: ".acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-model .acpmux-picker-button",
-    effort: ".acpmux-effort .acpmux-picker-button",
     access: ".acpmux-access-trigger",
     mic: ".acpmux-mic",
     "send or stop": ".acpmux-send",
@@ -113,7 +112,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 520 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
