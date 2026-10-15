@@ -1,8 +1,8 @@
 /// `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` in
 /// cmux.json (cx-soza): whether a pane of that kind shows its horizontal tab
-/// bar. Automatic shows it for terminals and browsers and hides it for an
-/// agent chat alone in its column or in the chat dock until it holds two
-/// tabs. A pane's own Show Tab Bar choice wins over its kind's.
+/// bar. Automatic shows it in every pane, agent chats and the chat dock
+/// included (cx-v4dmy); only Never or a pane's own Show Tab Bar choice hides
+/// it. A pane's own choice wins over its kind's.
 public nonisolated enum PaneTabBarMode: String, Sendable, CaseIterable {
     case auto
     case always
