@@ -1,0 +1,104 @@
+{
+ "tag": "wd-read2-a",
+ "mode": "read2",
+ "gap": 3.4,
+ "kills_v": [
+  5.16,
+  8.75
+ ],
+ "hostd": [
+  [
+   1.59,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   3.29,
+   "NFO cnx_hostd::host: link up session_id=\"6ee25443-5b84-443b-ae9f-1a8b778379bb\" kind=WebRtc path=Direct phone=\"c839f17d-9"
+  ],
+  [
+   6.37,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   7.35,
+   "NFO cnx_hostd::host: link up session_id=\"18f58508-cca1-421d-96bc-14654f1bef8c\" kind=WebRtc path=Direct phone=\"c839f17d-9"
+  ]
+ ],
+ "before": [
+  "GEN-1527",
+  "GEN-1528",
+  "GEN-152",
+  "GEN-1530",
+  "GEN-1531",
+  "GEN-153"
+ ],
+ "before_plus1s": [
+  "GEN-1527",
+  "GEN-1528",
+  "GEN-152",
+  "GEN-1530",
+  "GEN-1531",
+  "GEN-153"
+ ],
+ "after": [
+  "GEN-1527",
+  "GEN-1528",
+  "GEN-152",
+  "GEN-1530",
+  "GEN-1531",
+  "GEN-153"
+ ],
+ "after_plus3s": [
+  "GEN-1527",
+  "GEN-1528",
+  "GEN-152",
+  "GEN-1530",
+  "GEN-1531",
+  "GEN-153"
+ ],
+ "jump_visible_after": true,
+ "replays": [
+  "surface 34: mirror reset cause=reattach",
+  "surface 37: mirror reset cause=reattach",
+  "surface 34: mirror reset cause=reattach",
+  "surface 37: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [
+  "reading mark row 15683 of 17672: kept",
+  "reading mark restored row 15683 -> 14796 of 16915",
+  "reading mark row 14796 of 16955: kept",
+  "reading mark restored row 15683 -> 14796 of 17107"
+ ],
+ "blank_page_lines": [
+  "blank page: rows 14796..<14851 not in the frame at 16764 (report 14748, request 14748) for 267 ms: placed by the report (event 2)"
+ ],
+ "video_black_runs": [
+  [
+   9.562,
+   255.0
+  ]
+ ],
+ "video_black_over_1_frame": [
+  {
+   "start": 9.562,
+   "end": 9.817,
+   "dur_ms": 255.0,
+   "source_frames": 3
+  }
+ ],
+ "framelog_blank_runs_over_1": [
+  [
+   9.68,
+   16
+  ]
+ ],
+ "framelog_blank_frames": 16,
+ "dt_max": 78.26,
+ "frac_gaps_over_34ms": 0.0882,
+ "load": [
+  14.67,
+  13.38,
+  13.77
+ ]
+}

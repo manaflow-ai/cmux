@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv11/gd-follow2-a.mp4",
+ "source_frames": 1059,
+ "duration": 25.74,
+ "lit_median": 0.0369,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0709,
+ "max_gap_ms": 576.7
+}

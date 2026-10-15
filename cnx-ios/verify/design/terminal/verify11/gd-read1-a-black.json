@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv11/gd-read1-a.mp4",
+ "source_frames": 1002,
+ "duration": 22.14,
+ "lit_median": 0.0408,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0939,
+ "max_gap_ms": 388.3
+}
