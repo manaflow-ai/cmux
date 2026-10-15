@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("popup-escape.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -87,6 +88,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     await (await stage("agent-pane.composer", "idle", { width: 900, height: 700 })).close();
   });
