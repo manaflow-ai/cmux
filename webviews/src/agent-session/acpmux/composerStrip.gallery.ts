@@ -43,6 +43,17 @@ function started(fields: Parameters<typeof chat>[1] = {}): AcpmuxSnapshot {
   return { ...snapshot, summary: { ...snapshot.summary!, configOptions: [effort], modes } };
 }
 
+/// A started chat in a folder whose name outgrows a narrow strip.
+function longFolder(): AcpmuxSnapshot {
+  const cwd = "/Users/you/src/atlas-web-checkout-service";
+  const snapshot = started();
+  return {
+    ...snapshot,
+    sessions: snapshot.sessions.map((entry) => ({ ...entry, cwd })),
+    summary: { ...snapshot.summary!, cwd },
+  };
+}
+
 /// A new chat on Claude: `reported` once its session has reported effort and access.
 function fresh(reported: boolean, fields: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}): AcpmuxSnapshot {
   return noChat([], {
@@ -78,6 +89,10 @@ export default agentPaneEntry({
     started: {
       note: "After the first send: no location strip (a chat cannot change folder or machine), and no gap where it stood.",
       snapshot: started(),
+    },
+    "long-folder": {
+      note: 'A long folder name in a narrow pane: it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',
+      snapshot: longFolder(),
     },
     "no-project": {
       note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",
