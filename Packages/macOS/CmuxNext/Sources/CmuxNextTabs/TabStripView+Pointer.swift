@@ -69,7 +69,7 @@ extension TabStripView {
     public func showHoverCard(for id: TabID) -> Bool {
         guard model.tab(id) != nil, let cell = cells[id], cell.frame.width > 0.5, let window else { return false }
         let target = HoverTarget(id: TabHoverCardController.targetID(id), window: window.windowNumber,
-                                 delay: hoverCard.delay)
+                                 delay: hoverCard.delay, leave: hoverCard.leave)
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }
