@@ -59,7 +59,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host
                 .flatMap(HomePageTab.transcript(in:))
         } else {
-            view = HomeNativeTranscriptView.shown(in: services.windows.active?.window)
+            // `window`: the Home view shown in that window (default: the active window's).
+            let window = params["window"]?.stringValue.flatMap { services.windows.controller(for: $0)?.window }
+            view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
         guard let view else {
             return .object(["error": .string("no Home conversation is shown")])
