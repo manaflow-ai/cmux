@@ -44,31 +44,60 @@ import Testing
 }
 
 @Suite struct BrowserCrashReloadGuardTests {
-    @Test func stopsAutomaticRestoreAfterLimitWithinWindow() {
+    @Test func visiblePaneNeverRestoresByItself() {
         var guardState = BrowserCrashReloadGuard()
-        let start = Date(timeIntervalSince1970: 1_000)
+        let now = Date(timeIntervalSince1970: 1_000)
+        #expect(!guardState.allowsAutomaticRestore(at: now, paneWasVisible: true))
+        // A visible crash does not spend the hidden budget.
         for index in 0..<BrowserCrashReloadGuard.limit {
-            #expect(guardState.allowsAutomaticRestore(at: start.addingTimeInterval(Double(index))))
+            #expect(guardState.allowsAutomaticRestore(at: now.addingTimeInterval(Double(index)), paneWasVisible: false))
         }
-        #expect(!guardState.allowsAutomaticRestore(at: start.addingTimeInterval(10)))
     }
 
-    @Test func oldCrashesLeaveTheWindow() {
+    @Test func stopsHiddenRestoresAfterLimitWithinWindow() {
         var guardState = BrowserCrashReloadGuard()
         let start = Date(timeIntervalSince1970: 1_000)
         for index in 0..<BrowserCrashReloadGuard.limit {
-            _ = guardState.allowsAutomaticRestore(at: start.addingTimeInterval(Double(index)))
+            #expect(guardState.allowsAutomaticRestore(at: start.addingTimeInterval(Double(index)), paneWasVisible: false))
+        }
+        #expect(!guardState.allowsAutomaticRestore(at: start.addingTimeInterval(10), paneWasVisible: false))
+    }
+
+    @Test func oldRestoresLeaveTheWindow() {
+        var guardState = BrowserCrashReloadGuard()
+        let start = Date(timeIntervalSince1970: 1_000)
+        for index in 0..<BrowserCrashReloadGuard.limit {
+            _ = guardState.allowsAutomaticRestore(at: start.addingTimeInterval(Double(index)), paneWasVisible: false)
         }
         let later = start.addingTimeInterval(BrowserCrashReloadGuard.window + 5)
-        #expect(guardState.allowsAutomaticRestore(at: later))
+        #expect(guardState.allowsAutomaticRestore(at: later, paneWasVisible: false))
     }
 
     @Test func explicitReloadResetsTheBudget() {
         var guardState = BrowserCrashReloadGuard()
         let now = Date(timeIntervalSince1970: 1_000)
-        for _ in 0...BrowserCrashReloadGuard.limit { _ = guardState.allowsAutomaticRestore(at: now) }
+        for _ in 0...BrowserCrashReloadGuard.limit { _ = guardState.allowsAutomaticRestore(at: now, paneWasVisible: false) }
         guardState.reset()
-        #expect(guardState.allowsAutomaticRestore(at: now))
+        #expect(guardState.allowsAutomaticRestore(at: now, paneWasVisible: false))
+    }
+}
+
+@Suite struct ChromiumCrashPageVariantTests {
+    @Test func firstCrashIsAwSnapWithCode() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let variant = ChromiumCrashPageVariant(exit: .init(kind: .crashed, status: SIGSEGV), at: now, previousCrash: nil)
+        #expect(variant == ChromiumCrashPageVariant(isRepeat: false, isOutOfMemory: false, errorCode: "SIGSEGV"))
+    }
+
+    @Test func repeatCrashWithinWindow() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let repeatOOM = ChromiumCrashPageVariant(exit: .init(kind: .outOfMemory), at: now, previousCrash: now.addingTimeInterval(-3))
+        #expect(repeatOOM.isRepeat && repeatOOM.isOutOfMemory && repeatOOM.errorCode == nil)
+        let late = ChromiumCrashPageVariant(
+            exit: .init(kind: .crashed), at: now,
+            previousCrash: now.addingTimeInterval(-ChromiumCrashPageVariant.repeatWindow)
+        )
+        #expect(!late.isRepeat)
     }
 }
 
