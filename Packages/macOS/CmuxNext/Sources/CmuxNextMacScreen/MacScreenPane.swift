@@ -135,6 +135,8 @@ public final class MacScreenPane {
             guard let self else { return }
             model.gate = .open
             view.syncInputGate()
+            // The screen opens, but the keyboard stays here until a click on it.
+            view.input.waitForClick()
             handlers.confirm()
             // A person pressed Connect, so the tab is on screen even if no reveal reached it.
             if visible { connectSession(session) } else { resume() }
