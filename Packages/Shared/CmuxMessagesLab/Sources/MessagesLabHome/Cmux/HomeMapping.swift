@@ -61,8 +61,8 @@ enum HomeMapping {
 
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
-                        roots: Roots = { _ in nil }) -> Message {
-        let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
+                        roots: Roots = { _ in nil }, streaming: Bool = false) -> Message {
+        let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links, streaming: streaming)
         let messageID = id(item, aliases: aliases)
         // A person's text shows as typed, and so does a part with mentions (their offsets index
         // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
@@ -81,13 +81,15 @@ enum HomeMapping {
     /// line that is only a URL is a link card in its place, the other lines
     /// stay one text bubble, a URL in a sentence gets no card. So the local
     /// send and the message HomeStore stores show the same bubbles.
+    /// `streaming`: the agent's running reply, still growing (its Markdown's last line may hold an
+    /// opener whose closer has not arrived: HomeMarkdown.render). A posted message never is.
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
-                               links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
+                               links: Links = { _ in nil }, streaming: Bool = false) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
-            let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
+            let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links, streaming: streaming)
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }
@@ -111,15 +113,15 @@ enum HomeMapping {
     /// mentions stays one bubble (the mention offsets index the whole text),
     /// and so does an agent's text with a fenced block (a split would cut it).
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
-                      links: Links = { _ in nil }) -> [Part] {
+                      links: Links = { _ in nil }, streaming: Bool = false) -> [Part] {
         guard case .text(let text, let mentions) = p, mentions.isEmpty,
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
-            return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
+            return [part(p, media: media, progress: progress, markdown: markdown, links: links, streaming: streaming)]
         }
         return Self.textParts(text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = Self.markdown(t)
+                let (rendered, runs) = Self.markdown(t, streaming: streaming)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -163,10 +165,10 @@ enum HomeMapping {
     /// `markdown`: an agent's text part shows its Markdown styled (HomeMarkdown).
     /// A part with mentions keeps its text as written (mention offsets index it).
     static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
-                     links: Links = { _ in nil }) -> Part {
+                     links: Links = { _ in nil }, streaming: Bool = false) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = Self.markdown(text)
+            let (shown, runs) = Self.markdown(text, streaming: streaming)
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {

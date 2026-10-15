@@ -13,20 +13,21 @@ import Foundation
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 ///
-/// cmux (streaming, round 4 capture): an agent's reply arrives a few words at a time, so its last
-/// line can hold an opener whose closer has not arrived yet (`**focused`). On the last line, an
-/// opener at the start of a word (after the line start, a space or punctuation) with text right
-/// after it and no closer styles the rest of the line, so no raw marker is drawn while the reply
-/// streams in. Elsewhere an unclosed opener stays as written.
+/// cmux (streaming, round 4 capture): an agent's running reply arrives a few words at a time, so
+/// its last line can hold an opener whose closer has not arrived yet (`**focused`). With
+/// `streaming` (the running reply only, HomeProjection+Draft), an opener on the last line at the
+/// start of a word (after the line start, a space or punctuation) with text right after it and no
+/// closer styles the rest of the line, so no raw marker is drawn while the reply grows. A posted
+/// message is never streaming: there an unclosed opener stays as written (`an *idea`).
 enum HomeMarkdown {
-    static func render(_ source: String) -> (text: String, runs: [TextRun]) {
+    static func render(_ source: String, streaming: Bool = false) -> (text: String, runs: [TextRun]) {
         var out = Output()
         var inFence = false
         var first = true
         let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
         for (index, raw) in lines.enumerated() {
             let line = String(raw)
-            let last = index == lines.count - 1
+            let last = streaming && index == lines.count - 1
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 inFence.toggle()

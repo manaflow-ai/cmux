@@ -8,6 +8,9 @@ struct ShownDraft: Equatable {
     var author: ParticipantID
     var id: ID
     var text: String
+    /// The text the bubble shows (the draft's Markdown rendered as a running reply), nil when it
+    /// is not one text bubble.
+    var shown: String? = nil
     /// A draft that no longer extends the shown text gets a new bubble id.
     var generation = 0
 }
@@ -22,7 +25,9 @@ struct DraftStep {
 
 /// HomeStore.drafts through MessagesLab's bubble path (cx-k1uj): the first
 /// text `.receive`s the agent's bubble (the typing dots turn into it), more
-/// text `.appendText`s in place, the posted reply (same key) takes the
+/// text `.appendText`s in place (cmux: what the bubble newly shows, the
+/// Markdown rendered as a running reply, so no marker shows raw; the styling
+/// of the appended words comes with the posted reply), the posted reply (same key) takes the
 /// bubble's id and its final content, and a draft that ends without a reply
 /// `.delete`s its bubble. A draft of an ended turn never reaches here
 /// (HomeStore drops it), so a posted reply never gets its draft back.
@@ -57,8 +62,9 @@ extension ProjectionCore {
         }
         if var live = shownDraft {
             guard text != live.text else { return step }
-            if text.hasPrefix(live.text) {
-                step.actions.append(.appendText(live.id, String(text.dropFirst(live.text.count))))
+            let shown = shownText(want, text: text)
+            if let shown, let old = live.shown, shown.hasPrefix(old) {
+                if shown != old { step.actions.append(.appendText(live.id, String(shown.dropFirst(old.count)))) }
             } else {
                 step.actions.append(.delete(live.id))
                 live.generation += 1
@@ -67,6 +73,7 @@ extension ProjectionCore {
                 step.actions.append(.receive(bubble(want, text: text)))
             }
             live.text = text
+            live.shown = shown
             shownDraft = live
             return step
         }
@@ -74,7 +81,7 @@ extension ProjectionCore {
         guard state.atNewest else { return step }
         let id = Self.bubbleID(want.turn, generation: 0)
         aliases[want.turn] = id
-        shownDraft = ShownDraft(turn: want.turn, author: want.participant, id: id, text: text)
+        shownDraft = ShownDraft(turn: want.turn, author: want.participant, id: id, text: text, shown: shownText(want, text: text))
         step.actions.append(.receive(bubble(want, text: text)))
         return step
     }
@@ -93,6 +100,13 @@ extension ProjectionCore {
     private func bubble(_ draft: HomeTurnDraft, text: String) -> Message {
         let item = TranscriptItem(key: draft.turn, seq: nil, author: draft.participant, parts: [.text(text)],
                                   createdAt: Date(), delivery: .committed)
-        return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links)
+        return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links, streaming: true)
+    }
+
+    /// The text the running reply's bubble shows, when it is one text bubble.
+    private func shownText(_ draft: HomeTurnDraft, text: String) -> String? {
+        let parts = bubble(draft, text: text).parts
+        guard parts.count == 1, case let .text(t, _)? = parts.first else { return nil }
+        return t
     }
 }

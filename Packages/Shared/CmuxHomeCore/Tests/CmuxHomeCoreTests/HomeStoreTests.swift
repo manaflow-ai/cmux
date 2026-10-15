@@ -109,7 +109,7 @@ import CmuxHomeCoreTestSupport
     }
 
     /// `chiefShowcase`: the Chief's Markdown and a link-only message end its history; `streamReply`
-    /// grows one Chief message to the whole reply.
+    /// runs a reply as draft updates, then posts it whole (never an edit).
     @Test func chiefShowcaseEndsWithMarkdownAndALinkAndAReplyStreamsIn() async throws {
         let (store, source) = await started(MockHomeSource.Options(chiefHistory: 300, latency: .zero, replyDelay: .zero, chiefShowcase: true))
         let id = ConversationID("conv_chief")

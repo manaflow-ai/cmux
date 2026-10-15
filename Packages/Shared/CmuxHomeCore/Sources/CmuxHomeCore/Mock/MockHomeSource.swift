@@ -453,38 +453,26 @@ public actor MockHomeSource: HomeSource {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())
     }
 
-    /// A Chief reply that streams in (demos and captures): the message is committed with its first
-    /// word, then its text grows by one word every `interval` (each step an owner update of the
-    /// message's parts, as an agent's streaming text reaches the client; no `editedAt`: a stream is
-    /// not an edit, so the transcript shows no Edited label). The message's id.
+    /// A Chief reply that streams in (demos and captures), as an agent's reply reaches Home: its
+    /// running text as draft updates (`HomeEvent.draft`, one turn, segment 0: the first word fresh,
+    /// then one more word every `interval`), then the posted reply under the turn's key, which takes
+    /// the draft's bubble. Returns the posted message's id when the stream has ended.
     @discardableResult
     public func streamReply(_ text: String? = nil, in conversation: ConversationID,
-                            interval: Duration = .milliseconds(120)) -> MessageID? {
-        let words = (text ?? MockHomeSeed.streamedReply).split(separator: " ").map(String.init)
-        guard let first = words.first,
-              (try? commitMessage(in: conversation, author: chief.id, parts: [.text(first)], key: .make())) != nil,
-              let id = stored[conversation]?.last?.id else { return nil }
-        let clock = self.clock
-        Task {
-            var shown = first
-            for word in words.dropFirst() {
-                try? await clock.sleep(for: interval)
-                shown += " " + word
-                self.updateStreamed(id, in: conversation, text: shown)
-            }
+                            interval: Duration = .milliseconds(120)) async -> MessageID? {
+        let full = text ?? MockHomeSeed.streamedReply
+        let words = full.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        guard conversations[conversation] != nil, !words.isEmpty else { return nil }
+        let turn = IdempotencyKey.make()
+        for (n, word) in words.enumerated() {
+            if n > 0, interval > .zero { try? await clock.sleep(for: interval) }
+            publish(.draft(HomeDraftUpdate(conversation: conversation, participant: chief.id, turn: turn, segment: 0,
+                                           seq: UInt64(n + 1), isTalk: true, text: n == 0 ? word : " " + word,
+                                           fresh: n == 0, done: false)))
         }
-        return id
-    }
-
-    private func updateStreamed(_ id: MessageID, in conversation: ConversationID, text: String) {
-        guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == id }),
-              var summary = conversations[conversation] else { return }
-        list[index].parts = [.text(text)]
-        stored[conversation] = list
-        summary.rev += 1
-        if summary.lastMessage?.id == id { summary.lastMessage = list[index] }
-        conversations[conversation] = summary
-        publish(.message(list[index], rev: summary.rev))
+        if interval > .zero { try? await clock.sleep(for: interval) }
+        guard (try? commitMessage(in: conversation, author: chief.id, parts: [.text(full)], key: turn)) != nil else { return nil }
+        return stored[conversation]?.last?.id
     }
 
     // MARK: Owner logic

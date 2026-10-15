@@ -30,10 +30,14 @@ final class TextMemo<Value>: @unchecked Sendable {
 extension HomeMapping {
     private static let textPartsMemo = TextMemo<[Part]>(limit: 256)
     private static let markdownMemo = TextMemo<(text: String, runs: [TextRun])>(limit: 256)
+    private static let streamingMarkdownMemo = TextMemo<(text: String, runs: [TextRun])>(limit: 64)
 
     /// `TextParts.parts(for:)` (Messages' link rule), kept per text.
     static func textParts(_ text: String) -> [Part] { textPartsMemo.value(text) { TextParts.parts(for: $0) } }
 
-    /// `HomeMarkdown.render`, kept per text.
-    static func markdown(_ text: String) -> (text: String, runs: [TextRun]) { markdownMemo.value(text) { HomeMarkdown.render($0) } }
+    /// `HomeMarkdown.render`, kept per text (`streaming`: the running reply's rule, kept apart).
+    static func markdown(_ text: String, streaming: Bool = false) -> (text: String, runs: [TextRun]) {
+        streaming ? streamingMarkdownMemo.value(text) { HomeMarkdown.render($0, streaming: true) }
+            : markdownMemo.value(text) { HomeMarkdown.render($0) }
+    }
 }
