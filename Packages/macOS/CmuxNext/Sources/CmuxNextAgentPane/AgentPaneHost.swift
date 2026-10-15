@@ -69,7 +69,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
     /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`,
-    /// `labs.previewFeatures`), read at each daemon start: a toggle applies to the next daemon
+    /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
     /// this app starts, never to the one already running.
     private let offersSessionTools: @Sendable () -> Bool
     /// Called with the daemon socket after each successful find or start, so

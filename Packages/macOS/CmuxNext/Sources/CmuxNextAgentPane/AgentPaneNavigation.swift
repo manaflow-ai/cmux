@@ -46,6 +46,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyTheme()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        if let view { AgentPaneSuggestedTasks.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
     }

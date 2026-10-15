@@ -27,8 +27,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// carries them: the app never writes its own process environment.
     public var computerUse: [String: String] = [:]
     /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
-    /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while
-    /// `labs.previewFeatures` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
+    /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while the Debug
+    /// Settings toggle `agent.suggestedTasks` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
     public var offersSessionTools = false
 

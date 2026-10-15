@@ -47,7 +47,7 @@ import Foundation
         let upstream = computerUse.upstream
         let host = AcpmuxHost(resolve: resolve,
                               computerUse: { computerUse.childEnvironment },
-                              offersSessionTools: { AgentPanePageSettings.daemonPreviewFeatures.withLock { $0 } },
+                              offersSessionTools: { AgentPaneTunables.suggestedTasks.value },
                               daemonReady: { socket in await upstream.registerAcpmuxDaemon(acpmuxSocket: socket) })
         return (source, host)
     }
