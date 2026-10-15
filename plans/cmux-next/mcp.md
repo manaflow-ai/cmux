@@ -72,6 +72,17 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     reach other agents' pending tool inputs: `agents_dialog_answer` only denies a
     permission (`mode: "deny"`; a person approves in cmux) or answers a question, and a
     reply whose transport drops after sending reports `in_progress`;
+  - `agents_doctor`: the checks of `cmux agents doctor` (`cli/agents_doctor.rs`, one
+    code path), as `{schema_version, findings}`. A finding is `{id, status, reason,
+    summary, fix}`: `status` is `ok` (CLI ok or not applicable), `warn` (only inside
+    cmux chats, unknown) or `fail` (missing), and `fix` is null or `{text, command,
+    palette, url}`, where `text` is the CLI's fix, `command` a command it names as
+    written (`cmux agents doctor`, `open '<url>'`), `palette` the command palette entry
+    it names (Computer Use Setup) and `url` the System Settings pane. `checks` (ids)
+    narrows the report; the app is asked for grants only when a grant row is wanted.
+    Read-only (`readOnlyHint`): it runs no fix and changes no setting. Like the CLI it
+    prints paths under HOME as `~/...` and a config parse error as its line and message,
+    never the file's text;
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
     the receipt (`rendered`, `bytes`, `title`);

@@ -8,6 +8,11 @@
 //! app (`computer_use.status`, the model behind Computer Use Setup); without
 //! the app they are unknown rather than guessed. Nothing here prompts for or
 //! grants a permission, and every report exits 0.
+//!
+//! The MCP tool `agents_doctor` runs the same checks (`mcp_findings`) and
+//! reports each row as a finding with a status of ok, warn or fail and a
+//! structured fix. Both print paths under HOME as `~/...` and never print
+//! the text of a config they could not parse (it may hold a key).
 
 use std::ffi::OsStr;
 use std::os::unix::fs::PermissionsExt;
@@ -21,8 +26,7 @@ use crate::localization::AgentsDoctorMessages;
 const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this machine is ready for agents: Claude Code and Codex on PATH, their cmux-cua computer use wiring, and the macOS grants of cmux Computer Use (Accessibility, Screen Recording, capture consent). Read-only: it never changes a config and never asks for a grant. Exits 0 for every report; 2 on a usage error. --json prints {\"schema_version\":1,\"checks\":[...]}; every row has exactly the keys id, status (ok, missing, unknown, not_applicable, cmux_only), reason, detail, fix and fix_url (null when there is none).\n";
 
 /// The app method that reports Computer Use Setup's grants.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-const STATUS_METHOD: &str = "computer_use.status";
+pub(super) const STATUS_METHOD: &str = "computer_use.status";
 /// The MCP server name cmux uses for computer use, and its binary.
 const CUA_SERVER: &str = "cmux-cua";
 const ACCESSIBILITY_URL: &str =
@@ -71,11 +75,37 @@ struct Check {
     detail: String,
     fix: Option<String>,
     fix_url: Option<&'static str>,
+    /// What an MCP client can do about it (`Fix`); text only when `None`.
+    action: Option<FixAction>,
 }
+
+/// The runnable part of a fix: a command as written in the fix text, or
+/// the cmux command palette entry it names.
+#[derive(Clone, Copy)]
+enum FixAction {
+    /// `cmux agents doctor`, run again.
+    RunAgain,
+    /// `open '<fix_url>'`.
+    OpenUrl,
+    /// The palette entry Computer Use Setup.
+    ComputerUseSetup,
+}
+
+/// The palette entry the setup fixes name, as the app titles it.
+const COMPUTER_USE_SETUP: &str = "Computer Use Setup";
 
 impl Check {
     fn new(id: &'static str, label: &'static str, status: Status, reason: &'static str) -> Self {
-        Self { id, label, status, reason, detail: String::new(), fix: None, fix_url: None }
+        Self {
+            id,
+            label,
+            status,
+            reason,
+            detail: String::new(),
+            fix: None,
+            fix_url: None,
+            action: None,
+        }
     }
 
     fn detail(mut self, detail: impl Into<String>) -> Self {
@@ -86,6 +116,47 @@ impl Check {
     fn fix(mut self, fix: impl Into<String>) -> Self {
         self.fix = Some(fix.into());
         self
+    }
+
+    /// A fix whose runnable part is `action`.
+    fn fix_action(mut self, fix: &str, action: Option<FixAction>) -> Self {
+        self.fix = Some(fix.to_owned());
+        self.action = action;
+        self
+    }
+
+    /// `~/...` for every path under `home` in the detail and the fix.
+    fn redacted(mut self, home: Option<&Path>) -> Self {
+        self.detail = redact_home(&self.detail, home);
+        self.fix = self.fix.map(|fix| redact_home(&fix, home));
+        self
+    }
+
+    /// The MCP finding: `{id, status, reason, summary, fix}`, where `status`
+    /// is ok (ok, not applicable), warn (only inside cmux chats, unknown) or
+    /// fail (missing) and `fix` is `{text, command, palette, url}` or null.
+    fn finding(&self) -> Value {
+        let status = match self.status {
+            Status::Ok | Status::NotApplicable => "ok",
+            Status::CmuxOnly | Status::Unknown => "warn",
+            Status::Missing => "fail",
+        };
+        let fix = self.fix.as_ref().map(|text| {
+            let (command, palette) = match self.action {
+                Some(FixAction::RunAgain) => (Some("cmux agents doctor".to_owned()), None),
+                Some(FixAction::OpenUrl) => (self.fix_url.map(|url| format!("open '{url}'")), None),
+                Some(FixAction::ComputerUseSetup) => (None, Some(COMPUTER_USE_SETUP)),
+                None => (None, None),
+            };
+            json!({"text": text, "command": command, "palette": palette, "url": self.fix_url})
+        });
+        json!({
+            "id": self.id,
+            "status": status,
+            "reason": self.reason,
+            "summary": format!("{}: {}", self.label, self.detail),
+            "fix": fix,
+        })
     }
 
     fn json(&self) -> Value {
@@ -142,7 +213,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         );
     }
     let messages = &crate::localization::catalog().agents_doctor;
-    let checks = collect(global, &Environment::current(), messages);
+    let checks = collect(&Environment::current(), messages, None, || app_status(global));
     match global.output {
         OutputMode::Human => {
             print!("{}", table(&checks, messages));
@@ -159,14 +230,139 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     }
 }
 
+/// Every check id, in report order.
+const CHECK_IDS: [&str; 7] = [
+    "harness.claude",
+    "harness.codex",
+    "mcp.claude",
+    "mcp.codex",
+    "grant.accessibility",
+    "grant.screen_recording",
+    "grant.capture_consent",
+];
+
+/// The app's `computer_use.status` reply as the CLI reads it.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn app_status(global: &GlobalArgs) -> Result<Value, Value> {
+    #[cfg(target_os = "macos")]
+    {
+        super::mcp::agent_app(global, STATUS_METHOD, json!({}), super::app::READ_TIMEOUT, None)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(json!({"code": "app.not_found"}))
+    }
+}
+
+/// The rows `wanted` names (all when `None`), in report order. The app is
+/// asked for its grants only on macOS and only when a grant row is wanted.
 fn collect(
-    global: &GlobalArgs,
     environment: &Environment,
     messages: &AgentsDoctorMessages,
+    wanted: Option<&[String]>,
+    app_status: impl FnOnce() -> Result<Value, Value>,
 ) -> Vec<Check> {
+    let wants = |id: &str| wanted.is_none_or(|wanted| wanted.iter().any(|w| w == id));
+    let mut checks = checks_without_grants(environment, messages);
+    if GRANT_ROWS.into_iter().any(wants) {
+        checks.extend(grant_checks(app_status, messages));
+    }
+    checks
+        .into_iter()
+        .filter(|check| wants(check.id))
+        .map(|check| check.redacted(environment.home.as_deref()))
+        .collect()
+}
+
+/// The MCP tool's name.
+pub(super) const MCP_TOOL: &str = "agents_doctor";
+
+/// The `agents_doctor` tool descriptor: read-only, one optional argument.
+pub(super) fn mcp_tool() -> Value {
+    json!({
+        "name": MCP_TOOL,
+        "title": "Agents doctor",
+        "description": "Check whether this machine is ready for agents, as `cmux agents doctor` \
+            does: Claude Code and Codex on PATH, their cmux-cua computer use wiring and the \
+            macOS grants of cmux Computer Use. Read-only: it runs no fix and changes no \
+            setting. Answers {schema_version, findings}; each finding is {id, status (ok, \
+            warn, fail), reason, summary, fix}, where fix is null or {text, command, palette, \
+            url}: a command to run as written, a cmux command palette entry, or a System \
+            Settings url to open. Paths under the home directory read ~/...",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "checks": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "enum": CHECK_IDS},
+                    "description": "Only these checks, by id; default all.",
+                },
+            },
+            "required": [],
+            "additionalProperties": false,
+        },
+        "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+        },
+    })
+}
+
+/// The `agents_doctor` result for these tool arguments, or why they are
+/// refused. `app_status` reads the app's `computer_use.status`.
+pub(super) fn mcp_findings(
+    arguments: &Map<String, Value>,
+    app_status: impl FnOnce() -> Result<Value, Value>,
+) -> Result<Value, String> {
+    if let Some(name) = arguments.keys().find(|name| *name != "checks") {
+        return Err(format!("{MCP_TOOL} has no argument {name:?}"));
+    }
+    let wanted = match arguments.get("checks") {
+        None => None,
+        Some(Value::Array(items)) if !items.is_empty() => Some(
+            items
+                .iter()
+                .map(|item| match item.as_str() {
+                    Some(id) if CHECK_IDS.contains(&id) => Ok(id.to_owned()),
+                    _ => Err(format!(
+                        "{MCP_TOOL}: unknown check {item}; the checks are {}",
+                        CHECK_IDS.join(", ")
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        Some(_) => return Err(format!("{MCP_TOOL}: checks must be a nonempty array of ids")),
+    };
+    let messages = &crate::localization::catalog().agents_doctor;
+    let checks = collect(&Environment::current(), messages, wanted.as_deref(), app_status);
+    Ok(json!({
+        "schema_version": 1,
+        "findings": checks.iter().map(Check::finding).collect::<Vec<_>>(),
+    }))
+}
+
+/// `text` with `home` (and every path under it) written as `~`.
+fn redact_home(text: &str, home: Option<&Path>) -> String {
+    let Some(home) = home.and_then(Path::to_str).map(|home| home.trim_end_matches('/')) else {
+        return text.to_owned();
+    };
+    if home.is_empty() {
+        return text.to_owned();
+    }
+    if text == home {
+        return "~".to_owned();
+    }
+    text.replace(&format!("{home}/"), "~/")
+}
+
+fn checks_without_grants(environment: &Environment, messages: &AgentsDoctorMessages) -> Vec<Check> {
     let claude = on_path(environment.path.as_deref(), "claude");
     let codex = on_path(environment.path.as_deref(), "codex");
-    let mut checks = vec![
+    vec![
         harness_check(
             "harness.claude",
             messages.check_harness_claude,
@@ -197,9 +393,7 @@ fn collect(
             || codex_cua(environment),
             messages,
         ),
-    ];
-    checks.extend(grant_checks(global, messages));
-    checks
+    ]
 }
 
 // MARK: Harnesses
@@ -402,7 +596,7 @@ fn codex_cua(environment: &Environment) -> Wiring {
     for file in [user_file, project_file] {
         let Some(file) = file else { continue };
         let config = match read_text(&file).and_then(|text| {
-            text.map(|text| text.parse::<toml::Table>().map_err(|error| error.to_string()))
+            text.map(|text| text.parse::<toml::Table>().map_err(|error| toml_error(&text, &error)))
                 .transpose()
         }) {
             Ok(Some(config)) => config,
@@ -420,6 +614,19 @@ fn codex_cua(environment: &Environment) -> Wiring {
         }
     }
     Wiring::Absent
+}
+
+/// A TOML parse error without the excerpt of the file that `Display`
+/// prints: that line may hold a key. Its message and line only.
+fn toml_error(text: &str, error: &toml::de::Error) -> String {
+    let message = error.message().trim();
+    match error.span() {
+        Some(span) => {
+            let line = text.get(..span.start).map_or(1, |head| head.matches('\n').count() + 1);
+            format!("line {line}: {message}")
+        }
+        None => message.to_owned(),
+    }
 }
 
 // MARK: macOS grants
@@ -449,23 +656,39 @@ fn grants_unknown(
         .map(|id| {
             let check = Check::new(id, grant_label(id, messages), status, reason).detail(detail);
             match fix {
-                Some(fix) => check.fix(fix),
+                Some(fix) => check.fix_action(fix, grant_fix_action(fix, messages)),
                 None => check,
             }
         })
         .collect()
 }
 
+/// The runnable part of a grant row's fix: rerunning the doctor, or the
+/// Computer Use Setup palette entry; opening cmux is text only.
+fn grant_fix_action(fix: &str, messages: &AgentsDoctorMessages) -> Option<FixAction> {
+    if fix == messages.run_again {
+        Some(FixAction::RunAgain)
+    } else if fix == messages.setup_command || fix == messages.open_setup {
+        Some(FixAction::ComputerUseSetup)
+    } else {
+        None
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
-fn grant_checks(_global: &GlobalArgs, messages: &AgentsDoctorMessages) -> Vec<Check> {
+fn grant_checks(
+    _app_status: impl FnOnce() -> Result<Value, Value>,
+    messages: &AgentsDoctorMessages,
+) -> Vec<Check> {
     grants_unknown(Status::NotApplicable, "not_macos", messages.not_macos, None, messages)
 }
 
 #[cfg(target_os = "macos")]
-fn grant_checks(global: &GlobalArgs, messages: &AgentsDoctorMessages) -> Vec<Check> {
-    let reply =
-        super::mcp::agent_app(global, STATUS_METHOD, json!({}), super::app::READ_TIMEOUT, None);
-    grants_from_app(reply, messages)
+fn grant_checks(
+    app_status: impl FnOnce() -> Result<Value, Value>,
+    messages: &AgentsDoctorMessages,
+) -> Vec<Check> {
+    grants_from_app(app_status(), messages)
 }
 
 /// The grant rows from the app's `computer_use.status` reply (or its failure).
@@ -528,13 +751,16 @@ fn ready_grants(status: &Value, messages: &AgentsDoctorMessages) -> Vec<Check> {
             Some(false) => {
                 let mut check = Check::new(id, label, Status::Missing, "not_granted")
                     .detail(messages.not_granted)
-                    .fix(messages.open_settings.replace("{url}", url));
+                    .fix_action(
+                        &messages.open_settings.replace("{url}", url),
+                        Some(FixAction::OpenUrl),
+                    );
                 check.fix_url = Some(url);
                 check
             }
             None => Check::new(id, label, Status::Unknown, "app_no_report")
                 .detail(messages.app_no_report)
-                .fix(messages.setup_command),
+                .fix_action(messages.setup_command, Some(FixAction::ComputerUseSetup)),
         }
     };
     vec![
