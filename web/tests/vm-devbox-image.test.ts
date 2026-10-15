@@ -362,9 +362,9 @@ os.write(fd, b"l"); expect(gray + rb"aude --dangerously-skip-permissions")
 os.write(fd, b"\r"); out = expect(rb"[\r\n]ran-cl\r\n[\s\S]*" + prompt)
 if b"ran-claude" in out: sys.exit("Enter ran the suggestion instead of the typed text")
 # Control bytes in history are display data, never terminal controls.
-os.write(fd, b"echo "); out = expect(rb"echo [\\s\\S]*" + prompt)
-if gray in out or b"\x1b[31m" in out: sys.exit("control bytes from history reached the terminal")
-os.write(fd, b"\x03"); expect(prompt)
+os.write(fd, b"echo "); out = expect(rb"echo ")
+os.write(fd, b"\x03"); cancelled = expect(prompt)
+if gray in out + cancelled or b"\x1b[31m" in out + cancelled: sys.exit("control bytes from history reached the terminal")
 # Right accepts; Enter runs the accepted line.
 os.write(fd, b"echo acc"); expect(gray + rb"epted-ghost")
 run(b"\x1b[C\r", rb"[\r\n]accepted-ghost\r\n")
