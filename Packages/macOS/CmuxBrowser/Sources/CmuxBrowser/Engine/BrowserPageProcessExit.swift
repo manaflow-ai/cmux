@@ -10,6 +10,8 @@ public struct BrowserPageProcessExit: Equatable, Hashable, Sendable {
         case killed
         /// The process ran out of memory.
         case outOfMemory
+        /// The process could not be started.
+        case launchFailed
         /// Any other abnormal end.
         case other
     }
