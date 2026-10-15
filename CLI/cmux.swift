@@ -18772,6 +18772,12 @@ struct CMUXCLI {
                 browser["surface"] = surface
                 browser["url"] = urlPayload["url"] ?? ""
                 browser["title"] = titlePayload["title"] ?? ""
+                if let engine = urlPayload["engine"] {
+                    browser["engine"] = engine
+                }
+                if let reason = urlPayload["engine_fallback_reason"] {
+                    browser["engine_fallback_reason"] = reason
+                }
                 payload["browser"] = browser
             }
             output(payload, fallback: "OK")
@@ -20339,8 +20345,15 @@ struct CMUXCLI {
             }
 
             let commandName = "browser tab \(tabVerb)"
-            try validateBrowserCommandArguments(tabArgs, commandName: commandName)
-            let parsed = try browserCommandArguments(tabArgs, commandName: commandName)
+            // `tab new` takes --engine like browser open; parse it before the
+            // generic validation so it never reads as an unknown flag or a URL.
+            var tabEngine: String?
+            var tabArgsWithoutEngine = tabArgs
+            if tabVerb == "new" {
+                (tabEngine, tabArgsWithoutEngine) = try parseBrowserEngineOption(tabArgs)
+            }
+            try validateBrowserCommandArguments(tabArgsWithoutEngine, commandName: commandName)
+            let parsed = try browserCommandArguments(tabArgsWithoutEngine, commandName: commandName)
 
             switch tabVerb {
             case "list":
@@ -20352,6 +20365,9 @@ struct CMUXCLI {
                 let url = parsed.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !url.isEmpty {
                     params["url"] = url
+                }
+                if let tabEngine {
+                    params["engine"] = tabEngine
                 }
                 let payload = try client.sendV2(method: "browser.tab.new", params: params)
                 output(payload, fallback: "OK")

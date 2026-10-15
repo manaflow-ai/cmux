@@ -102,7 +102,7 @@ public struct BrowserPageAutomation {
     /// Stores `cookie` in the page's profile.
     public func setCookie(_ cookie: HTTPCookie) async throws(BrowserAutomationPageError) {
         if speaksDevTools {
-            let json = try await devTools("Network.setCookie", codec.setCookieParams(cookie))
+            let json = try await devTools("Network.setCookie", codec.setCookieParams(cookie, pageURL: page.state.url))
             guard codec.setCookieSucceeded(fromJSON: json) else {
                 throw .engine(String(
                     localized: "browser.automation.error.cookieRejected",
@@ -172,6 +172,31 @@ public struct BrowserPageAutomation {
         } else {
             _ = try await devTools("Emulation.clearDeviceMetricsOverride", [:])
         }
+    }
+
+    // MARK: - Geolocation and offline emulation
+
+    /// Applies geolocation and offline overrides through DevTools
+    /// (`Emulation.setGeolocationOverride`, `Network.emulateNetworkConditions`).
+    /// WebKit pages use the panel's own emulation (user scripts and content
+    /// rules) instead.
+    public func applyEmulation(_ overrides: BrowserEmulationOverrides) async throws(BrowserAutomationPageError) {
+        guard speaksDevTools else { throw .unsupported("geolocation and offline emulation") }
+        if let position = overrides.geolocation {
+            _ = try await devTools("Emulation.setGeolocationOverride", [
+                "latitude": position.latitude,
+                "longitude": position.longitude,
+                "accuracy": position.accuracy,
+            ])
+        } else {
+            _ = try await devTools("Emulation.clearGeolocationOverride", [:])
+        }
+        _ = try await devTools("Network.emulateNetworkConditions", [
+            "offline": overrides.offline,
+            "latency": 0,
+            "downloadThroughput": -1,
+            "uploadThroughput": -1,
+        ])
     }
 
     // MARK: - DevTools protocol

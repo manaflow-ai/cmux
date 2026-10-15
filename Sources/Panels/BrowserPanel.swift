@@ -2195,7 +2195,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Transfers ownership of subsequent dialogs without presenting existing CLI requests.
     func takeBrowserDialogOwnership(_ owner: BrowserDialogOwner) {
+        let changed = browserDialogOwner != owner
         browserDialogOwner = owner
+        if changed { syncAgentNavigationGuard() }
     }
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 
@@ -5914,6 +5916,12 @@ final class BrowserPanel: Panel, ObservableObject {
         skipsAppSessionBootstrap: Bool = false
     ) -> WKNavigation? {
         if let enginePage {
+            // Last line of the agent URL rule for loads an agent starts here
+            // (open with a URL, reload paths); the engine's guard covers
+            // redirects and back/forward.
+            if browserDialogOwner == .automation, originalURL.isRefusedForAgentNavigation {
+                return nil
+            }
             routeNavigationToEnginePage(
                 enginePage,
                 request: request,
@@ -6180,6 +6188,10 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
         takeBrowserDialogOwnership(dialogOwner)
+        if dialogOwner == .automation,
+           refusesAgentNavigation(rawInput: input, resolvedURL: resolveSmartNavigation(from: input)?.url) {
+            return nil
+        }
         // Only a person's address bar opens Settings; automation never takes focus.
         if dialogOwner == .user, openCmuxPageForChromiumRoute(input) { return nil }
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
