@@ -545,11 +545,48 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
       },
     },
+    "primary-hover": {
+      note: "The pointer on an enabled primary button keeps its light fill (a soft ring shows the hover); it never looks disabled.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        const primary = ".lg-form-actions .primary";
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.waitFor(() => ctx.document.querySelector(`${primary}:not(:disabled)`));
+        const look = () => {
+          const button = ctx.document.querySelector<HTMLElement>(primary)!;
+          const style = ctx.document.defaultView!.getComputedStyle(button);
+          return {
+            background: style.backgroundColor,
+            opacity: style.opacity,
+            color: style.color,
+            ring: style.boxShadow,
+          };
+        };
+        const resting = look();
+        await ctx.hover({ selector: primary });
+        await ctx.waitFor(() => {
+          const hovered = look();
+          // The hover rule applied (its ring shows) and the fill, ink and opacity stayed the primary's.
+          return (
+            hovered.ring !== resting.ring &&
+            hovered.background === resting.background &&
+            hovered.color === resting.color &&
+            hovered.opacity === "1"
+          );
+        });
+      },
+    },
     "new-chief-defaults": {
       note: "Create with the grant left as it is: the sheet names no tools or harnesses, so the owner applies its defaults.",
       props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
       checks: {
-        longFrameFailMs: openFrame,
+        longFrameFailMs: {
+          value: 200,
+          reason:
+            "Create closes the sheet and opens the new Chief's direct message (list, header, empty timeline, composer) in one frame: ~150 ms on the CPU-only VM.",
+        },
         layoutShiftMax: {
           value: 0.01,
           reason: "Create adds the new Chief's direct message to the list and opens it; the rows below move down.",

@@ -5,10 +5,13 @@
 //! with parent pid 1, most in deleted test homes.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -34,18 +37,14 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn start_daemon(home: &Path) -> Child {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::command(home, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         // No catalog fetch: a test never reaches the network, and the fetch's
         // warning (a catalog server 404) came on stdout before the ready line.
         .env("ACPMUX_CATALOG_FETCH", "0")
-        .env_remove("ACPMUX_AGENT_HOSTS")
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("ACPMUX_LOCAL_ROUTER")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("ACPMUX_IDLE_CHILD_SECS")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

@@ -44,6 +44,10 @@ enum PageCallDeadline {
 
         var isWaiting: Bool { continuation != nil }
 
+        // A main-actor generic class's isolated deinit crashes swift-frontend 6.3.3 in a Release
+        // compile (EarlyPerfInliner, below the macOS 15 back-deploy); this one touches nothing.
+        nonisolated deinit {}
+
         func finish(_ result: Result<T, any Error>) {
             guard let continuation else { return }
             self.continuation = nil
