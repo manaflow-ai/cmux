@@ -36,23 +36,25 @@ struct CloudGettingStartedPanelSection: View {
         let checklist = checklist
         Group {
             if checklist.isVisible {
-                CloudGettingStartedCard(
-                    checklist: checklist,
-                    actions: CloudGettingStartedActions(
-                        openSecrets: bridge.openSecrets,
-                        createMachine: createMachine,
-                        openLocalAgent: { [weak viewModel] in viewModel?.launchCloudAgent(.claude) },
-                        dismiss: dismiss
-                    )
-                )
-                .transition(.opacity)
+                CloudGettingStartedCard(checklist: checklist, actions: actions)
+                    .transition(.opacity)
             }
         }
+        .cloudGettingStartedDebugProbe(checklist: checklist, actions: { actions })
         // Finishing every step retires the card for good, so deleting the
         // last machine later never brings the checklist back.
         .onChange(of: checklist.isComplete && viewModel.hasLoadedOnce, initial: true) { _, finished in
             if finished { dismiss() }
         }
+    }
+
+    private var actions: CloudGettingStartedActions {
+        CloudGettingStartedActions(
+            openSecrets: bridge.openSecrets,
+            createMachine: createMachine,
+            openLocalAgent: { [weak viewModel] in viewModel?.launchCloudAgent(.claude) },
+            dismiss: dismiss
+        )
     }
 
     private func createMachine() {
