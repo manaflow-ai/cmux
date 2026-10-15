@@ -320,6 +320,16 @@ export function messageLink(conversation: string, message?: string, scheme = "cm
     : `${scheme}://conversation/${conversation}`;
 }
 
+/** The conversation and message a cmux link names (`cmux[-<tag>]://conversation/<id>[/message/<id>]`;
+ * query and fragment ignored), the daemon's link grammar. Ids may also hold `-` (the page only opens
+ * a conversation it already lists this way). */
+export function parseConversationLink(url: string): { conversation: string; message?: string } | undefined {
+  if (url.length > 512) return undefined;
+  const match = /^cmux(?:-[a-z0-9]+)*:\/\/conversation\/([\w-]+)(?:\/message\/([\w-]+))?\/?(?:[?#].*)?$/i.exec(url);
+  if (!match) return undefined;
+  return match[2] ? { conversation: match[1]!, message: match[2] } : { conversation: match[1]! };
+}
+
 /** The link a page URL's hash carries (`#/conversation/<id>[/message/<id>]`), as a cmux link. */
 export function hashLink(hash: string): string | undefined {
   const match = /^#\/(conversation\/[A-Za-z0-9_]+(?:\/message\/[A-Za-z0-9_]+)?)\/?$/.exec(hash);

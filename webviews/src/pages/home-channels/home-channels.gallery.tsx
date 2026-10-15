@@ -46,6 +46,8 @@ type Props = {
   /** The app's page bridge (a real BridgePageClient over GalleryBridgeHost): the host calls the
    * page's ops the way PageRouter.callPage does. */
   hostBridge?: boolean;
+  /** A cmux link the page opens (as the Messages view's switch does through the hash). */
+  link?: string;
 };
 
 /** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
@@ -107,6 +109,7 @@ function HomeChannelsGallery({
   width,
   pane,
   hostBridge = false,
+  link,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
@@ -122,6 +125,7 @@ function HomeChannelsGallery({
     // The gallery owns its window hash: the page never writes it here.
     created.routed = false;
     if (route) created.sheets.show(route);
+    if (link) void created.start().then(() => created.openLink(link));
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -545,11 +549,48 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
       },
     },
+    "primary-hover": {
+      note: "The pointer on an enabled primary button keeps its light fill (a soft ring shows the hover); it never looks disabled.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        const primary = ".lg-form-actions .primary";
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.waitFor(() => ctx.document.querySelector(`${primary}:not(:disabled)`));
+        const look = () => {
+          const button = ctx.document.querySelector<HTMLElement>(primary)!;
+          const style = ctx.document.defaultView!.getComputedStyle(button);
+          return {
+            background: style.backgroundColor,
+            opacity: style.opacity,
+            color: style.color,
+            ring: style.boxShadow,
+          };
+        };
+        const resting = look();
+        await ctx.hover({ selector: primary });
+        await ctx.waitFor(() => {
+          const hovered = look();
+          // The hover rule applied (its ring shows) and the fill, ink and opacity stayed the primary's.
+          return (
+            hovered.ring !== resting.ring &&
+            hovered.background === resting.background &&
+            hovered.color === resting.color &&
+            hovered.opacity === "1"
+          );
+        });
+      },
+    },
     "new-chief-defaults": {
       note: "Create with the grant left as it is: the sheet names no tools or harnesses, so the owner applies its defaults.",
       props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
       checks: {
-        longFrameFailMs: openFrame,
+        longFrameFailMs: {
+          value: 200,
+          reason:
+            "Create closes the sheet and opens the new Chief's direct message (list, header, empty timeline, composer) in one frame: ~150 ms on the CPU-only VM.",
+        },
         layoutShiftMax: {
           value: 0.01,
           reason: "Create adds the new Chief's direct message to the list and opens it; the rows below move down.",
@@ -696,6 +737,29 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
         expectSelection(await askSelection(ctx.document), null);
+      },
+    },
+    "link-no-resolver": {
+      note: "A message link to a reply when the owner has no link read (a Cloud conversation): the page finds it in its pages, opens its thread and marks it.",
+      props: { link: "cmux://conversation/c-release/message/c-release-m4" },
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".lg-sheet .hc-msg.highlighted .hc-md")].some((node) =>
+            node.textContent?.includes("restoreAnchor"),
+          ),
+        );
+        if (ctx.document.querySelector(".lg-error, .hc-error")) throw new Error("the page shows an error");
+      },
+    },
+    "link-no-resolver-timeline": {
+      note: "A message link to a timeline message with no link read: the conversation opens with the message marked.",
+      props: { link: "cmux://conversation/c-release/message/c-release-m6" },
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".lg-main .hc-msg.highlighted .hc-md")].some((node) =>
+            node.textContent?.includes("Changelog draft"),
+          ),
+        );
       },
     },
     "draft-posted": {
