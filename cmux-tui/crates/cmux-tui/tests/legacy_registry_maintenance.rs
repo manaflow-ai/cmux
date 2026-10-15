@@ -250,15 +250,15 @@ fn compact_registry_is_refused_while_the_owner_runs_and_shrinks_it_offline() {
     let dir = state_dir("compact");
     let session = "lrm-compact";
     let registry = first_start(&dir.0, session);
-    make_legacy(&registry, 2 * TEST_BOUND_BYTES);
+    // Live data stays above the in-place bound (the owner must not convert
+    // it itself), and as much again is freed: a legacy file keeps those pages.
+    let kept_chunks = 2 * TEST_BOUND_BYTES / (1024 * 1024);
+    make_legacy(&registry, 4 * TEST_BOUND_BYTES);
     {
-        // Free most of the filler: a legacy file keeps those pages.
         let db = Connection::open(&registry).unwrap();
-        db.execute("DELETE FROM legacy_filler WHERE rowid > 4", []).unwrap();
+        db.execute("DELETE FROM legacy_filler WHERE rowid > ?1", [kept_chunks as i64]).unwrap();
         db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
     }
-    let before_len = fs::metadata(&registry).unwrap().len();
-    let before_rows = table_rows(&registry);
 
     let owner = Owner::start(&dir.0, session);
     let (ok, text) = compact(&dir.0, session);
@@ -266,7 +266,12 @@ fn compact_registry_is_refused_while_the_owner_runs_and_shrinks_it_offline() {
     assert!(text.contains("server.compact_owner_running"), "refusal code: {text}");
     assert!(owner.answers(), "the owner keeps serving after a refused compaction");
     owner.stop();
+    assert_eq!(conversion(&registry), (0, false), "the owner left the legacy registry as it was");
     let stopped_rows = table_rows(&registry);
+    let before_len = fs::metadata(&registry).unwrap().len();
+
+    let output = command(&dir.0).args(["--json", "server", "compact-registry"]).output().unwrap();
+    assert!(!output.status.success(), "compaction without --session is refused");
 
     let (ok, text) = compact(&dir.0, session);
     assert!(ok, "compaction with the owner stopped: {text}");
@@ -278,9 +283,9 @@ fn compact_registry_is_refused_while_the_owner_runs_and_shrinks_it_offline() {
     );
     assert_eq!(table_rows(&registry), stopped_rows, "every table keeps its rows");
     assert_eq!(
-        before_rows.iter().find(|(table, _)| table == "legacy_filler"),
-        Some(&("legacy_filler".to_string(), 4)),
-        "the fixture kept 4 filler rows"
+        stopped_rows.iter().find(|(table, _)| table == "legacy_filler"),
+        Some(&("legacy_filler".to_string(), kept_chunks as i64)),
+        "the fixture kept its filler rows"
     );
     {
         let db = Connection::open_with_flags(&registry, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)

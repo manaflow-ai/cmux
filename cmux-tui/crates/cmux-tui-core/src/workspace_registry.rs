@@ -32,11 +32,13 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+mod compact;
 mod detached_terminals;
 pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
 use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
+pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
