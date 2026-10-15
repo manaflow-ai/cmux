@@ -119,17 +119,14 @@ try:
     check("launch 1: the fixture tab opens", bool(fixture.get("ok")), fixture)
     fx = poll(fixture_texts, timeout=30)
     check("launch 1: the fixture shows its transcript", bool(fx), rpc("debug.home.drive", {"action": "texts"}))
-    # A conversation with a message for the Home tab to show: a new Home tab opens the Chief conversation, which
-    # is empty in this test's Chief home (last_seq 0, cx-w67hc), so it opens a local channel with a message.
-    stamp = str(int(time.time()))
-    channel = submit(kind="create_group", title="restore-%s" % stamp, participants=[]).get("conversation")
-    check("launch 1: a local channel", bool(channel), channel)
-    if channel:
-        submit(kind="send", conversation=channel, text="restore check %s" % stamp)
     rpc("action.run", {"id": "home.tab", "focus": True})
-    if channel:
-        opened = rpc("action.run", {"id": "home.openConversation", "focus": True, "arguments": {"conversation": channel}}) or {}
-        check("launch 1: home.openConversation opens the channel in the Home tab", "error" not in opened, opened)
+    # A new Home tab opens the Chief conversation, which is empty in this test's Chief home (last_seq 0, cx-w67hc):
+    # one message there, so the tab has a transcript to restore. (home.openConversation would show the classic
+    # top page instead of this tab.)
+    tab = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown")), None), timeout=90)
+    if tab and not tab.get("transcript_tail"):
+        sent = submit(kind="send", conversation=tab["shown"], text="restore check %d" % int(time.time()))
+        check("launch 1: a message in the Home tab's conversation", sent.get("ok") is True, sent)
     before = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown") and t.get("transcript_tail")), None),
                   timeout=90)
     check("launch 1: a native Home tab shows a conversation with messages", bool(before), home_tabs())
