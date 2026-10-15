@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextDesign
+import QuartzCore
 
 /// Divider and column-edge drags, emitted as transactional layout intents.
 extension ScreenContentView {
@@ -59,9 +61,14 @@ extension ScreenContentView {
             model.setGestureActive(true)
             context.requestFrames()
         case let .moved(windowPoint):
+            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
             applyDrag(at: windowPoint, phase: .changed)
             context.requestFrames()
         case let .ended(windowPoint):
+            if case .split = kind, let drag = activeDrag {
+                // The layout this release makes springs on from the pointer's velocity.
+                releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
+            }
             applyDrag(at: windowPoint, phase: .ended)
             activeDrag = nil
             model.setGestureActive(false)
@@ -84,7 +91,13 @@ extension ScreenContentView {
         let style = context.style
         switch drag.kind {
         case let .split(id):
-            guard let ratio = activeDrag?.splitRatio(at: point, style: style, phase: phase) else { return }
+            // A fling that would carry the divider onto a snap within the spring's reach lands there.
+            let reach = phase == .ended && context.animatesPaneLayout ? (releasedDivider?.velocity ?? 0) * CGFloat(Motion.dividerReleaseProjection) : 0
+            let projected = drag.axis == .horizontal ? CGPoint(x: point.x + reach, y: point.y) : CGPoint(x: point.x, y: point.y + reach)
+            var probe = drag
+            let flung = reach != 0 ? probe.splitRatio(at: projected, style: style, phase: phase) : nil
+            guard let ratio = flung.flatMap({ drag.snaps.contains($0) ? $0 : nil }) ?? activeDrag?.splitRatio(at: point, style: style, phase: phase)
+            else { return }
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):
             // Strip widths are shares of the strip's viewport; a side dock's

@@ -114,7 +114,9 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
 mod install_key;
+mod replace;
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
+pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -211,6 +213,10 @@ pub(crate) struct OwnerSpec {
     /// Chief brain's tools socket, so the owner serves chief.engine.* and
     /// chief.stop (only `cmux chief` sets it, for its Chief home's owner).
     pub chief_tools_socket: Option<PathBuf>,
+    /// `CMUX_TUI_CHIEF_BRAINS` for an owner this call spawns: the daemon
+    /// starts the brains of the Chiefs that are not the default
+    /// (cmux-tui-core chief_brains).
+    pub chief_brains: Option<String>,
     /// The loopback WebSocket listener for an owner this call spawns; a
     /// running owner keeps the listener it was started with.
     pub websocket: Option<EnsureWebSocket>,
@@ -739,6 +745,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     configure_detached_owner_environment(&mut command);
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
+    }
+    if let Some(brains) = &spec.chief_brains {
+        command.env(cmux_tui_core::chief_brains::ENV, brains);
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own

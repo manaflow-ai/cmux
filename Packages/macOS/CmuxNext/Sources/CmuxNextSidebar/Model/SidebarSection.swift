@@ -71,6 +71,15 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         self.detail = detail
         self.icon = icon
     }
+
+    /// A connected machine whose link redials reads as reconnecting
+    /// (cx-z5oif): its socket stays up, so its connection cannot tell.
+    public func redialing(_ redialing: Bool) -> SidebarMachine {
+        guard redialing, status == .connected || status == .updateAvailable else { return self }
+        var machine = self
+        machine.status = .reconnecting
+        return machine
+    }
 }
 
 /// A top-level section.

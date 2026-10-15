@@ -112,7 +112,8 @@ export function SubagentStatusList({
                 style={depth > 0 ? { paddingLeft: 8 + depth * 14 } : undefined}
                 data-status={status}
                 aria-current={agent.id === current ? "true" : undefined}
-                title={agent.task ?? agent.name}
+                /* tooltip-allow: the row shows the name; the task appears nowhere else */
+                title={agent.task}
                 disabled={!onOpen}
                 onClick={() => onOpen?.(agent.id)}
               >
@@ -136,6 +137,7 @@ export function SubagentStatusList({
         <label className="acpmux-summary-row acpmux-summary-autoopen">
           <input
             type="checkbox"
+            aria-label={t("summary.subagents.openPanes")}
             checked={autoOpen.on}
             onChange={(event) => autoOpen.set(event.currentTarget.checked)}
           />

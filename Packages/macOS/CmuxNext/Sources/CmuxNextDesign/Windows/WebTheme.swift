@@ -24,7 +24,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// tree libraries) show them at rest only for "Always".
     public let scrollers: String
     /// The terminal theme as hex (`type`, `background`, `foreground`, `palette` 0...15): pages
-    /// color code from its ANSI palette (syntax-theme.ts), as the agent chat and Ghostty do.
+    /// color code from its ANSI palette (syntax-theme.ts), as the agent chat and Ghostty do. Its
+    /// `fontFamily` is the terminal's face, which pages that show code draw it in (appearance.ts).
     public let terminal: Terminal
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
@@ -35,15 +36,22 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         public let background: String
         public let foreground: String
         public let palette: [String: String]
+        /// The terminal's font family (`DesignSettings.effectiveTerminalFontFamily`); nil when
+        /// neither cmux.json nor the Ghostty config names one.
+        public let fontFamily: String?
 
-        init(_ tokens: ThemeTokens) {
+        init(_ tokens: ThemeTokens, fontFamily: String?) {
             type = tokens.isDark ? "dark" : "light"
             background = WebTheme.hex(tokens.surfaceBackground)
             foreground = WebTheme.hex(tokens.textPrimary)
             palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
+            self.fontFamily = fontFamily
         }
 
-        var json: [String: Any] { ["type": type, "background": background, "foreground": foreground, "palette": palette] }
+        var json: [String: Any] {
+            ["type": type, "background": background, "foreground": foreground, "palette": palette,
+             "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
+        }
     }
 
     /// - Parameter tokens: The theme tokens of the view's scope.
@@ -75,6 +83,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
             "--cmux-popup-surface": Self.css(tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
+            // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
+            // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
+            "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
@@ -95,10 +106,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         self.scrollers = scrollers ?? SystemScrollers.pageValue
-        terminal = Terminal(tokens)
+        terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal}`.
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal}`
+    /// (`terminal.fontFamily` is null when the terminal has no named face).
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json]

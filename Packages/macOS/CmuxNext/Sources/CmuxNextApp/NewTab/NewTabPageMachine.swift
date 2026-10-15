@@ -25,10 +25,6 @@ struct NewTabPageMachine {
         let store = daemon.store
         let workspace = selected.flatMap { store.pane(containing: $0.surface) }.flatMap { store.workspace(containing: $0.handle) }
             ?? pane.flatMap { store.workspace(containing: $0.pane.handle) }
-        let folder = workspace?.screens.flatMap(\.panes).flatMap(\.tabs).lazy.compactMap(\.cwd).first
-        var folders: [String] = []
-        for path in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
-            where path.hasPrefix("/") && !folders.contains(path) { folders.append(path) }
-        (cwd, home, remoteFolders) = (selected?.cwd ?? folder, nil, folders)
+        (cwd, home, remoteFolders) = (selected?.cwd ?? workspace?.firstTabFolder, nil, store.tabFolders)
     }
 }

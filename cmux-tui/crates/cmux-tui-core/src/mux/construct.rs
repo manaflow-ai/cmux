@@ -213,6 +213,7 @@ impl Mux {
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
+            chiefs: Default::default(),
             cloud_conversations: OnceLock::new(),
             history_search: OnceLock::new(),
             #[cfg(test)]

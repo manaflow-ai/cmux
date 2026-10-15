@@ -9,7 +9,9 @@ import os
 ///
 /// Only the chat's own session is served: `initialize`, `_acpmux/status`, `_acpmux/watch` (that
 /// one session), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
-/// blocks only), `session/cancel` and `_acpmux/permission_respond`. Every other method, and any
+/// blocks only), `session/cancel`, `_acpmux/permission_respond` and the folder trust question
+/// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
+/// relay already holds a set that trusts to the person's fresh gesture). Every other method, and any
 /// frame that names another session, is answered `remote.unsupported`: nothing on the other
 /// machine changes a mode, reads a folder or spawns a process from here.
 ///
@@ -26,6 +28,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// values; nil leaves the host's own choice) and answers its attachment and session.
     public typealias Start = @Sendable (_ cwd: String?, _ harness: String?) async throws
         -> (client: any AgentSessionRemoteClient, session: String)
+    /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
+    /// the person's answer recorded there (`acp.trust.set`).
+    public typealias Trust = @Sendable (_ cwd: String, _ level: String?, _ homeChosen: Bool) async throws -> Data
+    /// The relay's mark on a Trust answer for a home folder the person chose there.
+    public static let homeChosenParam = "cmuxHomeChosen"
 
     private struct State {
         var onFrame: (@Sendable (String) -> Void)?
@@ -43,17 +50,20 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
+    private let trust: Trust?
     private let state: Mutex<State>
 
     /// The wire of the chat `session` (its store record), through `client`.
-    public init(client: any AgentSessionRemoteClient, session: String) {
+    public init(client: any AgentSessionRemoteClient, session: String, trust: Trust? = nil) {
         start = nil
+        self.trust = trust
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
-    public init(start: @escaping Start) {
+    public init(start: @escaping Start, trust: Trust? = nil) {
         self.start = start
+        self.trust = trust
         state = Mutex(State())
     }
 
@@ -74,12 +84,30 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let params = frame["params"] as? [String: Any] ?? [:]
         switch method {
         case "initialize":
+            // `acp.trust.set` listed: the person answers the folder question here (acpmux never
+            // lists it, so a remote browser's page still cannot).
             reply(id, ["protocolVersion": 1, "agentCapabilities": [String: Any](),
-                       "_meta": ["acpmux": ["origin": "remote", "extensions": [String]()]]])
+                       "_meta": ["acpmux": ["origin": "remote", "extensions": trust == nil ? [] : ["acp.trust.set"]]]])
         case "_acpmux/status":
             reply(id, ["peers": [Any]()])
         case "session/new":
             startChat(id, params)
+        case "acp.trust.get", "acp.trust.set":
+            let level = params["level"] as? String
+            guard let trust, params["sessionId"] == nil || names(params["sessionId"]),
+                  let cwd = params["cwd"] as? String, cwd.hasPrefix("/"), (method == "acp.trust.get") == (level == nil) else {
+                return refuse(id, method)
+            }
+            // task-owner: one daemon call per trust question or answer; its reply ends it
+            Task { [weak self] in
+                do {
+                    let answer = try await trust(cwd, level, params[Self.homeChosenParam] as? String == "true")
+                    self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: answer, as: UTF8.self) + "}" })
+                } catch {
+                    let refused = error as? AgentSessionRemoteError
+                    self?.fail(id, code: refused?.code ?? Self.unsupported, message: refused?.message ?? String(describing: error))
+                }
+            }
         case "session/cancel":
             run(id) { client in try await client.cancel(); return Data("{}".utf8) }
         case "_acpmux/detach":
@@ -160,7 +188,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             } catch {
                 self?.state.withLock { $0.starting = false }
                 let refused = error as? AgentSessionRemoteError
-                self?.fail(id, code: refused?.code ?? Self.unsupported, message: refused?.message ?? String(describing: error))
+                // An untrusted folder is the page's folder trust question (`trust.pending` and the
+                // folder, as acpmux's own gate names it), answered here when the wire can.
+                let question: [String: Any] = refused?.code == "agent_session.untrusted_folder" && self?.trust != nil
+                    ? ["reason": "trust.pending", "cwd": refused?.folder ?? cwd ?? ""] : [:]
+                self?.fail(id, code: refused?.code ?? Self.unsupported, message: refused?.message ?? String(describing: error), data: question)
             }
         }
     }
@@ -269,9 +301,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         fail(id, code: Self.unsupported, message: "\(method) is not available for a chat on another machine")
     }
 
-    private func fail(_ id: String?, code: String, message: String) {
+    private func fail(_ id: String?, code: String, message: String, data: [String: Any] = [:]) {
         guard let id else { return }
-        let error: [String: Any] = ["code": Self.unsupportedCode, "message": message, "data": ["code": code]]
+        let error: [String: Any] = ["code": Self.unsupportedCode, "message": message, "data": data.merging(["code": code]) { $1 }]
         emit(#"{"jsonrpc":"2.0","id":\#(id),"error":"# + String(decoding: Self.json(error), as: UTF8.self) + "}")
     }
 
@@ -305,9 +337,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 public nonisolated struct AgentSessionRemoteError: Error, Sendable, Equatable {
     public var code: String
     public var message: String
+    /// The folder a refused start named (`agent_session.untrusted_folder`).
+    public var folder: String?
 
-    public init(code: String, message: String) {
+    public init(code: String, message: String, folder: String? = nil) {
         self.code = code
         self.message = message
+        self.folder = folder
     }
 }

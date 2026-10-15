@@ -67,8 +67,7 @@ impl Conn {
         self.person.load(Ordering::SeqCst)
     }
 
-    /// Whether this connection gets the person challenge: the unix socket
-    /// or the proven local app.
+    /// Whether this connection gets the person challenge: the unix socket or the proven local app.
     pub(super) fn challengeable(&self) -> bool {
         matches!(self.origin, Origin::Local | Origin::LocalApp)
     }
@@ -173,7 +172,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            serve_stream(hub, stream, peer).await;
+            stream::serve_stream(hub, stream, peer).await;
         });
     }
 }
@@ -701,9 +700,9 @@ async fn serve_connection_from(
                     ev = rx.recv() => ev,
                     note = harnesses.recv() => {
                         match note {
-                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => conn.send(
-                                &Message::notification(method::MUX_HARNESSES_CHANGED, note),
-                            ),
+                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
+                                harness_admin::watch_note(&conn, note)
+                            }
                             // Lagged: a newer change follows with the full list.
                             Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                             Err(broadcast::error::RecvError::Closed) => break,
@@ -806,6 +805,7 @@ async fn refuse_unauthenticated(
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     chats::push_activity(hub, conn, &ev);
+    processes::push_update(conn, &ev);
     let rec = &ev.record;
     let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
@@ -878,32 +878,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir != "mux" {
             return;
         }
-        let kind = match rec.kind.as_str() {
-            "status"
-            | "created"
-            | "user_message"
-            | "turn_end"
-            | "turn_error"
-            | "renamed"
-            | "forked"
-            | "imported"
-            | "permission_request"
-            | "permission_decision"
-            | "permission_group"
-            | "permission_chat_allowance"
-            | "mode"
-            | "model"
-            | "config"
-            | "policy"
-            | "rules"
-            | "tags"
-            | "turn_started"
-            | "turn_result" => rec.kind.as_str(),
-            k if k == "dequeued" || k.starts_with("queue") => "queue",
-            "permission_auto" => "permission_resolved",
-            "permission_reissued" => "permission_request",
-            _ => return,
-        };
+        let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
         if let Ok(s) = hub.resolve(&ev.session_id) {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
@@ -992,23 +967,23 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod change_kind;
 mod chats;
 pub mod conn_auth;
 pub use conn_auth::ConnAuth;
 mod fork_through;
-pub use fork_through::FORK_OPERATIONS;
 mod harness_admin;
 mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+mod processes;
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;
-mod stream;
-use stream::serve_stream;
 mod routes;
 mod secrets;
+mod stream;
 pub(crate) mod trust_gate;
 mod view;
 mod wait;

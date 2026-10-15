@@ -88,6 +88,26 @@ struct DividerDragState {
     /// (cx-piioc), and the one the divider sits on now.
     var snaps: [Double] = []
     var snapped: Double?
+    /// The pointer along `axis` (content space) and its velocity in pt/s,
+    /// lightly smoothed, for the release spring (`SplitMotion.seed`).
+    var pointer: (position: CGFloat, time: CFTimeInterval)?
+    var velocity: CGFloat = 0
+
+    /// Notes the pointer at `point`; a pointer still for 50 ms has no velocity.
+    mutating func sample(_ point: CGPoint, at time: CFTimeInterval) {
+        let position = axis == .horizontal ? point.x : point.y
+        if let last = pointer, time > last.time {
+            let instant = (position - last.position) / CGFloat(time - last.time)
+            velocity = time - last.time > 0.05 ? instant : velocity * 0.4 + instant * 0.6
+        }
+        pointer = (position, time)
+    }
+
+    /// Velocity at release: zero when the pointer stopped before letting go.
+    func releaseVelocity(at time: CFTimeInterval) -> CGFloat {
+        guard let pointer, time - pointer.time <= 0.05 else { return 0 }
+        return velocity
+    }
 
     /// How close, in points, a split divider comes to a snap before it lands there.
     static let snapDistance: CGFloat = 8

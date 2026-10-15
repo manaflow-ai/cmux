@@ -38,6 +38,8 @@ export type AcpmuxRow = {
   plan?: AcpmuxPlanEntry[];
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
+  /// A session offer's chip (offer/OfferChip.tsx).
+  offer?: AcpmuxSessionOffer;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -103,6 +105,21 @@ export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; 
 /// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
 /// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
 export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
+
+/// An agent's offer of a parallel chat (cx-807da, acpmux `hub/offers.rs`): the `session_offer`
+/// record, and its `session_offer_decision` once the person answered. Title and prompt are the
+/// agent's text, drawn as plain text.
+export type AcpmuxSessionOffer = {
+  offerId: string;
+  title: string;
+  prompt: string;
+  cwd: string;
+  worktree: boolean;
+  harness?: string;
+  model?: string;
+  outcome?: "accepted" | "dismissed";
+  childSessionId?: string;
+};
 
 export type AcpmuxPermission = {
   permissionId: string;
@@ -201,6 +218,10 @@ export type AcpmuxSnapshot = {
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
   origin?: "local" | "remote" | "peer" | "unknown";
+  /// The connection takes the person's folder trust answer although it is `remote`: the app's
+  /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
+  /// so a remote browser still cannot answer.
+  answersTrust?: boolean;
   sessionId?: string;
   isWorking: boolean;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose

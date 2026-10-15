@@ -762,17 +762,37 @@ fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
     }
     Ok(bytes)
 }
-/// Windows port: the owner check reads the file's ACL there (a later
-/// landing); until then no folder profile is read (fail closed).
-#[cfg(not(unix))]
+/// Windows: as on Unix, with the owner and access list check
+/// (`owner_only.rs`) in place of the uid and mode bits.
+#[cfg(windows)]
 fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
     let shown = path.to_string_lossy().into_owned();
-    Err(Diagnostic::error(
-        &shown,
-        None,
-        crate::platform::unsupported("folder profiles").to_string(),
-        None,
-    ))
+    let error = |m: String, fix: Option<String>| Diagnostic::error(&shown, None, m, fix);
+    let meta =
+        std::fs::symlink_metadata(path).map_err(|e| error(format!("cannot read: {e}"), None))?;
+    if !meta.file_type().is_file() {
+        return Err(error("a folder profile must be a regular file, not a symlink".into(), None));
+    }
+    if meta.len() > MAX_PROFILE_BYTES {
+        return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
+    }
+    match crate::owner_only::changer_other_than_us(path) {
+        Ok(None) => {}
+        Ok(Some(sid)) => {
+            return Err(error(
+                format!(
+                    "another user ({sid}) can change this file, and a profile runs a program with your rights"
+                ),
+                Some(format!("icacls \"{shown}\" /inheritance:r /grant:r \"%USERNAME%:F\"")),
+            ));
+        }
+        Err(e) => return Err(error(format!("cannot read the file's access list: {e}"), None)),
+    }
+    let bytes = std::fs::read(path).map_err(|e| error(format!("cannot read: {e}"), None))?;
+    if bytes.len() as u64 > MAX_PROFILE_BYTES {
+        return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
+    }
+    Ok(bytes)
 }
 
 /// The icon's bytes: a regular file directly in the profile folder.

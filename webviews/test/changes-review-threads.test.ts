@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("changes-review-threads.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -29,6 +30,7 @@ await requireBrowserLane("changes-review-threads.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the gallery stage once before the measured page, as composer-mention.test.ts does: the
     // first load can trigger Vite's dependency optimizer and reload its context mid-compile.

@@ -277,6 +277,38 @@ request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$head"
 
+# The tree's publisher can be NEWER than the green commit (2026-10-14: 2e420aa7a9
+# compiled green at 10:21Z, its tree published later from a newer push whose
+# own compile was replaced). Candidates are bounded below by nightly-next, not
+# by the publisher, so the older green commit is still requested.
+git -C "$src" remote add origin "$src" 2>/dev/null || git -C "$src" remote set-url origin "$src"
+git_q -C "$src" checkout -q -b lowerbound "$head"
+echo x > "$src/GreenX.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "green, before the publisher"
+greenx=$(git -C "$src" rev-parse HEAD)
+echo y > "$src/PublisherY.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "publisher, compile replaced"
+publisher=$(git -C "$src" rev-parse HEAD)
+[[ "$(key "$greenx")" == "$(key "$head")" && "$(key "$publisher")" == "$(key "$head")" ]] || fail "fixture: X and Y must share the published tree"
+git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
+git_q -C "$src" checkout -q --detach "$publisher"
+runs 41 "$publisher" feat-cmux-next 40 "$greenx" feat-cmux-next
+jobs 41 completed cancelled; jobs 40 completed success
+request --tree-ready "$publisher"
+[[ "$status" == 0 ]] && dispatched "$greenx" \
+  || fail "a green commit older than the tree's publisher but ahead of nightly-next must be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+
+# A commit already on nightly-next is never requested again, from either side:
+# a stale request would evict a newer waiting one in main's promote job group.
+git_q -C "$src" update-ref refs/heads/nightly-next "$greenx"
+request --tree-ready "$publisher"
+[[ "$status" == 0 ]] && ! dispatched "$greenx" \
+  || fail "a commit already on nightly-next must not be requested again (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$greenx"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$greenx" && grep -q "already on nightly-next" <<<"$out" \
+  || fail "--release-compile-green must not re-request a promoted commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
+git_q -C "$src" checkout -q --detach "$head"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"

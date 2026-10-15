@@ -55,7 +55,12 @@ enum WorkspaceStructureHandlers {
     /// screens, columns, splits and tabs: new terminals in each terminal's
     /// directory and, with `browsers`, the same pages.
     private static func duplicate(_ context: AppActionContext, _ invocation: ActionInvocation, browsers: Bool) throws {
-        let workspace = try context.workspace(invocation).model
+        try duplicate(context, context.workspace(invocation).model, browsers: browsers)
+    }
+
+    /// `done` gets the new workspace's id once its layout is built (nil when it failed).
+    static func duplicate(_ context: AppActionContext, _ workspace: WorkspaceModel, browsers: Bool,
+                          done: (@MainActor @Sendable (String?) -> Void)? = nil) throws {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
@@ -88,8 +93,10 @@ enum WorkspaceStructureHandlers {
                                                                   icon: blueprint.icon.map { .set($0) } ?? .unchanged)
                     }
                 }
+                done?(id)
                 return nil
             } catch {
+                done?(nil)
                 return ActionWorkFailure("duplicate workspace", error)
             }
         })
