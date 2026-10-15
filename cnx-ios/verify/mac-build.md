@@ -1,6 +1,6 @@
 # cmux-next Mac build for the cnx-ios overnight work
 
-Run this Mac build: (pending: first build of feat-cnx-ios-macnext 9063df14 is on the fleet)
+Run this Mac build: `~/cnx-ios-builds/20261015-9063df1493-mac-prod/cmux NEXT iOS Test.app` (9063df1493d3)
 
 Branch `feat-cnx-ios-macnext` integrates every Mac-side fix for the cmux-next
 iOS work. It is for dogfood builds only; it never merges anywhere. Each build
@@ -67,3 +67,18 @@ via `open --env`; no Keychain prompt, no SecurityAgent):
 | Browser tab streams (https://example.com in the seed workspace, opened from the phone's tab grid) | pass by evidence: the phone shows the page (screenshot `verify/rig-phone-browser-example-com.png` in the build folder, overlay `3 fps · track · latency 209 ms`), hostd logs `browser: video on the link's media lane`. The step's OCR needle was stale (example.com changed its copy); fixed in the rig, rerun below. |
 | cnx-hostd kill, WebRTC (3 SIGKILLs, 20 s apart) | pass: link up 1.86, 1.96, 1.57 s after the kill (supervisor restart ~1.0 s, then ~0.7 s to link up); the phone's terminal input reached the Mac after each |
 | Transport WebRTC to WireGuard and back | pass: WireGuard Connected in 7.9 s, back in 7.7 s, terminal input on both |
+| Transport WireGuard (stays on), run4c | pass: Connected in 7.8 s |
+| Browser tab streams over WireGuard, run4c | pass: the page is on the phone 4.9 s after opening the tab from the grid (includes starting the browser host) |
+| cnx-hostd kill over WireGuard (3 SIGKILLs) | pass: link up 1.81, 2.26, 1.88 s after the kill (median 1.88), WireGuard via relay; terminal input reached the Mac after each |
+| Plain `codex` in a terminal produces a Feed item (real model call) | pass, on a laptop rig (hidden app, `open -g -j` + `open --env`, headless simulator, the laptop's codex 0.162.1 login; the minis have no working Codex login): finished turn in the Feed 16.1 s after the prompt; the approval showed as Needs input after 74.5 s; Answer in Terminal opened the tab. Command: `codex --sandbox read-only --ask-for-approval on-request` (no `--no-daemon`). |
+
+Both rigs were quit and their simulators deleted; no Keychain prompt or SecurityAgent on either
+Mac. Evidence: mini-cmux10s `~/cnx-macnext/evidence/run{2,3,4c}/`, laptop
+`~/cnx-ios-builds/20261015-9063df1493-e2e/evidence-codex/`.
+
+Notes:
+- Same-host rig: on mini-cmux10s the simulator and the rig Mac share one machine; WebRTC picked
+  a direct path, WireGuard a relay path. The phone side used the real link either way.
+- The default transport in the iOS Demo config is still WebRTC.
+- Not folded: parity commit cc91107b (SECURITY.md and 13742-recommendation.md text for the
+  agentcwd decision; the code is already here through feat-cnx-ios-agentcwd).
