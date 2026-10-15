@@ -107,18 +107,13 @@ def leg_navigation(client: cmux, sid: str, base: str) -> None:
     client.navigate(sid, f"{base}/page2.html")
     _wait_for(lambda: client.get_url(sid).endswith("/page2.html"), 20, "page2 URL in the chrome")
     _wait_for(lambda: _title(client, sid) == "Chrome UI Page 2", 20, "page2 title")
+    # `browser.back` returns once the back navigation committed (automation's
+    # contract), so the chrome's URL is already the previous page here.
     client.browser_back(sid)
-    _wait_for(lambda: client.get_url(sid).endswith("/index.html"), 20, "Back to index")
-    # The chrome's Forward is enabled once the back navigation commits; until
-    # then Forward is a no-op on either engine, so ask again until it moves.
-    # page2 is the last entry, so a repeated Forward cannot overshoot.
-    def forwarded() -> bool:
-        if client.get_url(sid).endswith("/page2.html"):
-            return True
-        client.browser_forward(sid)
-        return False
-
-    _wait_for(forwarded, 20, "Forward to page2")
+    url = client.get_url(sid)
+    _must(url.endswith("/index.html"), f"browser.back returned before its commit: URL is {url}")
+    client.browser_forward(sid)
+    _wait_for(lambda: client.get_url(sid).endswith("/page2.html"), 10, "Forward to page2")
 
 
 def leg_address_bar(client: cmux, sid: str) -> None:
