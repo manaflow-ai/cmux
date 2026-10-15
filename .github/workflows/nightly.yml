@@ -3957,6 +3957,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The DMG notarization below runs the bundle notice check, which reads
+      # ghostty-next/build.zig.zon. Without it, run 38669958906 retired an
+      # accepted submission.
+      - name: Initialize cmux-next notices submodule
+        if: steps.order.outputs.skip != 'true'
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
       - name: Select Xcode
         if: steps.order.outputs.skip != 'true'
         run: ./scripts/select-ci-xcode.sh
