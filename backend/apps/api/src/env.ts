@@ -2,6 +2,7 @@ import type { AddressDO } from "./address-do.ts"
 import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
+import type { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
@@ -119,6 +120,25 @@ export interface Env {
   readonly BILLING_LEVELS_KEY?: string
   /** Payment service key of the usage sync (billing-usage-sync.ts). Test mode only in this phase: a live key is refused. */
   readonly STRIPE_USAGE_KEY?: string
+  /** Prepaid Cloud Chief credits (credits.ts): the top-up key (test mode only; default STRIPE_USAGE_KEY) and the top-up webhook's signing secret. */
+  readonly STRIPE_CREDITS_KEY?: string
+  readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
+  /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
+  readonly CHIEF_CREDITS_MARGIN?: string
+  /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
+  readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
+  /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
+  readonly CHIEF_CREDITS_ENFORCE?: string
+  /** Top-up amounts a person may pick, comma list of whole USD (default 10,20,50,100). */
+  readonly CHIEF_CREDITS_TOPUP_USD?: string
+  /** Optional payment-service product id for the top-up line (else an inline "cmux Cloud credits" line). */
+  readonly CHIEF_CREDITS_PRODUCT?: string
+  /** "mysql": the team meters mirror credits to the billing database through PS_MYSQL (credits-mirror.ts). Off otherwise. */
+  readonly CREDITS_MIRROR?: string
+  /** Dogfood grant (credits-admin.ts): comma list of team_ or user_ ids, the USD per entry, and the round (raise to grant again). */
+  readonly CHIEF_CREDITS_DOGFOOD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_USD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
   /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
   readonly BILLING_USAGE_PRICE_SET?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
@@ -198,12 +218,32 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
+  /** The Claude route's auth: "stack" (default, X-Stack-Auth) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-routes.ts. */
+  readonly CHIEF_BRAIN_CLAUDE_AUTH?: string
+  readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
+  /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
+  readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
+  /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */
+  readonly CHIEF_BRAIN_CLAUDE_EFFORT_BODY?: string
+  /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
+  readonly CHIEF_BRAIN_CACHE_TTL?: string
+  /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
+  readonly OPENROUTER_API_KEY?: string
+  readonly OPENROUTER_BASE_URL?: string
   readonly CHIEF_BRAIN_CLAUDE_REFRESH_URL?: string
   readonly CHIEF_BRAIN_CLAUDE_PROJECT?: string
   /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */
   readonly CHIEF_BRAIN_DAILY_TURNS?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
+  /** One OpencodeBrainDO per chief: the opencode brain (implementation O, chief-brain-opencode/) and its container. Absent: O is off. */
+  readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
+  /** "1": a Chief's owner may pick the opencode brain (`brain_impl`), and MuxDO asks it first. */
+  readonly CHIEF_OPENCODE_ENABLED?: string
+  /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
+  readonly CHIEF_OPENCODE_CONTAINER?: string
+  /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
+  readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */

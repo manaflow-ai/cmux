@@ -39,6 +39,24 @@ pub struct Callbacks {
     pub on_program_status: Option<ProgramStatusFn>,
 }
 
+/// What libghostty's userdata points at: the host callbacks plus the
+/// geometry the terminal reports to size queries. `repr(C)` with
+/// `callbacks` first, so trampolines may treat the userdata as a
+/// `*mut Callbacks`.
+#[repr(C)]
+pub(super) struct Hooks {
+    pub(super) callbacks: Callbacks,
+    pub(super) size: sys::GhosttySizeReportSize,
+}
+
+impl Hooks {
+    pub(super) fn new(callbacks: Callbacks, cols: u16, rows: u16) -> Self {
+        let size =
+            sys::GhosttySizeReportSize { rows, columns: cols, cell_width: 0, cell_height: 0 };
+        Self { callbacks, size }
+    }
+}
+
 unsafe extern "C" fn write_pty_trampoline(
     _terminal: sys::GhosttyTerminal,
     userdata: *mut c_void,
@@ -69,21 +87,34 @@ unsafe extern "C" fn bell_trampoline(_terminal: sys::GhosttyTerminal, userdata: 
     }
 }
 
-/// Points libghostty at `callbacks` (heap-pinned by the terminal) and
+/// Answers XTWINOPS size queries (CSI 14/16/18 t) and in-band size reports
+/// (mode 2048) from the geometry of the last resize, as Ghostty does.
+unsafe extern "C" fn size_trampoline(
+    _terminal: sys::GhosttyTerminal,
+    userdata: *mut c_void,
+    out_size: *mut sys::GhosttySizeReportSize,
+) -> bool {
+    let hooks = unsafe { &*(userdata as *const Hooks) };
+    unsafe { *out_size = hooks.size };
+    true
+}
+
+/// Points libghostty at `hooks` (heap-pinned by the terminal) and
 /// installs every trampoline the callbacks need.
 ///
 /// # Safety
-/// `raw` is a live terminal and `callbacks` outlives it or is uninstalled
+/// `raw` is a live terminal and `hooks` outlives it or is uninstalled
 /// with [`uninstall`] first.
-pub(super) unsafe fn install(raw: sys::GhosttyTerminal, callbacks: &mut Callbacks) {
-    let has_program_status = callbacks.on_program_status.is_some();
-    let userdata = callbacks as *mut Callbacks as *mut c_void;
+pub(super) unsafe fn install(raw: sys::GhosttyTerminal, hooks: &mut Hooks) {
+    let has_program_status = hooks.callbacks.on_program_status.is_some();
+    let userdata = hooks as *mut Hooks as *mut c_void;
     let set =
         |option, value: *const c_void| unsafe { sys::ghostty_terminal_set(raw, option, value) };
     set(sys::GHOSTTY_TERMINAL_OPT_USERDATA, userdata);
     set(sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY, write_pty_trampoline as *const c_void);
     set(sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED, title_changed_trampoline as *const c_void);
     set(sys::GHOSTTY_TERMINAL_OPT_BELL, bell_trampoline as *const c_void);
+    set(sys::GHOSTTY_TERMINAL_OPT_SIZE, size_trampoline as *const c_void);
     if has_program_status {
         // Installed only with a consumer: libghostty answers the support
         // query exactly while this option is set.
@@ -108,6 +139,7 @@ pub(super) unsafe fn uninstall(raw: sys::GhosttyTerminal) {
         sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY,
         sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED,
         sys::GHOSTTY_TERMINAL_OPT_BELL,
+        sys::GHOSTTY_TERMINAL_OPT_SIZE,
         sys::GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS,
         sys::GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT,
     ] {

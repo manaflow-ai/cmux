@@ -282,6 +282,11 @@ if [ -n "$CONTINUE_STATE" ]; then
     fi
     exit 0
   fi
+  # Apple's verdict, so the recovery step can tell a rejected submission from
+  # an accepted one that a later local check (staple, launch, notices) failed.
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "notary_status=$DMG_STATUS" >> "$GITHUB_OUTPUT"
+  fi
 fi
 
 if [ "$SUBMIT_ONLY" = true ]; then

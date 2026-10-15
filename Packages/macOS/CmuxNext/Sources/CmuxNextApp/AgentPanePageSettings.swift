@@ -26,6 +26,7 @@ final class AgentPanePageSettings {
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
+        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in

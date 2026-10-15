@@ -55,8 +55,8 @@ final class AppServices {
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater))  // first read in init (no IUO)
-    /// cmux.json controller; set by `AppDelegate` once it starts.
-    var settings: SettingsController?
+    /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
@@ -119,7 +119,7 @@ final class AppServices {
         service.start()
         return service
     }()
-    /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
+    /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()

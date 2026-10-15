@@ -104,6 +104,8 @@ const browserSettleTimer: SettleTimer = (run, ms) => {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /** Granted folder trust and chat-wide permission state, folded into the Access menu. */
+  permissionAccess?: ComposerPermissionAccess;
   onModel(modelId: string): void;
   onMode(modeId: string): void;
   onEffort(configId: string, value: string): void;
@@ -138,6 +140,16 @@ type Props = {
   pickerCatalog?: PickerCatalog;
 };
 
+export type ComposerPermissionGrant = {
+  id: string;
+  label: string;
+  onRemove(): void;
+};
+
+export type ComposerPermissionAccess = {
+  grants: readonly ComposerPermissionGrant[];
+};
+
 /// The composer bar's controls after the + button: the model chip (its tooltip says how much of
 /// the context window the chat has used), effort, the permission mode (in the warning color when
 /// it skips approvals) and a Plan/Build toggle. Each control shows only when the agent offers it.
@@ -145,6 +157,7 @@ type Props = {
 /// Send/Stop alone.
 export function ComposerPickers({
   snapshot,
+  permissionAccess,
   onModel,
   onMode,
   onEffort,
@@ -207,6 +220,7 @@ export function ComposerPickers({
   }));
   const plan = allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
+  const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
   const currentId = summary?.modes?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
   // Leaving Plan returns to the permission mode this session had before it, never another session's.
@@ -567,16 +581,18 @@ export function ComposerPickers({
         />
       )}
       {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
-      {modes.length === 0 && startMode && startModeName && (
+      {modes.length === 0 && !hasGrants && startMode && startModeName && (
         <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
-      {modes.length > 0 && (
+      {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
+      {(modes.length > 0 || hasGrants) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes}
           current={mode?.id}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
+          permissionAccess={permissionAccess}
           onMode={onMode}
         />
       )}
@@ -641,6 +657,7 @@ function AccessMenu({
   current,
   sessionId,
   warning,
+  permissionAccess,
   onMode,
 }: {
   label: string;
@@ -648,8 +665,10 @@ function AccessMenu({
   current?: string;
   sessionId?: string;
   warning: string;
+  permissionAccess?: ComposerPermissionAccess;
   onMode(modeId: string): void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
@@ -665,6 +684,7 @@ function AccessMenu({
   // and every mode, the first included, is a pick.
   const value = optimisticMode ?? current ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
+  const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
     setOptimistic({ sessionId, modeId: next });
     onMode(next);
@@ -675,7 +695,14 @@ function AccessMenu({
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
-          <span className="acpmux-mode-text">{currentMode?.name ?? label}</span>
+          <span className="acpmux-mode-text">
+            {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
+          </span>
+          {grants.length > 0 && (
+            <span className="acpmux-access-grant-count" aria-hidden="true">
+              {grants.length}
+            </span>
+          )}
           <ChevronIcon />
         </MenuButton>
         <MenuPopup
@@ -692,26 +719,46 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
-          <MenuRadioGroup value={value} onValueChange={pick}>
-            {modes.map((choice, index) => (
-              <MenuRadioItem
-                key={choice.id}
-                value={choice.id}
-                shortcut={index < 9 ? String(index + 1) : undefined}
-                className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-              >
-                <span className="acpmux-access-item-icon" aria-hidden="true">
-                  {choice.icon ?? <ShieldIcon />}
-                </span>
-                <span className="acpmux-menu-text">
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                  {choice.description || unrestricted(choice.id) ? (
-                    <span className="acpmux-menu-description">{choice.description ?? warning}</span>
-                  ) : null}
-                </span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
+          {modes.length > 0 && (
+            <MenuRadioGroup value={value} onValueChange={pick}>
+              {modes.map((choice, index) => (
+                <MenuRadioItem
+                  key={choice.id}
+                  value={choice.id}
+                  shortcut={index < 9 ? String(index + 1) : undefined}
+                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                >
+                  <span className="acpmux-access-item-icon" aria-hidden="true">
+                    {choice.icon ?? <ShieldIcon />}
+                  </span>
+                  <span className="acpmux-menu-text">
+                    <span className="acpmux-menu-label">{choice.name}</span>
+                    {choice.description || unrestricted(choice.id) ? (
+                      <span className="acpmux-menu-description">{choice.description ?? warning}</span>
+                    ) : null}
+                  </span>
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          )}
+          {grants.length > 0 && (
+            <fieldset className="acpmux-access-grants" aria-label={t("permission.grants")}>
+              <div className="acpmux-access-grants-heading">{t("permission.grants")}</div>
+              {grants.map((grant) => (
+                <div className="acpmux-access-grant" key={grant.id}>
+                  <span className="acpmux-access-grant-label">{grant.label}</span>
+                  <button
+                    type="button"
+                    className="acpmux-access-grant-remove"
+                    aria-label={`${t("permission.revoke")}: ${grant.label}`}
+                    onClick={grant.onRemove}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </fieldset>
+          )}
         </MenuPopup>
       </Menu>
     </span>
