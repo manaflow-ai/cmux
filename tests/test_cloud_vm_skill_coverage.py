@@ -3,8 +3,8 @@
 Keeps the Cloud skill and the affected CLI references in lockstep with the
 current CLI and guest dispatcher.
 
-Ground truth is the Swift source (no binary needed, so this runs on the Linux
-guard lane):
+Ground truth is the CLI, guest, and plugin source (no binary needed, so this
+runs on the Linux guard lane):
 
   - every `cmux vm <verb>` (and alias) the dispatcher accepts,
   - every `cmux vm workspace|terminal <sub>` and `cmux surface <sub>`,
