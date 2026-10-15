@@ -1376,11 +1376,13 @@ final class WindowTerminalPortal: NSObject {
         let containerFrame: NSRect?
         let referenceFrame: NSRect?
         let entries: [ObjectIdentifier: HostedGeometrySignature]
+        let pendingLayoutViews: Set<ObjectIdentifier>
     }
 
     /// Raw-rect snapshot of everything a sync pass reads or writes.
     private func externalGeometrySignature() -> ExternalGeometrySignature {
         var entries: [ObjectIdentifier: HostedGeometrySignature] = [:]
+        var pendingLayoutViews: Set<ObjectIdentifier> = []
         entries.reserveCapacity(entriesByHostedId.count)
         for (id, entry) in entriesByHostedId {
             let expected = entry.anchorView.flatMap { anchor in
@@ -1390,6 +1392,21 @@ final class WindowTerminalPortal: NSObject {
                 hostedFrame: entry.hostedView?.frame,
                 expectedFrame: expected
             )
+            // A reveal/materialization can invalidate a pane's layout before
+            // any frame changes. The old small frame is not settled geometry
+            // until that pending container layout has run. Include only the
+            // visible anchor hierarchy, not the portal's own layout work, so
+            // self-generated notifications still terminate in the cache.
+            if entry.visibleInUI {
+                var current = entry.anchorView
+                while let view = current {
+                    if view.needsLayout || view.needsUpdateConstraints {
+                        pendingLayoutViews.insert(ObjectIdentifier(view))
+                    }
+                    if view === installedContainerView { break }
+                    current = view.superview
+                }
+            }
         }
         return ExternalGeometrySignature(
             windowSize: window?.frame.size,
@@ -1397,7 +1414,8 @@ final class WindowTerminalPortal: NSObject {
             hostFrame: hostView.frame,
             containerFrame: installedContainerView?.frame,
             referenceFrame: installedReferenceView?.frame,
-            entries: entries
+            entries: entries,
+            pendingLayoutViews: pendingLayoutViews
         )
     }
 
