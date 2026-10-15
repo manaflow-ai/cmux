@@ -52,7 +52,12 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     if (!item || result?.replayed || !head?.agent || !head.owner_user || head.brain !== "cloud") return
     const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(head.agent, item.conversation)))
     const wake = { agent: head.agent, owner: head.owner_user, conversation: item.conversation, seq: item.seq, reason: item.reason }
-    this.ctx.waitUntil(brain.wake(wake).then(() => undefined, (e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: head.agent, error: String(e).slice(0, 200) }))))
+    const failed = (e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: head.agent, error: String(e).slice(0, 200) }))
+    // A Chief whose owner picked the opencode brain (chief-brain-opencode/) is answered there; any other, or one on a
+    // deployment without the brain container, goes to the P brain.
+    const opencode = this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO ? this.env.OPENCODE_BRAIN_DO.get(this.env.OPENCODE_BRAIN_DO.idFromName(head.agent)) : undefined
+    const first = opencode ? opencode.wake(wake) : Promise.resolve({ skipped: "impl_pi" as string })
+    this.ctx.waitUntil(first.then((r) => ("skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container") ? brain.wake(wake).then(() => undefined) : undefined)).then(() => undefined, failed))
   }
 
   /** mux.queue: the head (cursors and pending counts); wake rows come with the snapshot. */
