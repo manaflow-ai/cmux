@@ -38,7 +38,6 @@ pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_
     None => env!("CARGO_PKG_VERSION"),
 };
 pub const NPM_BOOTSTRAP_VERSION: Option<&str> = option_env!("CMUX_TUI_NPM_BOOTSTRAP_VERSION");
-pub const BUILD_IDENTITY: &str = env!("CMUX_TUI_BUILD_IDENTITY");
 
 #[derive(Debug, Clone)]
 pub struct SshBootstrapConfig {
@@ -73,7 +72,10 @@ pub struct SshBootstrapConfig {
 }
 
 impl SshBootstrapConfig {
-    pub fn defaults(destination: impl Into<String>) -> Self {
+    /// `build_identity` is the binary's `cmux_build_identity::BUILD_IDENTITY`.
+    /// The caller passes it so that this crate does not recompile when the
+    /// identity changes (every source edit in a dev build).
+    pub fn defaults(destination: impl Into<String>, build_identity: impl Into<String>) -> Self {
         Self {
             ssh_binary: "ssh".into(),
             destination: destination.into(),
@@ -83,7 +85,7 @@ impl SshBootstrapConfig {
             npm_package: "cmux".into(),
             package_version: NPM_BOOTSTRAP_VERSION.unwrap_or(DISTRIBUTION_VERSION).into(),
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
-            build_identity: BUILD_IDENTITY.into(),
+            build_identity: build_identity.into(),
             local_binary: std::env::current_exe().ok(),
             payload_base_url: "https://files.cmux.com/cmux-tui".into(),
             payload_cache: crate::ssh_artifacts::default_payload_cache(),

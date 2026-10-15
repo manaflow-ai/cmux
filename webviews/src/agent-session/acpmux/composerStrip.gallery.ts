@@ -1,10 +1,12 @@
 // l10n-allow-file: gallery fixtures (sample chats and folders), not shipped UI.
 // The composer's location strip (hq#1957 composer location strip, Composer.tsx, ComposerContext.tsx,
 // composerLocation.css): the folder, the computer and the branch sit in a tab on the card's top
-// edge instead of a second row inside it, so the card holds one controls row. The strip keeps one
-// height with a project, without one and while the host's name loads; queued prompts stack above
-// it. A new chat's effort and access chips draw what this harness last showed, never a placeholder
-// (`awaiting` against `reported`). test/composer-location-strip.test.ts measures it.
+// edge instead of a second row inside it, so the card holds one controls row. Only a new chat has
+// it, before its first send (locationRow.ts); a started chat's card stands alone, and its queued
+// prompts sit on the card. The strip keeps one height with a project, without one and while the
+// host's name loads. A new chat's effort chip draws what this harness last showed and its access
+// chip the start mode acpmux last answered, never a placeholder (`awaiting` against `reported`).
+// test/composer-location-strip.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, noChat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "./model";
@@ -54,7 +56,7 @@ function longFolder(): AcpmuxSnapshot {
 }
 
 /// A new chat on Claude: `reported` once its session has reported effort and access.
-function fresh(reported: boolean): AcpmuxSnapshot {
+function fresh(reported: boolean, fields: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}): AcpmuxSnapshot {
   return noChat([], {
     summary: {
       sessionId: reported ? "gallery-new" : "",
@@ -62,6 +64,7 @@ function fresh(reported: boolean): AcpmuxSnapshot {
       model: "claude-opus-5-5",
       turnCount: 0,
       ...(reported ? { configOptions: [effort], modes } : {}),
+      ...fields,
     },
   });
 }
@@ -80,7 +83,12 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext", "agent-session/acpmux/Composer.tsx#Composer"],
   variants: {
     project: {
-      note: "A started chat: folder · computer and the branch in the strip on the card's top edge; one controls row in the card.",
+      note: "A new chat in a project: folder · computer and the branch in the strip on the card's top edge; one controls row in the card.",
+      ready: { newSession: true },
+      snapshot: fresh(true, { cwd: "/Users/you/src/cmux", branch: "main" }),
+    },
+    started: {
+      note: "After the first send: no location strip (a chat cannot change folder or machine), and no gap where it stood.",
       snapshot: started(),
     },
     "long-folder": {
@@ -98,7 +106,7 @@ export default agentPaneEntry({
       snapshot: fresh(true),
     },
     queued: {
-      note: "A running turn with queued prompts: they stack above the strip, never over it or the field.",
+      note: "A running turn with queued prompts: no strip, the queue sits on the card, never over it or the field.",
       snapshot: {
         ...started({ isWorking: true }),
         queue: [
@@ -108,7 +116,7 @@ export default agentPaneEntry({
       },
     },
     awaiting: {
-      note: "A new chat before its session reports effort and access: the chips this harness last showed, or nothing; never grey bars.",
+      note: "A new chat before its session reports effort and access: the effort this harness last showed and acpmux's kept start mode, or nothing; never grey bars.",
       ready: { newSession: true },
       snapshot: fresh(false),
     },

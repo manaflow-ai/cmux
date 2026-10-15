@@ -197,6 +197,18 @@ pub(super) async fn handle(
     Ok(reply)
 }
 
+/// One payload of the watchers' harness feed to watching connection `conn`:
+/// `_acpmux/harnesses_changed`, or `_acpmux/start_mode_changed {}` when
+/// marked a start-mode notice (`hub/start_mode.rs`), which only local
+/// connections get (a remote-origin connection's chats get no start mode).
+pub(super) fn watch_note(conn: &super::Conn, note: Value) {
+    if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
+        conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
+    } else if !conn.origin.web_class() {
+        conn.send(&crate::rpc::Message::notification(method::MUX_START_MODE_CHANGED, json!({})));
+    }
+}
+
 /// An optional list of ids in `params[key]` (`restart_harness`'s filters): None when absent.
 fn id_set(
     params: &Value,
