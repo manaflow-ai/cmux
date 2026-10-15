@@ -451,6 +451,88 @@ async fn an_edited_rc_file_refreshes_the_login_env_without_a_spawn() {
     );
 }
 
+/// An edit that lands while the login shell is still reading the previous
+/// edit is read too: the login env ends at the last edit, never one behind.
+/// Edit A marks when the shell starts reading it, then takes about 1.5 s;
+/// edit B lands right after the mark, so A's read is running. The shell
+/// lives in a quiet folder: the daemon's log in the scratch folder would
+/// keep the watcher's burst open past A's read.
+#[tokio::test]
+async fn an_edited_rc_file_during_a_read_is_read_again() {
+    let dir = scratch("race", "export NO_PROXY=before-edit\n");
+    std::fs::create_dir_all(dir.join("sh")).unwrap();
+    std::fs::copy(dir.join("loginsh"), dir.join("sh/loginsh")).unwrap();
+    let shell = dir.join("sh/loginsh");
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[("SHELL", shell.to_str().unwrap())]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    // The mark is in no watched folder.
+    let mark = dir.join("reading-a");
+    std::fs::write(
+        dir.join("home/.zshrc"),
+        "touch \"$HOME/../reading-a\"\nsleep 1.5\nexport NO_PROXY=edit-a\n",
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !mark.exists() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(mark.exists(), "edit A was never read");
+    std::fs::write(dir.join("home/.zshrc"), "export NO_PROXY=edit-b-last\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "edit-b-last", Duration::from_secs(10)).await,
+        "the edit made during a read was dropped"
+    );
+}
+
+/// `~/.zshrc -> dotfiles/zshrc`: an edit to the link's target refreshes the
+/// login env (the watcher watches the target's folder too).
+#[tokio::test]
+async fn an_edited_rc_file_behind_a_symlink_refreshes_the_login_env() {
+    let dir = scratch("link", "");
+    std::fs::create_dir_all(dir.join("dotfiles")).unwrap();
+    let target = dir.join("dotfiles/zshrc");
+    std::fs::write(&target, "export NO_PROXY=before-edit\n").unwrap();
+    std::fs::remove_file(dir.join("home/.zshrc")).unwrap();
+    std::os::unix::fs::symlink(&target, dir.join("home/.zshrc")).unwrap();
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    std::fs::write(&target, "export NO_PROXY=after-the-edit\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "after-the-edit", Duration::from_secs(6)).await,
+        "the edited symlink target was not read again"
+    );
+}
+
+/// A startup file the login shell rewrites on every read (a tool that
+/// appends to ~/.zshrc) never settles; the daemon stops reading it again
+/// instead of running login shells back to back.
+#[tokio::test]
+async fn an_rc_file_the_shell_rewrites_stops_being_read_again() {
+    let dir = scratch(
+        "rewrite",
+        "echo run >> \"$HOME/../runs\"\necho '#' >> \"$HOME/.zshrc\"\nexport NO_PROXY=self-rewriting\n",
+    );
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(
+        cached_no_proxy(&dir, "self-rewriting", Duration::from_secs(8)).await,
+        "the first read"
+    );
+    let runs = || std::fs::read_to_string(dir.join("runs")).map(|s| s.lines().count()).unwrap_or(0);
+    // The watcher's burst (300 ms quiet, 2 s at most) and any re-read end well
+    // within this; after it the shell runs no more.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let settled = runs();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        runs(),
+        settled,
+        "the daemon kept running the login shell ({settled} runs, then more)"
+    );
+}
+
 /// A login shell that hangs: the daemon stops waiting after 3 s, and
 /// agents start without it (falling back to the daemon's environment).
 #[tokio::test]
