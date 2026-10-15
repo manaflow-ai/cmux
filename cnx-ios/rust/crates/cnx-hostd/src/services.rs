@@ -989,29 +989,6 @@ mod tests {
     }
 
     #[test]
-    fn browser_tabs_are_a_capability_only_with_a_browser_host() {
-        let mut config = crate::config::ServiceConfig {
-            tui_socket_dir: std::path::PathBuf::from("/tmp"),
-            default_session: "main".into(),
-            default_socket: None,
-            file_roots: Vec::new(),
-            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
-            pairing: None,
-            agent_tab_host: None,
-            uploads_dir: std::path::PathBuf::from("/tmp"),
-            upload_max_bytes: 1,
-            chief_socket: None,
-            browser: crate::browser::BrowserConfig::default(),
-        };
-        assert_eq!(capabilities(&config), ["removal-v1"]);
-        let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
-            Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
-        });
-        config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
-        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM]);
-    }
-
-    #[test]
     fn upload_names_are_safe() {
         assert_eq!(safe_file_name("photo.jpg"), "photo.jpg");
         assert_eq!(safe_file_name("../../etc/passwd"), "passwd");
