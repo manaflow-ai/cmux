@@ -13,6 +13,7 @@ import {
   SCALES,
   WIDTHS,
   widthPx,
+  withColorScheme,
   ZOOMS,
   type GalleryEnv,
 } from "../env";
@@ -424,7 +425,7 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         className={selectClass}
         value={env.colorScheme}
         options={appearanceOptions}
-        onChange={(value) => set("colorScheme", value as GalleryEnv["colorScheme"])}
+        onChange={(value) => onChange(withColorScheme(env, value as GalleryEnv["colorScheme"]))}
         label="Appearance"
       />
       <button

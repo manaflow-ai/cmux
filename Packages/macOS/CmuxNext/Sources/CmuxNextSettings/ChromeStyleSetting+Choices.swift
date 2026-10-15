@@ -15,6 +15,7 @@ extension ChromeStyleSetting {
         case .bare: SettingsText.keyed("settings.choice.chromeStyle.bare", "Bare")
         case .panes: SettingsText.keyed("settings.choice.chromeStyle.panes", "Panes")
         case .twoTone: SettingsText.keyed("settings.choice.chromeStyle.twoTone", "Two-Tone")
+        case .floating: SettingsText.keyed("settings.choice.chromeStyle.floating", "Floating Panes")
         }
     }
 }
