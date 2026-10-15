@@ -57,6 +57,7 @@ enum DebugNotifications {
             "unread": .array(unread),
             "windows": .array(windows),
             "banners": .array(center.desktop.posted.map(banner)),
+            "withdrawn_banners": .array(center.desktop.withdrawn.map(JSONValue.string)),
             "authorization": .string(center.desktop.authorization),
             "log": .array(center.log.map(JSONValue.string)),
             "feed_log": .array((center.feedDriver?.log ?? []).map(JSONValue.string)),

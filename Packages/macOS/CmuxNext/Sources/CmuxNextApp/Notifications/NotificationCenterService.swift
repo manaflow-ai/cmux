@@ -37,7 +37,9 @@ final class NotificationCenterService {
     /// (`NotificationCenterService+ProgramStatus`).
     @ObservationIgnored var heldProgramAlerts: [UInt64: Task<Void, Never>] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
-    @ObservationIgnored private var banners: [String: [String]] = [:]
+    @ObservationIgnored var banners: [String: [String]] = [:]
+    /// Agent-finished banners that land in one burst share one per workspace.
+    @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -322,7 +324,7 @@ final class NotificationCenterService {
         }
         feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
-        if decision.desktop {
+        if decision.desktop, !postFinishedTurn(notification, located: located, program: program) {
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
                  subtitle: Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
         }
@@ -334,7 +336,7 @@ final class NotificationCenterService {
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
                       subtitle: String? = nil, program: ProgramStatusNotification? = nil) {
-        let id = "cmux-notification-\(notification.notification.rawValue)"
+        let id = Self.bannerID(notification)
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let title = program?.title(localizations: localizations)
             ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
@@ -344,6 +346,10 @@ final class NotificationCenterService {
                      reply: notification.reply && tab?.kind == .pty)
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }
+    }
+
+    nonisolated static func bannerID(_ notification: DaemonNotification) -> String {
+        "cmux-notification-\(notification.notification.rawValue)"
     }
 
     /// A terminal program chose its banner's title and text (OSC 9/777/99,
