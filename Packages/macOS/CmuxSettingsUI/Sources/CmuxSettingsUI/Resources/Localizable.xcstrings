@@ -15490,6 +15490,124 @@
           }
         }
       }
+    },
+    "settings.browser.engine.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The engine new browser tabs open with. Open tabs keep theirs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحرك الذي تُفتح به علامات تبويب المتصفح الجديدة. تحتفظ علامات التبويب المفتوحة بمحركها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Engine, mit der neue Browser-Tabs geöffnet werden. Offene Tabs behalten ihre."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El motor con el que se abren las nuevas pestañas del navegador. Las pestañas abiertas conservan el suyo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le moteur utilisé par les nouveaux onglets du navigateur. Les onglets ouverts gardent le leur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいブラウザタブで使うエンジンです。開いているタブは現在のエンジンのままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 브라우저 탭이 사용하는 엔진입니다. 열려 있는 탭은 기존 엔진을 유지합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新浏览器标签页使用的引擎。已打开的标签页会保留原来的引擎。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新瀏覽器分頁使用的引擎。已開啟的分頁會保留原本的引擎。"
+          }
+        }
+      }
+    },
+    "settings.browser.engine.subtitleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build doesn't include Chromium, so new browser tabs open in WebKit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتضمن هذا الإصدار Chromium، لذا تُفتح علامات تبويب المتصفح الجديدة في WebKit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Build enthält kein Chromium, daher werden neue Browser-Tabs in WebKit geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta compilación no incluye Chromium, así que las nuevas pestañas del navegador se abren en WebKit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version n’inclut pas Chromium, les nouveaux onglets du navigateur s’ouvrent donc dans WebKit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには Chromium が含まれていないため、新しいブラウザタブは WebKit で開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드에는 Chromium이 포함되어 있지 않아 새 브라우저 탭은 WebKit에서 열립니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本未包含 Chromium，因此新的浏览器标签页会在 WebKit 中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本未包含 Chromium，因此新的瀏覽器分頁會在 WebKit 中開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

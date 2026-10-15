@@ -1,3 +1,4 @@
+import CmuxCEF
 import CmuxCloud
 import CmuxComputerUse
 import AppKit
@@ -112,6 +113,10 @@ final class HostSettingsActions: SettingsHostActions {
                 AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
             }
         }
+    }
+
+    func isChromiumBrowserEngineBundled() -> Bool {
+        CEFRuntime.shared.layout != nil
     }
 
     func clearBrowserHistory() {

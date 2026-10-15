@@ -9,7 +9,7 @@ extension BrowserPanel {
     /// The single seam between socket automation and the panel's engine: the
     /// engine integration returns the panel's Chromium `BrowserPage` here.
     var automationEnginePage: (any BrowserPage)? {
-        nil
+        enginePage
     }
 
     /// The engine this panel renders with, as browser automation reports it.
