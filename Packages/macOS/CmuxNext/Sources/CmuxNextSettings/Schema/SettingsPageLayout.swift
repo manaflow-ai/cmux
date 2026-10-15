@@ -104,7 +104,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "appearance", title: section(.appearance), symbol: "paintbrush",
             groups: [
-                group("settings.group.terminalFont"), group("settings.group.densityMotion"),
+                group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
                 group("settings.group.sidebar"), group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),

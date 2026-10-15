@@ -316,7 +316,8 @@ fn the_chief_writes_its_run_to_the_conversation_as_it_works() {
 }
 
 /// A Unix client that heard `subscribe` with `chief-live-v1`, as the
-/// Channels page does: each `conversation-live` event on a channel.
+/// Channels page does: each `conversation-live`, `conversation-run-changed`
+/// and `conversation-changed` event on a channel, in the order it heard them.
 fn live_listener(socket: &Path) -> std::sync::mpsc::Receiver<Value> {
     let stream = UnixStream::connect(socket).unwrap();
     let mut writer = stream.try_clone().unwrap();
@@ -336,7 +337,11 @@ fn live_listener(socket: &Path) -> std::sync::mpsc::Receiver<Value> {
             let Ok(value) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
-            if value["event"] == "conversation-live" && tx.send(value).is_err() {
+            let wanted = matches!(
+                value["event"].as_str(),
+                Some("conversation-live" | "conversation-run-changed" | "conversation-changed")
+            );
+            if wanted && tx.send(value).is_err() {
                 return;
             }
         }
@@ -362,9 +367,28 @@ fn drive(
         if h.brain.next_timer().is_some_and(|at| at <= Instant::now()) {
             h.brain.on_timer();
         }
-        while let Ok(event) = live.try_recv() {
-            assert_eq!(event["conversation"], conversation, "{event}");
-            frames.push(event["frame"].clone());
+        heard(live, conversation, frames);
+    }
+}
+
+/// What the listener heard so far, in order: each live frame as it is, a run
+/// change as `{type: "run.changed", run, status}`, a posted message as
+/// `{type: "message", author, client_msg_id}`.
+fn heard(live: &std::sync::mpsc::Receiver<Value>, conversation: &str, frames: &mut Vec<Value>) {
+    while let Ok(event) = live.try_recv() {
+        if event["conversation"] != conversation {
+            continue;
+        }
+        match event["event"].as_str() {
+            Some("conversation-live") => frames.push(event["frame"].clone()),
+            Some("conversation-run-changed") => frames.push(json!({
+                "type": "run.changed", "run": event["run"]["id"], "status": event["run"]["status"]})),
+            Some("conversation-changed") if event["change"]["kind"] == "message" => {
+                let message = &event["change"]["message"];
+                frames.push(json!({"type": "message", "author": message["author"],
+                    "client_msg_id": message["client_msg_id"]}));
+            }
+            _ => {}
         }
     }
 }
@@ -563,6 +587,39 @@ fn the_chief_streams_its_run_live_while_it_works() {
         json!({"id": id, "cmd": "conversation-live", "conversation": conversation}),
     );
     assert_eq!(snapshot["runs"], json!([]), "{snapshot}");
+
+    // The order a page sees: the reply's last live frame, then the run's end,
+    // then the reply message (it replaces the streaming text with no jump).
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let position = |frames: &[Value], test: &dyn Fn(&Value) -> bool| frames.iter().position(test);
+    let is_reply = |f: &Value| f["type"] == "message" && f["author"] == "agent_mux";
+    while position(&frames, &is_reply).is_none() {
+        assert!(Instant::now() < deadline, "no reply message: {frames:#?}");
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+        if h.brain.next_timer().is_some_and(|at| at <= Instant::now()) {
+            h.brain.on_timer();
+        }
+        heard(&live, &conversation, &mut frames);
+    }
+    let last_frame = position(&frames, &|f| {
+        f["type"] == "step.delta" && f["step"] == "talk:0" && f["final"] == true
+    })
+    .unwrap_or_else(|| panic!("no final reply frame: {frames:#?}"));
+    let ended = position(&frames, &|f| {
+        f["type"] == "run.changed" && f["status"] == "done"
+    })
+    .unwrap_or_else(|| panic!("no run end: {frames:#?}"));
+    let reply = position(&frames, &is_reply).unwrap();
+    assert!(
+        last_frame < ended && ended < reply,
+        "order {last_frame} {ended} {reply}: {frames:#?}"
+    );
+    let frames: Vec<Value> = frames
+        .into_iter()
+        .filter(|f| f["type"] == "step.delta" || f["type"] == "run.activity")
+        .collect();
 
     // Every frame is the run's; the reply streamed in order, its last frame final.
     assert!(

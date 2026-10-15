@@ -18,6 +18,9 @@
 //! `--badge-ttl`, and exits with CMD's status (128 + signal when a signal
 //! ended it). The app decides whether a finished run notifies (only when it
 //! took long enough and the terminal is not visible).
+//!
+//! `cmux terminal <t> wait --until idle|prompt` lives here too
+//! (status/terminal_wait.rs): it waits on the same status facts.
 
 use std::process::Command;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -25,6 +28,8 @@ use std::time::Instant;
 
 use super::command::CommandPlan;
 use super::{GlobalArgs, OutputMode, Surface, UsageError};
+
+mod terminal_wait;
 
 const DEFAULT_BADGE_TTL: &str = "8s";
 /// Flags `set` passes through to `workspace status set` unchanged.
@@ -73,9 +78,12 @@ pub(super) fn drop_caller_terminal_when_routed(
     }
 }
 
-/// `None` when `command` is not a `status` command.
+/// `None` when `command` is not a `status` command (or `terminal <t> wait`).
 fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     let (first, rest) = command.split_first()?;
+    if super::canonical_scope(first) == "terminal" {
+        return terminal_wait::run(global, rest);
+    }
     if first != "status" {
         return None;
     }
