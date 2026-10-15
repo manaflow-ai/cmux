@@ -1,5 +1,6 @@
 import type { Env } from "../env.ts"
 import { bedrockBody, eventStreamToSse } from "./bedrock-stream.ts"
+import { claudeRoute, claudeRouteReady, meteredOwner } from "./model-routes.ts"
 
 /**
  * Sign-in for the metered Claude route (`/api/claude-david/v1/messages` on the Chatmux service,
@@ -53,16 +54,15 @@ const secretOf = (env: Env): { accessToken: string; refreshToken: string } | nul
   }
 }
 
-/** Whether this deployment can reach the metered Claude route at all (the secret is set). */
-export const claudeConfigured = (env: Env): boolean => secretOf(env) !== null
+/** Whether this deployment can reach the Claude route at all (its credential is set; model-routes.ts). */
+export const claudeConfigured = (env: Env): boolean => claudeRouteReady(env)
 
 /**
  * Owners whose Chiefs may run on Claude: CHIEF_BRAIN_CLAUDE_OWNERS (a var, in wrangler.jsonc) plus
  * CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA (a secret, set with `wrangler secret put` and no deploy, for owners
  * that change often, such as a demo's test user), comma separated user ids. The route bills one person's account.
  */
-export const claudeAllowed = (env: Env, owner: string | null): boolean =>
-  claudeConfigured(env) && owner !== null && owner !== "" && `${env.CHIEF_BRAIN_CLAUDE_OWNERS ?? ""},${env.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""}`.split(",").map((s) => s.trim()).filter(Boolean).includes(owner)
+export const claudeAllowed = (env: Env, owner: string | null): boolean => claudeConfigured(env) && meteredOwner(env, owner)
 
 const row = (sql: SqlStorage, k: string) => sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
 const put = (sql: SqlStorage, k: string, v: string) => sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, k, v)
@@ -85,6 +85,11 @@ export const holderInvalidate = (sql: SqlStorage): void => void sql.exec(`DELETE
  * ClaudeAuthError (fixed text) when there is no secret or the refresh fails.
  */
 export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): Promise<string> => {
+  // An enterprise route with a static bearer token (CHIEF_BRAIN_CLAUDE_AUTH=bearer): nothing to refresh.
+  if (claudeRoute(env).auth === "bearer") {
+    if (!env.CHIEF_BRAIN_CLAUDE_TOKEN) throw new ClaudeAuthError()
+    return `Bearer ${env.CHIEF_BRAIN_CLAUDE_TOKEN}`
+  }
   const secret = secretOf(env)
   if (!secret) throw new ClaudeAuthError()
   // A refresh token the sign-in service rotated replaces the configured one.
@@ -110,13 +115,14 @@ export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): P
  * key is removed and `X-Stack-Auth` set; the body and the answer are converted for Bedrock
  * (bedrock-stream.ts). `auth` throws ClaudeAuthError on failure.
  */
-export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>): typeof fetch =>
+export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>, route: { readonly auth: "stack" | "bearer"; readonly models: ReadonlyArray<string>; readonly ttl?: string } = { auth: "stack", models: [] }): typeof fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
     for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
-    headers.set("X-Stack-Auth", await auth())
+    headers.set(route.auth === "bearer" ? "authorization" : "X-Stack-Auth", await auth())
     headers.set("x-coderouter-client", "cmux-cloud-chief")
-    const body = typeof init?.body === "string" ? bedrockBody(init.body) : init?.body
+    // A route that serves one model names it in its own Bedrock URL; a multi-model route reads `model`.
+    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: route.models.length > 1, ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
     const res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
     if (res.status === 401) await refused().catch(() => undefined)
     // The route answers Bedrock's event stream; the Anthropic client reads Messages events.

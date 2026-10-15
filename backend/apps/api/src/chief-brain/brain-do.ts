@@ -8,10 +8,10 @@ import type { Env } from "../env.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
 import { clip, clipInput, lastTalk, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
-import { AUTH_FAILED, claudeAllowed, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
+import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
 import { capText, cutAtMarks, type Kind, Memory, RETRY_MS } from "./memory.ts"
-import { brainModels, CLAUDE, FAKE, validModelName } from "./models.ts"
+import { brainModels, compactorDefault, compactorModel, FAKE, isClaude, liveOf, modelRefusal, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
 import { memoryTools } from "./brain-tools.ts"
@@ -50,11 +50,11 @@ const DEFAULT_DAILY_TURNS = 300
 export const brainName = (agent: string, conversation: string) => `${agent}/${conversation}`
 export type Admission = { readonly ok: true; readonly config: BrainConfig } | { readonly ok: false; readonly reason: string }
 
-export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "compactor_model" | "role" | "personality" | "instructions" | "chiefs">>
+export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "effort" | "compactor_model" | "role" | "personality" | "instructions" | "chiefs">>
 
 export class ChiefBrainDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql
-  readonly models = brainModels(this.env.AI, this.ctx.id.toString(), { auth: () => this.holder().claudeAuth(), refused: () => this.holder().claudeInvalidate() }, this.env.CHIEF_BRAIN_CLAUDE_URL || undefined)
+  readonly models = brainModels(this.env, this.ctx.id.toString(), { claude: { auth: () => this.holder().claudeAuth(), refused: () => this.holder().claudeInvalidate() }, effort: () => this.config().effort, tap: liveOf(this.ctx, this.env, () => ({ run: this.turnId, conversation: this.turnConversation, agent: this.config().agent })) })
   readonly registry = createRegistry()
   memory: Memory
   compactor: Compactor
@@ -72,8 +72,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         tools: [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config())],
         hooks: [
           hook(GenerationTask, {
-            beforeRequest: async ({ messages }) => {
-              const agent = this.config().agent
+            beforeRequest: async ({ messages }, api) => {
+              const agent = (liveOf(this.ctx).request(String(api.taskId)), this.config().agent)
               if (this.turnConversation && agent) void typing(this.env, this.turnConversation, agent, true)
               return systemFirst(messages)
             },
@@ -114,7 +114,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       memory: this.memory,
       deps: () => {
         const set = this.config().compactor_model
-        const name = set === CLAUDE ? this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE : set
+        const name = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
         return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
       },
       onBuilt: () => undefined,
@@ -134,7 +134,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   private defaults() {
     const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
-    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: this.env.CHIEF_BRAIN_COMPACTOR_MODEL || (this.env.CHIEF_BRAIN_MODEL === CLAUDE ? fallback : this.env.CHIEF_BRAIN_MODEL) || FAKE }
+    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: compactorDefault(this.env, this.env.CHIEF_BRAIN_MODEL || FAKE, fallback) }
   }
   config(): BrainConfig {
     return readConfig(this.sql, this.defaults())
@@ -162,8 +162,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const invalid = patchError(patch, validModelName)
     if (invalid) return { ok: false, code: "validation.invalid", message: invalid }
     // Claude bills one person's metered account: allowed owners only, and never for background compaction.
-    if (patch.compactor_model === CLAUDE) return { ok: false, code: "validation.invalid", message: "the compactor cannot run on Claude" }
-    if (patch.model === CLAUDE && !claudeAllowed(this.env, owner)) return { ok: false, code: "chief_claude_unavailable", message: "Claude is not available for this account here" }
+    const refused = modelRefusal(this.env, owner, patch)
+    if (refused) return refused
     if (patch.enabled === true) {
       const record = await chiefRecord(this.env, owner, agent)
       if (!record) return { ok: false, code: "chief_archived", message: "the chief is archived or unknown" }
@@ -173,7 +173,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       agent,
       owner,
       ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }), ...(patch.chiefs === undefined ? {} : { chiefs: patch.chiefs ? "1" : "0" }),
-      model: patch.model,
+      model: patch.model, effort: patch.effort,
       compactor_model: patch.compactor_model,
       role: patch.role,
       personality: patch.personality,
@@ -388,7 +388,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
         // Claude: an allowed owner, under the deployment's cap, with the route's sign-in; else the fallback model, or no turn.
         const owner = this.config().owner ?? ""
-        if (row.model === CLAUDE && !(await this.holder().claudeTurn(owner).then((ok) => ok && this.holder().claudeAuth().then(() => true), () => false).catch(() => false))) {
+        if (isClaude(row.model) && !(await this.holder().claudeTurn(owner).then((ok) => ok && this.holder().claudeAuth().then(() => true), () => false).catch(() => false))) {
           console.warn(AUTH_FAILED)
           if (!this.env.CHIEF_BRAIN_FALLBACK_MODEL) throw new Error(AUTH_FAILED)
           row.model = this.env.CHIEF_BRAIN_FALLBACK_MODEL
