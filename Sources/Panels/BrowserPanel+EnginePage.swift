@@ -92,6 +92,7 @@ extension BrowserPanel {
     /// Starts mirroring the non-WebKit page's events into the panel.
     func startEnginePageEvents() {
         guard let enginePage, enginePageEventsTask == nil else { return }
+        syncAgentNavigationGuard()
         enginePage.uiDelegate = nil
         applyEnginePageState(enginePage.state)
         let events = enginePage.events

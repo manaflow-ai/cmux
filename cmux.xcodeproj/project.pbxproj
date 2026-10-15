@@ -524,6 +524,7 @@
 		D0B1001EA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001FA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift */; };
 		D7632001A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632002A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift */; };
 		D7632003A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632004A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift */; };
+		D0AE1EE263B9A4BBB0F06312 /* BrowserPanel+AgentURLPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909581C88CA7A063EAA60F65 /* BrowserPanel+AgentURLPolicy.swift */; };
 		C65241010000000000000001 /* BrowserPanel+AppPricingRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */; };
 		8054A0010000000000000001 /* BrowserPanel+AutomationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */; };
 		805600000000000000000001 /* BrowserPanel+AutomationViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */; };
@@ -5262,6 +5263,7 @@
 		D0B1001FA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneDropTargetView.swift; sourceTree = "<group>"; };
 		D7632002A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneFileDropRouting.swift; sourceTree = "<group>"; };
 		D7632004A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneFileDropUploadRegressionTests.swift; sourceTree = "<group>"; };
+		909581C88CA7A063EAA60F65 /* BrowserPanel+AgentURLPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AgentURLPolicy.swift"; sourceTree = "<group>"; };
 		C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AppPricingRestore.swift"; sourceTree = "<group>"; };
 		8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AutomationRecovery.swift"; sourceTree = "<group>"; };
 		805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AutomationViewport.swift"; sourceTree = "<group>"; };
@@ -12369,6 +12371,7 @@
 				D3D75FF5379E5F3EAAA16F9E /* BrowserCrashLog+App.swift */,
 				D7251749BF3474EE41612EA9 /* TerminalController+DebugBrowserSafety.swift */,
 				6413DC924D971DE7A9D3F889 /* BrowserPanel+ChromiumPageFailure.swift */,
+				909581C88CA7A063EAA60F65 /* BrowserPanel+AgentURLPolicy.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15104,6 +15107,7 @@
 				D0B1002EA1B2C3D4E5F60001 /* BrowserPaneDropRouting.swift in Sources */,
 				D0B1001EA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift in Sources */,
 				D7632001A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift in Sources */,
+				D0AE1EE263B9A4BBB0F06312 /* BrowserPanel+AgentURLPolicy.swift in Sources */,
 				C65241010000000000000001 /* BrowserPanel+AppPricingRestore.swift in Sources */,
 				8054A0010000000000000001 /* BrowserPanel+AutomationRecovery.swift in Sources */,
 				805600000000000000000001 /* BrowserPanel+AutomationViewport.swift in Sources */,

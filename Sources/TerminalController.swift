@@ -7970,6 +7970,14 @@ class TerminalController {
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
             let resolvedURL = context.browserPanel.resolveSmartNavigation(from: url)?.url
+            if context.browserPanel.refusesAgentNavigation(rawInput: url, resolvedURL: resolvedURL) {
+                resolutionError = .err(
+                    code: "navigation_refused",
+                    message: "Agents can't open this browser's internal pages",
+                    data: ["url": url]
+                )
+                return
+            }
             if let blockedURL = Self.browserURLAllowlistBlockedURL(
                 rawInput: url,
                 resolvedURL: resolvedURL,
