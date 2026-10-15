@@ -601,24 +601,42 @@ impl Mux {
             .engine
             .participant_ids()
             .map(|id| {
-                let handheld = entry
-                    .engine
-                    .participant(id)
-                    .is_some_and(|participant| participant.device_kind.is_handheld());
-                (id.to_owned(), handheld)
+                let participant = entry.engine.participant(id);
+                let seat = AppliedSeat {
+                    handheld: participant
+                        .is_some_and(|participant| participant.device_kind.is_handheld()),
+                    sized: participant.is_some_and(|participant| participant.viewport.is_some()),
+                };
+                (id.to_owned(), seat)
             })
-            .collect::<std::collections::BTreeMap<String, bool>>();
-        let departed = entry
-            .applied_participants
-            .borrow()
-            .iter()
-            .any(|(id, handheld)| *handheld && !present.contains_key(id));
+            .collect::<std::collections::BTreeMap<String, AppliedSeat>>();
+        let (departed, returned) = {
+            let previous = entry.applied_participants.borrow();
+            let departed = previous
+                .iter()
+                .any(|(id, seat)| seat.handheld && !present.contains_key(id));
+            // A phone or tablet view with a size that was not one before: a
+            // handheld came (back). Its own size counts now, larger or not; a
+            // hold kept for the view it replaces would cap it for the rest of
+            // the grace and resize the PTY a second time when that ends.
+            let returned = present.iter().any(|(id, seat)| {
+                seat.handheld
+                    && seat.sized
+                    && !previous.get(id).is_some_and(|previous| previous.sized)
+            });
+            (departed, returned)
+        };
         *entry.applied_participants.borrow_mut() = present;
+        if returned {
+            entry.hold.set(None);
+        }
         let grace = departed_grid_hold();
         if departed
+            && !returned
             && !grace.is_zero()
             && let Some(applied) = entry.applied.get()
             && (decided.0 > applied.0 || decided.1 > applied.1)
+            && self.schedule_terminal_grid_hold_end(runtime, grace)
         {
             let held = match entry.hold.get() {
                 Some((held, until)) if now < until => {
@@ -627,7 +645,6 @@ impl Mux {
                 _ => applied,
             };
             entry.hold.set(Some((held, now + grace)));
-            self.schedule_terminal_grid_hold_end(runtime, grace);
         }
         match entry.hold.get() {
             Some((held, until)) if now < until => (decided.0.min(held.0), decided.1.min(held.1)),
@@ -639,16 +656,35 @@ impl Mux {
         }
     }
 
-    fn schedule_terminal_grid_hold_end(&self, runtime: SurfaceId, grace: Duration) {
-        let Some(mux) = self.exit_settles.owner() else { return };
+    /// What `terminal_grid_target` changes besides its result, to put back
+    /// when the resize it decided fails.
+    pub(super) fn terminal_grid_hold_snapshot(entry: &TerminalSizingEntry) -> TerminalGridHoldSnapshot {
+        TerminalGridHoldSnapshot {
+            participants: entry.applied_participants.borrow().clone(),
+            hold: entry.hold.get(),
+        }
+    }
+
+    pub(super) fn restore_terminal_grid_hold(entry: &TerminalSizingEntry, snapshot: TerminalGridHoldSnapshot) {
+        *entry.applied_participants.borrow_mut() = snapshot.participants;
+        entry.hold.set(snapshot.hold);
+    }
+
+    /// Ends the hold at its deadline (an intentional bounded delay, the
+    /// hold's own). False when no timer can run (the mux is not owned yet, or
+    /// no thread): then no hold is set, since nothing would end it.
+    fn schedule_terminal_grid_hold_end(&self, runtime: SurfaceId, grace: Duration) -> bool {
+        let Some(mux) = self.exit_settles.owner() else { return false };
         let mux = Arc::downgrade(&mux);
-        let _ = std::thread::Builder::new().name("terminal-grid-hold".into()).spawn(move || {
-            // An intentional bounded delay: the hold's own deadline.
-            std::thread::sleep(grace);
-            if let Some(mux) = mux.upgrade() {
-                mux.end_expired_terminal_grid_hold(runtime);
-            }
-        });
+        std::thread::Builder::new()
+            .name("terminal-grid-hold".into())
+            .spawn(move || {
+                std::thread::sleep(grace);
+                if let Some(mux) = mux.upgrade() {
+                    mux.end_expired_terminal_grid_hold(runtime);
+                }
+            })
+            .is_ok()
     }
 
     fn end_expired_terminal_grid_hold(&self, runtime: SurfaceId) {
@@ -663,13 +699,37 @@ impl Mux {
         self.publish_size_states();
     }
 
-    /// End every grid hold now: a participant disconnected another view on
-    /// purpose, so the grid follows the remaining views at once.
-    pub(crate) fn release_terminal_grid_holds(&self) {
+    /// The terminals (placements) `client` has a view of, for
+    /// `release_terminal_grid_holds` after it is disconnected.
+    pub(crate) fn terminal_placements_of_client(&self, client: u64) -> Vec<SurfaceId> {
+        let sizing = self.client_sizing.lock().unwrap();
+        sizing
+            .surfaces
+            .iter()
+            .filter(|(_, viewers)| viewers.contains_key(&client))
+            .map(|(placement, _)| *placement)
+            .collect()
+    }
+
+    /// End the grid holds of the terminals shown at `placements` now: a
+    /// participant disconnected a view of them on purpose, so their grids
+    /// follow the remaining views at once. Other terminals keep theirs.
+    pub(crate) fn release_terminal_grid_holds(&self, placements: &[SurfaceId]) {
+        if placements.is_empty() {
+            return;
+        }
+        let _lifecycle = self.lock_client_sizing_lifecycle();
         let sizing = self.client_sizing.lock().unwrap();
         let held = sizing
             .terminal_sizing
             .iter()
+            .filter(|(runtime, entry)| {
+                placements.iter().any(|placement| {
+                    *placement == **runtime
+                        || entry.placements.contains(placement)
+                        || sizing.terminal_runtime_by_placement.get(placement) == Some(*runtime)
+                })
+            })
             .filter(|(_, entry)| entry.hold.take().is_some())
             .map(|(runtime, _)| *runtime)
             .collect::<Vec<_>>();
@@ -956,12 +1016,37 @@ impl Mux {
 /// transport switch or brief app switch; short enough that a Mac whose phone
 /// left gets its own width back soon.
 const DEPARTED_GRID_HOLD: Duration = Duration::from_secs(30);
-/// Test hook: the hold in milliseconds (0 turns it off).
+/// Debug builds only: the hold in milliseconds (0 turns it off), read once.
+/// Release builds ignore it.
+#[cfg(debug_assertions)]
 const DEPARTED_GRID_HOLD_ENV: &str = "CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS";
 
 fn departed_grid_hold() -> Duration {
-    std::env::var(DEPARTED_GRID_HOLD_ENV)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map_or(DEPARTED_GRID_HOLD, Duration::from_millis)
+    #[cfg(debug_assertions)]
+    {
+        static HOLD: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+        *HOLD.get_or_init(|| {
+            std::env::var(DEPARTED_GRID_HOLD_ENV)
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .map_or(DEPARTED_GRID_HOLD, Duration::from_millis)
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    DEPARTED_GRID_HOLD
+}
+
+/// One participant as `Mux::terminal_grid_target` last saw it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct AppliedSeat {
+    /// A phone or tablet: only a handheld's departure holds the grid.
+    pub(super) handheld: bool,
+    /// It has reported a viewport.
+    pub(super) sized: bool,
+}
+
+/// `Mux::terminal_grid_hold_snapshot`.
+pub(super) struct TerminalGridHoldSnapshot {
+    participants: std::collections::BTreeMap<String, AppliedSeat>,
+    hold: Option<((u16, u16), Instant)>,
 }
