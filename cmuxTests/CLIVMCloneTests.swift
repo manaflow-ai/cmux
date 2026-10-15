@@ -1395,4 +1395,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(log.params(ofFirst: "vm.resume")?["id"] as? String, "vm-b")
         XCTAssertTrue(result.stderr.contains("Waking brave-otter\u{2026} "), result.stderr)
     }
+
+    func testVMSnapshotWarmListsAndForgetsWarmStarts() throws {
+        let root = try vmCloneScratch("warmls")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try writeVMCloneWarmStart(projectKey: "github.com/acme/api", snapshot: "snap_api", machine: "vm-old", savedSecondsAgo: 7_200, home: home)
+        let (list, _) = try runVMCloneAgainstMock("vcwl", arguments: ["vm", "snapshot", "warm", "--json"], home: home) { _, _ in nil }
+        XCTAssertEqual(list.status, 0, "stdout=\(list.stdout) stderr=\(list.stderr)")
+        let listed = try XCTUnwrap(list.stdout.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any], list.stdout)
+        let rows = try XCTUnwrap(listed["warm_starts"] as? [[String: Any]])
+        XCTAssertEqual(rows.map { $0["project"] as? String }, ["github.com/acme/api"])
+        XCTAssertEqual(rows.first?["snapshot_id"] as? String, "snap_api")
+
+        // `rm` takes any repository spelling, forgets it, and deletes the snapshot on its machine.
+        let (forget, log) = try runVMCloneAgainstMock("vcwr", arguments: ["vm", "snapshot", "warm", "rm", "acme/api"], home: home) { method, _ in
+            method == "vm.snapshot_delete" ? ["deleted": true] : nil
+        }
+        XCTAssertEqual(forget.status, 0, "stdout=\(forget.stdout) stderr=\(forget.stderr)")
+        XCTAssertEqual(log.params(ofFirst: "vm.snapshot_delete")?["id"] as? String, "vm-old")
+        XCTAssertEqual(log.params(ofFirst: "vm.snapshot_delete")?["snapshot_id"] as? String, "snap_api")
+        XCTAssertTrue(readVMCloneWarmStarts(home: home).isEmpty)
+        XCTAssertTrue(forget.stdout.contains("deleted snapshot snap_api"), forget.stdout)
+    }
 }
