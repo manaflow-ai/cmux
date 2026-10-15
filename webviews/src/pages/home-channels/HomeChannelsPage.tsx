@@ -8,7 +8,7 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
-import { useHostActions, type HomeSelection } from "./hostActions";
+import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
@@ -244,20 +244,16 @@ export function HomeChannelsPage({
   };
   const focusedMessage = focused ? walk.find((m) => m.id === focused) : undefined;
   // What the host's `home.currentSelection` answers (the dock's view switch): the open
-  // conversation, the message the person is on, the open thread; null on the narrow list pane.
-  const selectionMessage = focusedMessage?.id ?? snap.highlight;
+  // conversation and the message the person is on; null on the narrow list pane.
+  const selectionMessage = focusedMessage?.id ?? snap.highlight ?? snap.thread;
   const selection = useMemo<HomeSelection | null>(
     () =>
       listShown || !snap.selected
         ? null
-        : {
-            conversation: snap.selected,
-            ...(selectionMessage ? { message: selectionMessage } : {}),
-            ...(snap.thread ? { thread: snap.thread } : {}),
-          },
-    [listShown, snap.selected, selectionMessage, snap.thread],
+        : { conversation: snap.selected, ...(selectionMessage ? { message: selectionMessage } : {}) },
+    [listShown, snap.selected, selectionMessage],
   );
-  useHostActions(selection);
+  useHostSelection(store.host, selection);
   const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
     // The order the list shows: my pins first, then newest activity.
     const { pinned, rest } = listOrder(snap.conversations.values());

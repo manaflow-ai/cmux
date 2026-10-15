@@ -8,7 +8,8 @@ import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
-import type { HomeSelection } from "./hostActions";
+import { BridgePageClient, RECEIVE_NAME } from "../shared/pageClient";
+import { CURRENT_SELECTION_OP, type HomeSelection } from "./hostSelection";
 import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
@@ -40,7 +41,52 @@ type Props = {
   /** The page's own width (px): below 720 it shows one pane (panes.ts), `pane`. */
   width?: number;
   pane?: Pane;
+  /** The app's page bridge (a real BridgePageClient over GalleryBridgeHost): the host calls the
+   * page's ops the way PageRouter.callPage does. */
+  hostBridge?: boolean;
 };
+
+/** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
+ * answer `cmux.protocol.unknown_op` (this host serves no ops); the host's calls go in through
+ * `window.__cmuxPageReceive` and resolve with the reply envelope the page posts back. */
+class GalleryBridgeHost {
+  private nextCall = 1_000_000;
+  private readonly waiting = new Map<number, (reply: unknown) => void>();
+  readonly client: BridgePageClient;
+
+  constructor() {
+    this.client = new BridgePageClient({ postMessage: async (body) => this.post(body) });
+  }
+
+  private post(body: unknown): unknown {
+    const envelope = body as { t?: string; id?: number; op?: string; stream?: string };
+    if ((envelope.t === "ok" || envelope.t === "err") && typeof envelope.id === "number") {
+      this.waiting.get(envelope.id)?.(envelope);
+      this.waiting.delete(envelope.id);
+      return null;
+    }
+    if (envelope.t === "call" || envelope.t === "sub")
+      return {
+        t: "err",
+        id: envelope.id,
+        code: "cmux.protocol.unknown_op",
+        message: envelope.op ?? envelope.stream ?? "",
+      };
+    return null;
+  }
+
+  /** PageRouter.callPage: one `call` envelope to the page; resolves with its `ok`/`err` reply. */
+  callPage(op: string, params: unknown = {}): Promise<unknown> {
+    const id = this.nextCall++;
+    const receive = (globalThis as unknown as Record<string, (message: unknown) => void>)[RECEIVE_NAME];
+    return new Promise((resolve) => {
+      this.waiting.set(id, resolve);
+      receive?.({ t: "call", id, op, params });
+    });
+  }
+}
+
+type GalleryHostWindow = Window & { cmuxGalleryHost?: GalleryBridgeHost };
 
 function HomeChannelsGallery({
   select,
@@ -56,12 +102,19 @@ function HomeChannelsGallery({
   extraChief = false,
   width,
   pane,
+  hostBridge = false,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
     if (provider) provider.hostGrants = hostGrants;
     if (provider && extraChief) provider.addChief("Release Chief");
-    const created = new HomeChannelsStore(provider, undefined, hostGrants ? provider : null);
+    let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
+    if (hostBridge) {
+      const bridge = new GalleryBridgeHost();
+      (window as GalleryHostWindow).cmuxGalleryHost = bridge;
+      host = bridge.client;
+    }
+    const created = new HomeChannelsStore(provider, undefined, host);
     // The gallery owns its window hash: the page never writes it here.
     created.routed = false;
     if (route) created.sheets.show(route);
@@ -98,14 +151,18 @@ const switcherOpen = (ctx: { document: Document }) => {
   return field !== null && ctx.document.activeElement === field;
 };
 
-// The host's `home.currentSelection` (hostActions.ts), called the way the app calls it.
-async function askSelection(document: Document): Promise<HomeSelection | null | undefined> {
-  const read = document.defaultView?.cmuxHomeActions?.["home.currentSelection"];
-  return read ? ((await read({})) as HomeSelection | null) : undefined;
+// The host's `home.currentSelection` (hostSelection.ts), called over the page bridge the way the
+// app's PageRouter.callPage calls it.
+async function askSelection(document: Document): Promise<unknown> {
+  const host = (document.defaultView as GalleryHostWindow | null)?.cmuxGalleryHost;
+  if (!host) throw new Error("no gallery bridge host");
+  return host.callPage(CURRENT_SELECTION_OP);
 }
 
-function expectSelection(actual: HomeSelection | null | undefined, expected: HomeSelection | null): void {
-  if (JSON.stringify(actual) !== JSON.stringify(expected))
+function expectSelection(reply: unknown, expected: HomeSelection | null): void {
+  const envelope = reply as { t?: string; value?: unknown };
+  const actual = envelope.t === "ok" ? envelope.value : reply;
+  if (envelope.t !== "ok" || JSON.stringify(actual) !== JSON.stringify(expected))
     throw new Error(`home.currentSelection: ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
 }
 
@@ -595,8 +652,8 @@ export default componentEntry<Props>({
       },
     },
     "host-selection": {
-      note: "The host asks home.currentSelection: the open conversation, then the keyboard's current message, then the open thread.",
-      props: { select: "c-release" },
+      note: "The host asks home.currentSelection over the page bridge: the open conversation, then the keyboard's current message, then a thread's root.",
+      props: { select: "c-release", hostBridge: true },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('.lg-main [data-key="c-release-m7"]'));
         expectSelection(await askSelection(ctx.document), { conversation: "c-release" });
@@ -607,21 +664,20 @@ export default componentEntry<Props>({
         expectSelection(await askSelection(ctx.document), { conversation: "c-release", message: "c-release-m7" });
         await ctx.press("k");
         await ctx.waitFor(() => ctx.document.querySelector('[data-key="c-release-m6"] [aria-current="true"]'));
-        await ctx.press("t");
+        expectSelection(await askSelection(ctx.document), { conversation: "c-release", message: "c-release-m6" });
+        // Escape drops the keyboard's message; an open thread's root is then the selection.
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector('.hc-timeline [aria-current="true"]'));
+        await ctx.click({ selector: '[data-thread-row="c-release-m2"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".lg-sheet"));
-        expectSelection(await askSelection(ctx.document), {
-          conversation: "c-release",
-          message: "c-release-m6",
-          thread: "c-release-m6",
-        });
+        expectSelection(await askSelection(ctx.document), { conversation: "c-release", message: "c-release-m2" });
       },
     },
     "host-selection-empty": {
       note: "The docked Home's list pane: nothing is open, so home.currentSelection answers null.",
-      props: { width: 600, pane: "list", select: "c-release" },
+      props: { width: 600, pane: "list", select: "c-release", hostBridge: true },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
-        await ctx.waitFor(() => ctx.document.defaultView?.cmuxHomeActions !== undefined);
         expectSelection(await askSelection(ctx.document), null);
       },
     },
