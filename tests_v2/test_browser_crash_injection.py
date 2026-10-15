@@ -8,6 +8,9 @@ pid that belongs to the app: the WebKit WebContent pid the pane reports
 
 Legs (CMUX_CRASH_E2E_LEGS, comma-separated, default all that apply):
   sandbox   (Chromium) every renderer and GPU helper of the app runs sandboxed (sandbox_check).
+  agentguard (Chromium) agent navigate to chrome://, devtools://, view-source: (also with a combining
+            mark after the colon) answers navigation_refused; a script or a server redirect into
+            chrome://settings never lands there.
   webkit    SIGKILL the WebKit pane's WebContent process: the pane shows the Reload
             overlay, `debug.browser.crashes` records it, Reload brings the page back
             in a new process, cmux keeps running.
@@ -48,7 +51,7 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
-LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,sandbox,renderer,gpu,hang,hangreload").split(","))
+LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,sandbox,agentguard,renderer,gpu,hang,hangreload").split(","))
 PAGE_TITLE = "crash-e2e"
 
 
@@ -113,6 +116,14 @@ def _serve() -> str:
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        def do_GET(self):  # noqa: N802
+            if self.path.startswith("/to-chrome"):
+                self.send_response(302)
+                self.send_header("Location", "chrome://settings/")
+                self.end_headers()
+                return
+            super().do_GET()
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=root))
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -237,6 +248,33 @@ def leg_gpu(h: Harness, sid: str) -> None:
     print("PASS gpu: GPU process crash contained, page still answers")
 
 
+def leg_agent_guard(h: Harness, sid: str, url: str) -> None:
+    """An agent cannot reach Chromium's internal pages: not by navigating, not by a script, not by a redirect."""
+    refused = []
+    for target in ("chrome://settings", "chrome://password-manager/passwords", "devtools://devtools/bundled/x.html",
+                   "view-source:" + url, "chrome:\u034fsettings"):
+        try:
+            h.c._call("browser.navigate", {"surface_id": sid, "url": target}, timeout_s=10)
+        except cmuxError as error:
+            if "navigation_refused" in str(error):
+                refused.append(target)
+                continue
+            raise
+    _must(len(refused) == 5, f"agentguard: navigate was not refused for every internal page: refused {refused}")
+    h.c._call("browser.eval", {"surface_id": sid, "script": "location.href = 'chrome://settings'; 1"})
+    try:
+        h.c._call("browser.navigate", {"surface_id": sid, "url": url + "to-chrome"}, timeout_s=10)
+    except cmuxError:
+        pass  # the redirect target is refused; the call may report a failed navigation
+    def current_url() -> str:
+        return str(h.status(sid).get("current_url") or "")
+    _wait_for(lambda: not current_url().startswith("chrome"), 10, "agentguard: page not on a chrome:// page")
+    _must(not current_url().startswith("chrome"), f"agentguard: agent reached {current_url()}")
+    h.c._call("browser.navigate", {"surface_id": sid, "url": url}, timeout_s=15)
+    _wait_for(lambda: h.page_answers(sid), 20, "agentguard: page answers after the refused navigations")
+    print("PASS agentguard: navigate, script and redirect into chrome:// are all refused for an agent")
+
+
 def leg_hang_reload(h: Harness, sid: str) -> None:
     h.c._call("browser.eval", {"surface_id": sid, "script": "setTimeout(() => { for (;;) {} }, 0); 'spinning'"})
     started = time.time()
@@ -291,11 +329,13 @@ def main() -> int:
         h = Harness(client, app_pid)
         if "webkit" in LEGS:
             leg_webkit(h, url)
-        if LEGS & {"sandbox", "renderer", "gpu", "hang", "hangreload"}:
+        if LEGS & {"sandbox", "agentguard", "renderer", "gpu", "hang", "hangreload"}:
             sid = chromium_tab(h, url)
             if sid:
                 if "sandbox" in LEGS:
                     leg_sandbox(h)
+                if "agentguard" in LEGS:
+                    leg_agent_guard(h, sid, url)
                 if "renderer" in LEGS:
                     leg_renderer(h, sid)
                 if "gpu" in LEGS:
