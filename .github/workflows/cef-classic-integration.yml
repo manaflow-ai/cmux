@@ -1,0 +1,59 @@
+name: CEF Classic integration
+
+# Lives only on cef-classic/integration, the never-merged branch that merges
+# every cef-classic/* area branch. Its pull request CI (#21044) is cancelled by
+# each newer push, so a fast-moving branch never finished a compile there.
+# This workflow does not cancel: GitHub keeps one run going and the newest
+# push pending, so every run finishes and the newest commit is always checked.
+#
+# Each run dispatches test-e2e.yml for the pushed commit once per browser
+# engine. That compiles the app with the pull request toolchain (Xcode pin
+# CMUX_CI_XCODE_APP_PR) and runs the browser UI tests; the Chromium run embeds
+# the CEF engine and fails when a browser opens in another engine. A compile
+# break or a browser regression on either engine fails this run.
+
+on:
+  push:
+    branches: [cef-classic/integration]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cef-classic-integration
+  cancel-in-progress: false
+
+jobs:
+  browser-e2e:
+    name: Browser UI tests (${{ matrix.engine }})
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [webkit, chromium]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Compile (up to 90 minutes cold) plus the tests; the job mostly waits.
+    timeout-minutes: 240
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Dispatch and wait for the browser UI tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          python3 scripts/ci/dispatch-focused-test.py \
+            cmuxUITests/BrowserReturnSubmissionUITests \
+            cmuxUITests/BrowserFixtureInteractionUITests \
+            --ref "$GITHUB_SHA" \
+            --workflow-ref cef-classic/integration \
+            --browser-engine "$ENGINE" \
+            --job-timeout 90 \
+            --full-build \
+            --no-video \
+            --wait
