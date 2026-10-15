@@ -41,7 +41,10 @@ fn a_render_naming_an_earlier_render_id_updates_that_page_in_place() {
     assert_eq!(first["structuredContent"]["updated"], false, "{first}");
 
     assert_eq!(update["isError"], false, "{update}");
-    assert_eq!(update["structuredContent"]["id"], FIRST_ID, "the update keeps the card's id: {update}");
+    assert_eq!(
+        update["structuredContent"]["id"], FIRST_ID,
+        "the update keeps the card's id: {update}"
+    );
     assert_eq!(update["structuredContent"]["updated"], true, "{update}");
     assert_eq!(update["structuredContent"]["bytes"], SECOND.len());
 
@@ -53,7 +56,10 @@ fn a_render_naming_an_earlier_render_id_updates_that_page_in_place() {
     assert_eq!(fresh["isError"], false, "{fresh}");
     assert_eq!(fresh["structuredContent"]["updated"], false, "{fresh}");
     let fresh_id = fresh["structuredContent"]["id"].as_str().unwrap_or_default();
-    assert!(!fresh_id.is_empty() && fresh_id != FIRST_ID, "a render without an id is a new card: {fresh}");
+    assert!(
+        !fresh_id.is_empty() && fresh_id != FIRST_ID,
+        "a render without an id is a new card: {fresh}"
+    );
 
     assert_eq!(malformed["isError"], true, "{malformed}");
     assert_eq!(malformed["structuredContent"]["state"], "not_run");
