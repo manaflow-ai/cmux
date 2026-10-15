@@ -344,7 +344,8 @@
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
-              "sidebar.hoverCards.delay"
+              "sidebar.hoverCards.delay",
+              "home.channelsEnabled"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -21563,6 +21564,55 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.home.channelsEnabled.help",
+        "text" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.channelsEnabled",
+      "keywords" : [
+        "home",
+        "channels",
+        "slack",
+        "threads",
+        "sidebar",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "channelsEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.channelsEnabled",
+        "text" : "Channels"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -24519,7 +24569,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "acaad8b6bb00e5d0908bbe1b86b875f1accd909ef48fc898982d36667671b8a0",
+  "schema_hash" : "6300d49e42378eb946c2f1b88ba09c1c4ba3dadeb55e17489a5baac21c524e18",
   "sections" : [
     {
       "id" : "general",

@@ -476,7 +476,7 @@ impl Call<'_> {
         steps: &StepKeys,
     ) -> Result<Value, ResourceError> {
         let record = self.frontend_record();
-        let placement = FrontendTabPlacement { activate: true, after: pane.active };
+        let placement = FrontendTabPlacement { activate: true, after: pane.active, index: None };
         let outcome = self
             .mux
             .new_frontend_browser_tab_keyed_as(
