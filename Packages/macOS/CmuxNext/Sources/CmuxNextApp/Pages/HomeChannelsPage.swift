@@ -21,7 +21,7 @@ extension PageDescriptor {
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, HomeSwitchPageRoute.prefix],
         nativeOps: [PageNativeOp.edit],
-        csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]))
+        csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
 
 extension PageFactory {

@@ -7001,8 +7001,9 @@ plain `subscribe`, `conversation-list`, `conversation-create`,
 `conversation-runs`, `conversation-run`, `conversation-inbox-op` and the
 `conversation-attachment-upload`, `-read` and `-link` commands, with the
 `conversation-changed`, `conversation-typing`, `conversation-draft`,
-`conversation-run-changed` and `conversation-inbox-changed` events; for every
-other page none); any other line is
+`conversation-run-changed` and `conversation-inbox-changed` events, and
+`chief-changed` and `participant-avatar-changed` for a connection that echoes
+their capability; for every other page none); any other line is
 refused with `origin.forbidden`. It is never the person: no `cloud-*` command
 or event, like the file token. Page-bound credentials have their own bound
 (16), so they never evict the verified app's page credentials. A client checks

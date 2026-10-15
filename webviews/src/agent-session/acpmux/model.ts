@@ -56,6 +56,8 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
   /// folds under one summary line (conversation/toolRunSummary.ts).
   settled?: boolean;
+  /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
+  live?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -126,11 +128,21 @@ export type AcpmuxPermission = {
   groupId?: string;
   turnId?: string;
   title?: string;
+  command?: string;
+  description?: string;
+  rule?: string;
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
   pending: boolean;
-  options: { id: string; name: string; allow: boolean; kind?: string }[];
+  options: {
+    id: string;
+    name: string;
+    allow: boolean;
+    kind?: string;
+    description?: string;
+    rule?: string;
+  }[];
   /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
   /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
   question?: AgentQuestion;

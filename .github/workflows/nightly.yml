@@ -1601,6 +1601,8 @@ jobs:
           CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$archs" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
           echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
+          # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
+          echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -3809,8 +3811,10 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: read
-      actions: read
+      # Record a refused build on the failure issue ("not counted").
+      issues: write
+      # Delete the pending artifacts of a refused build.
+      actions: write
     outputs:
       action: ${{ steps.target.outputs.action }}
       build: ${{ steps.target.outputs.build }}
@@ -3828,6 +3832,10 @@ jobs:
           LEGACY_APPCAST: appcast-arm64.xml
           DMG_PREFIX: cmux-nightly-next-macos-arm64-
           GH_TOKEN: ${{ github.token }}
+          # Full commit SHAs every copied build must contain (space-separated);
+          # unset means no requirement, and then the kill switch
+          # NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
+          REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
@@ -3877,12 +3885,59 @@ jobs:
             { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } > failures.txt \
               || echo "::warning::could not read the failure issue #$number; counting no failures"
           fi
-          decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 --max-same-build-hours 48 \
-            --failure-log failures.txt --max-failures 2 ${pending_args[@]+"${pending_args[@]}"})"
-          action="$(sed -n 's/^action=//p' <<<"$decision")"
-          build="$(sed -n 's/^build=//p' <<<"$decision")"
-          pending_run="$(sed -n 's/^pending_run=//p' <<<"$decision")"
-          bundle_run="$(sed -n 's/^bundle_run=//p' <<<"$decision")"
+          # Every commit in NIGHTLY_LEGACY_REQUIRED_COMMITS must be in the
+          # build's commit (scripts/ci/nightly-next-legacy-requirement.sh). A
+          # refused build is neither continued nor submitted, and the next
+          # newer one is checked; a refused pending submission is deleted. An
+          # error fails closed. Refusals are recorded, not counted.
+          echo "cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}"
+          echo "### cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}" >> "$GITHUB_STEP_SUMMARY"
+          refuse_args=()
+          notes=""
+          action=none build="" pending_run="" bundle_run=""
+          for _ in 1 2 3; do
+            decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 --max-same-build-hours 48 \
+              --failure-log failures.txt --max-failures 2 ${pending_args[@]+"${pending_args[@]}"} ${refuse_args[@]+"${refuse_args[@]}"})"
+            action="$(sed -n 's/^action=//p' <<<"$decision")"
+            build="$(sed -n 's/^build=//p' <<<"$decision")"
+            pending_run="$(sed -n 's/^pending_run=//p' <<<"$decision")"
+            bundle_run="$(sed -n 's/^bundle_run=//p' <<<"$decision")"
+            [ "$action" != none ] || break
+            # shellcheck disable=SC2086 # REQUIRED is a space-separated SHA list
+            if check="$(NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes" ./scripts/ci/nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)"; then
+              echo "build $build meets the requirement ($check)"
+              break
+            fi
+            echo "::warning title=cmux NIGHTLY-identity build $build refused (cx-x7hwx)::$check"
+            refuse_args+=(--refuse-build "$build")
+            note="Build $build skipped (not counted): $check."
+            if [ "$action" = continue ] && [[ "$check" == missing* ]]; then
+              for run in "$pending_run" "$bundle_run"; do
+                for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
+                  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?name=$name" --jq '.artifacts[].id' \
+                    | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
+                done
+              done
+              note="$note Its pending submission (runs $pending_run/$bundle_run) was deleted; it is never published."
+            fi
+            # Recorded on the issue once per build; every run's summary has it.
+            if ! grep -q "^Build $build skipped" failures.txt; then notes="$notes$note"$'\n'; fi
+            echo "- $note" >> "$GITHUB_STEP_SUMMARY"
+            action=none build="" pending_run="" bundle_run=""
+          done
+          if [ -n "$notes" ]; then
+            body="$notes"$'\n'"Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (requirement: NIGHTLY_LEGACY_REQUIRED_COMMITS=${REQUIRED:-none})"
+            if issue="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY")"; then
+              if [ -n "$issue" ]; then
+                gh api "repos/$GITHUB_REPOSITORY/issues/$issue/comments" -f body="$body" >/dev/null || echo "::warning::could not record the refusal on issue #$issue"
+              else
+                gh api "repos/$GITHUB_REPOSITORY/issues" -f title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)" -f body="$body" >/dev/null \
+                  || echo "::warning::could not open the failure issue for the refusal"
+              fi
+            else
+              echo "::warning::could not search for the failure issue; the refusal is in this run's summary only"
+            fi
+          fi
           { echo "action=$action"; echo "pending_run=$pending_run"; echo "bundle_run=$bundle_run"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
           if [ -n "$build" ]; then
             echo "### cmux NIGHTLY-identity: $action build $build for the old feed (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
@@ -3945,6 +4000,9 @@ jobs:
       # The run that holds the continued submission's bundle (the metadata of
       # an accepted submission is re-stored by a later run).
       BUNDLE_RUN: ${{ needs.legacy-identity-target.outputs.bundle_run }}
+      # Checked again on the app's own commit before anything is submitted to
+      # Apple (legacy-identity-target checks the build first).
+      REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
       CHANNEL_RELEASE_TAG: nightly-next
       CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
       # Release asset names of the cmux NIGHTLY-identity copies. They start with
@@ -3968,6 +4026,7 @@ jobs:
           current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
             | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
           echo "old feed build: ${current:-none}; requested: $NIGHTLY_BUILD"
+          echo "### cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "### Old feed already at $current; build $NIGHTLY_BUILD skipped" >> "$GITHUB_STEP_SUMMARY"
@@ -4105,6 +4164,14 @@ jobs:
           [[ "$short" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$short'" >&2; exit 1; }
           sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$short" --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve CMUXCommit $short" >&2; exit 1; }
+          for required in $REQUIRED; do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
+            case "$status" in
+              ahead|identical) ;;
+              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
+                 : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
+            esac
+          done
           git fetch --no-tags --depth=1 origin "$sha"
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
           (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
@@ -4305,8 +4372,10 @@ jobs:
              || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
             apple=accepted
           fi
+          refused=false
+          if [ -e "$RUNNER_TEMP/legacy-requirement-refused" ]; then refused=true; fi
           decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
-            --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple")"
+            --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple" --requirement-refused "$refused")"
           echo "$decision" >> "$GITHUB_OUTPUT"
           echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED apple=$apple -> $(tr '\n' ' ' <<<"$decision")"
           if [ "$LEGACY_ACTION" = continue ] && grep -Fxq retire=true <<<"$decision"; then

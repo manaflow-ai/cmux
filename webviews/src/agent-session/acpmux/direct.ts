@@ -134,8 +134,9 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 export const PREWARM_METHOD = "_acpmux/prewarm";
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
-/// How long Stop waits for the turn to end before the pane stops showing it as working: past
-/// acpmux's own grace (`CANCEL_GRACE`, 3 s), so its forced end and its note come first.
+/// How long Stop waits for the turn to end before the pane stops showing it as working. It is
+/// shorter than acpmux's own grace (`CANCEL_GRACE`, 10 s), so a slow agent's turn stops showing
+/// as working before acpmux's forced end and its note.
 const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
@@ -165,12 +166,57 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
   const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
+  const claudeMeta =
+    raw.toolCall?._meta?.claude && typeof raw.toolCall._meta.claude === "object"
+      ? raw.toolCall._meta.claude
+      : undefined;
+  const suggestions = Array.isArray(claudeMeta?.suggestions)
+    ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
+        if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
+        if (!suggestion || typeof suggestion !== "object") return [];
+        const rules = (suggestion as { rules?: unknown }).rules;
+        return Array.isArray(rules)
+          ? rules.flatMap((rule: unknown) => {
+              if (typeof rule === "string" && rule.trim()) return [rule.trim()];
+              if (!rule || typeof rule !== "object") return [];
+              const value = rule as { toolName?: unknown; ruleContent?: unknown };
+              const tool = typeof value.toolName === "string" ? value.toolName.trim() : "";
+              const content = typeof value.ruleContent === "string" ? value.ruleContent.trim() : "";
+              return [content || tool].filter(Boolean);
+            })
+          : [];
+      })
+    : [];
   return {
     ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
+    command:
+      typeof raw.toolCall?.command === "string"
+        ? raw.toolCall.command
+        : typeof raw.toolCall?.rawInput?.command === "string"
+          ? raw.toolCall.rawInput.command
+          : typeof raw.command === "string"
+            ? raw.command
+            : undefined,
+    description:
+      typeof claudeMeta?.description === "string"
+        ? claudeMeta.description
+        : typeof raw.toolCall?.description === "string"
+          ? raw.toolCall.description
+          : typeof raw.description === "string"
+            ? raw.description
+            : undefined,
+    rule:
+      suggestions.length > 0
+        ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
+        : typeof raw.toolCall?.rule === "string"
+          ? raw.toolCall.rule
+          : typeof raw.rule === "string"
+            ? raw.rule
+            : undefined,
     kind: raw.toolCall?.kind,
     ...(typeof raw.toolCall?.toolCallId === "string" ? { toolCallId: raw.toolCall.toolCallId } : {}),
     pending: true,
@@ -179,6 +225,13 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
       kind: typeof option.kind === "string" ? option.kind : undefined,
+      description: typeof option.description === "string" ? option.description : undefined,
+      rule:
+        typeof option.rule === "string"
+          ? option.rule
+          : typeof option.suggestion === "string"
+            ? option.suggestion
+            : undefined,
     })),
   };
 }
