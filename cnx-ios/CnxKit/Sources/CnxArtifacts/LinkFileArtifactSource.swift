@@ -109,14 +109,18 @@ public struct LinkFileArtifactSource: ArtifactSource {
         var value: Bool { lock.withLock { fired } }
     }
 
+    /// Where the person shares a folder: the Mac's Chat Folders setting (cnx-hostd's file roots).
+    static let shareHint = "To open it here, add its project folder in cmux on the Mac: Settings › General › Chats › Chat Folders."
+
     static func unavailable(_ error: LinkError, path: String, macName: String) -> ArtifactUnavailable {
         let name = (path as NSString).lastPathComponent
         return switch error.code {
         case "not_found": ArtifactUnavailable("\(name) isn't on \(macName) anymore.")
         case "forbidden" where error.message.contains("no workspace roots"):
             // cnx-hostd shares no folder at all (CNX_FILE_ROOTS empty).
-            ArtifactUnavailable("\(macName) isn't sharing any folders with this phone yet, so \(name) can't be opened here.")
-        case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone.")
+            // The Mac shares its Chat Folders (Settings › Chats): say where to add one.
+            ArtifactUnavailable("\(macName) isn't sharing any folders with this phone yet, so \(name) can't be opened here. \(Self.shareHint)")
+        case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone. \(Self.shareHint)")
         case "bad_request": ArtifactUnavailable("\(name) isn't a regular file.")
         case "unknown_service": ArtifactUnavailable("\(macName) doesn't serve files yet. Update cmux on the Mac.")
         default: ArtifactUnavailable(error.message.isEmpty ? "Couldn't read \(name) from \(macName)." : error.message)

@@ -444,3 +444,78 @@ def flow_cmux_agent():
         return {"opened_s": round(opened, 1), "ended_s": round(took, 1), "phone": texts[:6], "mac_last_turn": json.dumps(last)[:400]}
     finally:
         pq.rec_stop()
+
+
+def allow_pending(j, sid, timeout=120, done=None):
+    """Allow once (Face ID) each permission the session asks for, until `done()` or idle."""
+    s = j.sim
+    t0 = time.time()
+    labels = []
+    while time.time() - t0 < timeout:
+        x = session(sid) or {}
+        if x.get("pendingPermissions"):
+            btns = [e.label for e in s.find(kind="Button")]
+            allow = s.find(label="Allow once", kind="Button")
+            if allow:
+                labels.append([b for b in btns if b in ("Allow once", "Deny", "Allow for this session", "Always", "Allow for This Chat", "Reply instead")])
+                s.tap_el(allow[0])
+                time.sleep(1.5)
+                face_id(True)
+                time.sleep(2)
+                continue
+        elif not x.get("turn") and (done is None or done()):
+            return labels
+        time.sleep(1)
+    raise Fail("the turn did not finish")
+
+
+def flow_edits_artifacts():
+    """Agent Edits (a file written, then edited twice across turns) and Files and Artifacts
+    (an SVG preview), against the same session on the Mac. Also records the permission bar's
+    choices (only Allow once and Deny from a phone)."""
+    import pq_tabs as t
+    folder = proj()
+    trust(folder)
+    pq.rsh(f"cd {folder} && rm -f p3-notes.txt p3.svg")
+    before = {x.get("sessionId") for x in sessions()}
+    s, m, j = pq.ctx()
+    pq.open_workspace(j)
+    out = {}
+    pq.rec_start("edits-artifacts")
+    try:
+        pq.plus_menu(j, "New Agent Chat")
+        opened, toast = pq.wait_opened(j, 120)
+        check(not toast, f"start refused: {toast}")
+        face_id(match=None)
+        type_send(j, "Use your Write tool to create p3-notes.txt with exactly three lines: one, two, three. Then reply DONE-1")
+        sid = wait_for(lambda: next((x["sessionId"] for x in sessions() if x.get("sessionId") not in before), None), "session", 30)[0]
+        out["bar"] = allow_pending(j, sid)
+        type_send(j, "Use your Edit tool to change the line two to TWO in p3-notes.txt. Then reply DONE-2")
+        time.sleep(3)
+        allow_pending(j, sid)
+        type_send(j, "Use your Edit tool to change the line three to THREE in p3-notes.txt. Then reply DONE-3")
+        time.sleep(3)
+        allow_pending(j, sid)
+        type_send(j, "Use your Write tool to create p3.svg containing an SVG of a red circle, 100 by 100. Then reply DONE-4")
+        time.sleep(3)
+        allow_pending(j, sid)
+        out["mac_file"] = pq.rsh(f"cat {folder}/p3-notes.txt; ls -la {folder}/p3.svg").stdout.strip()
+        t.page_menu(j, "Agent Edits")
+        time.sleep(2.5)
+        pq.shot("agent-edits")
+        out["edits_screen"] = [e.label for e in s.find() if e.label][:40]
+        b = s.find(label="Done", kind="Button") or s.find(label="Close", kind="Button")
+        if b:
+            s.tap_el(b[0]); time.sleep(1.2)
+        t.page_menu(j, "Files and Artifacts")
+        time.sleep(2)
+        svg = s.wait(contains="p3.svg", timeout=10)
+        check(svg, f"no p3.svg in Files and Artifacts: {[e.label for e in s.find() if e.label][:30]}")
+        s.tap_el(svg)
+        time.sleep(3)
+        pq.shot("artifact-svg")
+        out["svg_screen"] = [e.label for e in s.find() if e.label][:30]
+        out["session"] = sid
+        return out
+    finally:
+        pq.rec_stop()
