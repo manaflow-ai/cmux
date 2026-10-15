@@ -61,7 +61,7 @@ final class HostView: NSView {
     /// The header's controls' blur under an open thread view, and the shapes cut from `threadHost`
     /// (PaneHost+ThreadLayer.swift).
     let headerVeil = LayerHostView()
-    let veilBackdrop = ThreadBackdrop()
+    let veilTint = CALayer()
     var veilOpen = false
     var threadHoles: [CGRect] = []
     /// `--scroll-trace` uses a scroll view that takes the probe's posted

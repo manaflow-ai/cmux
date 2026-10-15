@@ -72,18 +72,26 @@ extension HostView {
     /// No vendored layer is moved for it:
     /// - `threadHost` (the vendored thread layer: its backdrop and rows) is masked out at the avatar's
     ///   disc and the pill's capsule, so a row passes under the controls, as transcript rows do;
-    /// - `headerVeil`, over the header and masked to those same shapes, is a ThreadBackdrop of its own
-    ///   (the vendored class: the same blur, tint and curves), opened and closed in the same turn as
-    ///   the window view's (`followThread`), so the controls are blurred and darkened as before.
+    /// - `headerVeil`, over the header and masked to those same shapes, holds ThreadBackdrop's tint (its
+    ///   colour, opacity and curves: out = 5.5 + 0.384 x in), faded in the same turn as the window
+    ///   view's backdrop (`followThread`), so the controls darken with the transcript on the same
+    ///   frames. No blur there: a second CABackdropLayer over the controls captured nothing in light
+    ///   appearance (round 6: dark shapes with a light outline, no letter), so the controls show
+    ///   dimmed and sharp, their letter and title still readable (Messages: faint).
     /// Updated on layout (the controls' places) and after every engine change (open and close).
     func clipThreadToHeader() {
         let holes = paneHeader.controlRects(width: bounds.width)
-        guard holes != threadHoles || headerVeil.root.sublayers?.first !== veilBackdrop.root else { return }
+        guard holes != threadHoles || veilTint.superlayer !== headerVeil.root else { return }
         threadHoles = holes
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if headerVeil.root.sublayers?.first !== veilBackdrop.root { headerVeil.root.addSublayer(veilBackdrop.root) }
-        veilBackdrop.frame = bounds
+        if veilTint.superlayer !== headerVeil.root {
+            veilTint.actions = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
+            veilTint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - ThreadBackdrop.gain), alpha: 1).cgColor
+            veilTint.opacity = 0
+            headerVeil.root.addSublayer(veilTint)
+        }
+        veilTint.frame = bounds
         func shapes(_ path: CGMutablePath) {
             for r in holes { path.addRoundedRect(in: r, cornerWidth: min(r.width, r.height) / 2, cornerHeight: min(r.width, r.height) / 2) }
         }
@@ -105,13 +113,22 @@ extension HostView {
         return m
     }
 
-    /// The veil's backdrop opens and closes with the window view's thread view (after every engine
-    /// change, in the same turn as the vendored open or close, so both run on the same curve).
+    /// The veil's tint opens and closes with the window view's thread view (after every engine change,
+    /// in the same turn as the vendored open or close): ThreadBackdrop.animate's tint, the same
+    /// opacity, duration and curve, begun at the same commit.
     func followThread(open: Bool) {
         clipThreadToHeader()
         guard open != veilOpen else { return }
         veilOpen = open
-        veilBackdrop.animate(open: open)
+        let d = open ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration
+        let to: Float = open ? Float(1 - ThreadBackdrop.gain) : 0
+        let a = CABasicAnimation(keyPath: "opacity")
+        a.fromValue = veilTint.presentation()?.opacity ?? veilTint.opacity
+        a.toValue = to
+        a.duration = d
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        veilTint.opacity = to
+        veilTint.add(a, forKey: "thread")
     }
 
     /// The thread layer lives in `threadHost` (tests, the DEBUG socket).
