@@ -48,6 +48,7 @@ final class CardSwipeState {
                 ticks += 1
                 guard ticks >= Self.countLeadTicks else { return true }
                 self?.countHold = nil
+                SafariCurveCue.markApplied(cue)
                 if self?.reflowCue == cue { self?.reflowCue = 0 }
                 return false
             }
