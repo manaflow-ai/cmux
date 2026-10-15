@@ -22178,7 +22178,7 @@
       },
       "help" : {
         "key" : "settings.labs.classicHome.help",
-        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next."
+        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
       },
       "kept_on_reset_all" : false,
       "key" : "labs.classicHome",
@@ -23611,7 +23611,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "587efecfb08f75a4172a225a35e7a8b95af869702c61cefb7d5541329024bd80",
+  "schema_hash" : "eee369bec6eaabcf7fa65ef80149fa808e3da7bb6bda49db8f0c72c507d555e2",
   "sections" : [
     {
       "id" : "general",

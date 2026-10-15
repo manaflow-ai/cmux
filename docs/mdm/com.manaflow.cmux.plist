@@ -4476,7 +4476,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next.</string>
+			<string>Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.</string>
 			<key>pfm_name</key>
 			<string>labs.classicHome</string>
 			<key>pfm_title</key>

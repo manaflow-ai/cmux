@@ -1463,7 +1463,7 @@
     },
     "labs.classicHome" : {
       "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next.",
+      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
       "title" : "Classic Home",
       "type" : "boolean"
     },

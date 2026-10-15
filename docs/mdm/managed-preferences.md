@@ -316,7 +316,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.moveToTop` | boolean | `true` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
-| `labs.classicHome` | boolean | `false` |  | Classic Home. Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next. |
+| `labs.classicHome` | boolean | `false` |  | Classic Home. Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts. |
 | `feed.github.enabled` | boolean | `false` |  | Connect GitHub. Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first. |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open. |
