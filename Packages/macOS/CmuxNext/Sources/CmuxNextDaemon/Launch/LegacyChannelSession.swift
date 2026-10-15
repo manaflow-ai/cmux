@@ -22,8 +22,8 @@ import Foundation
 /// channel's state (`cmux/tags/<channel>/legacy-session-adopted`) so every
 /// later launch keeps it, also after the own session would no longer count
 /// as untouched. A session the person used is never replaced.
-public struct LegacyChannelSession: Sendable {
-    public static let session = "cmux-app"
+struct LegacyChannelSession: Sendable {
+    static let session = "cmux-app"
     static let channels = ["nightly", "rc", "staging"]
     static let markerName = "legacy-session-adopted"
 
@@ -31,7 +31,7 @@ public struct LegacyChannelSession: Sendable {
     /// Where this bundle's last handshake put the old session's snapshot (its own defaults).
     let rememberedSnapshot: @Sendable () -> String?
 
-    public init(applicationSupport: URL,
+    init(applicationSupport: URL,
                 rememberedSnapshot: @escaping @Sendable () -> String? = { LaunchSnapshotLocation().path(session: LegacyChannelSession.session) }) {
         self.applicationSupport = applicationSupport
         self.rememberedSnapshot = rememberedSnapshot
@@ -57,7 +57,7 @@ public struct LegacyChannelSession: Sendable {
     /// True when the channel build uses the old session: recorded earlier, or
     /// decided now (and recorded). `session` and `stateDirectory` are the
     /// build's own names.
-    public func adopts(bundleID: String?, session: String, stateDirectory: URL?) -> Bool {
+    func adopts(bundleID: String?, session: String, stateDirectory: URL?) -> Bool {
         guard let channel = Self.channel(bundleID: bundleID, session: session), let stateDirectory else { return false }
         return Self.decisions.answer("\(applicationSupport.path)|\(channel)") { decide(channel: channel, session: session, stateDirectory: stateDirectory) }
     }
