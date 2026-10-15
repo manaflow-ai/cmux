@@ -5559,6 +5559,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return materializeDeferredBrowserPanel(deferredPanel) != nil
     }
 
+    /// The live browser a browser automation command drives.
+    ///
+    /// A browser that session restore kept as a placeholder is materialized in
+    /// place, in the background: selection and focus stay where they are
+    /// (socket focus policy), and the panel keeps its ID. Returns nil when the
+    /// panel is not a browser, or while restore is still assembling layout.
+    func browserPanelForAutomation(_ panelId: UUID) -> BrowserPanel? {
+        if let browserPanel = panels[panelId] as? BrowserPanel { return browserPanel }
+        guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel,
+              sessionRestoreLayoutSuppressionDepth == 0 else {
+            return nil
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.browser.materialize.request workspace=\(id.uuidString.prefix(8)) " +
+                "panel=\(panelId.uuidString.prefix(8)) reason=automation"
+        )
+#endif
+        return materializeDeferredBrowserPanel(deferredPanel)
+    }
+
     /// Returns the current panel after materializing a deferred browser when needed.
     ///
     /// Materialization replaces the registry object while preserving its panel ID, so
