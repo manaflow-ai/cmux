@@ -96,9 +96,6 @@ impl WorkspaceRegistry {
             }
             None => None,
         };
-        if let Some(tab_groups) = tab_groups {
-            presentation_store::write_tab_group_state(&tx, tab_groups)?;
-        }
         let terminal_batch =
             close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
         // A close that is part of another change (a space delete) writes that
@@ -114,6 +111,11 @@ impl WorkspaceRegistry {
         };
         if before_patch.is_some() {
             crate::state::closed_history_store::flush_pending_group(&tx)?;
+        }
+        // After the patch: its closed-history capture reads the groups the
+        // close takes (Close Group) before this write drops them.
+        if let Some(tab_groups) = tab_groups {
+            presentation_store::write_tab_group_state(&tx, tab_groups)?;
         }
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
