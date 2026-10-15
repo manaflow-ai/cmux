@@ -51,7 +51,7 @@ struct TabHoverCardLines: Equatable {
 
     /// "Memory 106 MB" (with the CPU when notable); for a hibernated page "Hibernated", with
     /// what it freed when a sample from before is known; a dash until the first sample; nil
-    /// when the tab's numbers cannot be had (a remote chat).
+    /// when the tab's numbers cannot be had (a remote chat, a page whose process was not found).
     static func memory(_ item: TabItem, report: ResourceReport?) -> String? {
         let tab = report?.tabs.first
         if item.isDormant {
@@ -59,7 +59,8 @@ struct TabHoverCardLines: Equatable {
             return Strings.hoverHibernatedFreed(ResourceFormat.memory(tab.usage.memoryBytes))
         }
         guard let tab else { return item.hover.kind == .other ? nil : Strings.hoverMemory("–") }
-        guard tab.available else { return nil }
+        // No process measured (a renderer not found yet): no row, never "Zero KB".
+        guard tab.available, tab.processCount > 0 || tab.usage.memoryBytes > 0 else { return nil }
         let memory = ResourceFormat.memory(tab.usage.memoryBytes)
         if let cpu = tab.usage.cpu, cpu >= notableCPU { return Strings.hoverMemoryCPU(memory, ResourceFormat.cpu(cpu)) }
         return Strings.hoverMemory(memory)
