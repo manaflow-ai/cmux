@@ -12,7 +12,10 @@ Laptop load 30-35 during this round: no timing claims from the rig.
 | V2-3 eviction: reading place lost when the Mac's history prunes at the top | disruptive | **fixed, rig 2 of 2** (red `6ec8e224`, green `263c9feb`) | below |
 | V5-2 upward fling ends at the live bottom | disruptive | **cause found and fixed** (same commits); 0 of ~42 rig flings during prunes | below |
 | PR 20809 daemon tests | - | **flake, not the PR**: green on the new head | below |
-| V5-1, T-TABS-01/V5-6, V5-4, V5-5, D1, D11, D12, pin/Jump/D7 rig re-check, rig tooling | | next | |
+| V5-1 black frame on Jump to bottom | disruptive | **fixed for Jump, rig 3 of 3** (red `b91fca68`, `5832bacf`); the reattach case (s4) not re-run | below |
+| V5-6 / T-TABS-01 card crops the live bottom | noticeable | **fixed for inactive cards** (red `dc875945`, `5832bacf`); **active card still the kit's top crop** | below |
+| Bottom pin on the rig (real output) | | **holds**: `gap 0.0 pt` on every settle in r6-jump-10 | `artifacts/r6-jump-10.log` |
+| D7 Codex follow re-check, V5-4, V5-5, D1, D11, D12, V2-6, D10, D6, T-LIFE-08, 60-min sessions, G-14, G-17, link-status reader | | **not done this round** | Next |
 
 ### Scroll while streaming (main-thread pixel read)
 
@@ -61,6 +64,43 @@ Rig (`cnx-termqa-1`, `263c9feb` Demo build, real link, `evict.py`, every command
 
 No `a fling reached the bottom` in 42 flings across both runs.
 
+### V5-1 (Jump to bottom black frame)
+
+The offset moved to the live end at once while the surface still showed the scrollback rows, so the page
+was black until Ghostty presented the end. Now a scroll whose visible rows share none with the frame on
+screen (`TerminalFrameCover.isDisjoint`, rows past the document end not counted) requests the viewport and
+moves with the frame that shows it (6-frame fallback). Following output keeps its own rule.
+`-CnxNoJumpAwait` turns the rule off for A/B.
+
+A first version (`5aa8d259`: wait whenever the frame did not cover every target row) was wrong: it
+waited during ordinary follows too and the rig showed 3.5 s black runs after each jump (r6-jump-1). It
+was replaced before any handoff.
+
+Rig, `rigjump.py r6-jump-10` (GEN loop streaming, 3 trips of 5 flings into history, then Scroll to
+bottom), 60 fps motion: **0 black runs, 0 flashes** after the recording warm-up; 3 of 3 jumps logged.
+(The recording's gap fraction is 3.3 %, over the 2 % validity line, so this is not a timing claim.)
+
+### V5-6 / T-TABS-01 (cards)
+
+TabsKit lays a page-sized card out top-aligned and shows its top `249.3 / 177` of the width, so a card
+showed the page's top two thirds. `TerminalCardCrop` places a terminal card's snapshot with its bottom at
+the card's bottom edge: the newest rows and the composer show (`artifacts/shots/r6-grid-cards2.jpg`,
+e2e-t2 shows GEN-5974..6000 and the composer).
+
+The active card is the live page (the kit's U4). Offering the snapshot as the static card on the settled
+grid (`showStaticCard`) showed a **black** terminal under the composer on the rig
+(`r6-grid-cards.jpg`): the active page's `drawHierarchy` snapshot at `prepareCard` does not capture the
+surface there. That path is off (`-CnxStaticActiveCard` to try it); the active card remains the kit's top
+crop until U4 or a surface-level snapshot.
+
+### Rig tooling
+
+- **axe hung** on the rig simulator: `axe tap` (default `--tap-style automatic`, which asks accessibility
+  first) timed out after 25 s, even with the app terminated; swipes then hung too. `Sim.tap` now passes
+  `--tap-style simulator`. A `simctl shutdown`/`boot` of `cnx-termqa-1` cleared the stuck state (the app
+  stayed paired; no keychain prompt). Swipes that end on the soft keyboard also hang axe: scripts hide the
+  keyboard first.
+
 ### PR 20809
 
 Attempt 1 of run 38678417607 failed `hookToolCallsReachTheTabAndTurnEndClearsThem` (`timed out: reading
@@ -87,9 +127,25 @@ re-run requested. Not merged.
 | --- | --- | --- |
 | feat-cnx-ios-termqa | `3d79af9c` red, `64171fe1` | steady viewport: no pixel read while reading |
 | feat-cnx-ios-termqa | `6ec8e224` red, `263c9feb` | history prune shift (V2-3 eviction), downward-only touched-bottom (V5-2) |
+| feat-cnx-ios-termqa | `b91fca68` red, `5aa8d259` (replaced), `dc875945` red, `5832bacf`, this commit | V5-1 jump rule, V5-6 card crop, rigjump.py, axe tap style; static active card off |
 | feat-cmux-next-tui-attach-size (PR 20809) | `c53859d8` | merge of origin/feat-cmux-next |
 
 ## Rig state
 
-`cnx-termqa-1` runs the `263c9feb` Demo build (CnxFFI `d84db41c…`), paired, open on e2e-t2.
+`cnx-termqa-1` (rebooted 00:38 PT) runs this branch's head Demo build (CnxFFI `d84db41c…`), paired,
+open on the e2e-143502 grid with e2e-t1 active. e2e-t2's history is at the cap (HIST/GEN loops).
 Mac side unchanged from round 5 (`cnx-e2e-604fc689` on mini-2).
+
+## Next (in order)
+
+1. D7 rig re-check: a 60 s Codex follow in e2e-t1 at 60 fps (`motion.py`), plus Jump to bottom mid-fling
+   on Codex output.
+2. V5-1 at a reattach (s4: two drops 3.4 s apart): the held frame and the replay, not the jump rule.
+3. Active card (V5-6): a snapshot that captures the Ghostty surface (IOSurface contents, not
+   `drawHierarchy`), then `showStaticCard`.
+4. V5-4 / D4 rows 39 vs 42 (Mac side), V5-5 closed tab's terminal lingering.
+5. D1, D11, D12 (the launch screen is already black in dark mode: `LaunchBackground` has a dark
+   appearance; the white screen is light mode with a dark terminal tab, a design decision), D6, D10,
+   V2-6, T-LIFE-08, 60-minute Codex and Claude Code sessions, G-14, G-17, the link-status reader.
+6. Following still reads pixels every frame (p99 3.36 ms on the simulator): band-limited read next.
+7. PR 20809: re-run of the disk-refused compile job requested on run 38690447375.
