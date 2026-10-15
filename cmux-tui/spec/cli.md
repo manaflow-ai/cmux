@@ -871,8 +871,10 @@ only `--recipient` (one `agent.message.unsend`), and prints each delivery's
 outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
 agent in its turn that it was withdrawn), `too_late` (its turn ended, or the
 delivery path cannot take it back) or `failed` (acpmux refused or did not
-answer; try again). Only the message's sender, or the person,
-may take it back; there is no time limit.
+answer; try again). Only the message's sender, from its own terminal or ACP
+session (its launch credential), or the person in the cmux app may take it
+back; there is no time limit. From a plain terminal the command is refused
+with reason `unsend_needs_app`.
 
 The daemon delivers messages to acpmux recipients (its delivery pump), and
 retries while acpmux is down or the session has not started, so a message that

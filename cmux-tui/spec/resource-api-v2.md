@@ -767,9 +767,10 @@ its own ACP session (acpmux mints it with `credential.mint` from the daemon its
 daemon to mint one it starts without a credential.
 
 `agent.message.unsend` takes a message back, for every recipient or only
-`recipient`. Only its sender or the person (the local user or the verified
-app) may, with no time limit; any other agent is refused (reason
-`unsend_not_sender`). Each delivery gets an outcome: `unsent` when it never
+`recipient`. Only its verified sender or the person in the verified cmux app
+may, with no time limit; any other agent is refused (reason
+`unsend_not_sender`), and so is a plain local connection, which may be an
+agent that left out its launch credential (reason `unsend_needs_app`). Each delivery gets an outcome: `unsent` when it never
 reached the agent (held, queued or failed, or still waiting in acpmux's queue;
 the delivery becomes `unsent`), `retracted` when acpmux's turn ran it and
 acpmux told the agent it was withdrawn, steered into the turn or queued next

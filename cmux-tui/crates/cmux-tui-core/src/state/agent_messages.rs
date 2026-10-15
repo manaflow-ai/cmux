@@ -220,8 +220,11 @@ impl Mux {
         .inspect(|_| self.wake_agent_message_pump())
     }
 
-    /// `agent.message.unsend` (agent_message_unsend.rs): the sender or the
-    /// person takes a message back. A retry replays, and a reused key or a
+    /// `agent.message.unsend` (agent_message_unsend.rs): the verified sender,
+    /// or the person in the verified cmux app, takes a message back. Any
+    /// local connection may be an agent that left out its launch credential,
+    /// so the plain local user is refused (as `agent.message.release`
+    /// refuses it). A retry replays, and a reused key or a
     /// stale revision is refused, before acpmux is asked anything; then
     /// acpmux decides each acpmux recipient's outcome, and every answer
     /// commits (a refusal is that recipient's `failed` outcome). The pump
@@ -250,17 +253,30 @@ impl Mux {
         }
         let (sender, targets) = self
             .read_registry_state(|connection| unsend::targets(connection, message_id, recipient))?;
-        if let Some(agent) = policy::sender_address(&mutation.actor)
-            && agent != sender
-        {
-            return Err(policy::refused_by(
-                OPERATION,
-                "unsend_not_sender",
-                format!(
-                    "{agent} did not send message {message_id}; only its sender or the person takes it back"
-                ),
-                serde_json::json!({}),
-            ));
+        let app = matches!(mutation.actor, crate::workspace_registry::Actor::Frontend { .. });
+        match policy::sender_address(&mutation.actor) {
+            _ if app => {}
+            Some(agent) if agent == sender => {}
+            Some(agent) => {
+                return Err(policy::refused_by(
+                    OPERATION,
+                    "unsend_not_sender",
+                    format!(
+                        "{agent} did not send message {message_id}; only its sender or the person, in the cmux app, takes it back"
+                    ),
+                    serde_json::json!({}),
+                ));
+            }
+            None => {
+                return Err(policy::refused_by(
+                    OPERATION,
+                    "unsend_needs_app",
+                    format!(
+                        "an unverified caller cannot take back message {message_id}; its sender's own session, or the cmux app, can"
+                    ),
+                    serde_json::json!({}),
+                ));
+            }
         }
         let (mut answers, mut failures) = (HashMap::new(), HashMap::new());
         for target in targets.iter().filter(|target| target.asks_acpmux()) {
