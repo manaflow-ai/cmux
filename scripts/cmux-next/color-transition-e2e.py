@@ -80,8 +80,11 @@ def wait(predicate, seconds, step=0.25):
     return None
 
 
-def action(name, args=None):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"})
+def action(name, args=None, target=None):
+    params = {"action": name, "args": args or {}, "focus": True, "origin": "script"}
+    if target:
+        params["target"] = target
+    reply = rpc("action.run", params)
     if isinstance(reply, dict) and reply.get("error"):
         print("action", name, "->", reply, flush=True)
     return reply
@@ -165,18 +168,22 @@ try:
         sys.exit("the tagged app did not come up")
     check(wait(lambda: sheet(), 30) is not None, "debug.themes reports the window backdrop sheet")
 
-    action("workspace.setTheme", {"theme": "Catppuccin Latte"})
+    first_ws = workspace_ids()[0]
     before = set(workspace_ids())
     action("workspace.newAtBottom")
-    check(bool(wait(lambda: set(workspace_ids()) - before, 30)), "a second workspace opens")
-    action("workspace.setTheme", {"theme": "Catppuccin Mocha"})
+    second_ws = wait(lambda: next(iter(set(workspace_ids()) - before), None), 30)
+    check(bool(second_ws), "a second workspace opens")
+    # Each workspace by id: a light theme on the first, a dark one on the second.
+    action("workspace.setTheme", {"theme": "Catppuccin Latte"}, target=f"workspace:{first_ws}")
+    action("workspace.setTheme", {"theme": "Catppuccin Mocha"}, target=f"workspace:{second_ws}")
     time.sleep(1)
     dark = settled()
     action("workspace.selectFirst")
     time.sleep(1)
     light = settled()
     report["light"], report["dark"] = light, dark
-    check(bool(light and dark and light != dark), f"the two workspaces have different backgrounds ({light} vs {dark})")
+    span = abs(oklab_l(rgb(light)) - oklab_l(rgb(dark))) if light and dark else 0
+    check(span > 0.3, f"the two workspaces have a light and a dark background ({light} vs {dark}, OKLab lightness span {span:.3f})")
 
     # blend: light -> dark, 400 ms linear, OKLab.
     blend = sample(0.8, lambda: action("workspace.selectLast"))
