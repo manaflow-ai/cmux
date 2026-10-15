@@ -196,6 +196,9 @@ while True:
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") in ("ask-1", "ask-2"):
         rid = msg["response"]["request_id"]
         answer = msg["response"].get("response") or {}
+        # Like Claude Code: an allow without the input it runs with is refused.
+        if answer.get("updatedInput") != ask(rid, "toolu_check")["request"]["input"]:
+            DESTINATIONS.append("no-updatedInput")
         updates = answer.get("updatedPermissions") or []
         for update in updates:
             if update.get("destination") == "session" and update.get("behavior") == "allow":

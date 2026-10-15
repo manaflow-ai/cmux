@@ -311,9 +311,9 @@ impl Translator {
                     let updated = result
                         .as_ref()
                         .and_then(|r| r.pointer("/_meta/updatedInput"))
+                        .filter(|v| v.is_object())
                         .cloned()
-                        .or(asked)
-                        .filter(Value::is_object)
+                        .or(asked.filter(Value::is_object))
                         .unwrap_or_else(|| json!({}));
                     let mut allow = json!({"behavior": "allow", "updatedInput": updated});
                     // "Allow for this session": Claude keeps the rules it
