@@ -203,12 +203,13 @@ struct ClaudeStreamParser: Sendable {
         abandoned = 0
         awaitingEcho = nil
         startedTools = []
-        if let usage = Self.usage(line["usage"]) { out.append(.event(.usage(usage))) }
         let resultText = line["result"]?.string
         let interrupted = subtype == "error_during_execution" && (line["result"]?.isNull ?? true) && !isError
         if (isError || subtype.hasPrefix("error")) && !interrupted {
             out.append(.event(.failed(Self.failureMessage(line, subtype: subtype, text: resultText))))
         } else {
+            // Before `.finished` only: output ahead of a failure would stop ClaudeCodeBrain's fresh-session retry.
+            if let usage = Self.usage(line["usage"]) { out.append(.event(.usage(usage))) }
             out.append(.event(.finished))
         }
         return out

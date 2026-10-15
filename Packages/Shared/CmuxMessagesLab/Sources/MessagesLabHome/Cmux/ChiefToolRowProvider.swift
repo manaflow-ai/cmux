@@ -6,11 +6,12 @@ import AppKit
 ///     [terminal]  Ran cmux tree --all  ✓
 ///     [terminal]  Ran 3 commands  ⟳  ›        (a run; a click lists every call)
 ///
-/// The glyph says what kind of call it was (terminal, document, pencil,
-/// magnifying glass, globe), the text is secondary-label grey with only the
-/// command monospaced (one line, middle ellipsis), and the trailing glyph is
-/// the state: a spinner while running, a quiet checkmark when done, a red
-/// exclamation mark when it failed. References (cmux-design-references):
+/// The 12 pt glyph on the bubbles' left edge says what kind of call it was
+/// (terminal, document, pencil, magnifying glass, globe), the 11.5 pt text is
+/// secondary-label grey with only the command monospaced (one line, middle
+/// ellipsis), and the trailing glyph is the state: a 10 pt spinner while
+/// running, a tertiary checkmark when done, a red xmark when it failed.
+/// A run expands in place (Return or a click; Left and Right on the focused row). References (cmux-design-references):
 /// Claude Code web's tool lines (claude/web/web-session-tool-transcript.png),
 /// Codex's "Called 4 tools" collapsed runs (codex/web/tools-running-progress.png)
 /// and T3 Code's inline command line (t3-code/live/approval-command-and-thread-details.png).

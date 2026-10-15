@@ -24,6 +24,8 @@ struct SidebarChiefHomeRow: View {
     /// Starts a new conversation; shown as the row's compose button while selected.
     var onNewConversation: (() -> Void)?
 
+    /// The Chief's name from its profile (renamed in Chief Settings).
+    @State private var chiefName = ChiefProfile.currentName()
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
@@ -33,7 +35,7 @@ struct SidebarChiefHomeRow: View {
                 Button(action: onSelect) {
                     HStack(spacing: 7) {
                         SidebarChiefHomeAvatar(diameter: (16 * settings.sidebarFontScale).rounded())
-                        Text(ChiefStrings.chiefName)
+                        Text(chiefName)
                             .font(font(12.5, weight: .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)
@@ -48,7 +50,7 @@ struct SidebarChiefHomeRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(ChiefStrings.chiefName))
+                .accessibilityLabel(Text(chiefName))
                 .accessibilityValue(Text(SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected)))
                 .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("SidebarChiefHomeRow")
@@ -81,6 +83,9 @@ struct SidebarChiefHomeRow: View {
                 .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
                     + SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
                 .accessibilityHidden(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ChiefProfile.didChange)) { _ in
+            chiefName = ChiefProfile.currentName()
         }
     }
 

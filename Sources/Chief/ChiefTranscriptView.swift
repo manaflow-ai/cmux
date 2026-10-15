@@ -24,6 +24,8 @@ final class ChiefTranscriptView: NSView {
     private let workingStatus = ChiefWorkingStatusView()
     private let unavailableLabel = NSTextField(wrappingLabelWithString: "")
     private let settingsPanel = ChiefSettingsPanel()
+    /// "Opus 5.5 · Medium" under the name pill, and the pill's tooltip (``ChiefSettingsBrainHint``).
+    private let brainHint = ChiefSettingsBrainHint()
     /// Chief memory: the "Chief will remember … · Undo" row above the field.
     private lazy var memoryNotice = ChiefMemoryNoticeView(conversation: conversation)
     private var notice: String?
@@ -81,6 +83,8 @@ final class ChiefTranscriptView: NSView {
         unavailableLabel.stringValue = service.startFailure ?? ChiefStrings.unavailable
         addSubview(unavailableLabel)
         settingsPanel.isHidden = true
+        brainHint.label.isHidden = true
+        if transcript != nil { addSubview(brainHint.label) }
         addSubview(settingsPanel)
         // Chief memory: the remember row (ChiefMemoryNoticeView).
         if transcript != nil {
@@ -123,6 +127,7 @@ final class ChiefTranscriptView: NSView {
         intake?.cancel()
         firstPage?.cancel()
         workingStatus.stop()
+        settingsPanel.stop()
         transcript?.stop()
         memoryNotice.stop()
         binding?.stop()
@@ -149,12 +154,16 @@ final class ChiefTranscriptView: NSView {
     private func connectTranscript() {
         guard let transcript, let binding else { return }
         transcript.setNamePillHelp(ChiefStrings.settingsPillHelp)
+        brainHint.onToolTip = { [weak transcript] toolTip in transcript?.setNamePillToolTip(toolTip) }
         transcript.onNamePill = { [weak self] in self?.toggleSettings() }
         transcript.onStop = { [weak self] in self?.stopChief() }
         transcript.onAppLink = { url in
             if let handler = ChiefService.shared.onAppLink { handler(url) } else { NSWorkspace.shared.open(url) }
         }
-        transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
+        transcript.onSummaryChange = { [weak self] _ in
+            self?.updateFirstRun()
+            self?.updateBrainHint()
+        }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         transcript.onPickAttachments = { [weak self] in self?.pickFiles() }
         transcript.onAttachmentPasteboard = { [weak self] board in self?.handleDrop(board) ?? false }
@@ -185,16 +194,21 @@ final class ChiefTranscriptView: NSView {
         settingsPanel.onChoosePicture = { [weak self] in self?.pickAvatarPicture() }
         settingsPanel.onRemovePicture = { [weak self] in self?.updateProfile { $0.picture = nil } }
         settingsPanel.onNewConversation = { [weak self] in self?.newConversation() }
-        settingsPanel.onEditMemory = { [weak self] instructions in
-            guard let paths = ChiefService.shared.memoryPaths else { return }
-            try? ChiefMemory(paths: paths).ensureDefaults()
-            ChiefMemoryEditor.present(title: instructions ? ChiefStrings.memoryInstructionsTitle : ChiefStrings.memoryProfileTitle,
-                                      fileURL: instructions ? paths.instructions : paths.person, in: self?.window)
+        settingsPanel.onName = { name in ChiefService.shared.setChiefName(name) }
+        settingsPanel.onShowTranscriptLog = { [weak self] in
+            guard let self else { return }
+            ChiefService.shared.revealTranscriptLog(self.conversation)
         }
-        settingsPanel.onShowMemoryFolder = {
-            guard let paths = ChiefService.shared.memoryPaths else { return }
-            try? ChiefMemory(paths: paths).ensureDefaults()
-            NSWorkspace.shared.activateFileViewerSelecting([paths.person])
+        settingsPanel.conversation = conversation
+    }
+
+    /// The brain hint shows under the pill of a Chief conversation only.
+    private func updateBrainHint() {
+        guard let transcript else { return }
+        let hidden = transcript.conversationSummary?.kind(me: ChiefService.shared.me) != .chief
+        if brainHint.label.isHidden != hidden {
+            brainHint.label.isHidden = hidden
+            needsLayout = true
         }
     }
 
@@ -311,6 +325,7 @@ final class ChiefTranscriptView: NSView {
         applyAvatar()
         firstRun.apply(theme)
         settingsPanel.apply(theme)
+        brainHint.apply(theme)
         memoryNotice.apply(theme)
         noticeLabel.textColor = theme.textSecondary
         workingStatus.apply(theme)
@@ -349,7 +364,8 @@ final class ChiefTranscriptView: NSView {
         // A new picture keeps its file name: draw again.
         shownAvatar = nil
         applyAvatar()
-        settingsPanel.refresh(avatar: profile.avatar ?? "", hasPicture: profile.pictureURL(in: home) != nil)
+        settingsPanel.refresh(avatar: profile.avatar ?? "", hasPicture: profile.pictureURL(in: home) != nil,
+                              name: profile.name ?? "")
     }
 
     /// The header avatar: the one Chief avatar the list and the sidebar's Home
@@ -417,7 +433,8 @@ final class ChiefTranscriptView: NSView {
         if open {
             if let home = ChiefService.shared.home {
                 let current = ChiefProfile.load(from: home)
-                settingsPanel.refresh(avatar: current.avatar ?? "", hasPicture: current.pictureURL(in: home) != nil)
+                settingsPanel.refresh(avatar: current.avatar ?? "", hasPicture: current.pictureURL(in: home) != nil,
+                                      name: current.name ?? "")
             }
             settingsPanel.isHidden = false
             settingsPanel.frame = panelFrame(open: false)
@@ -429,6 +446,7 @@ final class ChiefTranscriptView: NSView {
             context.allowsImplicitAnimation = true
             settingsPanel.animator().frame = panelFrame(open: open)
             transcript?.animator().frame = transcriptFrame(open: open)
+            brainHint.label.animator().frame = brainHint.frame(in: transcriptFrame(open: open))
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated { // main-proof: AppKit runs animation completions on the main thread
                 guard let self, !self.settingsOpen else { return }
@@ -460,6 +478,7 @@ final class ChiefTranscriptView: NSView {
             let top = transcript.headerHeight
             let panel = CGRect(x: 0, y: top, width: place.width, height: max(0, transcript.fieldTop - top))
             if firstRun.frame != panel { firstRun.frame = panel }
+            brainHint.layout(in: place)
         }
         if !settingsPanel.isHidden { settingsPanel.frame = panelFrame(open: settingsOpen) }
         let inset: CGFloat = 24

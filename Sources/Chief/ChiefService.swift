@@ -134,7 +134,7 @@ final class ChiefService {
     /// - Throws: ``HomeRejection`` when the owner refuses.
     func createConversation() async throws -> ConversationID {
         guard let store else { throw HomeRejection.ownerUnreachable }
-        let result = try await store.perform(.createChief(name: ChiefStrings.chiefName))
+        let result = try await store.perform(.createChief(name: ChiefProfile.currentName()))
         guard let id = result.conversation else { throw HomeRejection.indeterminate }
         return id
     }

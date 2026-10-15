@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentQuestion
 import CmuxHomeRender
 
 /// Where the vendored ChatController sends the user's changes in cmux. The
@@ -53,11 +54,19 @@ protocol ChatIntents: AnyObject {
     /// cmux-classic: the newest pending approval card in the transcript (the field's Return and Esc,
     /// its placeholder).
     func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)?
+    /// cmux-classic: a question card's answer (QuestionCardRow). The answer goes to the owner;
+    /// `completion(false)` when it was refused.
+    func answerQuestion(_ ref: PartRef, answer: AgentQuestionAnswer, completion: @escaping (Bool) -> Void)
+    /// cmux-classic: a Cloud result card's Open Workspace (ChiefCloudRows): the host opens the
+    /// machine workspace as a local workspace (`cmux vm workspace open`).
+    func openCloudWorkspace(machine: String, workspace: String)
 }
 
 extension ChatIntents {
     func answerApproval(_ ref: PartRef, choice: String, always: Bool, completion: @escaping (Bool) -> Void) { completion(false) }
     func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)? { nil }
+    func answerQuestion(_ ref: PartRef, answer: AgentQuestionAnswer, completion: @escaping (Bool) -> Void) { completion(false) }
+    func openCloudWorkspace(machine: String, workspace: String) {}
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,

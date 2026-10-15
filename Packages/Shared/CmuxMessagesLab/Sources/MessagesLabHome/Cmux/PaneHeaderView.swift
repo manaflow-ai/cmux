@@ -26,6 +26,8 @@ final class PaneHeaderView: NSView {
     /// white monogram (Messages' light-mode avatar).
     var light = false { didSet { if light != oldValue { applyAvatar() } } }
     var onContact: () -> Void = {}
+    /// cmux: the pill's hover tooltip (the Chief's brain hint); nil shows its accessibility label.
+    var pillToolTip: String? { didSet { if pillToolTip != oldValue { applyTitle() } } }
     /// cmux-classic: the conversation's status ("Waiting for you" while an approval waits): an
     /// attention dot on the avatar, the pill's accessibility value and tooltip. Nil: none.
     var status: String? { didSet { if status != oldValue { applyStatus() } } }
@@ -121,7 +123,7 @@ final class PaneHeaderView: NSView {
     private func applyStatus() {
         statusDot.isHidden = status == nil || avatar.isHidden
         pill.setAccessibilityValue(status)
-        pill.toolTip = [pill.accessibilityLabel(), status].compactMap { $0 }.joined(separator: " · ")
+        pill.toolTip = [pillToolTip ?? pill.accessibilityLabel(), status].compactMap { $0 }.joined(separator: " · ")
         needsLayout = true
     }
 
@@ -130,7 +132,6 @@ final class PaneHeaderView: NSView {
         pill.isHidden = title.isEmpty
         avatar.isHidden = title.isEmpty
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
-        pill.toolTip = pill.accessibilityLabel()
         avatar.setAccessibilityLabel(title)
         applyStatus()
         needsLayout = true

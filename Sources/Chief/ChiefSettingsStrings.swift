@@ -68,8 +68,9 @@ enum ChiefSettingsStrings {
             parts.append(engine.harness)
             parts.append(modelName(engine.model, harness: engine.harness))
         }
-        let seconds = stats.duration.formatted(.number.precision(.fractionLength(1)))
-        parts.append(String(format: String(localized: "chief.settings.lastTurn.seconds", defaultValue: "%@ s"), seconds))
+        // "3.1s", in the locale's own unit style.
+        parts.append(Duration.milliseconds(Int64((stats.duration * 1000).rounded()))
+            .formatted(.units(allowed: [.seconds], width: .narrow, fractionalPart: .show(length: 1))))
         let tools = Int64(stats.toolCalls)
         parts.append(String(localized: "chief.settings.lastTurn.toolCalls", defaultValue: "\(tools) tool calls"))
         if let rate = stats.cacheHitRate {

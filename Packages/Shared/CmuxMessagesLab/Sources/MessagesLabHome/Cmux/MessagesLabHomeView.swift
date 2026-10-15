@@ -163,6 +163,12 @@ public final class MessagesLabHomeView: NSView {
         controller.host.paneHeader.pill.refusesFirstResponder = false
     }
 
+    /// cmux: the name pill's hover tooltip (which brain answers); nil
+    /// shows its accessibility label, as before.
+    public func setNamePillToolTip(_ toolTip: String?) {
+        controller.host.paneHeader.pillToolTip = toolTip
+    }
+
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
 
@@ -192,6 +198,12 @@ public final class MessagesLabHomeView: NSView {
     public var onRefusal: (HomeIntent, HomeRejection) -> Void {
         get { projection.onRefusal }
         set { projection.onRefusal = newValue }
+    }
+    /// cmux-classic: a Chief Cloud result card's Open Workspace: the host opens machine
+    /// workspace `workspace` (`ws_…`) of `machine` as a local workspace.
+    public var onOpenCloudWorkspace: (_ machine: String, _ workspace: String) -> Void {
+        get { projection.onOpenCloudWorkspace }
+        set { projection.onOpenCloudWorkspace = newValue }
     }
 
     // MARK: Attachments (lane 16)

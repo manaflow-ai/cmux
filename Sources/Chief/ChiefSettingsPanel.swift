@@ -17,7 +17,8 @@ import Observation
 ///   `apps/aside/web/reasoning-menu.webp`).
 /// - Activity: the last turn's engine, time, tool calls and cache share, where
 ///   the brain runs, and Show Transcript Log.
-/// - Memory (``ChiefMemorySectionView`` and the memory files) and Conversation.
+/// - Memory (``ChiefMemorySectionView``: the newest notes, Show All… for the
+///   memory sheet) and Conversation.
 @MainActor
 final class ChiefSettingsPanel: NSView {
     static let width: CGFloat = 280
@@ -44,7 +45,6 @@ final class ChiefSettingsPanel: NSView {
     private var placeLabel = NSTextField(labelWithString: "")
     private let logButton = NSButton(title: ChiefSettingsStrings.showTranscriptLog, target: nil, action: nil)
     private let memorySection = ChiefMemorySectionView(width: ChiefSettingsPanel.contentWidth)
-    private var memoryButtons: [NSButton] = []
     private let newConversationButton = NSButton(title: ChiefStrings.newConversation, target: nil, action: nil)
 
     private var shownAvatar = ""
@@ -69,10 +69,6 @@ final class ChiefSettingsPanel: NSView {
     var onShowTranscriptLog: () -> Void = {}
     /// New Conversation was clicked.
     var onNewConversation: () -> Void = {}
-    /// Edit About You / Edit Instructions: the host opens the editor.
-    var onEditMemory: (_ instructions: Bool) -> Void = { _ in }
-    /// Show in Finder.
-    var onShowMemoryFolder: () -> Void = {}
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -193,15 +189,6 @@ final class ChiefSettingsPanel: NSView {
         // Chief memory (ChiefMemorySectionView): the newest notes, hover ✕ forgets, Show All… opens the sheet.
         memorySection.onShowAll = { [weak self] in ChiefMemoryEditor.present(selecting: .notes, in: self?.window) }
         memory.box.addArrangedSubview(memorySection)
-        memory.addGap(10)
-        for (title, action) in [(ChiefStrings.settingsEditProfile, #selector(editProfile)),
-                                (ChiefStrings.settingsEditInstructions, #selector(editInstructions)),
-                                (ChiefStrings.settingsShowMemoryFolder, #selector(showFolder))] {
-            let button = NSButton(title: title, target: nil, action: nil)
-            configure(button, action: action)
-            memoryButtons.append(button)
-            memory.add(button)
-        }
     }
 
     private func buildConversation() {
@@ -229,9 +216,18 @@ final class ChiefSettingsPanel: NSView {
 
     /// Tab moves top to bottom through the panel's controls.
     private func chainKeyViews() {
-        let order: [NSView] = [nameField, avatarField, pictureButton, harness, model, effort, logButton]
-            + memoryButtons + [newConversationButton]
+        // The memory section's own buttons (Show All…) sit between Activity and Conversation.
+        let memory = Self.buttons(in: memorySection)
+        let order: [NSView] = [nameField, avatarField, pictureButton, harness, model, effort, logButton] + memory
+            + [newConversationButton]
         for (view, next) in zip(order, order.dropFirst()) { view.nextKeyView = next }
+    }
+
+    private static func buttons(in view: NSView) -> [NSButton] {
+        view.subviews.flatMap { subview -> [NSButton] in
+            if let button = subview as? NSButton, !button.title.isEmpty { return [button] }
+            return buttons(in: subview)
+        }
     }
 
     // MARK: Theme
@@ -381,9 +377,6 @@ final class ChiefSettingsPanel: NSView {
     }
 
     @objc private func showLog() { onShowTranscriptLog() }
-    @objc private func editProfile() { onEditMemory(false) }
-    @objc private func editInstructions() { onEditMemory(true) }
-    @objc private func showFolder() { onShowMemoryFolder() }
     @objc private func newConversation() { onNewConversation() }
 }
 

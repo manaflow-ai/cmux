@@ -653,6 +653,7 @@
 		C41EFB84426FD41F1952A097 /* ChiefService+Pending.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF0ADBFC139043FA01C7B /* ChiefService+Pending.swift */; };
 		C41EF5F0F2ADB8E4E9E4CACC /* ChiefService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF74BF69493C6C47D91C5 /* ChiefService.swift */; };
 		C41EF32654C677631E79D8D9 /* ChiefSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFBE4752C180B7E96E593 /* ChiefSettingsActions.swift */; };
+		C41EF1826F846615540C7B9F /* ChiefSettingsBrainHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF9F30D3D234EDE8E6303 /* ChiefSettingsBrainHint.swift */; };
 		C41EFEAEB08DAE57EECA1127 /* ChiefSettingsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF5662431A28A013F87A2 /* ChiefSettingsBridge.swift */; };
 		C41EFE4F706C9A4CB685AF9A /* ChiefSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFA4EC893AEE8A47039F3 /* ChiefSettingsCard.swift */; };
 		C41EF352735FB4EE811566B6 /* ChiefSettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF4B2F58E25DF07533982 /* ChiefSettingsPanel.swift */; };
@@ -5435,6 +5436,7 @@
 		C41EF0ADBFC139043FA01C7B /* ChiefService+Pending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chief/ChiefService+Pending.swift"; sourceTree = "<group>"; };
 		C41EF74BF69493C6C47D91C5 /* ChiefService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefService.swift; sourceTree = "<group>"; };
 		C41EFBE4752C180B7E96E593 /* ChiefSettingsActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefSettingsActions.swift; sourceTree = "<group>"; };
+		C41EF9F30D3D234EDE8E6303 /* ChiefSettingsBrainHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefSettingsBrainHint.swift; sourceTree = "<group>"; };
 		C41EF5662431A28A013F87A2 /* ChiefSettingsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefSettingsBridge.swift; sourceTree = "<group>"; };
 		C41EFA4EC893AEE8A47039F3 /* ChiefSettingsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefSettingsCard.swift; sourceTree = "<group>"; };
 		C41EF4B2F58E25DF07533982 /* ChiefSettingsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefSettingsPanel.swift; sourceTree = "<group>"; };
@@ -12487,6 +12489,7 @@
 				C41EFBE4752C180B7E96E593 /* ChiefSettingsActions.swift */,
 				C41EFA4EC893AEE8A47039F3 /* ChiefSettingsCard.swift */,
 				C41EFB9686E48DF41AE66F0F /* ChiefSettingsStrings.swift */,
+				C41EF9F30D3D234EDE8E6303 /* ChiefSettingsBrainHint.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15337,6 +15340,7 @@
 				C41EFB84426FD41F1952A097 /* ChiefService+Pending.swift in Sources */,
 				C41EF5F0F2ADB8E4E9E4CACC /* ChiefService.swift in Sources */,
 				C41EF32654C677631E79D8D9 /* ChiefSettingsActions.swift in Sources */,
+				C41EF1826F846615540C7B9F /* ChiefSettingsBrainHint.swift in Sources */,
 				C41EFEAEB08DAE57EECA1127 /* ChiefSettingsBridge.swift in Sources */,
 				C41EFE4F706C9A4CB685AF9A /* ChiefSettingsCard.swift in Sources */,
 				C41EF352735FB4EE811566B6 /* ChiefSettingsPanel.swift in Sources */,

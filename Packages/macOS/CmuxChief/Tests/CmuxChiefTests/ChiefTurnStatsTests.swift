@@ -47,6 +47,17 @@ import Testing
         #expect(ChiefTurnUsage(inputTokens: 0, cacheReadTokens: 0).cacheHitRate == nil)
     }
 
+    @Test func successfulResultReportsUsageBeforeFinished() {
+        var lines = ChiefBrainFixtures.claudeTextTurn
+        lines[lines.count - 1] = lines[lines.count - 1].replacingOccurrences(
+            of: #""type":"result","#,
+            with: #""type":"result","usage":{"input_tokens":5,"cache_read_input_tokens":15},"#)
+        var parser = ClaudeStreamParser()
+        parser.beginTurn(echo: ChiefBrainFixtures.claudePromptUUID)
+        let outputs = lines.flatMap { parser.consume(Data($0.utf8)) }
+        #expect(outputs.suffix(2) == [.event(.usage(ChiefTurnUsage(inputTokens: 5, cacheReadTokens: 15))), .event(.finished)])
+    }
+
     @Test func renameChiefsUpdatesEveryChiefParticipant() async throws {
         let owner = try ChiefFixture().owner(.replying(["hi"]))
         let changed = try await owner.renameChiefs(to: "  Jarvis ")

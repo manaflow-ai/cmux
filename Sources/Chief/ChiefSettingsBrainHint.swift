@@ -34,9 +34,12 @@ final class ChiefSettingsBrainHint {
         }
     }
 
-    // Not an isolated deinit (Swift 6.0 has none): the token is removed on any thread.
+    // Not an isolated deinit (Swift 6.0 has none): the main-thread check guards the hop.
     deinit {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 
     func apply(_ theme: ChiefTheme) {
@@ -45,10 +48,15 @@ final class ChiefSettingsBrainHint {
 
     /// Centers the label under the pill across `transcriptFrame`.
     func layout(in transcriptFrame: CGRect) {
-        let height = ceil(label.intrinsicContentSize.height)
-        let frame = CGRect(x: transcriptFrame.minX + 16, y: transcriptFrame.minY + Self.top,
-                           width: max(0, transcriptFrame.width - 32), height: height)
+        let frame = frame(in: transcriptFrame)
         if label.frame != frame { label.frame = frame }
+    }
+
+    /// The label's place for `transcriptFrame` (the host animates to it with the settings panel).
+    func frame(in transcriptFrame: CGRect) -> CGRect {
+        let height = ceil(label.intrinsicContentSize.height)
+        return CGRect(x: transcriptFrame.minX + 16, y: transcriptFrame.minY + Self.top,
+                      width: max(0, transcriptFrame.width - 32), height: height)
     }
 
     /// Re-reads the settings (written by any entry point) and shows them.

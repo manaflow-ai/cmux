@@ -32,14 +32,16 @@ extension HomeProjection {
         }
     }
 
-    /// The newest approval card still waiting, among the shown messages.
+    /// The newest approval card still waiting, among the shown messages (a scan of the raw parts;
+    /// only a found card's message is projected, for its part index).
     func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)? {
         for item in shown.reversed() where !item.isRetracted {
-            let projected = HomeMapping.projectedParts(item, summary: shownSummary).parts
-            for (i, part) in projected.enumerated() {
-                guard case let .custom(c) = part, c.kind == ChiefRows.approvalKind,
-                      let a = c.decode(ChiefRows.Approval.self), a.isPending else { continue }
-                return (PartRef(messageId: HomeMapping.id(item, aliases: aliases), partIndex: i), a)
+            for (homeIndex, part) in item.parts.enumerated() {
+                guard case .approval(let ref) = part, ref.decided == nil else { continue }
+                let owners = HomeMapping.projectedParts(item, summary: shownSummary).owners
+                let agent = shownSummary?.participants.first { $0.id == item.author }?.displayName
+                return (PartRef(messageId: HomeMapping.id(item, aliases: aliases), partIndex: HomeMapping.projectedIndex(homeIndex, owners)),
+                        ChiefRows.Approval(ref, agent: agent))
             }
         }
         return nil

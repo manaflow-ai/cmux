@@ -24,7 +24,9 @@ and render-server field animation, blurred header and native scrolling.
     Messages' key-window glass rims over the system glass; dark, 2x, macOS 27
     only), LabGlass (system glass on macOS 26
     and newer, an NSVisualEffectView stand-in on 14 and 15), NativeScroll,
-    HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
+    HeaderBar, HeaderBackdrop, TranscriptAccess, CustomRowsHost (cmux classic: the
+    hosted rows' live views over the scroll view, installed by `HostView.install`; byte-identical to
+    the pin), SwipeReply (installed only when the
     owner can take a reply: `ChatIntents.canReply`; Home sends the reply as
     `HomeOp.sendMessage(threadRoot:)`, the thread view's Esc and clicks are `Cmux/PaneHost+Thread.swift`),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
@@ -109,7 +111,11 @@ and render-server field animation, blurred header and native scrolling.
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
   unvendored MessagesLab files),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
-  (the public view).
+  (the public view), and in cmux classic `ChiefRows` with `ChiefToolRowProvider` and
+  `ChiefApprovalRowProvider` (the Chief's tool calls as full-width rows that fold a run of
+  calls into one "Ran 3 commands" disclosure, and its approval cards as incoming bubbles that
+  collapse to a receipt; hosted rows through the vendored CustomRows seam, answered with
+  `HomeOp.answerQuestion` on the approval part, `HomeProjection+Approval.swift`).
 
 ## Blocker patches
 
@@ -130,6 +136,7 @@ and render-server field animation, blurred header and native scrolling.
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space. Its own state field (`ConversationUIState.cmuxNotice`, b5742f3: upstream's `notice` is ask 9's status line); row key `notice` (upstream's tail paging rules apply); not drawn while upstream's line is set |
 | GlassKeyFix | the over-blend images are built by appending, not by index subscripts (crash ratchet: no new index_subscript hit in MessagesLabHome) |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
+| Compose | cmux-classic: `cmuxPlaceholder`, the host's placeholder over the field's own (an approval card waits: "Allow or deny above to continue") |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
@@ -173,7 +180,7 @@ system text menu (Services) and media placeholders in a cross-bubble copy; long 
 (MarkdownLong.swift) and the off-main streaming tail, both OFF unless `--long-markdown` /
 `--long-tail-off-main`; pinned sidebar tiles as separate layers; a copied attachment says
 [File: name] in every app language. MessagesLab's custom-row host fixes (4dbf4e3) are in its
-CustomRowsHost.swift, which this package does not vendor; 9ae05d5: the sidebar catalog in all 21 app languages, from cmux, upstream PR #2; 9e1f4a5: Sidebar
+CustomRowsHost.swift (vendored in cmux classic, at the pin); 9ae05d5: the sidebar catalog in all 21 app languages, from cmux, upstream PR #2; 9e1f4a5: Sidebar
 v1.1, strings from its own catalog in this package's bundle (`SidebarLocalization.bundle = .module`), optional menu actions, host menu items and search sections, injectable unread and
 selection colours, and the updateHover fix (Tests/MessagesLabSidebarTests). 40b9869: MessagesLab's own fill span (the visible transcript plus one height above and
 below, from the view's bounds; our fill-clamp patch is gone) and the Markdown colour fix
