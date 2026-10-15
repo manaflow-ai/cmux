@@ -805,6 +805,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_perf_activation_scrollback_sizing.py
 
+      - name: Validate browser engine bench logic
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_browser_engine_bench.py
+
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
