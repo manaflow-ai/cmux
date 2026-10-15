@@ -242,9 +242,12 @@ def leg_hang_reload(h: Harness, sid: str) -> None:
     started = time.time()
 
     def reload(label: str) -> None:
+        # Its own connection: a reply that arrives after the client gives up
+        # must not land on the connection the status checks read.
         try:
-            h.c._call("browser.reload", {"surface_id": sid}, timeout_s=10)
-        except cmuxError as error:
+            with cmux(SOCKET_PATH) as side:
+                side._call("browser.reload", {"surface_id": sid}, timeout_s=15)
+        except Exception as error:  # noqa: BLE001
             # The command's own navigation wait can end before the recovery
             # does; what matters is that the page comes back.
             print(f"note hangreload: {label} reload answered {error}")
