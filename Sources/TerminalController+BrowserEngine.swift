@@ -1,5 +1,6 @@
 import CmuxBrowser
 import Foundation
+import os
 
 /// The `engine` parameter of browser-creating socket methods
 /// (`browser.open_split`, `browser.tab.new`) and the `engine` field their
@@ -121,6 +122,40 @@ extension TerminalController {
     /// `v2EngineAgentRefusal` from the socket worker.
     nonisolated func v2EngineAgentRefusalOnWorker(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
         v2MainSync { v2EngineAgentRefusal(panel, surfaceId: surfaceId) }
+    }
+
+    /// Runs `source` at the start of every document the engine page loads
+    /// from now on (`Page.addScriptToEvaluateOnNewDocument`). Nil on success,
+    /// else the socket error.
+    nonisolated func v2EngineAddScriptOnNewDocument(
+        _ page: any BrowserPage,
+        source: String,
+        surfaceId: UUID
+    ) -> V2CallResult? {
+        let outcome: Result<Void, any Error>? = v2AwaitEnginePage(timeout: 5.0) {
+            do {
+                _ = try await BrowserPageAutomation(page: page).devTools(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    ["source": source]
+                )
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+        switch outcome {
+        case nil: return v2EngineAutomationTimeout(surfaceId: surfaceId)
+        case .failure(let error): return v2EngineAutomationError(error, surfaceId: surfaceId)
+        case .success: return nil
+        }
+    }
+
+    /// Engine surfaces whose telemetry hooks are registered for new documents.
+    private static let v2EngineTelemetrySurfaces = OSAllocatedUnfairLock(initialState: Set<UUID>())
+
+    /// True the first time a surface asks, so the hooks are registered once.
+    nonisolated func v2EngineClaimTelemetryHooks(surfaceId: UUID) -> Bool {
+        Self.v2EngineTelemetrySurfaces.withLock { $0.insert(surfaceId).inserted }
     }
 
     /// Modifier keys automation holds down per engine surface (DevTools key

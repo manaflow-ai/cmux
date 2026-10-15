@@ -7263,7 +7263,7 @@ class TerminalController {
     }
 
     private func v2BrowserNotSupported(_ method: String, details: String) -> V2CallResult {
-        .err(code: "not_supported", message: "\(method) is not supported on WKWebView", data: ["details": details])
+        .err(code: "not_supported", message: "\(method) is not supported by cmux browser automation yet", data: ["details": details])
     }
 
     private nonisolated func v2BrowserAllocateElementRef(surfaceId: UUID, selector: String) -> String {
@@ -10632,6 +10632,12 @@ class TerminalController {
 
     private nonisolated func v2BrowserEnsureTelemetryHooks(browserPanel: BrowserPanel, surfaceId: UUID, webView: WKWebView) {
         let source = v2MainSync { BrowserPanel.telemetryHookBootstrapScriptSource }
+        // WebKit installs the hooks as a document-start user script; a
+        // Chromium page gets them once per surface through DevTools so
+        // console output and errors from page load are captured too.
+        if let enginePage = v2EnginePage(browserPanel), v2EngineClaimTelemetryHooks(surfaceId: surfaceId) {
+            _ = v2EngineAddScriptOnNewDocument(enginePage, source: source, surfaceId: surfaceId)
+        }
         _ = v2RunBrowserJavaScript(
             webView,
             browserPanel: browserPanel,
@@ -12219,6 +12225,12 @@ class TerminalController {
             let scriptsCount = v2MainSync {
                 let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
                 return ctx.browserPanel.registerBrowserAutomationInitScript(userScript)
+            }
+            // A Chromium page runs init scripts through DevTools; the WebKit
+            // user script above only counts it.
+            if let enginePage = v2EnginePage(ctx.browserPanel),
+               let failure = v2EngineAddScriptOnNewDocument(enginePage, source: script, surfaceId: ctx.surfaceId) {
+                return failure
             }
             _ = v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
 
