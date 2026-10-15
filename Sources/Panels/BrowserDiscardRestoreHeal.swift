@@ -70,6 +70,7 @@ extension BrowserPanel {
         allowBlankShellHeal: Bool = true,
         forceRestartPendingRestore: Bool = false
     ) -> Bool {
+        if enginePage != nil { return restoreEnginePageIfReleased(reason: reason, trigger: trigger) }
         if Self.isRestoreStalled(
             isRestoreNavigationPending: hiddenWebViewDiscardManager.isRestoreNavigationPending,
             isWebViewLoading: webView.isLoading,

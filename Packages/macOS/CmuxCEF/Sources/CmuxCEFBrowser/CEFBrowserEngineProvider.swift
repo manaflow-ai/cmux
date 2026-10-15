@@ -16,11 +16,14 @@ import Foundation
 @MainActor
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     private let runtime: CEFRuntime
+    /// Shared by this provider's pages for Memory Saver's process accounting.
+    private let rendererProcesses: CEFRendererProcessResolver
 
     /// Creates the provider.
     /// - Parameter runtime: The process's CEF runtime.
     public init(runtime: CEFRuntime) {
         self.runtime = runtime
+        rendererProcesses = CEFRendererProcessResolver()
     }
 
     /// Always ``BrowserEngineKind/chromium``.
@@ -62,6 +65,8 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
                 restoreState: restore
             )
         )
-        return CEFBrowserPage(browser: browser)
+        let page = CEFBrowserPage(browser: browser)
+        page.rendererProcesses = rendererProcesses
+        return page
     }
 }

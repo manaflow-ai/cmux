@@ -529,6 +529,7 @@
 		C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */; };
 		D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */; };
 		E8DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift */; };
+		0213F044121DD82BF2151FD7 /* BrowserPanel+EnginePageMemorySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32A59C8E4300F90231D8519 /* BrowserPanel+EnginePageMemorySaver.swift */; };
 		F15069A000000000000000A1 /* BrowserPanel+FormStateTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15069A000000000000000A2 /* BrowserPanel+FormStateTracking.swift */; };
 		E66AE765BA60B55B26C90EC9 /* BrowserPanel+HiddenMemoryBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C365461AA42F333782E0AC29 /* BrowserPanel+HiddenMemoryBudget.swift */; };
 		A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MX00 /* BrowserPanel+MediaPlayback.swift */; };
@@ -5265,6 +5266,7 @@
 		C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+DisplayURL.swift"; sourceTree = "<group>"; };
 		D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+ElementPicker.swift"; sourceTree = "<group>"; };
 		E9DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+EnginePage.swift"; sourceTree = "<group>"; };
+		B32A59C8E4300F90231D8519 /* BrowserPanel+EnginePageMemorySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+EnginePageMemorySaver.swift"; sourceTree = "<group>"; };
 		F15069A000000000000000A2 /* BrowserPanel+FormStateTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+FormStateTracking.swift"; sourceTree = "<group>"; };
 		C365461AA42F333782E0AC29 /* BrowserPanel+HiddenMemoryBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+HiddenMemoryBudget.swift"; sourceTree = "<group>"; };
 		A500MX00 /* BrowserPanel+MediaPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MediaPlayback.swift"; sourceTree = "<group>"; };
@@ -11590,6 +11592,7 @@
 				E9346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift */,
 				E9D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift */,
 				E9DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift */,
+				B32A59C8E4300F90231D8519 /* BrowserPanel+EnginePageMemorySaver.swift */,
 				D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */,
 				30F3EF8FCFB8F4402A4F0DA9 /* CmuxWebViewAppHost.swift */,
 				C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */,
@@ -15120,6 +15123,7 @@
 				C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */,
 				D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */,
 				E8DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift in Sources */,
+				0213F044121DD82BF2151FD7 /* BrowserPanel+EnginePageMemorySaver.swift in Sources */,
 				F15069A000000000000000A1 /* BrowserPanel+FormStateTracking.swift in Sources */,
 				E66AE765BA60B55B26C90EC9 /* BrowserPanel+HiddenMemoryBudget.swift in Sources */,
 				A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */,
