@@ -68,6 +68,14 @@ public nonisolated struct AgentPaneTunables {
         help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, or plain text. New agent tabs.",
         default: .default, code: "AgentPaneTunables.topStripStyle")
 
+    /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
+    /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
+    /// menu. It rides the `composer` page event (`plainFooter`, composerSettings.ts); no cmux.json key.
+    public static let composerPlainFooter = Tunable<Bool>.toggle(
+        "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
+        help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
+        default: false, code: "AgentPaneTunables.composerPlainFooter")
+
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value)
@@ -91,5 +99,7 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor] }
+    public static var all: [TunableDescriptor] {
+        [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, composerPlainFooter.descriptor]
+    }
 }
