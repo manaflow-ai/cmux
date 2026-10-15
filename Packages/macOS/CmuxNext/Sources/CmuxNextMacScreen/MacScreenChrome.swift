@@ -97,8 +97,10 @@ extension MacScreenPaneModel {
         }
     }
 
+    /// Every connect retries, so the reconnecting flag is set on a first
+    /// connect too: the card says Reconnecting only once the Mac was shown.
     static func connectingCard(isReconnecting: Bool, everConnected: Bool) -> MacScreenCard {
-        .connecting(reconnecting: isReconnecting)
+        .connecting(reconnecting: isReconnecting && everConnected)
     }
 
     var isLive: Bool {
