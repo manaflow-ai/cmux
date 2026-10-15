@@ -293,6 +293,8 @@ struct TabOverview<Source: TabsDataSource>: View {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
         }
+        // Under its lifted long-press preview the card is hidden.
+        .opacity(swipes.menuCard == tab.id ? 0 : 1)
         .overlay(alignment: .topLeading) {
             if selecting { SelectionMark(selected: selection.contains(tab.id), width: r.width, height: r.height, radius: layout.cardRadius) }
         }
@@ -312,6 +314,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 },
                 previewScale: CardMenuPreview<EmptyView>.scale,
                 dragKey: selecting || !source.supportsReordering ? nil : tab.id,
+                onMenu: { open in swipes.menuChanged(tab.id, open) },
                 onTap: {
                     if selecting { selection.toggle(tab.id) }
                     else if gridInteractive { onSelect(tab.id) } else if swipeInteractive { onQueueSelect(tab.id) }
@@ -353,6 +356,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         let r = layout.card(index)
         PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width, height: r.height,
                    selected: selecting ? selection.contains(tab.id) : nil)
+            .opacity(swipes.menuCard == tab.id ? 0 : 1)
             .overlay {
                 CardInteraction(
                     card: r.size, radius: r.height / 2, passThrough: nil,
@@ -362,6 +366,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                             .environment(\.tabsKitTheme, theme))
                     },
                     previewScale: 1.15, dragKey: nil,
+                    onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: { if selecting { selection.toggle(tab.id) } else if gridInteractive { onSelect(tab.id) } },
                     onPan: { _ in }, onDragStart: {}, onDragEnd: {})
             }

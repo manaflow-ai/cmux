@@ -24,6 +24,12 @@ final class CardSwipeState {
     /// (the same card view, so the exit never re-renders it) after their tab
     /// has left the list, until they are off screen.
     private(set) var departing: [DepartingCard] = []
+    /// The card whose long-press menu is open: it hides under its lifted
+    /// preview (the grid and the layer that draws the active card).
+    var menuCard: String?
+    func menuChanged(_ key: String, _ open: Bool) {
+        if open { menuCard = key } else if menuCard == key { menuCard = nil }
+    }
     func isDeparting(_ key: String) -> Bool { departing.contains { $0.id == key } }
 
     func offset(_ key: String) -> CGFloat { (offsets[key] ?? 0) + (catchUps[key] ?? 0) }
