@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentCursor
+import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextHistory
@@ -423,6 +424,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: controller.focus.state.pane, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = super.makeFirstResponder(responder)
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
         return accepted
