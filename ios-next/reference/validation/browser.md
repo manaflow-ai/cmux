@@ -1107,3 +1107,59 @@ while a card is swiped), closing the active card fades and shrinks it, a
 long-pressed active card lifts, New Tab is centred and blurred, and the
 demo start card no longer jumps 16 pt. Kit runs: reorder-left 3 of 3 keep
 5 tabs, slow drags 3 of 3 spring back, moving swipes 2 of 2 close.
+
+## Round 22: the harness, 3 rounds in a row (tabs-curves)
+
+`scripts/tabs-curves/run.sh` on mini-cmux15, slot `impl2` (its own
+iPhone 17 Pro simulator, no hardware keyboard, dark appearance), app
+and the CmuxTabsKit demo, one run of every motion per round, 3 rounds in a
+row. Safari numbers are the harness's curves (re-audit 3). Profiling: the
+Instruments trace hangs on this mini (Developer Mode is off and needs an
+admin password), so the frames were timed with a DEBUG run loop trace
+(`CMUX_NEXT_BROWSER_ZOOM_TRACE=1` now also logs main-thread passes over
+8 ms) and `sample` on the simulator process.
+
+| Item | Before (04c6e74 / kit 506c123) | Cause | After |
+|---|---|---|---|
+| tapZoomOut | 0 of 3 (617–678 ms here, Safari 470–570) | Not Bring Forward: the zoom grows from the card's snapshot either way, and the "Not showing" view only covers the page after the zoom. The harness's second tap landed about 520 ms into the zoom-out (each AXe tap ends about 0.27 s after it starts), after Safari's open, so it timed AXe | The tap lands 250–300 ms in; the card opens at the queued 0.42 s: 498–505 ms, 7 of 7 |
+| One late frame early in zoomOut, swipeUp, zoomIn | 1 run in 3 | Main thread, not the blur: the frame that renders the zoom's start (the grid, the zoom rect, the selected tab's page) took 25–60 ms, and the curve stepped in it too, so the next frame came 40–60 ms late. The glass controls inserted at `shown > 0` cost 20–35 ms of it, and terminal cards started their headless renders in the same frames | That frame holds still and the curve starts on the next (the build frame); the controls are parked off screen instead of inserted; terminal cards render once the grid has settled. Every tick 17 ms apart in the traces (zoom-out from the page and from GitHub, zoom-in to GitHub) |
+| fling | 2 of 3: t90/t99 +20 ms, count +19 to +28 ms | The lifted card (× 1.093) was still 8 pt on screen when the curve ended; the count came a frame after the card's first move. Then a tracker fault: as the card left, the header rows beside its close button dropped under the band width and x1 jumped to the button (9 pt, read as the tail 28 ms early) | The card ends past the edge with its lift; the count on its first move (+1 to +6 ms); the tracker keeps the widest header band |
+| drag | 2 of 3 (one run 3.6 pt over) | The harness timed the drag from the frame before the onset, which is not a time (no frames while the screen is still: 3–90 ms early) | Timed from the first moving frame, Safari's reference re-timed the same way; tolerance 2 pt; within 1.5 pt |
+| kit reflow count | 3 of 3 on the old slot, 0 of 3 on a fresh simulator | The demo grid draws at 30–40 Hz there: the count and the first move landed in one frame | The cued curve holds until a frame showing the count has been drawn: -48 to -50 ms, the frame before |
+| D6b reorder (re-audit 4) | Blank rectangle under the finger; the card under its neighbour; down 0 of 4 | The lift preview was a hosting view in no window (nothing drawn yet) | The card drawn into an image, its slot empty while it moves. `scripts/grid-reorder.sh`: left 3 of 3, right 3 of 3. **Down 0 of 3, open**: the move goes onto the context menu below the card, which keeps the touch, so no drag begins (an upward drag works) |
+| 3h lift scale back | t90 +20 ms (harness, 0.57 / 0.94) | — | Fitted to Safari's 3h: 0.58 / 0.82. New motion `liftBack` |
+| 3i right spring back | t50 +18–27, t90 +34–52 ms (re-audit 4) | The fitted 0.75 / 0.81 overshot 1.6 % and rested 50 ms early | Safari's own curve (`SafariCurve.snapBackRight`). New motion `rubberRelease` |
+| 4b top rubber band | +93.3 pt, t99 +40–54 ms | The system scroll view's bounce; the grid sets no content inset of its own | Not changed |
+
+Harness fixes on the way: per-slot remote files (two agents on one mini
+overwrote `/tmp/tc.mp4`), dark appearance set by the harness (lastTab
+tracks the black start page), `sim.udid` rewritten only when the
+simulator changes (a full disk truncated it).
+
+Harness, 3 rounds in a row after the last change (app a1e6a4d, kit
+0504df8); crossings t10 / t50 / t90 / t99 against Safari (ms), worst of
+the 3 rounds:
+
+| Motion | App, 3 rounds | Kit, 3 rounds |
+|---|---|---|
+| reflow | 3 of 3; within 3 ms, count -22 ms (the frame before) | 3 of 3; within 4 ms, count -48 to -50 ms |
+| zoomOut | 3 of 3; t90 +17 once (others within 3) | 3 of 3; t50 +13, t90 +14 once |
+| zoomIn | 3 of 3; t99 +7 | 3 of 3; t99 +12 |
+| swipeUp | 3 of 3; t10 -12 once, t99 +15 once | 3 of 3; within 9 |
+| snapBack | 3 of 3; within 4 | 3 of 3; within 3 |
+| liftBack (new) | 3 of 3; t90 -16, max 1.1 pt | 3 of 3; t90 -16, max 0.9 pt |
+| rubberRelease (new) | 3 of 3; within 5, max 0.9 pt | 3 of 3; within 5, max 0.8 pt |
+| fling | 3 of 3; t99 +9, count +1 to +2 ms | — (no fling in the demo) |
+| twoToOne | 3 of 3; t99 +13 | — |
+| tapZoomOut | 3 of 3; 505 ms (Safari 470-570) | — |
+| drag | 3 of 3; within 1.6 pt | — |
+| lastTab | 3 of 3; within 9, max 2.4 pt | — |
+
+The first app rounds before the tracker fix: fling failed 2 of 3 (the
+tracker fault above) and drag once (+2.0 / +2.7 / +3.0 pt: the AXe drag's
+events ran about 30 ms slow in that run; every other run was within
+1.6 pt). Kit zoomOut keeps a late frame about 65 ms in, 1 run in 3: the
+main thread is idle then (every pass under 13 ms in the trace), so it is
+the render server; it stays within one frame.
+
+Open: the downward reorder (above) and 4b.
