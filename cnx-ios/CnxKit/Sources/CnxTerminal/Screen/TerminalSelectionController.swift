@@ -272,6 +272,13 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     }
 }
 
+private extension UIColor {
+    /// iOS text selection's blue. Not the view's tint: the app tints with its
+    /// label colour, which drew the highlight as a dim grey and the handles
+    /// black on the terminal's black (VERIFY-round8 T-SEL).
+    static var terminalSelection: UIColor { .systemBlue }
+}
+
 /// The selection's tint, one rect per row.
 private final class SelectionHighlightView: UIView {
     var rects: [CGRect] = []
@@ -286,7 +293,7 @@ private final class SelectionHighlightView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func draw(_ rect: CGRect) {
-        UIColor.tintColor.withAlphaComponent(0.35).setFill()
+        UIColor.terminalSelection.withAlphaComponent(0.4).setFill()
         for row in rects {
             UIBezierPath(rect: row.offsetBy(dx: -frame.minX, dy: -frame.minY)).fill()
         }
@@ -304,8 +311,8 @@ private final class SelectionHandleView: UIView {
         self.isStart = isStart
         super.init(frame: .zero)
         backgroundColor = .clear
-        caret.backgroundColor = .tintColor
-        knob.backgroundColor = .tintColor
+        caret.backgroundColor = .terminalSelection
+        knob.backgroundColor = .terminalSelection
         knob.layer.cornerRadius = 5
         addSubview(caret)
         addSubview(knob)
