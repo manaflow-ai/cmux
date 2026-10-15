@@ -235,7 +235,8 @@ impl Mux {
             }
             let (target, applied) =
                 sizing.terminal_sizing.get(&runtime).map_or((requested, None), |entry| {
-                    ((entry.engine.state().cols, entry.engine.state().rows), Some(&entry.applied))
+                    let decided = (entry.engine.state().cols, entry.engine.state().rows);
+                    (self.terminal_grid_target(entry, runtime, decided), Some(&entry.applied))
                 });
             if applied.is_some_and(|applied| applied.get() == Some(target))
                 || previous_geometry == Some(target)
