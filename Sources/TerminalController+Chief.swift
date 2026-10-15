@@ -76,10 +76,17 @@ extension TerminalController {
                 let stopped = await owner.stopTurn(conversation: id)
                 return .ok(["conversation": id.rawValue, "stopped": stopped] as [String: Any])
             case .approve(let conversation, let request, let choice):
+                // Release builds answer approval cards only in Home (ChiefControlRequest.isAvailable).
+                guard ChiefControlRequest.isAvailable("chief.approve") else {
+                    return .err(code: "not_available",
+                                message: String(localized: "socket.chief.error.approveNotAvailable",
+                                                defaultValue: "Answer Chief's approvals in Home; this build doesn't accept them from the socket."),
+                                data: nil)
+                }
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
                 _ = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
-                guard let ref = await owner.pendingApproval(in: id, request: request) else {
+                guard let card = await owner.pendingApproval(in: id, request: request) else {
                     return .err(code: "not_found",
                                 message: request == nil
                                     ? String(localized: "socket.chief.error.noPendingApproval", defaultValue: "Chief has no approval waiting.")
@@ -87,11 +94,12 @@ extension TerminalController {
                                 data: request.map { ["request": $0] })
                 }
                 // "allow", "DENY": the approval's own option of that name.
-                let option = ref.options.first { $0.caseInsensitiveCompare(choice) == .orderedSame } ?? choice
+                let option = card.ref.options.first { $0.caseInsensitiveCompare(choice) == .orderedSame } ?? choice
+                // The card found above, by its place: a request id alone can name another turn's card.
                 try await Self.chiefOwnerCall {
-                    try await owner.answerApproval(conversation: id, request: ref.request, choice: option)
+                    try await owner.answerApproval(conversation: id, message: card.message, part: card.part, choice: option)
                 }
-                return .ok(["conversation": id.rawValue, "request": ref.request, "choice": option, "decided": true] as [String: Any])
+                return .ok(["conversation": id.rawValue, "request": card.request, "choice": option, "decided": true] as [String: Any])
             case .debug(let action, let conversation):
 #if DEBUG
                 return try await chiefDebug(action, conversation: conversation)
@@ -214,17 +222,17 @@ extension TerminalController {
 
     // MARK: - Helpers
 
+    /// The owner, awaited off the main actor: only starting the service hops
+    /// there; a load still running is awaited on the socket task.
     private nonisolated func chiefOwner() async throws -> ChiefConversationOwner {
-        let result = try await v2MainAsync { () -> Result<ChiefConversationOwner, ChiefControlFailure> in
-            do {
-                return .success(try ChiefService.shared.controlOwner())
-            } catch let failure as ChiefControlFailure {
-                return .failure(failure)
-            } catch {
-                return .failure(.unavailable(String(describing: error)))
-            }
+        let load = try await v2MainAsync { ChiefService.shared.controlOwnerLoad() }
+        do {
+            return try await load.task.value
+        } catch let failure as ChiefControlFailure {
+            throw failure
+        } catch {
+            throw ChiefControlFailure.unavailable(load.failure)
         }
-        return try result.get()
     }
 
     private static func chiefSendAsUser(text: String, conversation: String?) async throws -> ChiefControlSendResult {

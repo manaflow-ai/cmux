@@ -245,18 +245,12 @@ actor CodexConversation {
         let id = nextID
         return try await withCheckedThrowingContinuation { waiter in
             pending[id] = waiter
-            let line = CodexAppServerParser.request(id: id, method: method, params: params).line
-            let accepted = process.write(line) { [weak self] written in
-                guard !written else { return }
-                Task { await self?.requestWriteFailed(id: id, method: method) }
+            // Queued, not written: a later EPIPE means the process died, and
+            // `processEnded` fails every pending call.
+            if !process.write(CodexAppServerParser.request(id: id, method: method, params: params).line) {
+                pending.removeValue(forKey: id)?.resume(throwing: ChiefBrainError.protocolError("Codex stopped before \(method)."))
             }
-            if !accepted { requestWriteFailed(id: id, method: method) }
         }
-    }
-
-    /// Request `id` could not be written (stdin closed): fail its caller.
-    private func requestWriteFailed(id: Int, method: String) {
-        pending.removeValue(forKey: id)?.resume(throwing: ChiefBrainError.protocolError("Codex stopped before \(method)."))
     }
 
     private func handle(_ line: Data, generation: Int) {

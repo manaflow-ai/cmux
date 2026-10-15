@@ -23,7 +23,7 @@ public import Foundation
 /// its own turn after the running one ends (its read receipt comes when its
 /// turn starts). ``stopTurn(conversation:)`` ends only the running turn.
 /// An approval the brain requests posts as an `.approval` part; the app
-/// answers it with ``answerApproval(conversation:request:choice:)``. A
+/// answers it with ``answerApproval(conversation:message:part:choice:)``. A
 /// question part's answer (`HomeOp.answerQuestion`) goes to the Chief as
 /// its next turn.
 ///

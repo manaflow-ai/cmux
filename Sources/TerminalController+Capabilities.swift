@@ -331,7 +331,6 @@ extension TerminalController {
             "chief.conversations",
             "chief.read",
             "chief.stop",
-            "chief.approve",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
@@ -495,6 +494,8 @@ extension TerminalController {
         }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
+        // Release builds answer Chief's approval cards only in Home (ChiefControlRequest.isAvailable).
+        methods.append("chief.approve")
         methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif

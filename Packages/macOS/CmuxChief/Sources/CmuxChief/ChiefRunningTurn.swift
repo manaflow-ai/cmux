@@ -12,6 +12,13 @@ struct ChiefPendingTurn: Sendable {
     var threadRoot: MessageID?
 }
 
+/// Where an approval card is: its message and the approval part's index.
+/// Answers address a card by its place, never by the brain's request id alone.
+struct ChiefApprovalSlot: Hashable, Sendable {
+    var message: MessageID
+    var part: Int
+}
+
 /// The running turn of one conversation.
 struct ChiefRunningTurn {
     let id = UUID()
@@ -26,9 +33,10 @@ struct ChiefRunningTurn {
     var draftSeq: UInt64 = 0
     /// Work messages still running, by the brain's tool call id.
     var tools: [String: MessageID] = [:]
-    /// Approval messages waiting for the user, by request id. While any waits the Chief
-    /// is not typing (it waits for the user, ``ChiefConversationOwner/answerApproval``).
-    var approvals: [String: MessageID] = [:]
+    /// Approval cards waiting for the user, with the brain's own request id of each.
+    /// While any waits the Chief is not typing (it waits for the user,
+    /// ``ChiefConversationOwner/answerApproval(conversation:message:part:choice:)``).
+    var approvals: [ChiefApprovalSlot: String] = [:]
     /// The turn's one Cloud provisioning row (``ChiefCloudProvisioning``), once a provisioning call started.
     var provisioning: MessageID?
     /// The provisioning step of each running provisioning call, by tool call id.
@@ -42,6 +50,15 @@ struct ChiefRunningTurn {
     var toolCalls = 0
     var failedToolCalls = 0
     var usage: ChiefTurnUsage?
+
+    /// The request id a card of this turn stores for the brain's `id`. Brains
+    /// reuse ids across processes (Codex numbers its requests from 0 per
+    /// app-server process), so the card's id carries this turn's namespace:
+    /// no card of another turn or run can ever name this turn's request.
+    func cardRequestID(_ request: String) -> String {
+        let namespace = id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)
+        return "t\(namespace):\(request)"
+    }
 
     init(chief: ParticipantID, threadRoot: MessageID?, startedAt: Date = Date()) {
         self.chief = chief

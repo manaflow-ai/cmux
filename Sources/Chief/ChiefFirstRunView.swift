@@ -24,7 +24,8 @@ import QuartzCore
 /// then the hint, then the action rows.
 final class ChiefFirstRunView: NSView {
     static let maxWidth: CGFloat = 340
-    static let chipsMaxWidth: CGFloat = 560
+    /// Wide enough for the three chips in one row (about 620 pt); they wrap below that.
+    static let chipsMaxWidth: CGFloat = 680
     /// Where the column's center sits, as a fraction of the panel's height.
     static let opticalCenter: CGFloat = 0.4
 

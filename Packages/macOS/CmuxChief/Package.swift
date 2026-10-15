@@ -8,6 +8,7 @@ import PackageDescription
 // tests) and serves Home through `ChiefLocalSource`, a `HomeSource`.
 let package = Package(
     name: "CmuxChief",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -24,6 +25,9 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            ],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

@@ -5,8 +5,10 @@ extension AppDelegate {
     /// Home row shows unread replies before Home is first opened, and wires
     /// the first-run rows that open a terminal or an agent.
     ///
-    /// Starting is cheap: it loads the conversation logs and starts the
-    /// store. No agent process runs until the user sends a message.
+    /// Starting is cheap on the main thread: it creates the store, and the
+    /// owner loads the conversation logs on a background task (the store
+    /// connects when they are in). No agent process runs until the user
+    /// sends a message.
     func startChiefIfEnabled() {
         guard ChiefSettings.isEnabled else { return }
         let service = ChiefService.shared

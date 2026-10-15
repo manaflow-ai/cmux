@@ -9,22 +9,29 @@ import Observation
 /// by the `chief.*` settings.
 ///
 /// Starts lazily on the first read of ``store`` (Home or a Chief tab
-/// opening). A settings change installs a new brain for the next turn; a
-/// running turn finishes on the brain it started with.
+/// opening). Starting never reads conversation files on the main thread:
+/// the store exists at once and connects when the owner has loaded them
+/// (``ChiefConversationOwner/load(home:brain:userDisplayName:now:context:)``).
+/// A settings change installs a new brain for the next turn; a running turn
+/// finishes on the brain it started with.
 @MainActor
 @Observable
 final class ChiefService {
     static let shared = ChiefService()
 
     /// The store, nil before the first start or when the Chief home could
-    /// not be opened (``startFailure`` says why).
+    /// not be opened (``startFailure`` says why). It exists while the owner
+    /// still loads; it connects when the owner is ready.
     private(set) var storeIfStarted: HomeStore?
     /// Why the Chief could not start, nil when it runs or has not started.
     private(set) var startFailure: String?
     /// The conversations whose Chief is working now.
     private(set) var workingConversations: Set<ConversationID> = []
 
+    /// The owner, nil until its load ends (``ownerLoad``).
     @ObservationIgnored private(set) var owner: ChiefConversationOwner?
+    /// The owner's load, set by ``start()``; it reads the conversation files off the main thread.
+    @ObservationIgnored private(set) var ownerLoad: Task<ChiefConversationOwner, any Error>?
     @ObservationIgnored private(set) var home: ChiefHome?
     @ObservationIgnored private var brainSwitch: ChiefBrainSwitch?
     @ObservationIgnored private var engine = ChiefSettingsAccess().current
@@ -99,7 +106,9 @@ final class ChiefService {
 
     // MARK: Lifecycle
 
-    /// Opens the Chief home and starts the store. Idempotent.
+    /// Opens the Chief home and starts the store. Idempotent, and cheap on
+    /// the main thread: the owner loads on a background task and the store
+    /// connects when it is ready.
     func start() {
         guard !started else { return }
         started = true
@@ -108,23 +117,43 @@ final class ChiefService {
         engine = settings
         let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings), settings: settings)
         let builder = ChiefTurnContextBuilder(engine: { await switcher.settings })
-        do {
-            let owner = try ChiefConversationOwner(home: home, brain: ChiefSwitchingBrain(switcher: switcher),
-                                                   context: { input in await builder.context(for: input) })
-            let store = HomeStore(source: ChiefLocalSource(owner: owner),
-                                  blobCacheDirectory: home.stateDirectory.appendingPathComponent("blob-cache", isDirectory: true))
-            store.start()
-            self.home = home
-            self.owner = owner
-            self.brainSwitch = switcher
-            self.storeIfStarted = store
-            watchWorking(owner)
-            observeSettings()
-            observeQuit()
-        } catch {
-            startFailure = ChiefStrings.unavailable
-            NSLog("chief: start failed: %@", String(describing: error))
+        let brain = ChiefSwitchingBrain(switcher: switcher)
+        // task-owner: one load of the Chief home; ends when the owner is ready or the load failed
+        let loading = Task.detached(priority: .userInitiated) {
+            try await ChiefConversationOwner.load(home: home, brain: brain,
+                                                  context: { input in await builder.context(for: input) })
         }
+        let store = HomeStore(source: ChiefLocalSource(loading: loading),
+                              blobCacheDirectory: home.stateDirectory.appendingPathComponent("blob-cache", isDirectory: true))
+        store.start()
+        self.home = home
+        self.brainSwitch = switcher
+        self.ownerLoad = loading
+        self.storeIfStarted = store
+        observeSettings()
+        observeQuit()
+        // task-owner: waits for the one load above; ends with it
+        Task { @MainActor [weak self] in
+            do {
+                let owner = try await loading.value
+                self?.ownerLoaded(owner)
+            } catch {
+                self?.ownerFailed(error)
+            }
+        }
+    }
+
+    private func ownerLoaded(_ owner: ChiefConversationOwner) {
+        self.owner = owner
+        for problem in owner.loadProblems { NSLog("chief: load: %@", problem) }
+        watchWorking(owner)
+    }
+
+    private func ownerFailed(_ error: any Error) {
+        startFailure = ChiefStrings.unavailable
+        storeIfStarted?.stop()
+        storeIfStarted = nil
+        NSLog("chief: start failed: %@", String(describing: error))
     }
 
     /// Stops `conversation`'s running turn. Returns whether one was stopped.

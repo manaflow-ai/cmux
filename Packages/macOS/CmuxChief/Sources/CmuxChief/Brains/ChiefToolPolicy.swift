@@ -472,3 +472,99 @@ enum ChiefToolPolicy {
         return text
     }
 }
+
+/// Where credentials live, so ``ChiefToolPolicy`` asks before Claude Code's
+/// `Read`, `Glob` or `Grep` touches them.
+///
+/// Sensitive: anything under `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
+/// `~/.config/gcloud`, `~/.azure`, `~/.docker`, `~/.kube`, `~/Library/Keychains`,
+/// `/Library/Keychains`, `~/Library/Cookies`, `~/Library/Safari` and browser
+/// profiles under `~/Library/Application Support`; a name under `~/.cmux`
+/// starting with `auth`; and, anywhere, `.netrc`, `.git-credentials`,
+/// `.npmrc`, `.pypirc`, `.pgpass`, `.env` and `.env.*`, `*.pem`, `*.key`,
+/// `*.p12`, `*.pfx`, keychain files, SSH private keys (`id_rsa`, …) and
+/// browser `Cookies`/`Login Data` databases.
+///
+/// Paths are compared lowercased (the Mac's file system ignores case) after
+/// expanding `~`, removing `.` and `..`, and resolving symlinks. A search
+/// root must also not contain a sensitive folder: the home folder, its
+/// ancestors, `~/Library`, `~/.config` or `~/.cmux` ask. A search below an
+/// allowed root can still meet a project's own key file; this blocks the
+/// well-known stores, not every secret on disk.
+struct ChiefSensitivePaths {
+    private let home: String
+    private let roots: [String]
+    private let searchCovers: [String]
+
+    init(home: String) {
+        let home = Self.resolve(home) ?? home
+        self.home = home.lowercased()
+        let underHome = [
+            ".ssh", ".aws", ".gnupg", ".config/gh", ".config/gcloud", ".azure", ".docker", ".kube",
+            "library/keychains", "library/cookies", "library/safari", "library/containers/com.apple.safari",
+            "library/application support/google/chrome", "library/application support/bravesoftware",
+            "library/application support/firefox", "library/application support/microsoft edge",
+            "library/application support/arc", "library/application support/chromium",
+            "library/application support/vivaldi", "library/application support/com.operasoftware.opera",
+        ]
+        roots = underHome.map { self.home + "/" + $0 } + ["/library/keychains"]
+        // Folders a search must not cover: each sensitive root, plus `~/.cmux` (auth files inside).
+        searchCovers = roots + [self.home + "/.cmux"]
+    }
+
+    /// Whether `Read` of `path` runs without asking.
+    func allowsRead(_ path: String) -> Bool {
+        guard let resolved = resolved(path) else { return false }
+        return !isSensitive(resolved)
+    }
+
+    /// Whether a `Glob` or `Grep` rooted at `path` runs without asking.
+    func allowsSearch(_ path: String) -> Bool {
+        guard let resolved = resolved(path), !isSensitive(resolved) else { return false }
+        // `/`, `/Users`, the home folder itself, or a folder holding a credential store.
+        if resolved == "/" || home.hasPrefix(resolved + "/") || resolved == home { return false }
+        return !searchCovers.contains { $0.hasPrefix(resolved + "/") || $0 == resolved }
+    }
+
+    /// Whether a glob filter (`**/.env`, `*.pem`, `.ssh/*`) names a credential file or folder.
+    func patternNamesSecrets(_ pattern: String) -> Bool {
+        let lower = pattern.lowercased()
+        let markers = [
+            ".ssh", ".aws", ".gnupg", ".netrc", ".docker", ".kube", ".env", ".git-credentials", ".npmrc",
+            ".pypirc", ".pgpass", "keychain", "cookies", "login data", ".pem", ".key", ".p12", ".pfx",
+            "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials", "auth", "secret", "token",
+        ]
+        return markers.contains { lower.contains($0) }
+    }
+
+    private func resolved(_ path: String) -> String? {
+        Self.resolve(path).map { $0.lowercased() }
+    }
+
+    /// `path` absolute, with `~` expanded, `.`/`..` removed and symlinks resolved; nil when relative.
+    private static func resolve(_ path: String) -> String? {
+        let expanded = (path as NSString).expandingTildeInPath
+        guard expanded.hasPrefix("/") else { return nil }
+        let resolved = URL(fileURLWithPath: expanded).standardizedFileURL.resolvingSymlinksInPath().path
+        return resolved.count > 1 && resolved.hasSuffix("/") ? String(resolved.dropLast()) : resolved
+    }
+
+    private func isSensitive(_ path: String) -> Bool {
+        if roots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return true }
+        let cmux = home + "/.cmux/"
+        if path.hasPrefix(cmux), path.dropFirst(cmux.count).split(separator: "/").contains(where: { $0.hasPrefix("auth") }) {
+            return true
+        }
+        let names: Set<String> = [
+            ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".pgpass", ".env", "cookies", "cookies-journal",
+            "login data", "login data-journal", "web data", "key4.db", "logins.json", "cookies.sqlite", "cookies.binarycookies",
+        ]
+        let suffixes = [".pem", ".key", ".p12", ".pfx", ".keychain", ".keychain-db", ".ppk"]
+        let keyNames = ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]
+        return path.split(separator: "/").contains { part in
+            let name = String(part)
+            return names.contains(name) || name.hasPrefix(".env.") || suffixes.contains { name.hasSuffix($0) }
+                || keyNames.contains { name.hasPrefix($0) }
+        }
+    }
+}

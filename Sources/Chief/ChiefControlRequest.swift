@@ -17,7 +17,7 @@ enum ChiefControlRequest: Equatable, Sendable {
     case read(conversation: String?, limit: Int)
     /// `chief.stop`: stops the running turn of one conversation.
     case stop(conversation: String?)
-    /// `chief.approve`: answers an approval card (`request` nil: the newest waiting one) with
+    /// `chief.approve`: answers an approval card (`request` nil: the running turn's newest waiting one) with
     /// one of its options (`choice`, case-insensitive: "Allow", "Deny").
     case approve(conversation: String?, request: String?, choice: String)
     /// `chief.debug` (DEBUG builds): drives the shown transcript for automation.
@@ -28,6 +28,24 @@ enum ChiefControlRequest: Equatable, Sendable {
         "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve",
         "chief.debug",
     ]
+
+    /// Whether this build answers `method` from the socket. `chief.approve` and
+    /// `chief.debug` answer only in DEBUG builds (automation, tours): in a
+    /// release build any local socket client, the Chief's own shell included,
+    /// could otherwise answer the approval cards that gate the Chief's
+    /// commands, so cards are answered only in Home there.
+    static func isAvailable(_ method: String, debugBuild: Bool = isDebugBuild) -> Bool {
+        debugBuild || !debugOnlyMethods.contains(method)
+    }
+
+    /// The methods ``isAvailable(_:debugBuild:)`` keeps to DEBUG builds.
+    static let debugOnlyMethods: Set<String> = ["chief.approve", "chief.debug"]
+
+    #if DEBUG
+    static let isDebugBuild = true
+    #else
+    static let isDebugBuild = false
+    #endif
 
     static let defaultReadLimit = 20
     static let maxReadLimit = 200

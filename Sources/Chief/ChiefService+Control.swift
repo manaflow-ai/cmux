@@ -98,12 +98,25 @@ enum ChiefControlFailure: Error, Sendable {
 // The socket and CLI control surface (`chief.*`). Every entrypoint goes
 // through the same owner and store the Home UI uses.
 extension ChiefService {
-    /// The started owner, or why there is none.
+    /// The started owner, waiting for its load when it is still loading.
     /// - Throws: ``ChiefControlFailure/unavailable(_:)`` when the Chief home could not be opened.
-    func controlOwner() throws -> ChiefConversationOwner {
+    func controlOwner() async throws -> ChiefConversationOwner {
+        let load = controlOwnerLoad()
+        do {
+            return try await load.task.value
+        } catch {
+            throw ChiefControlFailure.unavailable(startFailure ?? load.failure)
+        }
+    }
+
+    /// Starts the Chief and returns its owner's load, for a caller off the
+    /// main actor to await, with the message for a failed load.
+    func controlOwnerLoad() -> (task: Task<ChiefConversationOwner, any Error>, failure: String) {
         start()
-        guard let owner else { throw ChiefControlFailure.unavailable(startFailure ?? ChiefStrings.unavailable) }
-        return owner
+        let failure = startFailure ?? ChiefStrings.unavailable
+        if let ownerLoad { return (ownerLoad, failure) }
+        // Not reached: start() always sets the load.
+        return (Task<ChiefConversationOwner, any Error> { throw ChiefControlFailure.unavailable(failure) }, failure)
     }
 
     /// The conversation a request names; nil names the default Chief's.
@@ -144,7 +157,7 @@ extension ChiefService {
     ///
     /// - Throws: ``ChiefControlFailure``.
     func controlSendAsUser(text: String, conversation raw: String?) async throws -> ChiefControlSendResult {
-        _ = try controlOwner()
+        _ = try await controlOwner()
         guard let store else { throw ChiefControlFailure.unavailable(startFailure ?? ChiefStrings.unavailable) }
         let conversation = controlConversationID(raw)
         if store.isConfirmed(conversation) || store.summary(conversation) != nil {

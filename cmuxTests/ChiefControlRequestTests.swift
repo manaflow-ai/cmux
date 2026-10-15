@@ -30,6 +30,19 @@ import Testing
         #expect(parse("chief.approve", ["choice": true]) == .failure(.invalid("choice")))
     }
 
+    @Test func approveAndDebugAnswerOnlyInDebugBuilds() {
+        // A release build refuses `chief.approve`: any local socket client, the Chief's own shell
+        // included, could otherwise answer the cards that gate the Chief's commands.
+        #expect(!ChiefControlRequest.isAvailable("chief.approve", debugBuild: false))
+        #expect(!ChiefControlRequest.isAvailable("chief.debug", debugBuild: false))
+        #expect(ChiefControlRequest.isAvailable("chief.approve", debugBuild: true))
+        #expect(ChiefControlRequest.isAvailable("chief.debug", debugBuild: true))
+        for method in ["chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop"] {
+            #expect(ChiefControlRequest.isAvailable(method, debugBuild: false), "\(method)")
+        }
+        #expect(ChiefControlRequest.isDebugBuild) // tests build DEBUG
+    }
+
     @Test func openTargetsWindowThenWorkspace() {
         #expect(parse("chief.open") == .success(.open(target: ChiefControlWindowTarget(windowID: nil, workspaceID: nil))))
         #expect(parse("chief.open", ["window_id": "window:2", "workspace_id": "ABC"])

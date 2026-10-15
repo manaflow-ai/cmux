@@ -134,14 +134,14 @@ extension ChiefConversationOwner {
             running[conversation] = turn
         case .approvalRequested(let id, let prompt, let options):
             flushSegment(&turn, in: conversation, retype: false)
-            let ref = ApprovalRef(request: id, prompt: prompt, options: options)
+            let ref = ApprovalRef(request: turn.cardRequestID(id), prompt: prompt, options: options)
             // The card takes the place of the tool's own running row, so the command shows once.
             if let work = workAwaitingApproval(prompt, turn: turn, in: conversation),
                (try? updateMessage(work.message, in: conversation, { $0.parts = [.approval(ref)] })) != nil {
                 turn.tools[work.tool] = nil
-                turn.approvals[id] = work.message
+                turn.approvals[ChiefApprovalSlot(message: work.message, part: 0)] = id
             } else if let message = postChief([.approval(ref)], in: conversation, turn: turn, key: .make(), retype: false) {
-                turn.approvals[id] = message.id
+                turn.approvals[ChiefApprovalSlot(message: message.id, part: 0)] = id
             }
             running[conversation] = turn
             // The Chief waits for the user now: no typing dots under the card.
@@ -267,7 +267,7 @@ extension ChiefConversationOwner {
         let status: WorkRef.Status = failure == nil && !stopped ? .done : .failed
         for messageID in Set(turn.tools.values) { setWorkStatus(messageID, in: conversation, status, preview: nil) }
         // A card still waiting when the turn ends (Stop, a failure) was refused: the brain denies open approvals.
-        for (request, messageID) in turn.approvals { settleApproval(request, messageID, in: conversation) }
+        for slot in turn.approvals.keys { settleApproval(slot, in: conversation) }
         // A provisioning row whose calls all ended keeps its own outcome; one still creating settles with the turn.
         if let row = turn.provisioning, turn.provisioningStatus == .running, !turn.tools.values.contains(row) {
             setWorkStatus(row, in: conversation, status, preview: nil)
@@ -286,60 +286,88 @@ extension ChiefConversationOwner {
         if startNext { startNextTurnIfIdle(conversation) }
     }
 
-    /// Answers an approval the Chief asked for: the approval part records
-    /// the choice, then the brain hears it
+    /// Answers an approval card: the approval part records the choice, then
+    /// the brain hears it under its own request id
     /// (``ChiefBrain/respond(toApproval:choice:conversation:)``).
+    ///
+    /// A card is addressed by its place (message and part), never by request
+    /// id alone: brains reuse request ids across processes.
     ///
     /// - Parameters:
     ///   - conversation: The conversation of the approval message.
-    ///   - request: The approval's id (``ApprovalRef/request``).
+    ///   - message: The approval's message.
+    ///   - part: The approval part's index in that message.
     ///   - choice: One of the approval's options.
-    /// - Throws: ``HomeRejection/invalid(_:)`` when no open approval has that
-    ///   id (`unknown_approval`, `approval_decided`) or the choice is not an option.
-    public func answerApproval(conversation: ConversationID, request: String, choice: String) async throws {
-        try decideApproval(conversation: conversation, request: request, choice: choice)
+    /// - Throws: ``HomeRejection/invalid(_:)``: `unknown_approval` when that part is
+    ///   no approval, `approval_decided` when it was answered or its turn ended
+    ///   (an earlier turn's card is marked expired), `invalid_choice` when the
+    ///   choice is not an option.
+    public func answerApproval(conversation: ConversationID, message: MessageID, part: Int, choice: String) async throws {
+        let request = try decideApproval(conversation: conversation, slot: ChiefApprovalSlot(message: message, part: part),
+                                         choice: choice)
         await brain.respond(toApproval: request, choice: choice, conversation: conversation)
     }
 
     /// Records `choice` on the approval part; the Chief types again once no card of its turn waits.
     /// The caller tells the brain.
-    func decideApproval(conversation: ConversationID, request: String, choice: String) throws {
+    ///
+    /// - Returns: The brain's own request id of the card.
+    func decideApproval(conversation: ConversationID, slot: ChiefApprovalSlot, choice: String) throws -> String {
         let state = try conversationState(conversation)
-        var match: (message: MessageID, part: Int, ref: ApprovalRef)?
-        search: for message in state.messages.reversed() {
-            for (index, part) in message.parts.enumerated() {
-                if case .approval(let ref) = part, ref.request == request {
-                    match = (message.id, index, ref)
-                    break search
-                }
-            }
+        guard let message = state.message(slot.message), message.parts.indices.contains(slot.part),
+              case .approval(let ref) = message.parts[slot.part] else { throw HomeRejection.invalid("unknown_approval") }
+        guard ref.decided == nil else { throw HomeRejection.invalid("approval_decided") }
+        guard ref.options.contains(choice) else { throw HomeRejection.invalid("invalid_choice") }
+        guard var turn = running[conversation], let request = turn.approvals.removeValue(forKey: slot) else {
+            // No running turn waits on this card (it is an earlier turn's): nobody can answer it any more.
+            setApprovalDecision(slot, in: conversation, Self.approvalExpired)
+            throw HomeRejection.invalid("approval_decided")
         }
-        guard let found = match else { throw HomeRejection.invalid("unknown_approval") }
-        guard found.ref.decided == nil else { throw HomeRejection.invalid("approval_decided") }
-        guard found.ref.options.contains(choice) else { throw HomeRejection.invalid("invalid_choice") }
-        try updateMessage(found.message, in: conversation) { message in
-            var ref = found.ref
-            ref.decided = choice
-            message.parts[found.part] = .approval(ref)
-        }
-        if var turn = running[conversation], turn.approvals.removeValue(forKey: request) != nil {
-            running[conversation] = turn
-            if turn.approvals.isEmpty { publish(.typing(conversation, turn.chief, on: true)) }
-            notifyWorking()
-        }
+        setApprovalDecision(slot, in: conversation, choice)
+        running[conversation] = turn
+        if turn.approvals.isEmpty { publish(.typing(conversation, turn.chief, on: true)) }
+        notifyWorking()
+        return request
     }
 
-    /// The newest approval in `conversation` that waits for an answer (`chief.approve`).
+    /// An approval card `chief.approve` can answer (``pendingApproval(in:request:)``).
+    public struct PendingApproval: Sendable, Equatable {
+        /// The card's message.
+        public var message: MessageID
+        /// The approval part's index in that message.
+        public var part: Int
+        /// The approval.
+        public var ref: ApprovalRef
+        /// The card's request id (``ApprovalRef/request``).
+        public var request: String { ref.request }
+    }
+
+    /// The approval card `chief.approve` answers in `conversation`.
     ///
     /// - Parameters:
     ///   - conversation: The conversation.
-    ///   - request: Only this approval (``ApprovalRef/request``), decided or not; nil: the newest waiting one.
-    /// - Returns: The approval, nil when none matches.
-    public func pendingApproval(in conversation: ConversationID, request: String? = nil) -> ApprovalRef? {
+    ///   - request: Only the newest card with this request id (``ApprovalRef/request``), decided or
+    ///     not; nil: the newest card of the running turn that still waits (never an earlier turn's).
+    /// - Returns: The card, nil when none matches.
+    public func pendingApproval(in conversation: ConversationID, request: String? = nil) -> PendingApproval? {
         guard let state = conversations[conversation] else { return nil }
+        guard let request else {
+            guard let turn = running[conversation] else { return nil }
+            var best: (card: PendingApproval, seq: Seq)?
+            for slot in turn.approvals.keys {
+                guard let message = state.message(slot.message), message.parts.indices.contains(slot.part),
+                      case .approval(let ref) = message.parts[slot.part], ref.decided == nil else { continue }
+                if best.map({ message.seq > $0.seq || (message.seq == $0.seq && slot.part > $0.card.part) }) ?? true {
+                    best = (PendingApproval(message: slot.message, part: slot.part, ref: ref), message.seq)
+                }
+            }
+            return best?.card
+        }
         for message in state.messages.reversed() {
-            for case .approval(let ref) in message.parts.reversed() {
-                if let request { if ref.request == request { return ref } } else if ref.decided == nil { return ref }
+            for (index, part) in message.parts.enumerated().reversed() {
+                if case .approval(let ref) = part, ref.request == request {
+                    return PendingApproval(message: message.id, part: index, ref: ref)
+                }
             }
         }
         return nil
@@ -368,13 +396,19 @@ extension ChiefConversationOwner {
     }
 
     /// Marks a card no answer reached as refused (its turn ended).
-    private func settleApproval(_ request: String, _ messageID: MessageID, in conversation: ConversationID) {
-        _ = try? updateMessage(messageID, in: conversation) { message in
-            message.parts = message.parts.map { part in
-                guard case .approval(var ref) = part, ref.request == request, ref.decided == nil else { return part }
-                ref.decided = ref.options.first(where: ChiefToolPolicy.isRefusal) ?? "Deny"
-                return .approval(ref)
-            }
+    private func settleApproval(_ slot: ChiefApprovalSlot, in conversation: ConversationID) {
+        guard let message = conversations[conversation]?.message(slot.message), message.parts.indices.contains(slot.part),
+              case .approval(let ref) = message.parts[slot.part], ref.decided == nil else { return }
+        setApprovalDecision(slot, in: conversation, ref.options.first(where: ChiefToolPolicy.isRefusal) ?? "Deny")
+    }
+
+    /// Records `decision` on an undecided approval part.
+    private func setApprovalDecision(_ slot: ChiefApprovalSlot, in conversation: ConversationID, _ decision: String) {
+        _ = try? updateMessage(slot.message, in: conversation) { message in
+            guard message.parts.indices.contains(slot.part), case .approval(var ref) = message.parts[slot.part],
+                  ref.decided == nil else { return }
+            ref.decided = decision
+            message.parts[slot.part] = .approval(ref)
         }
     }
 

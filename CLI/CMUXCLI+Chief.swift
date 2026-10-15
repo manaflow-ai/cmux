@@ -37,6 +37,7 @@ extension CMUXCLI {
           stop [--conversation <id>] Stop Chief's running reply.
           approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]
                                      Answer Chief's approval card (default: allow the newest waiting one).
+                                     DEBUG builds only; release builds answer cards in Home.
 
         Subcommands (work without a running cmux):
           home                       Print the Chief home directory.
@@ -552,15 +553,19 @@ struct CLIChiefMemoryStore {
     /// Same patterns as `ChiefMemory.looksLikeSecret`.
     static func looksLikeSecret(_ text: String) -> Bool {
         let patterns = [
-            #"-----BEGIN [A-Z ]*PRIVATE KEY-----"#,
-            #"\bsk-[A-Za-z0-9_\-]{20,}"#,
-            #"\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}"#,
-            #"\bgithub_pat_[A-Za-z0-9_]{30,}"#,
-            #"\bxox[abprs]-[A-Za-z0-9\-]{10,}"#,
-            #"\bAKIA[0-9A-Z]{16}\b"#,
-            #"\bAIza[0-9A-Za-z_\-]{35}\b"#,
-            #"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"#,
-            #"(?i)\b(password|passwd|secret|api[_-]?key|token)\s*[:=]\s*\S{6,}"#,
+            #"(?i)BEGIN [A-Z ]*PRIVATE KEY"#,
+            #"(?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{20,}"#,
+            #"(?<![A-Za-z0-9])[sr]k_(live|test)_[A-Za-z0-9]{10,}"#,
+            #"(?<![A-Za-z0-9])(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}"#,
+            #"(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}"#,
+            #"(?<![A-Za-z0-9])glpat-[A-Za-z0-9_\-]{20,}"#,
+            #"(?<![A-Za-z0-9])npm_[A-Za-z0-9]{30,}"#,
+            #"(?<![A-Za-z0-9])xox[abprse]-[A-Za-z0-9\-]{10,}"#,
+            #"(?<![A-Za-z0-9])(AKIA|ASIA)[0-9A-Z]{16}"#,
+            #"(?<![A-Za-z0-9])AIza[0-9A-Za-z_\-]{35}"#,
+            #"(?<![A-Za-z0-9])eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"#,
+            // `AWS_SECRET_ACCESS_KEY=…`, `GITHUB_TOKEN: …`, `my-api-key = …`: a credential name, then a value.
+            #"(?i)(^|[^a-z])(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[a-z0-9_\-]*["']?\s*[:=]\s*\S{6,}"#,
             #"://[^/\s:@]+:[^/\s@]+@"#,
         ]
         return patterns.contains { text.range(of: $0, options: .regularExpression) != nil }

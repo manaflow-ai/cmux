@@ -166,7 +166,8 @@ import Testing
     }
 
     @Test func claudeToolsPolicyAndTitles() throws {
-        #expect(ChiefToolPolicy.autoAllowsClaudeTool("Read", input: [:]))
+        #expect(ChiefToolPolicy.autoAllowsClaudeTool("Read", input: ["file_path": "/tmp/chief-notes.txt"]))
+        #expect(!ChiefToolPolicy.autoAllowsClaudeTool("Read", input: [:]))
         #expect(ChiefToolPolicy.autoAllowsClaudeTool("WebSearch", input: [:]))
         #expect(!ChiefToolPolicy.autoAllowsClaudeTool("Write", input: ["file_path": "/tmp/x"]))
         #expect(ChiefToolPolicy.autoAllowsClaudeTool("Bash", input: ["command": "cmux tree"]))

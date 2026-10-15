@@ -85,7 +85,8 @@ final class ChiefFirstRunRow: NSView {
         layer?.addSublayer(dot)
         glyph.imageScaling = .scaleProportionallyDown
         label.font = .systemFont(ofSize: 13)
-        label.lineBreakMode = .byTruncatingTail
+        // A chip is sized to its label, so it never cuts its text short.
+        label.lineBreakMode = style == .chip ? .byClipping : .byTruncatingTail
         trailingLabel.font = .systemFont(ofSize: 12)
         trailingLabel.lineBreakMode = .byClipping
         trailingLabel.isHidden = true
@@ -110,7 +111,11 @@ final class ChiefFirstRunRow: NSView {
     /// A chip's natural width: glyph, gap, label (with the text field's own
     /// cell padding, which the bare string size leaves out), padding.
     var chipWidth: CGFloat {
-        ceil(12 + 15 + 6 + label.intrinsicContentSize.width + 14)
+        let font = label.font ?? .systemFont(ofSize: 13)
+        let text = (label.stringValue as NSString).size(withAttributes: [.font: font]).width
+        // The field draws its text 2 pt in from each edge; 2 pt more keeps
+        // the last glyph clear of the truncation test at fractional widths.
+        return ceil(12 + 15 + 6 + max(text + 6, label.intrinsicContentSize.width) + 14)
     }
 
     func setLeading(_ leading: Leading) {

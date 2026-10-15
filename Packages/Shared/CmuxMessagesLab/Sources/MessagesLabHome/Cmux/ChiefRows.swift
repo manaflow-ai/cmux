@@ -124,30 +124,87 @@ enum ChiefRows {
     }
 
     /// The words an "Always Allow" rule for `command` names: the program and its subcommand
-    /// ("cmux tree", "git push"), never a shell, an interpreter or a deleting program, and only for
-    /// one simple command (no pipes, lists or redirects). The owner derives the same rule from the
-    /// approval it asked for (ChiefAllowRules.prefix in CmuxChief, the same rule; change both).
+    /// ("cmux tree", "git push"), only for one plain simple command (no pipes, lists, redirects,
+    /// quotes, globs or expansion), never for a shell, an interpreter, a deleting program, `git
+    /// config`, `npx`, `npm exec|run`, `make`, a `cmux` group that runs commands or answers for
+    /// the user (`vm`, `chief`, `browser`, `send*`), or a `cmux` call with a word that asks.
+    /// The owner derives and honors the same rule (ChiefAllowRules.prefix and
+    /// ChiefToolPolicy.cmuxWordAsks in CmuxChief, the same lists; change both).
     static func alwaysAllowWords(_ command: String) -> [String]? {
-        let banned = CharacterSet(charactersIn: "|&;<>`$(){}\\\"'*?\n\t")
+        let banned = CharacterSet(charactersIn: "|&;<>`$(){}[]\\\"'*?~=#^\n\t")
         guard command.rangeOfCharacter(from: banned) == nil else { return nil }
         let words = command.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        guard words.count >= 2, let program = words.first, let sub = words.dropFirst().first else { return nil }
-        let refused: Set<String> = ["sh", "bash", "zsh", "fish", "sudo", "env", "xargs", "eval", "exec", "python", "python3",
-                                    "node", "ruby", "perl", "osascript", "rm", "dd", "mv", "chmod", "chown", "kill", "killall"]
-        guard !refused.contains(program), program.range(of: #"^[a-z][a-z0-9._-]*$"#, options: .regularExpression) != nil,
-              sub.range(of: #"^[a-z][a-z0-9-]*$"#, options: .regularExpression) != nil else { return nil }
-        // The owner offers no rule for a cmux subcommand that always asks (ChiefToolPolicy.cmuxApprovalWords).
-        if program == "cmux", cmuxApprovalWords.contains(sub) { return nil }
+        guard words.count >= 2 else { return nil }
+        let program = words[0], sub = words[1]
+        guard program.range(of: #"^[a-z][a-z0-9._-]*$"#, options: .regularExpression) != nil,
+              sub.range(of: #"^[a-z][a-z0-9-]*$"#, options: .regularExpression) != nil,
+              !alwaysAllowRefusedPrograms.contains(program) else { return nil }
+        if program == "cmux" {
+            if words.dropFirst().contains(where: cmuxWordAsks) { return nil }
+            // A group's rule names its verb too ("cmux chief dispatch", never all of "cmux chief").
+            if let verbs = alwaysAllowCmuxGroupVerbs[sub] {
+                return words.count >= 3 && verbs.contains(words[2]) ? Array(words.prefix(3)) : nil
+            }
+        }
+        if alwaysAllowRefusedSubcommands[program]?.contains(sub) ?? false { return nil }
         return [program, sub]
     }
 
-    /// cmux subcommands that always ask (ChiefToolPolicy.cmuxApprovalWords in CmuxChief, the same list; change both).
+    /// ChiefAllowRules.cmuxGroupVerbs in CmuxChief (the same table; change both).
+    static let alwaysAllowCmuxGroupVerbs: [String: Set<String>] = ["chief": ["dispatch"]]
+
+    /// ChiefAllowRules.refusedPrograms in CmuxChief (the same list; change both).
+    static let alwaysAllowRefusedPrograms: Set<String> = [
+        "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "nu", "pwsh",
+        "sudo", "su", "doas", "env", "xargs", "eval", "exec", "command", "builtin", "nohup", "time", "timeout",
+        "nice", "watch", "python", "python2", "python3", "node", "deno", "bun", "ruby", "perl", "php", "lua",
+        "osascript", "swift", "awk", "gawk", "sed", "find", "rm", "rmdir", "dd", "mv", "chmod", "chown", "chgrp",
+        "kill", "killall", "pkill", "npx", "bunx", "pnpx", "uvx", "make", "gmake", "cmake", "ninja", "just",
+    ]
+
+    /// ChiefAllowRules.refusedSubcommands in CmuxChief (the same table; change both).
+    static let alwaysAllowRefusedSubcommands: [String: Set<String>] = [
+        "git": ["config", "submodule", "filter-branch"],
+        "npm": ["exec", "run", "run-script", "x", "start", "test"],
+        "pnpm": ["exec", "run", "dlx", "x", "start", "test"],
+        "yarn": ["exec", "run", "dlx", "start", "test"],
+        "uv": ["run", "tool"],
+        "pipx": ["run"],
+        "cargo": ["run"],
+        "go": ["run", "generate"],
+        "docker": ["run", "exec"],
+        "kubectl": ["exec", "run"],
+        "cmux": [
+            "vm", "cloud", "chief", "browser", "sudo", "rpc", "ssh", "mosh", "mosh-tmux", "ssh-tmux", "hooks",
+            "set-hook", "pipe-pane", "respawn-pane", "automation", "auth", "login", "logout", "ai-accounts",
+            "paste", "paste-buffer", "new-workspace", "new-split", "new-pane", "new-surface", "restore-session",
+            "import", "feedback", "sessions", "session", "remotes", "remote", "glaeda", "coderouter", "cr",
+        ],
+    ]
+
+    /// Whether a word of a cmux call asks (ChiefToolPolicy.cmuxWordAsks in CmuxChief, the same
+    /// lists; change both): the part before any `=`, lowercased, is a listed word or starts with a
+    /// listed prefix.
+    static func cmuxWordAsks(_ word: String) -> Bool {
+        let lower = word.lowercased()
+        let key = lower.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? lower
+        return cmuxApprovalWords.contains(key) || cmuxApprovalPrefixes.contains { key.hasPrefix($0) }
+    }
+
+    /// ChiefToolPolicy.cmuxApprovalWords in CmuxChief (the same list; change both).
     static let cmuxApprovalWords: Set<String> = [
         "close", "rm", "remove", "delete", "destroy", "kill", "quit", "restart", "relaunch", "reset",
         "clear", "clear-history", "cleanup", "ssh-session-cleanup", "uninstall", "logout",
         "sudo", "rpc", "pipe-pane", "respawn-pane", "set-hook",
         "publish", "access", "grant", "ungrant", "upload", "feedback", "promote-template",
-        "--force", "--yes",
+        "send", "paste", "paste-buffer", "exec", "run", "eval", "repl", "shell", "ssh", "mosh",
+        "approve", "addscript", "addinitscript",
+        "--force", "--yes", "--command", "--eval", "--layout",
+    ]
+
+    /// ChiefToolPolicy.cmuxApprovalPrefixes in CmuxChief (the same list; change both).
+    static let cmuxApprovalPrefixes = [
+        "close-", "kill-", "clear-", "send-", "delete-", "remove-", "--force", "--yes", "--command", "--eval",
     ]
 
     static func grants(_ option: String) -> Bool {

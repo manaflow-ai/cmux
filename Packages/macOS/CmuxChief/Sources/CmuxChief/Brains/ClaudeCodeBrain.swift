@@ -223,20 +223,11 @@ actor ClaudeConversation {
         let uuid = UUID().uuidString.lowercased()
         parser.beginTurn(echo: uuid)
         let line = ClaudeStreamParser.userMessage(uuid: uuid, content: turn.content).line
-        let token = self.token
-        let accepted = process?.write(line) { [weak self] written in
-            guard !written else { return }
-            Task { await self?.promptWriteFailed(token: token) }
-        }
-        if accepted != true {
+        // Queued, not written: a later EPIPE means the process died, and
+        // `processEnded` reports it with stderr (and may retry a broken resume).
+        if process?.write(line) != true {
             end(.failed("Claude Code stopped before it read the message."))
         }
-    }
-
-    /// The prompt of turn `token` could not be written (stdin closed).
-    private func promptWriteFailed(token: UUID?) {
-        guard token != nil, self.token == token else { return }
-        end(.failed("Claude Code stopped before it read the message."))
     }
 
     /// How the driver answers a `can_use_tool` request.
