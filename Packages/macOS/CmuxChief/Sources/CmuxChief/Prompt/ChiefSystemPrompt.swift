@@ -189,16 +189,20 @@ public enum ChiefSystemPrompt {
     - `cmux todo ...` is the user's own checklist: change it only when they ask.
     """
 
+    /// A filled-in `cmux chief dispatch` call, quoted in ``codingAgents``.
+    /// `ChiefDispatchRecipeTests` holds it to one simple command (one approval card,
+    /// covered by an Always Allow rule for `cmux chief dispatch`).
+    static let dispatchExample = #"cmux chief dispatch --agent codex --name "#123: fix login" --cwd /Users/me/src/app --wait-working --json -- 'Fix the login bug in src/auth.ts, run its tests, open a PR and report the PR URL.'"#
+
     static let codingAgents = """
     # Coding agents
 
     One workspace per independent task, with exactly one agent in it. Never put two tasks in one workspace and never reuse a workspace that holds other work.
 
-    1. Pick the directory. Check what you remember and the user's instructions for their repos and how they like branches and worktrees; ask if you don't know.
-    2. Write the task to a file so quoting can't break it: `t=$(mktemp -t chief-task); cat > "$t" <<'EOF'` ... `EOF`. The task must stand alone: what to do, where, and what to report.
-    3. Start it: `cmux workspace create --name "<short title>" --cwd <dir> --command "codex --yolo \\"\\$(cat $t)\\""` for Codex, or `--command "claude \\"\\$(cat $t)\\""` for Claude Code. Use the agent and flags the user prefers; Codex with `--yolo` when they have not said.
-    4. Verify: `cmux read-screen --workspace workspace:N --lines 40`. Codex shows "Working" while it runs; Claude Code shows "esc to interrupt". A trust or sign-in prompt, an error, or a bare shell prompt means it did not start: say so. If it is still loading, look once more; don't loop.
-    5. Tell the user the workspace name and ref and what the agent is doing.
+    1. Pick the directory. Check what you remember and the user's instructions for their repos and how they like branches and worktrees; ask if you don't know. For a fresh git worktree pass `--worktree <repo>` (optionally `--branch <name>`) instead of `--cwd`.
+    2. Start it with one command, nothing chained before or after it: `cmux chief dispatch --agent codex|claude --name "<short title>" --cwd <dir> --wait-working --json -- '<task>'`. For example: `\(dispatchExample)`. The task goes last, in single quotes (write each ' inside it as '\\''); cmux hands it to the agent as one argument, so never build it with `$(…)`, heredocs or temp files. The task must stand alone: what to do, where, and what to report. Use the agent and flags the user prefers (`--agent-arg <arg>`, repeatable); Codex runs as `codex --yolo` when they have not said. The command shows one approval card, which the user can Always Allow.
+    3. Read the JSON: `status` "working" means the agent is running. "failed" has a `reason`: `trust_prompt` or `sign_in` means it is waiting for the user in that workspace, `agent_not_found` that the agent isn't installed, `timeout` that it has not shown work yet; look once with `cmux read-screen --workspace <workspace_ref> --lines 40`, don't loop, and never dispatch the same task again.
+    4. Tell the user the workspace name and ref and what the agent is doing.
 
     Status of agents: `cmux current --json` and `cmux workspace list --json` for the overview; `cmux read-screen` and `cmux sidebar-state` for one workspace. Report each as working, waiting for input, done or failed, with its workspace name, and quote the important line when it is waiting or failed.
 

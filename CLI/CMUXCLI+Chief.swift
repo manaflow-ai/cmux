@@ -26,6 +26,9 @@ extension CMUXCLI {
 
         Subcommands (need a running cmux):
           open                       Show Chief Home in this window.
+          dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>
+                                     Start one coding agent on one task in a new workspace
+                                     (`cmux chief dispatch --help` for every option).
           send [--conversation <id>] [--from <name>] [--no-reply] <text|->
                                      Send a message as you, like typing it in Home (- reads stdin).
                                      With --from, post it as a report from an agent named <name>;
@@ -66,6 +69,10 @@ extension CMUXCLI {
         environment: [String: String],
         bundleIdentifier: String?
     ) throws {
+        if commandArgs.first?.lowercased() == "dispatch", hasHelpRequest(beforeSeparator: commandArgs) {
+            print(Self.chiefDispatchUsage)
+            return
+        }
         if hasHelpRequest(beforeSeparator: commandArgs) || commandArgs.isEmpty {
             print(Self.chiefUsage)
             return
@@ -92,13 +99,13 @@ extension CMUXCLI {
     private static var chiefUnknownSubcommandMessage: String {
         String(
             localized: "cli.chief.error.unknownSubcommand",
-            defaultValue: "Unknown chief subcommand. Try: open, send, status, conversations, read, stop, approve, home, memory"
+            defaultValue: "Unknown chief subcommand. Try: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
         )
     }
 
     /// The subcommands that talk to the running app over the socket; the
     /// rest (`home`, `memory`, help) work on files only.
-    static let chiefSocketSubcommands: Set<String> = ["open", "send", "status", "conversations", "read", "stop", "approve", "debug"]
+    static let chiefSocketSubcommands: Set<String> = ["open", "dispatch", "send", "status", "conversations", "read", "stop", "approve", "debug"]
 
     /// Whether `cmux chief <args>` needs the socket (the top-level dispatch
     /// routes those to ``runChiefSocketCommand(commandArgs:client:jsonOutput:windowOverride:)``).
@@ -277,6 +284,13 @@ extension CMUXCLI {
     ) throws {
         guard let verb = commandArgs.first?.lowercased() else {
             print(Self.chiefUsage)
+            return
+        }
+        if verb == "dispatch" {
+            // Its own flags (`--agent`, `--`-separated task); see CMUXCLI+ChiefDispatch.swift.
+            try runChiefDispatchCommand(
+                Array(commandArgs.dropFirst()), client: client, jsonOutput: jsonOutput, windowOverride: windowOverride
+            )
             return
         }
         let args = try Self.parseChiefSocketArguments(Array(commandArgs.dropFirst()))
