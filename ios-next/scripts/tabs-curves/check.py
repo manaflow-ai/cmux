@@ -258,20 +258,23 @@ def compare_tap_zoomout(video):
 
 
 # A 100 pt drag over 1.0 s on GitHub's card (the snapBack input): the card's
-# offset from its slot after the onset (its first frame 0.5 pt out) and the
+# offset from its slot from its first moving frame (0.5 pt out) and the
 # farthest it gets (the carry past the finger). Safari, mean of 3 runs
-# (re-audit 3 saf-drag-{1,2,3}-c.csv): -30.0 / -38.9 / -61.4 pt at
-# +100 / +200 / +500 ms, -103.9 pt at most.
-DRAG_SAFARI = {100: -30.0, 200: -38.9, 500: -61.4, 'min': -103.9}
-DRAG_TOLERANCE_PT = 3.0
+# (re-audit 3 saf-drag-{1,2,3}-c.csv, timed from the same frame):
+# -31.6 / -39.7 / -62.4 pt at +100 / +200 / +500 ms, -103.9 pt at most.
+DRAG_SAFARI = {100: -31.6, 200: -39.7, 500: -62.4, 'min': -103.9}
+DRAG_TOLERANCE_PT = 2.0
 
 
 def compare_drag(video):
     rows = track(video, '1f853c')
     t = np.array([r[0] for r in rows if r[1]])
     off = np.array([r[1]['cx'] for r in rows if r[1]]) - 297.65
+    # From the first moving frame, as Safari's numbers are: the frame
+    # before it is not a time (a recording has no frames while the screen
+    # is still; it was 3-90 ms earlier and put runs 4-8 pt off).
     k = int(np.argmax(off < -0.5))
-    tt = (t - t[max(0, k - 1)]) * 1000
+    tt = (t - t[k]) * 1000
     ours = {ms: float(np.interp(ms, tt, off)) for ms in (100, 200, 500)}
     ours['min'] = float(off.min())
     ok = all(abs(ours[key] - DRAG_SAFARI[key]) <= DRAG_TOLERANCE_PT for key in DRAG_SAFARI)
