@@ -31,6 +31,10 @@ public struct TerminalPresentMatch: Equatable, Sendable {
             where !shifts.contains(top - presentedTop) {
             shifts.append(top - presentedTop)
         }
+        // A frame Ghostty rendered a row or two before (or after) the one on
+        // screen while it followed the output on its own: no request names
+        // it (termqa D7). Last, so they win only on a strictly better match.
+        for shift in [-1, 1, -2, 2] where !shifts.contains(shift) { shifts.append(shift) }
         return shifts
     }
 
