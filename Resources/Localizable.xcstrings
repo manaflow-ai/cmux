@@ -498354,131 +498354,6 @@
         }
       }
     },
-    "cli.vm.env.rmInvalidVariableNameKeysMatchA": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: اسم متغير غير صالح '%1$@' (تطابق المفاتيح [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: ungültiger Variablenname '%1$@' (Schlüssel müssen mit [A-Za-z_][A-Za-z0-9_]* übereinstimmen)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: nombre de variable no válido '%1$@' (las claves coinciden con [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm : nom de variable non valide '%1$@' (les clés doivent correspondre à [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: 無効な変数名 '%1$@' (キーは [A-Za-z_][A-Za-z0-9_]* に一致する必要があります)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: 잘못된 변수 이름 '%1$@' (키는 [A-Za-z_][A-Za-z0-9_]* 패턴과 일치해야 합니다)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: 变量名 '%1$@' 无效（键必须匹配 [A-Za-z_][A-Za-z0-9_]*）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm env rm: 無效的變數名稱 '%1$@' (鍵值需符合 [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        }
-      }
-    },
     "cli.vm.env.rmUnknownFlag": {
       "extractionState": "manual",
       "localizations": {
@@ -502719,131 +502594,6 @@
         }
       }
     },
-    "cli.vm.layoutEnv.expectedKEYVALUEGotValue": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "متوقع KEY=VALUE، ولكن تم تلقي '%1$@'"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "KEY=VALUE erwartet, '%1$@' erhalten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "se esperaba CLAVE=VALOR, se obtuvo '%1$@'"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "KEY=VALUE attendu, reçu '%1$@'"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "KEY=VALUE が期待されましたが、'%1$@' が指定されました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "KEY=VALUE 형식을 예상했으나 '%1$@'을(를) 받았습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "expected KEY=VALUE, got '%1$@'"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预期为 KEY=VALUE，但收到 '%1$@'"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預期為 KEY=VALUE，但取得 '%1$@'"
-          }
-        }
-      }
-    },
     "cli.vm.layoutEnv.focusMustBeTrueOrFalse": {
       "extractionState": "manual",
       "localizations": {
@@ -503715,256 +503465,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "版面配置節點需要 'pane' (葉節點) 或 'direction' (分割)"
-          }
-        }
-      }
-    },
-    "cli.vm.layoutEnv.lineValueExpectedKEYVALUEGotValue": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السطر %1$@: متوقع KEY=VALUE، ولكن تم تلقي '%2$@'"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeile %1$@: KEY=VALUE erwartet, '%2$@' erhalten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "línea %1$@: se esperaba CLAVE=VALOR, se obtuvo '%2$@'"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ligne %1$@ : KEY=VALUE attendu, reçu '%2$@'"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 行目: KEY=VALUE が期待されましたが、'%2$@' が指定されました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@행: KEY=VALUE 형식을 예상했으나 '%2$@'을(를) 받았습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: expected KEY=VALUE, got '%2$@'"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "第 %1$@ 行：预期为 KEY=VALUE，但收到 '%2$@'"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "第 %1$@ 行：預期為 KEY=VALUE，但取得 '%2$@'"
-          }
-        }
-      }
-    },
-    "cli.vm.layoutEnv.lineValueInvalidVariableNameValueKeysMatchAZa": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السطر %1$@: اسم متغير غير صالح '%2$@' (تطابق المفاتيح [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeile %1$@: ungültiger Variablenname '%2$@' (Schlüssel entsprechen [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "línea %1$@: nombre de variable no válido '%2$@' (las claves coinciden con [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ligne %1$@ : nom de variable invalide '%2$@' (les clés correspondent à [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 行目: 無効な変数名 '%2$@' です (キーは [A-Za-z_][A-Za-z0-9_]* に一致する必要があります)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@행: 유효하지 않은 변수 이름 '%2$@' (키가 [A-Za-z_][A-Za-z0-9_]*과 일치해야 함)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needsReview",
-            "value": "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "第 %1$@ 行：无效的变量名 '%2$@' (键匹配 [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "第 %1$@ 行：無效的變數名稱 '%2$@' (鍵值須符合 [A-Za-z_][A-Za-z0-9_]*)"
           }
         }
       }
@@ -656070,65 +655570,6 @@
         }
       }
     },
-    "cloudSecrets.cli.invalidName": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: invalid variable name '%2$@' (names match [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: 유효하지 않은 변수 이름 '%2$@'(이름은 [A-Za-z_][A-Za-z0-9_]*와 일치해야 함)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: 無効な変数名 '%2$@'（名前は [A-Za-z_][A-Za-z0-9_]* に一致する必要があります）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: 变量名称“%2$@”无效（名称须匹配 [A-Za-z_][A-Za-z0-9_]*）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: 變數名稱「%2$@」無效（名稱須符合 [A-Za-z_][A-Za-z0-9_]*）"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: nombre de variable no válido “%2$@” (los nombres deben coincidir con [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: اسم متغير غير صالح ”%2$@“ (يجب أن تطابق الأسماء [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: Ungültiger Variablenname „%2$@“ (Namen müssen [A-Za-z_][A-Za-z0-9_]* entsprechen)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm secrets %1$@: nom de variable non valide « %2$@ » (les noms doivent correspondre à [A-Za-z_][A-Za-z0-9_]*)"
-          }
-        }
-      }
-    },
     "cloudSecrets.cli.invalidScope": {
       "extractionState": "manual",
       "localizations": {
@@ -657423,65 +656864,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "La valeur de %@ est vide."
-          }
-        }
-      }
-    },
-    "cloudSecrets.error.invalidName": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” is not a valid variable name. Use letters, digits and underscores, not starting with a digit."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@”은(는) 유효한 변수 이름이 아닙니다. 문자, 숫자, 밑줄을 사용하되 숫자로 시작하지 마세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「%@」は有効な変数名ではありません。英字、数字、アンダースコアを使用し、数字で始めないでください。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@”不是有效的变量名称。请使用字母、数字和下划线，且不能以数字开头。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「%@」不是有效的變數名稱。請使用字母、數字和底線，且不可以數字開頭。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” no es un nombre de variable válido. Usa letras, dígitos y guiones bajos, sin empezar por un dígito."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "”%@“ ليس اسم متغير صالحًا. استخدم الأحرف والأرقام والشرطات السفلية، على ألا يبدأ برقم."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„%@“ ist kein gültiger Variablenname. Verwenden Sie Buchstaben, Ziffern und Unterstriche, nicht mit einer Ziffer beginnend."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "« %@ » n’est pas un nom de variable valide. Utilisez des lettres, des chiffres et des traits de soulignement, sans commencer par un chiffre."
           }
         }
       }
@@ -667381,61 +666763,120 @@
         }
       }
     },
-    "cloudSecrets.dotenv.invalidName": {
+    "cloudSecrets.dotenv.invalidNameHidden": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Line %1$ld: “%2$@” is not a valid variable name."
+            "value": "Line %ld: the name is not a valid variable name."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$ld번째 줄: “%2$@”은(는) 유효한 변수 이름이 아닙니다."
+            "value": "%ld번째 줄: 이름이 유효한 변수 이름이 아닙니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$ld 行目: 「%2$@」は有効な変数名ではありません。"
+            "value": "%ld 行目: 名前が有効な変数名ではありません。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %1$ld 行：“%2$@”不是有效的变量名称。"
+            "value": "第 %ld 行：名称不是有效的变量名称。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %1$ld 行：「%2$@」不是有效的變數名稱。"
+            "value": "第 %ld 行：名稱不是有效的變數名稱。"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Línea %1$ld: “%2$@” no es un nombre de variable válido."
+            "value": "Línea %ld: el nombre no es un nombre de variable válido."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السطر %1$ld: ”%2$@“ ليس اسم متغير صالحًا."
+            "value": "السطر %ld: الاسم ليس اسم متغير صالحًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeile %1$ld: „%2$@“ ist kein gültiger Variablenname."
+            "value": "Zeile %ld: Der Name ist kein gültiger Variablenname."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ligne %1$ld : « %2$@ » n’est pas un nom de variable valide."
+            "value": "Ligne %ld : le nom n’est pas un nom de variable valide."
+          }
+        }
+      }
+    },
+    "cloudSecrets.dotenv.trailingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line %1$ld: %2$@ has text after its closing quote."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld번째 줄: %2$@에 닫는 따옴표 뒤에 텍스트가 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$ld 行目: %2$@ の閉じ引用符の後にテキストがあります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$ld 行：%2$@ 在结束引号后还有文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$ld 行：%2$@ 在結尾引號後還有文字。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Línea %1$ld: %2$@ tiene texto después de la comilla de cierre."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطر %1$ld: يحتوي %2$@ على نص بعد علامة الاقتباس الختامية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeile %1$ld: %2$@ enthält Text nach dem schließenden Anführungszeichen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligne %1$ld : %2$@ contient du texte après le guillemet fermant."
           }
         }
       }
@@ -678759,6 +678200,714 @@
           "stringUnit": {
             "state": "translated",
             "value": "vm clone: セットアップのステップ %1$ld/%2$ld（`%3$@`）は %5$@ 経過後も %4$@ で実行中でした。停止はしていません。\"setup\" ターミナルはチェックアウト内で開いたままです。"
+          }
+        }
+      }
+    },
+    "cli.vm.env.rmInvalidNameHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: a name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: أحد الأسماء ليس اسم متغير صالحًا (يجب أن تطابق الأسماء [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: Ein Name ist kein gültiger Variablenname (Namen müssen [A-Za-z_][A-Za-z0-9_]* entsprechen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: un nombre no es un nombre de variable válido (los nombres deben coincidir con [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm : un nom n’est pas un nom de variable valide (les noms doivent correspondre à [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: 有効な変数名ではない名前があります（名前は [A-Za-z_][A-Za-z0-9_]* に一致する必要があります）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: 이름 중 하나가 유효한 변수 이름이 아닙니다(이름은 [A-Za-z_][A-Za-z0-9_]*와 일치해야 함)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: 有名称不是有效的变量名称（名称须匹配 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env rm: 有名稱不是有效的變數名稱（名稱須符合 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        }
+      }
+    },
+    "cli.vm.layoutEnv.expectedAssignmentHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "an argument is not KEY=VALUE"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحد الوسائط ليس بالصيغة KEY=VALUE"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Argument hat nicht die Form KEY=VALUE"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un argumento no tiene la forma KEY=VALUE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un argument n’est pas au format KEY=VALUE"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KEY=VALUE 形式ではない引数があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인수 중 하나가 KEY=VALUE 형식이 아닙니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有参数不是 KEY=VALUE 格式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有引數不是 KEY=VALUE 格式"
+          }
+        }
+      }
+    },
+    "cli.vm.layoutEnv.invalidNameHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحد الأسماء ليس اسم متغير صالحًا (يجب أن تطابق الأسماء [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Name ist kein gültiger Variablenname (Namen müssen [A-Za-z_][A-Za-z0-9_]* entsprechen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un nombre no es un nombre de variable válido (los nombres deben coincidir con [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un nom n’est pas un nom de variable valide (les noms doivent correspondre à [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な変数名ではない名前があります（名前は [A-Za-z_][A-Za-z0-9_]* に一致する必要があります）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 중 하나가 유효한 변수 이름이 아닙니다(이름은 [A-Za-z_][A-Za-z0-9_]*와 일치해야 함)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有名称不是有效的变量名称（名称须匹配 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有名稱不是有效的變數名稱（名稱須符合 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        }
+      }
+    },
+    "cli.vm.layoutEnv.lineExpectedAssignment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "line %1$@: expected KEY=VALUE"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطر %1$@: متوقع KEY=VALUE"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeile %1$@: KEY=VALUE erwartet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "línea %1$@: se esperaba KEY=VALUE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ligne %1$@ : KEY=VALUE attendu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 行目: KEY=VALUE 形式である必要があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@행: KEY=VALUE 형식이어야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：预期为 KEY=VALUE"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：預期為 KEY=VALUE"
+          }
+        }
+      }
+    },
+    "cli.vm.layoutEnv.lineInvalidNameHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "line %1$@: the name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطر %1$@: الاسم ليس اسم متغير صالحًا (يجب أن تطابق الأسماء [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeile %1$@: Der Name ist kein gültiger Variablenname (Namen müssen [A-Za-z_][A-Za-z0-9_]* entsprechen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "línea %1$@: el nombre no es un nombre de variable válido (los nombres deben coincidir con [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ligne %1$@ : le nom n’est pas un nom de variable valide (les noms doivent correspondre à [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 行目: 名前が有効な変数名ではありません（名前は [A-Za-z_][A-Za-z0-9_]* に一致する必要があります）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@행: 이름이 유효한 변수 이름이 아닙니다(이름은 [A-Za-z_][A-Za-z0-9_]*와 일치해야 함)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：名称不是有效的变量名称（名称须匹配 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：名稱不是有效的變數名稱（名稱須符合 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        }
+      }
+    },
+    "cli.vm.layoutEnv.lineTrailingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "line %1$@: the value of %2$@ has text after its closing quote"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطر %1$@: تحتوي قيمة %2$@ على نص بعد علامة الاقتباس الختامية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeile %1$@: Der Wert von %2$@ enthält Text nach dem schließenden Anführungszeichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "línea %1$@: el valor de %2$@ tiene texto después de la comilla de cierre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ligne %1$@ : la valeur de %2$@ contient du texte après le guillemet fermant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 行目: %2$@ の値で、閉じ引用符の後にテキストがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@행: %2$@의 값에 닫는 따옴표 뒤에 텍스트가 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：%2$@ 的值在结束引号后还有文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：%2$@ 的值在結尾引號後還有文字"
+          }
+        }
+      }
+    },
+    "cli.vm.layoutEnv.lineUnclosedQuote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "line %1$@: the value of %2$@ opens a quote that does not close on its line"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطر %1$@: تفتح قيمة %2$@ علامة اقتباس لا تُغلق في السطر نفسه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeile %1$@: Der Wert von %2$@ öffnet ein Anführungszeichen, das in dieser Zeile nicht geschlossen wird"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "línea %1$@: el valor de %2$@ abre una comilla que no se cierra en esa línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ligne %1$@ : la valeur de %2$@ ouvre un guillemet qui ne se ferme pas sur cette ligne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 行目: %2$@ の値で開いた引用符が、その行で閉じられていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@행: %2$@의 값이 같은 줄에서 닫히지 않는 따옴표를 엽니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：%2$@ 的值打开了引号，但未在同一行闭合"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$@ 行：%2$@ 的值開啟了引號，但未在同一行結束"
+          }
+        }
+      }
+    },
+    "cloudSecrets.cli.dotenv.skip.trailingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "text after the closing quote"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نص بعد علامة الاقتباس الختامية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text nach dem schließenden Anführungszeichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "texto después de la comilla de cierre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "texte après le guillemet fermant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じ引用符の後にテキストがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫는 따옴표 뒤에 텍스트가 있음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束引号后有文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結尾引號後有文字"
+          }
+        }
+      }
+    },
+    "cloudSecrets.cli.invalidNameHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: a name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: أحد الأسماء ليس اسم متغير صالحًا (يجب أن تطابق الأسماء [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: Ein Name ist kein gültiger Variablenname (Namen müssen [A-Za-z_][A-Za-z0-9_]* entsprechen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: un nombre no es un nombre de variable válido (los nombres deben coincidir con [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@ : un nom n’est pas un nom de variable valide (les noms doivent correspondre à [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: 有効な変数名ではない名前があります（名前は [A-Za-z_][A-Za-z0-9_]* に一致する必要があります）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: 이름 중 하나가 유효한 변수 이름이 아닙니다(이름은 [A-Za-z_][A-Za-z0-9_]*와 일치해야 함)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: 有名称不是有效的变量名称（名称须匹配 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm secrets %@: 有名稱不是有效的變數名稱（名稱須符合 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        }
+      }
+    },
+    "cloudSecrets.dotenv.skip.trailingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "text after the closing quote"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نص بعد علامة الاقتباس الختامية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text nach dem schließenden Anführungszeichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "texto después de la comilla de cierre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "texte après le guillemet fermant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じ引用符の後にテキストがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫는 따옴표 뒤에 텍스트가 있음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束引号后有文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結尾引號後有文字"
+          }
+        }
+      }
+    },
+    "cloudSecrets.error.invalidNameHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A name is not a valid variable name. Use letters, digits and underscores, not starting with a digit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحد الأسماء ليس اسم متغير صالحًا. استخدم الأحرف والأرقام والشرطات السفلية، على ألا يبدأ برقم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Name ist kein gültiger Variablenname. Verwenden Sie Buchstaben, Ziffern und Unterstriche, nicht mit einer Ziffer beginnend."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nombre no es un nombre de variable válido. Usa letras, dígitos y guiones bajos, sin empezar por un dígito."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nom n’est pas un nom de variable valide. Utilisez des lettres, des chiffres et des traits de soulignement, sans commencer par un chiffre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な変数名ではない名前があります。英字、数字、アンダースコアを使用し、数字で始めないでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 중 하나가 유효한 변수 이름이 아닙니다. 문자, 숫자, 밑줄을 사용하되 숫자로 시작하지 마세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有名称不是有效的变量名称。请使用字母、数字和下划线，且不能以数字开头。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有名稱不是有效的變數名稱。請使用字母、數字和底線，且不可以數字開頭。"
+          }
+        }
+      }
+    },
+    "cloudSecrets.error.vaultTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Secrets holds at most 1 MB of secrets. Remove some before adding more."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتسع أسرار Cloud لـ 1 ميغابايت من الأسرار كحد أقصى. أزل بعضها قبل إضافة المزيد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Secrets kann höchstens 1 MB an Secrets speichern. Entfernen Sie einige, bevor Sie weitere hinzufügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secretos de Cloud admite un máximo de 1 MB de secretos. Elimina algunos antes de añadir más."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secrets Cloud peut contenir au maximum 1 Mo de secrets. Supprimez-en avant d’en ajouter d’autres."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud シークレットに保存できるシークレットは最大 1 MB です。追加する前にいくつか削除してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 시크릿에는 최대 1MB의 시크릿을 저장할 수 있습니다. 더 추가하기 전에 일부를 제거하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 机密最多可存储 1 MB 的机密。请先移除部分机密，再添加更多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機密最多可存放 1 MB 的機密。請先移除部分機密，再加入更多。"
           }
         }
       }
