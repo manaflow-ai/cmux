@@ -936,7 +936,8 @@ jobs:
       # (an optional Windows companion, attested in completion-windows.json),
       # never in cmux-tui/<sha>/. Its own optional job: a failed acpmux build
       # publishes the Windows daemon without it.
-      windows_acpmux: true
+      # Not for pull_request_target runs: publish-pr-tree publishes no Windows files.
+      windows_acpmux: ${{ github.event_name != 'pull_request_target' }}
       # Same-repository PRs (pull_request_target) publish the tree that their
       # same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -1295,6 +1296,9 @@ jobs:
           if [[ ! -f assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe ]]; then
             echo "::warning title=no Windows daemon::the optional Windows build made no cmux-tui-x86_64-pc-windows-gnu.exe; publishing without cmux-tui-windows/$GITHUB_SHA"
             echo "present=false" >> "$GITHUB_OUTPUT"
+            # The acpmux job (cx-ephhf) is separate and may have succeeded:
+            # no Windows file ever goes to cmux-tui/<sha>/.
+            rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
             exit 0
           fi
           echo "present=true" >> "$GITHUB_OUTPUT"
@@ -1823,6 +1827,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1922,6 +1927,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1967,6 +1973,7 @@ jobs:
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
             python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
@@ -2372,7 +2379,7 @@ jobs:
             # Optional (cx-1vlzr host): only when that commit's manifest
             # attests it; a Windows build from before it has none.
             for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
-              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) else 1)' tree/windows-manifest.json "$asset"; then
+              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) is not None else 1)' tree/windows-manifest.json "$asset"; then
                 fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
               fi
             done
