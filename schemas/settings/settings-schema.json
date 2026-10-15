@@ -32,6 +32,7 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
+              "tabs.hoverPreviews",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
               "tabs.tabBar.terminal",
@@ -247,10 +248,7 @@
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
               "ui.animationSpeed",
-              "ui.paneAnimations",
-              "ui.animations.newTab",
-              "ui.animations.newWorkspace",
-              "ui.animations.bounce"
+              "ui.paneAnimations"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -910,7 +908,6 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
-              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -2025,6 +2022,81 @@
       "title" : {
         "key" : "settings.tabs.toolbarButtons",
         "text" : "Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "compact",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.compact",
+            "text" : "Compact"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverPreviews.full",
+            "text" : "Full"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "full",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hoverPreviews.help",
+        "text" : "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hoverPreviews",
+      "keywords" : [
+        "tabs",
+        "hover",
+        "preview",
+        "card",
+        "tooltip",
+        "thumbnail",
+        "memory",
+        "compact"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "hoverPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.hoverPreviews",
+        "text" : "Hover Previews"
       },
       "validation" : "portable"
     },
@@ -10147,164 +10219,6 @@
       "title" : {
         "key" : "settings.ui.paneAnimations",
         "text" : "Animate Panes"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : {
-        "key" : "settings.ui.animations.newTab.help",
-        "text" : "A new tab grows into its place in the tab bar. Off shows it there at once."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "ui.animations.newTab",
-      "keywords" : [
-        "motion",
-        "animation",
-        "tab"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "ui",
-        "animations",
-        "newTab"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.ui.animations.newTab",
-        "text" : "Animate New Tabs"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : {
-        "key" : "settings.ui.animations.newWorkspace.help",
-        "text" : "A new workspace row opens in the sidebar. Off shows it there at once."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "ui.animations.newWorkspace",
-      "keywords" : [
-        "motion",
-        "animation",
-        "workspace",
-        "sidebar"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "ui",
-        "animations",
-        "newWorkspace"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.ui.animations.newWorkspace",
-        "text" : "Animate New Workspaces"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "none",
-        "subtle"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.none",
-            "text" : "None"
-          },
-          "value" : "none"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.subtle",
-            "text" : "Subtle"
-          },
-          "value" : "subtle"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "none",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : {
-        "key" : "settings.ui.animations.bounce.help",
-        "text" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "ui.animations.bounce",
-      "keywords" : [
-        "motion",
-        "spring",
-        "bounce"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "ui",
-        "animations",
-        "bounce"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.ui.animations.bounce",
-        "text" : "Animation Bounce"
       },
       "validation" : "portable"
     },
@@ -22326,54 +22240,6 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.labs",
-        "text" : "Labs"
-      },
-      "help" : {
-        "key" : "settings.labs.classicHome.help",
-        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "labs.classicHome",
-      "keywords" : [
-        "home",
-        "chief",
-        "classic",
-        "dock",
-        "page"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "labs",
-        "classicHome"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.labs.classicHome",
-        "text" : "Classic Home"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23772,7 +23638,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bcd28b55ae95c1dc208eb2f6284da7af98930017e4294732258c1ba9f5563b5a",
+  "schema_hash" : "07afc11e5d74abe319814d1d8c3c4c7bbce42c8598b9192388437764362d8a00",
   "sections" : [
     {
       "id" : "general",
