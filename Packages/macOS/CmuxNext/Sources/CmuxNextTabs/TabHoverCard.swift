@@ -141,8 +141,8 @@ final class TabHoverCardController: HoverCardSource {
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)
-        // Compact previews (`tabs.hoverPreviews`) show the facts without a thumbnail.
-        let full = DesignSettings.shared.tabHoverPreviews == .full
+        // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.
+        let full = TabTunables.hoverPreviews.value == .full
         if case .tab = content {
             body.setResources(resources.report ?? lastReport(for: tab))
             // On a retarget, a tab whose thumbnail is not known yet keeps what the card

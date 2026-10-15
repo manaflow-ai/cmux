@@ -2761,16 +2761,6 @@
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
     },
-    "tabs.hoverPreviews" : {
-      "default" : "full",
-      "description" : "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full.",
-      "enum" : [
-        "compact",
-        "full"
-      ],
-      "title" : "Hover Previews",
-      "type" : "string"
-    },
     "tabs.newTabPosition" : {
       "default" : "end",
       "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
@@ -2813,7 +2803,7 @@
     },
     "tabs.tabBar.agent" : {
       "default" : "auto",
-      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
@@ -2824,7 +2814,7 @@
     },
     "tabs.tabBar.browser" : {
       "default" : "auto",
-      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
@@ -2835,7 +2825,7 @@
     },
     "tabs.tabBar.terminal" : {
       "default" : "auto",
-      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
