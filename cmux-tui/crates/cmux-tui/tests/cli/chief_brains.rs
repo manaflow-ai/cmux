@@ -160,16 +160,16 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     // One whose daemon still holds its lock (the stop failed): kept.
     let held = chief_home.join("c/h3ldch1ef/a");
     fs::create_dir_all(held.join("state")).unwrap();
-    let mut holder = std::process::Command::new("python3")
+    let mut holder = Command::new("python3")
         .args(["-c", "import fcntl,sys,time; f=open(sys.argv[1],'a'); fcntl.flock(f, fcntl.LOCK_EX); print('held', flush=True); time.sleep(120)"])
         .arg(held.join("daemon.lock"))
-        .stdout(std::process::Stdio::piped())
+        .stdout(Stdio::piped())
         .spawn()
         .unwrap();
     {
         use std::io::BufRead;
         let mut line = String::new();
-        std::io::BufReader::new(holder.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
+        BufReader::new(holder.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
         assert_eq!(line.trim(), "held");
     }
     // The shared home stays as it is.
