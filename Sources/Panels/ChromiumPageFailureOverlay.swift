@@ -140,36 +140,28 @@ struct ChromiumPageFailureOverlay: View {
             RoundedRectangle(cornerRadius: metrics.unresponsiveCardCornerRadius, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
         )
-        .background(notchedHole(radius: metrics.unresponsiveCardCornerRadius))
+        .background(cardHole)
         .padding(metrics.pageFailureHorizontalInset)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("BrowserChromiumUnresponsiveCard")
     }
 
-    /// The card's hole in the page window as three non-overlapping bands (top
-    /// and bottom inset by the corner radius, full-width middle), so the
-    /// frozen page shows in the rounded corners instead of the host colour
-    /// (spec §0.9 notched hole).
-    private func notchedHole(radius: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(height: radius)
-                .padding(.horizontal, radius)
-                .browserPageOccluding(overlays, id: "pageFailure.card.top")
-            Color.clear
-                .browserPageOccluding(overlays, id: "pageFailure.card.middle")
-            Color.clear
-                .frame(height: radius)
-                .padding(.horizontal, radius)
-                .browserPageOccluding(overlays, id: "pageFailure.card.bottom")
-        }
-        .accessibilityHidden(true)
+    /// The card's hole in the page window: exactly the card, not the space
+    /// around it, so the frozen page stays visible around the card. One rect:
+    /// the page window honours a single hole per overlay today, so the
+    /// notched three-band hole of spec §0.9 waits for multi-rect support (a
+    /// band-split hole showed only its first band); until then the four
+    /// corner arcs show the pane background.
+    private var cardHole: some View {
+        Color.clear
+            .browserPageOccluding(overlays, id: "pageFailure.card")
+            .accessibilityHidden(true)
     }
 }
 
 extension BrowserPageRecoveryPrompt {
-    /// Whether the prompt registers its own page-window holes (the notched
-    /// hang card) instead of one hole for the whole overlay.
+    /// Whether the prompt registers its own page-window hole (the hang card,
+    /// sized to the card) instead of one hole for the whole overlay.
     var registersOwnPageOcclusion: Bool {
         if case .chromiumUnresponsive = self { return true }
         return false
