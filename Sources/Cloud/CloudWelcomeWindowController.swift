@@ -104,7 +104,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     nonisolated static func hasSeenWelcome(in defaults: UserDefaults) -> Bool {
-        defaults.string(forKey: seenVersionDefaultsKey) != nil
+        defaults.object(forKey: seenVersionDefaultsKey) != nil
     }
 
     /// Records that this campaign's announcement has been considered, on any of
