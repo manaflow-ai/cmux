@@ -2897,6 +2897,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func discardHiddenWebViewForMemory(reason: String, now: Date = Date()) -> Bool {
+        // A non-WebKit page releases its engine content instead (BrowserPanel+EnginePageMemorySaver).
+        if enginePage != nil { return releaseEnginePageForMemory(reason: reason, now: now) }
         let urgency = BrowserHiddenWebViewDiscardUrgency(reason: reason)
         guard hiddenWebViewDiscardBlockers(urgency: urgency).isEmpty else { return false }
 
@@ -3730,7 +3732,8 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
-        engineChoice: BrowserEngineChoice? = nil
+        engineChoice: BrowserEngineChoice? = nil,
+        engineRuntime: BrowserEngineRuntime? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3741,10 +3744,16 @@ final class BrowserPanel: Panel, ObservableObject {
         self.externalNavigationHandler = BrowserExternalNavigationHandler()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
+        // Remote and proxied panels load through the WebKit proxy
+        // configuration; another engine would reach this Mac's own network.
+        let routesThroughBrowserProxy = isRemoteWorkspace || proxyEndpoint != nil || explicitWebsiteDataStore != nil
         let enginePageSetup = Self.makeEnginePage(
-            choice: engineChoice,
+            choice: routesThroughBrowserProxy
+                ? BrowserEngineChoice(engine: .webkit, source: .inherited)
+                : engineChoice,
             panelID: id,
-            profileID: resolvedProfileID
+            profileID: resolvedProfileID,
+            runtime: engineRuntime
         )
         self.engineKind = enginePageSetup.page?.engineKind ?? .webkit
         self.enginePage = enginePageSetup.page
@@ -6426,7 +6435,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
         BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
-            shouldRenderWebView: shouldRenderWebView,
+            shouldRenderWebView: shouldRenderWebView || enginePage != nil,  // an engine page renders itself
             hasPendingRemoteNavigation: hasPendingRemoteNavigation,
             hasCurrentURL: (
                 currentURL
@@ -6436,7 +6445,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
             hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
-            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
+            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination && enginePage == nil,
             isDownloading: isDownloading,
             activeDownloadCount: activeDownloadCount,
             preferredDeveloperToolsVisible: preferredDeveloperToolsVisible,
@@ -7239,6 +7248,10 @@ extension BrowserPanel {
 
     @discardableResult
     func toggleDeveloperTools() -> Bool {
+        if let enginePage {
+            enginePage.isDevToolsVisible ? enginePage.closeDevTools() : enginePage.showDevTools()
+            return true
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools toggle.begin panel=\(id.uuidString.prefix(5)) " +
@@ -7265,6 +7278,10 @@ extension BrowserPanel {
 
     @discardableResult
     func showDeveloperTools() -> Bool {
+        if let enginePage {
+            enginePage.showDevTools()
+            return true
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
     }
 
@@ -7558,11 +7575,11 @@ extension BrowserPanel {
     }
 
     func zoomInResult() -> Result<Bool, BrowserAutomationViewportError> {
-        applyPageZoom(webView.pageZoom + pageZoomStep)
+        applyPageZoom(currentPageZoomFactor() + pageZoomStep)
     }
 
     func zoomOutResult() -> Result<Bool, BrowserAutomationViewportError> {
-        applyPageZoom(webView.pageZoom - pageZoomStep)
+        applyPageZoom(currentPageZoomFactor() - pageZoomStep)
     }
 
     func resetZoomResult() -> Result<Bool, BrowserAutomationViewportError> {
@@ -7570,7 +7587,8 @@ extension BrowserPanel {
     }
 
     func currentPageZoomFactor() -> CGFloat {
-        webView.pageZoom
+        if let enginePage { return CGFloat(enginePage.pageZoom) }
+        return webView.pageZoom
     }
 
     @discardableResult
@@ -8647,6 +8665,11 @@ extension BrowserPanel {
 private extension BrowserPanel {
     func applyPageZoom(_ candidate: CGFloat) -> Result<Bool, BrowserAutomationViewportError> {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
+        if let enginePage {
+            guard abs(CGFloat(enginePage.pageZoom) - clamped) >= 0.0001 else { return .success(false) }
+            enginePage.pageZoom = Double(clamped)
+            return .success(true)
+        }
         if abs(webView.pageZoom - clamped) < 0.0001 {
             return .success(false)
         }

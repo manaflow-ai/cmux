@@ -19,6 +19,9 @@ final class BrowserFindWebViewEvaluator: BrowserFindScriptEvaluating {
 
     func evaluate(_ script: BrowserFindScript) async throws -> Any? {
         guard let panel else { return nil }
+        if let enginePage = panel.enginePage {
+            return try await enginePage.evaluate(script)
+        }
         return try await panel.webView.evaluateJavaScript(script.source)
     }
 }
