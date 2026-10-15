@@ -27,6 +27,32 @@ struct AcpmuxSocketPathParityTests {
         }
     }
 
+    /// The local model relay's admin socket (cx-qukj2): a long tagged home whose
+    /// `router/router.sock` passes the Unix socket limit reaches the short alias the relay binds,
+    /// never a path `NWEndpoint.unix` traps on.
+    @Test func routerSocketsMatchTheSharedCases() throws {
+        let sockets = try #require(Self.cases["router_sockets"] as? [[Any]])
+        #expect(!sockets.isEmpty)
+        for row in sockets {
+            let home = URL(fileURLWithPath: try #require(row[0] as? String), isDirectory: true)
+            let uid = UInt32(try #require(row[1] as? Int))
+            let got = AcpmuxEnvironment.routerSocketPath(home: home, uid: uid)
+            #expect(got == row[2] as? String)
+            #expect(got.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes)
+        }
+    }
+
+    /// The relay client of a capture slot's long tagged home connects to a path that fits, and a
+    /// path that does not is refused before `NWEndpoint.unix` sees it (cx-qukj2).
+    @Test func routerClientNeverHoldsAnOverlongPath() {
+        // The capture slot that trapped (slot clones carry the tag twice in the build key):
+        // `<home>/router/router.sock` is 112 bytes.
+        let home = URL(fileURLWithPath: "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.cxfootb.352cfa5c.capslot4--cxfootb-352cfa5c", isDirectory: true)
+        #expect(!LocalRouterClient.fits(home.appendingPathComponent("router/router.sock").path))
+        #expect(LocalRouterClient.fits(AcpmuxEnvironment.routerSocketPath(home: home, uid: getuid())))
+        #expect(!LocalRouterClient.fits("/tmp/" + String(repeating: "x", count: 100)))
+    }
+
     @Test func configuredSocketsMatchTheSharedCases() throws {
         let sockets = try #require(Self.cases["configured_sockets"] as? [[Any]])
         #expect(!sockets.isEmpty)

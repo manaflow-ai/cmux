@@ -994,6 +994,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-agent-pane-policy",
  "cmux-link",
  "cmux-local-auth",
  "fs4",
