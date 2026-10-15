@@ -40,6 +40,11 @@ struct AgentLanesTests {
     ]
 
     @Test func everySessionShowsItsLaneAndTheSidebarCountsTheOnesThatNeedAPerson() async throws {
+        // The fleet toggle counts the coordinator's children and the peer's lane too.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TunableCatalog.all)
+        TunableStore.shared.set(AgentActivityTunables.lanesShowFleet.key, .bool(true))
+        defer { TunableStore.shared.set(AgentActivityTunables.lanesShowFleet.key, nil) }
         let acpmux = try StandInAcpmux(sessions: Self.sessions)
         let lanes = AgentLaneStore()
         let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: AgentTurnStateStore(), lanes: lanes)
@@ -53,17 +58,17 @@ struct AgentLanesTests {
         #expect(lanes.lanes["op-idle"]?.state == .idle)
         #expect(lanes.lanes["op-idle"]?.since == Date(timeIntervalSince1970: 1_760_000_000))
         #expect(lanes.lanes["op-gone"]?.peer == "mini")
-        #expect(SidebarTransientItem.lanes(lanes).info.badge == 3, "failed, waiting and lost need a person")
+        #expect(SidebarTransientItem.lanes(lanes)?.info.badge == 3, "failed, waiting and lost need a person")
 
         // The idle lane dies on its next turn: the count follows the push, no poll.
         acpmux.push(Self.summary("op-idle", "failed", error: "Credit balance too low", parent: "chief"))
         try await until { lanes.lanes["op-idle"]?.state == .failed }
-        #expect(SidebarTransientItem.lanes(lanes).info.badge == 4)
+        #expect(SidebarTransientItem.lanes(lanes)?.info.badge == 4)
 
         // A person answered the permission; the lane works again.
         acpmux.push(Self.summary("op-asks", "working", parent: "chief"))
         try await until { lanes.lanes["op-asks"]?.state == .working }
-        #expect(SidebarTransientItem.lanes(lanes).info.badge == 3)
+        #expect(SidebarTransientItem.lanes(lanes)?.info.badge == 3)
 
         // A closed session has no lane and leaves the view.
         acpmux.push(["sessionId": "op-busy", "name": "op-busy", "status": "closed", "lane": NSNull()])
