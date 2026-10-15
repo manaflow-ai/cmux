@@ -236,9 +236,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
-        ServerAction::Ensure { .. } => unreachable!("ensure returns before the lifecycle exchange"),
-        ServerAction::CompactRegistry { .. } => {
-            unreachable!("compact-registry returns before the lifecycle exchange")
+        ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
+            unreachable!("ensure and compact-registry return before the lifecycle exchange")
         }
         ServerAction::Status => print_success(
             json!({
