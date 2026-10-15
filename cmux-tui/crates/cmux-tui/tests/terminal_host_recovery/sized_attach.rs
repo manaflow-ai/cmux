@@ -171,7 +171,8 @@ fn dropped_view_holds_the_grid_until_a_reattach_or_the_grace_ends() {
     drop(phone_reader);
     let started = Instant::now();
     while started.elapsed() < Duration::from_millis(1500) {
-        let state = request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+        let state =
+            request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
         assert_eq!(
             (state["cols"].as_u64(), state["rows"].as_u64()),
             (Some(53), Some(39)),
