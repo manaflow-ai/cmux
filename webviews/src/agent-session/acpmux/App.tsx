@@ -5123,6 +5123,7 @@ function AcpmuxPane() {
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
+              look={newTab.styleSwitch}
               current={pageStyle(shownTemplate(newTab))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
               onPick={(style) =>
