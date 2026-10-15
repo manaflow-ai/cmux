@@ -98,7 +98,8 @@ export function StyleSwitch({
               key={style}
               className="nt-style-option"
               data-style={style}
-              // The page shows a `title` at once (ui/titleTooltips.ts); round and names show the name already.
+              // The page shows a `title` at once (ui/titleTooltips.ts); the names and round looks draw
+              // the name. tooltip-allow: only a dot or a sketch, which draw no text, gets a title.
               title={look === "round" || look === "names" ? undefined : name}
               onPointerOver={() => setHovered(style)}
               onPointerDown={() => (pointed.current = performance.now())}
