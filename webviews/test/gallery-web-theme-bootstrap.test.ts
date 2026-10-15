@@ -28,7 +28,11 @@ describe("readWebThemeBootstrap", () => {
   });
 
   test("any other escape or an interpolation still stops the reader", () => {
-    for (const body of [String.raw`    var a = "\n";`, String.raw`    var a = "\"";`, String.raw`    var a = \(value);`])
+    for (const body of [
+      String.raw`    var a = "\n";`,
+      String.raw`    var a = "\"";`,
+      String.raw`    var a = \(value);`,
+    ])
       expect(() => readWebThemeBootstrap(literal(body))).toThrow(/Swift escapes/);
   });
 });
