@@ -415,7 +415,10 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): Acpm
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
-  return [status, ...rows];
+  // A live copy has its own version (a half step: never one an event gives), so the row redraws
+  // when the turn moves on and its thought stops reading "Thinking…".
+  const current = last.kind === "activity" ? { ...last, live: true, version: last.version + 0.5 } : last;
+  return [status, ...rows.slice(0, -1), current];
 }
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.

@@ -189,9 +189,13 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  test("a thought shows in full, wrapped, with no tooltip", async () => {
+  test("a thought opens from its 'Thought for' line to its full text, wrapped, with no tooltip", async () => {
+    // Leo 2026-10-13: a thought is one closed "Thought for Ns" line, as Codex and Claude desktop draw it.
     const page = await open();
-    const thought = page.locator(".cv-thought");
+    const toggle = page.locator("button.cv-thought");
+    expect(await toggle.innerText()).toMatch(/^Thought for \d/);
+    await toggle.click();
+    const thought = page.locator(".cv-thought__text");
     expect((await thought.innerText()).replace(/\s+/g, " ")).toContain(THOUGHT);
     expect(await thought.evaluate((node) => node.closest("[title]") === null && !node.querySelector("[title]"))).toBe(
       true,

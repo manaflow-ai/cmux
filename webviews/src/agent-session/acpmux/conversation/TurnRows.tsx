@@ -8,10 +8,8 @@ import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
-import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
-import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
@@ -51,8 +49,16 @@ export function WorkedFor({
   );
 }
 
-/// One entry of a run: a group, a message card, a lone call or a thought.
-function groupNode(group: ToolGroup, index: number): ReactNode {
+/// When an entry began: its first call's start, or a thought's first chunk.
+function groupStart(group: ToolGroup | undefined): number | undefined {
+  if (!group) return undefined;
+  const item = group.type === "group" ? group.items[0] : group.item;
+  return item?.tool?.startedAt ?? item?.startedAt;
+}
+
+/// One entry of a run: a group, a message card, a lone call or a thought. A thought lasts until
+/// `next` starts; the last entry of a live row is the one the agent is still on.
+function groupNode(group: ToolGroup, index: number, next: ToolGroup | undefined, live: boolean): ReactNode {
   switch (group.type) {
     case "group":
       return <ToolGroupRow key={group.items[0]!.tool!.id || index} kind={group.kind} items={group.items} />;
@@ -62,29 +68,23 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} item={group.item} />
+        <ThoughtRow key={index} item={group.item} until={groupStart(next)} live={live && !next} />
       );
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
-/// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each.
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts), each
+/// on its own line, live or in an ended turn's open "Worked for": the open turn lists every step
+/// (Leo 2026-10-13); a second fold under it hid thoughts and messages and scrolled its tail away.
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const nodes = groups.map(groupNode);
+  const nodes = groups.map((group, index) => groupNode(group, index, groups[index + 1], Boolean(row.live)));
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   return (
     <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-      <div className="cv-tools">
-        {row.settled && groups.length > 1 && isFoldedRun(items ?? []) ? (
-          <ToolRun items={items ?? []}>{nodes}</ToolRun>
-        ) : (
-          nodes
-        )}
-      </div>
+      <div className="cv-tools">{nodes}</div>
     </FindReveal.Provider>
   );
 }

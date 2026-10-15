@@ -374,3 +374,29 @@ export const ArrowRight = (p: CvIconProps) => (
     <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
   </Svg>
 );
+
+/** Two figures, a lead and a helper, of agent (subagent) tool rows ("Review the PR"). */
+export const AgentFigures = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <circle cx="6" cy="5.25" r="2.25" />
+    <path d="M2.25 13c0-2.2 1.7-3.75 3.75-3.75S9.75 10.8 9.75 13" />
+    <path d="M10.6 3.3a2.25 2.25 0 0 1 0 3.9M11.9 9.6c1.1.5 1.85 1.75 1.85 3.4" />
+  </Svg>
+);
+
+/** A plug of MCP tool rows ("github: get issue"). */
+export const Plug = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <path d="M6 2.25v3M10 2.25v3" />
+    <path d="M4.25 5.25h7.5v2.5a3.75 3.75 0 0 1-7.5 0Z" />
+    <path d="M8 11.5v2.25" />
+  </Svg>
+);
+
+/** Two checks of a delivered message, as a messaging app marks one read. */
+export const DoubleCheck = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M1.75 8.4 4.3 10.9 9.2 5.2" />
+    <path d="M7.4 10.6l.3.3 4.9-5.7" />
+  </Svg>
+);

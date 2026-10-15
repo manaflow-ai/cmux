@@ -3,7 +3,7 @@
 import { useFindReveal } from "./chatFind";
 import { useContext, useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
-import { useT } from "../i18n";
+import { useT, type Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
@@ -18,27 +18,57 @@ import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { OutputMore, useOutput } from "./toolOutput";
-import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
+import { commandFolder, commandSummary } from "./commandSummary";
+import {
+  AgentFigures,
+  ChevronRight,
+  Globe,
+  Magnifier,
+  OpenBook,
+  Pencil,
+  Plug,
+  TerminalSquare,
+  ToolGroup,
+} from "./icons";
+import { agentLabel, isCallId, mcpLabel, toolGlyph, type ToolGlyph } from "./toolKinds";
 
-/// ACP tool kinds (`ToolKind`) to row glyphs.
-export function toolIcon(kind?: string): ReactNode {
-  switch (kind) {
+type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// Row glyphs by what a call does (toolKinds.ts).
+export function toolIcon(glyph: ToolGlyph): ReactNode {
+  switch (glyph) {
     case "read":
       return <OpenBook />;
     case "edit":
-    case "delete":
-    case "move":
-    case "fileChange":
       return <Pencil size={16} strokeWidth={1.1} />;
     case "search":
       return <Magnifier />;
-    case "execute":
+    case "shell":
       return <TerminalSquare />;
-    case "fetch":
+    case "web":
       return <Globe size={16} strokeWidth={1.1} />;
+    case "agent":
+      return <AgentFigures />;
+    case "mcp":
+      return <Plug />;
     default:
       return <ToolGroup size={16} strokeWidth={1.2} />;
   }
+}
+
+/// A row's words: an agent call's task, an MCP call's server and tool, a shell call's summary
+/// ("Fetched feat-cmux-next and diffed HEAD~1", else "Ran {command}" without its leading cd),
+/// a file call's path; never a call id.
+export function rowLabel(tool: Tool, fallback: string, glyph: ToolGlyph, t: Translate, cwd?: string): string {
+  if (glyph === "agent") return agentLabel(tool) ?? t("tools.agent");
+  if (glyph === "mcp") return mcpLabel(tool) ?? tool.title;
+  const named = isCallId(tool.title, tool) ? { ...tool, title: "" } : tool;
+  return toolLabel(
+    named,
+    isCallId(fallback, tool) ? "" : fallback,
+    (command) => commandSummary(command, t) ?? t("tools.ranCommand", { command: commandFolder(command).rest }),
+    cwd,
+  );
 }
 
 /// One tool call. A call with output opens it below; a
@@ -62,7 +92,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Diffed only while open: a closed edit row costs nothing on each transcript update.
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
   const cwd = useContext(SessionCwdContext);
-  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }), cwd);
+  const glyph = toolGlyph(tool);
+  const label = rowLabel(tool, item.text, glyph, t, cwd);
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const body = tool.output?.replace(/\n$/, "");
@@ -71,8 +102,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
-      <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
-      <span className="cv-tool__text" data-find-skip={(open && shell) || undefined}>
+      <span className="cv-tool__icon" data-kind={glyph}>
+        {toolIcon(glyph)}
+      </span>
+      {/* A shell row's words are its summary; Find counts its command, painted in the opened Shell block. */}
+      <span className="cv-tool__text" data-find-skip={shell || undefined}>
         {label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>

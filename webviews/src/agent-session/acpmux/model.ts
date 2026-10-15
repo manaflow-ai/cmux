@@ -53,9 +53,10 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
-  /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
-  /// folds under one summary line (conversation/toolRunSummary.ts).
+  /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
+  /// The running turn's last row: the work the agent is on now, so its last thought reads "Thinking…".
+  live?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -76,9 +77,14 @@ export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
+  /// A thought's first and latest chunk (epoch ms), for its "Thought for 4s" line.
+  startedAt?: number;
+  endedAt?: number;
   tool?: {
     id: string;
     title: string;
+    /// The harness's own name for the tool (Claude Code's `_meta.claude.tool`: `Task`, `Bash`).
+    name?: string;
     kind?: string;
     status: string;
     inputSummary?: string;
@@ -396,8 +402,6 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
       const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
-    // In an open "Worked for", a run of two or more calls draws one summary line until opened.
-    if (row.settled && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -690,7 +694,6 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";

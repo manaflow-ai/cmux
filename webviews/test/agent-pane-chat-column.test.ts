@@ -311,7 +311,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.waitForTimeout(300);
   }
   /// The command's toggle, at the start of the turn.
-  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
+  // The row reads as what the command did ("Listed build"); its Shell block shows `ls build`.
+  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Listed build" }).first();
 
   test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
     const chat = newChat();
@@ -403,7 +404,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await toStart(page);
     const command = commandToggle(page);
     await command.waitFor();
-    await watch(page, "ls build");
+    await watch(page, "Listed build");
     await command.click();
     await page.getByText("build/step-13.o").waitFor();
     const tops = (await stop(page)).map((frame) => frame.top);
@@ -526,7 +527,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await page.waitForTimeout(250);
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 0, onTool: 0 });
+    expect({ onPrompt, onTool: await shown("Listed build") }).toEqual({ onPrompt: 0, onTool: 0 });
     await page.close();
   });
 });
