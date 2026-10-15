@@ -438,7 +438,7 @@ fn pty_eof_publishes_final_render_frame_before_surface_removal() {
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         match events.recv_timeout(remaining) {
-            Ok(MuxEvent::SurfaceExited(id)) if id == placement.surface => break,
+            Ok(MuxEvent::SurfaceExited(id, _)) if id == placement.surface => break,
             Ok(_) => {}
             Err(error) => panic!("surface did not exit before frame worker release: {error}"),
         }
