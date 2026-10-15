@@ -2024,6 +2024,23 @@ w("\r\x1b[2KSTREAMDONE\n")
         for k in ("term1", "term2"):
             self.mac_write(self.seed[k], f"cd {proj} && clear\n")
         time.sleep(3)
+        # The folder-trust question is the person's, on the Mac (a phone may not answer it):
+        # the rig answers Trust on the rig Mac's own acpmux socket, as Trust in the Mac app does.
+        import glob as _glob, json as _json, socket as _socket
+        socks = [p for p in _glob.glob(os.path.expanduser("~/.acpmux/tags/*/acpmux.sock"))
+                 if self.mac.tag.replace("-", "") in p.replace("-", "").replace(".", "")]
+        check(socks, f"no acpmux socket for the rig tag {self.mac.tag}")
+        conn = _socket.socket(_socket.AF_UNIX); conn.settimeout(20); conn.connect(socks[0]); f = conn.makefile("rw")
+        def acp(i, m, p):
+            f.write(_json.dumps({"jsonrpc": "2.0", "id": i, "method": m, "params": p}) + "\n"); f.flush()
+            while True:
+                v = _json.loads(f.readline())
+                if v.get("id") == i:
+                    return v
+        acp(1, "initialize", {"protocolVersion": 1})
+        trust = acp(2, "acp.trust.set", {"cwd": os.path.realpath(proj), "level": "trusted"})
+        conn.close()
+        check("error" not in trust, f"acp.trust.set refused: {trust}")
         self.open_seed_workspace()
         video = os.path.join(self.out, f"codex-chat-{self.run_id}.mp4")
         s.record_start(video)
