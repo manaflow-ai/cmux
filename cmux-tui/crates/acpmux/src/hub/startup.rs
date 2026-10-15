@@ -55,13 +55,8 @@ impl Hub {
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
-        // Probes of earlier runs left transcripts in the unattended folder: remove them.
-        let _ = tokio::task::spawn_blocking(|| {
-            crate::probe_cleanup::remove_probe_transcripts(
-                &crate::protected_folders::unattended_cwd(),
-            )
-        })
-        .await;
+        // Probes and one-shots of earlier runs left files behind: remove them.
+        let _ = tokio::task::spawn_blocking(crate::probe_cleanup::at_daemon_start).await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;

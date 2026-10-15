@@ -297,7 +297,15 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
         json!({"action": "create", "display_name": "Docs", "role": "Docs writer"}),
     );
     assert!(!err, "{made}");
-    assert!(made.contains("starts on its own"), "{made}");
+    // This daemon runs no brain supervisor: the tool says so, never that it answers.
+    assert!(
+        made.contains("\"no_supervisor\"") && made.contains("did NOT start"),
+        "{made}"
+    );
+    assert!(
+        !made.contains("it answers in its own conversation"),
+        "{made}"
+    );
     let listed = me.v2("chief.profile.list", json!({}), None);
     let docs = listed["chiefs"]
         .as_array()
