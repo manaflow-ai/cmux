@@ -149,7 +149,7 @@ final class WorkspaceRowView: SidebarRowView {
         var fontSize: CGFloat
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
-        var disclosure: SidebarTabDisclosure?
+        var disclosure: SidebarTabDisclosure?, marks: WorkspaceRowStatusMarks?
         var row: WorkspaceRowContent?
     }
 
@@ -160,7 +160,7 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
-            disclosure: row.tabDisclosure, row: row.content
+            disclosure: row.tabDisclosure, marks: row.statusMarks, row: row.content
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
@@ -214,7 +214,7 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         rowBadgeStyle = content.rowBadge
-        configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
+        configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit, marks: row.statusMarks)
         themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
@@ -358,7 +358,7 @@ final class WorkspaceRowView: SidebarRowView {
         let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        trailing = layoutRowBadge(style: rowBadgeStyle, trailing: trailing, cy: cy)
+        trailing = layoutStatusMarks(trailing: layoutRowBadge(style: rowBadgeStyle, trailing: trailing, cy: cy), cy: cy, overlay: overlayStart, fades: fades)
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
