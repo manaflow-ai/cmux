@@ -148,7 +148,7 @@ Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seco
 |-----------------------------------|------------------------------------------------------------|
 | `~/.cmuxterm/workstream.jsonl`    | Append-only audit log of every Feed event.                 |
 | `~/.cmuxterm/<agent>-hook-sessions.json` | Session-to-workspace mapping used by `feed.jump`.   |
-| `~/.local/state/cmux/cmux.sock`   | V2 socket the hooks/plugin talk to when `CMUX_SOCKET_PATH` is unset. |
+| `~/.local/state/cmux/cmux.sock`   | V2 socket the hooks/plugin talk to when `CMUX_SOCKET_PATH` is unset; the CLI also auto-discovers tagged/debug sockets. |
 | `~/.config/opencode/plugins/cmux-feed.js` | OpenCode plugin emitted by `cmux hooks opencode install`. |
 
 To reset history:
