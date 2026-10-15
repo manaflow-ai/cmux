@@ -363,6 +363,22 @@ import WebKit
         #expect(panel.engineFallbackNotice == nil)
     }
 
+    @Test func automationBackWaitsForTheChromiumCommit() async throws {
+        let provider = FakeChromiumProvider()
+        provider.initialState = BrowserPageState(url: URL(string: "https://example.com/b"), canGoBack: true)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let step = try #require(panel.beginEngineHistoryNavigationForAutomation(offset: -1))
+        #expect(panel.beginEngineHistoryNavigationForAutomation(offset: 1) == nil)
+        panel.handleEnginePageEvent(.navigationCommitted(URL(string: "https://example.com/a")))
+        let outcome = await panel.automationNavigationCoordinator.wait(for: step.ticket)
+        #expect(outcome == .committed)
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(

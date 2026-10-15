@@ -373,6 +373,21 @@ extension BrowserPanel {
         }
     }
 
+    /// Steps a non-WebKit page's history for automation and ties the step to
+    /// a ticket that finishes when the new entry commits; nil for a WebKit
+    /// panel or when there is nothing to step to.
+    func beginEngineHistoryNavigationForAutomation(offset: Int) -> (ticket: BrowserAutomationNavigationTicket, targetURL: URL)? {
+        guard let enginePage, offset < 0 ? canGoBack : canGoForward else { return nil }
+        takeBrowserDialogOwnership(.automation)
+        // The entry's URL is not known before it commits; the ticket matches
+        // the engine load by identity, not by URL.
+        let targetURL = currentURL ?? URL(string: "about:blank")!
+        let ticket = automationNavigationCoordinator.begin(instanceID: webViewInstanceID, targetURL: targetURL)
+        goEngineHistory(enginePage, offset: offset, dialogOwner: .automation)
+        associateEngineNavigation(targetURL: targetURL)
+        return (ticket, targetURL)
+    }
+
     /// Reloads the non-WebKit page for automation and ties the reload to its ticket.
     func beginEngineReloadForAutomation(_ page: any BrowserPage, targetURL: URL) {
         page.reload()
