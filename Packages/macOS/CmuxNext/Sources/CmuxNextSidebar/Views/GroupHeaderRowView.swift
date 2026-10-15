@@ -115,7 +115,7 @@ final class GroupHeaderRowView: SidebarRowView {
         thin = row.isThinHeader
         tint = group.tint
         isEmpty = group.workspaces.isEmpty
-        name.stringValue = group.name
+        name.setString(group.name)
         pinned = group.isPinned
         hasIcon = group.icon != nil
         glyph.configure(icon: group.icon)
@@ -187,10 +187,10 @@ final class GroupHeaderRowView: SidebarRowView {
             // chevron, + and more, chosen once on the bar's color; it holds
             // text contrast on every state above and the buttons' fills.
             let ink = chip.ink.nsColor
-            name.textColor = ink
+            name.setColor(ink)
             glyph.symbolInk = ink
-            pin.contentTintColor = ink
-            chevron.contentTintColor = ink
+            pin.setTint(ink)
+            chevron.setTint(ink)
             moreButton.tintOverride = ink
             addButton.tintOverride = ink
             // The bar carries the group's color: no dot over it (cx-rcby).
@@ -211,10 +211,10 @@ final class GroupHeaderRowView: SidebarRowView {
     /// row's own fill for hover, the open editor and a drop, all from `tokens` (the row's scope).
     private func paintThin(_ tokens: ThemeTokens) {
         let ink = tokens.textSecondary.nsColor
-        name.textColor = ink
+        name.setColor(ink)
         glyph.symbolInk = ink
-        pin.contentTintColor = ink
-        chevron.contentTintColor = ink
+        pin.setTint(ink)
+        chevron.setTint(ink)
         moreButton.tintOverride = ink
         addButton.tintOverride = ink
         dot.isHidden = true
@@ -247,7 +247,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // (`SidebarStyle.groupGutter`); the chevron keeps its own margin.
         let lead = SidebarStyle.groupGutter + SidebarStyle.horizontalInset + SidebarStyle.groupMemberIndent
         name.isHidden = renaming
-        name.font = thin ? SidebarStyle.subtitleFont : SidebarStyle.groupHeaderFont(barHeight: barHeight)
+        name.setFont(thin ? SidebarStyle.subtitleFont : SidebarStyle.groupHeaderFont(barHeight: barHeight))
         // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t).
         let chevronSide = thin ? min(b.height, SidebarStyle.controlSize) : SidebarStyle.controlSize
         chevronFrame = CGRect(x: b.width - Metrics.space3 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)

@@ -56,9 +56,15 @@ class SidebarRowView: NSView {
         return true
     }
 
+    /// A view that comes back to its own row keeps its configured content, so the
+    /// row's next `configure` with equal content changes nothing and its text
+    /// layers keep their drawing (scroll back over parked rows, perf round 4).
+    /// Rows whose configure sets state that this reset clears (a tooltip) say no.
+    class var keepsContentOnReturn: Bool { false }
+
     /// Resets transient state before a recycled view shows another row.
     func prepareForReuse(key: SidebarRowKey) {
-        configuredContent = nil
+        if !(key == self.key && Self.keepsContentOnReturn) { configuredContent = nil }
         self.key = key
         isHovered = false
         isSelected = false
@@ -171,8 +177,8 @@ final class EmptySectionRowView: SidebarRowView {
     }
 
     func configure(pinned: Bool) {
-        label.stringValue = pinned ? Strings.pinnedEmpty : Strings.sectionEmpty
-        label.font = SidebarStyle.subtitleFont
+        label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
+        label.setFont(SidebarStyle.subtitleFont)
         needsLayout = true
     }
 
@@ -186,6 +192,6 @@ final class EmptySectionRowView: SidebarRowView {
     }
 
     override func updateLayer() {
-        performWithTheme { label.textColor = Palette.textTertiary }
+        performWithTheme { label.setColor(Palette.textTertiary) }
     }
 }
