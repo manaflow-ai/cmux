@@ -343,7 +343,7 @@ uses pattern kills. Steps (each step is a command that exists today, from §2):
    Dock (`debug.quit {open:true, inactive:true}`); a second Cmd-Q while the dialog shows (`debug.quit
    {open:true}` twice) → keep; an update relaunch (`debug.updater relaunch` if one exists, else a
    handoff test) → no dialog, kept.
-10. Cleanup: quit through `app quit --end-sessions`, then `acpmux daemon shutdown` in the tag home.
+10. Cleanup: quit through `app quit --end-sessions`, then `acpmux daemon shutdown --end-agents` in the tag home.
 
 Today's code passes steps 1-4, 6, and 7 except the agent tab (§2, run 1). Step 5 passes for keep
 with the NSAlert, but the snapshot misses the dialog and the agent count is absent. Step 8 fails

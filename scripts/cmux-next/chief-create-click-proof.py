@@ -362,7 +362,7 @@ def shutdown_all(app):
     for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):
         if os.path.isdir(acp):
             R.setdefault("acpmux_shutdown", []).append(subprocess.run(
-                [ACPMUX, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": acp}, capture_output=True, text=True, timeout=30).returncode)
+                [ACPMUX, "daemon", "shutdown", "--end-agents"], env={**env, "ACPMUX_HOME": acp}, capture_output=True, text=True, timeout=30).returncode)
             try:
                 c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); c.settimeout(5)
                 c.connect(os.path.join(acp, "router", "router.sock")); c.sendall(b'{"op":"shutdown"}\n'); c.recv(4096); c.close()
