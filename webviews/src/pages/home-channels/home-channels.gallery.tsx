@@ -14,6 +14,7 @@ import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider"
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
+import { CHIEF_HARNESSES, DEFAULT_CHIEF_TOOLS } from "./types";
 
 type Props = {
   /** The conversation the page opens with; default: the page's own first choice. */
@@ -556,8 +557,9 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
         await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
-        // Every harness shows checked (the owner's default means every harness).
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
+        // The default tools and every harness show checked (the owner's default means every harness).
+        const checked = DEFAULT_CHIEF_TOOLS.length + CHIEF_HARNESSES.length;
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === checked);
       },
     },
     "primary-hover": {

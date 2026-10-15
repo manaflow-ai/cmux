@@ -419,6 +419,38 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
 }
 
+/// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.
+async fn cached_no_proxy(dir: &Path, want: &str, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        let found = std::fs::read_to_string(dir.join("login-env.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|v| v["vars"]["NO_PROXY"] == want);
+        if found || Instant::now() >= deadline {
+            return found;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// D26: an edited shell startup file refreshes the login environment on its
+/// own (a file watcher), not at the next agent spawn. No agent runs here, and
+/// the edit lands inside the 10 s spawn recheck window, so only the watcher
+/// can read it again.
+#[tokio::test]
+async fn an_edited_rc_file_refreshes_the_login_env_without_a_spawn() {
+    let dir = scratch("watch", "export NO_PROXY=before-edit\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    std::fs::write(dir.join("home/.zshrc"), "export NO_PROXY=after-the-edit\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "after-the-edit", Duration::from_secs(6)).await,
+        "the edited ~/.zshrc was not read again"
+    );
+}
+
 /// A login shell that hangs: the daemon stops waiting after 3 s, and
 /// agents start without it (falling back to the daemon's environment).
 #[tokio::test]
