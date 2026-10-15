@@ -239,7 +239,7 @@
             "rows" : [
               "appearance.density",
               "app.uiScale",
-              "appearance.metrics.chromeFontSize",
+              "appearance.interfaceScale",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
               "appearance.metrics.titlebarHeight",
@@ -670,16 +670,6 @@
             "title" : {
               "key" : "settings.group.bookmarks",
               "text" : "Bookmarks"
-            }
-          },
-          {
-            "key" : "settings.group.extensions",
-            "rows" : [
-              "browser.builtInAdBlocker"
-            ],
-            "title" : {
-              "key" : "settings.group.extensions",
-              "text" : "Extensions"
             }
           },
           {
@@ -9476,14 +9466,10 @@
         "font",
         "text",
         "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "metrics",
@@ -9499,6 +9485,69 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale",
+        "labs"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.09999999999999998,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -19082,54 +19131,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.extensions",
-        "text" : "Extensions"
-      },
-      "help" : {
-        "key" : "settings.browser.builtInAdBlocker.help",
-        "text" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.builtInAdBlocker",
-      "keywords" : [
-        "ublock",
-        "ad blocker",
-        "adblock",
-        "extensions",
-        "trackers"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "builtInAdBlocker"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.builtInAdBlocker",
-        "text" : "Built-in uBlock Origin"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "moderate",
         "aggressive",
         "off",
@@ -23830,7 +23831,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "dc122bbb3b7899a72fbc748646938fb914310c91351a798ccfedea1e292126a8",
+  "schema_hash" : "40f2b1ccdabcf11d6d75765eb2debc2aca631a22efb4458aefe24d1c03ea0ec0",
   "sections" : [
     {
       "id" : "general",
