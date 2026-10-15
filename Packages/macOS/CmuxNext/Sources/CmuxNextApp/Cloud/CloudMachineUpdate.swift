@@ -31,17 +31,10 @@ enum CloudMachineUpdate {
         }
         guard !answer.ok else { return }
         services.cloud.logger.error("cloud machine update: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
-        let (message, retries) = failure(answer, name: name)
-        throw CloudMove.Failure(message: message, retry: retries ? retry : nil)
-    }
-
-    /// Why the failed update `answer` of `name` failed, and whether trying again can help (Update
-    /// Everything's `--to-bundled` update shares it).
-    static func failure(_ answer: CloudMoveCLI.Answer, name: String) -> (String, retries: Bool) {
         switch answer.errorCode {
-        case "machine_update_unsupported": (CloudMachineUpdateStrings.unsupported(name), false)
-        case "machine_update_unavailable": (CloudMachineUpdateStrings.unavailable(name), false)
-        default: (CloudMachineUpdateStrings.failed(name, answer.error ?? answer.errorCode ?? ""), true)
+        case "machine_update_unsupported": throw CloudMove.Failure(message: CloudMachineUpdateStrings.unsupported(name))
+        case "machine_update_unavailable": throw CloudMove.Failure(message: CloudMachineUpdateStrings.unavailable(name))
+        default: throw CloudMove.Failure(message: CloudMachineUpdateStrings.failed(name, answer.error ?? answer.errorCode ?? ""), retry: retry)
         }
     }
 }

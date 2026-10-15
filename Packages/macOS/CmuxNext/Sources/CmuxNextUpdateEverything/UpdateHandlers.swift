@@ -1,12 +1,14 @@
-import CmuxNextActions
-import CmuxNextUpdater
+public import CmuxNextActions
+public import CmuxNextUpdater
 
 /// Update actions (menu, palette, shortcut, CLI `settings check-for-updates`
 /// etc.) over the one `UpdaterService`. Checks always run: release builds
 /// use Sparkle, DEV builds probe the feed read-only. Install and channel
-/// switch are disabled, with the reason, where they cannot run.
-enum UpdateHandlers {
-    static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false }) {
+/// switch are disabled, with the reason, where they cannot run. (Out of CmuxNextApp, with Update
+/// Everything, for its size cap.)
+@MainActor
+public enum UpdateHandlers {
+    public static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false }) {
         // The What's New top page (WHATS-NEW-AFTER-UPDATE): palette, Help menu, CLI.
         registry.bind("updates.whatsNew", run: { _ in _ = openWhatsNew() })
         // announcements.enabled through the one setting path (palette.toggleSetting).
