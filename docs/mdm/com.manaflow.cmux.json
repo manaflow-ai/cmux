@@ -926,12 +926,6 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
-    "browser.builtInAdBlocker" : {
-      "default" : true,
-      "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
-      "title" : "Built-in uBlock Origin",
-      "type" : "boolean"
-    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
@@ -2739,6 +2733,17 @@
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
+    },
+    "tabs.hoverPreviews" : {
+      "default" : "full",
+      "description" : "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full.",
+      "enum" : [
+        "off",
+        "compact",
+        "full"
+      ],
+      "title" : "Hover Previews",
+      "type" : "string"
     },
     "tabs.newTabPosition" : {
       "default" : "end",
