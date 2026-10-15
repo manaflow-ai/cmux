@@ -122,9 +122,22 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     }
     // The Chief's own tools stay in every prompt (`alwaysLoad`), never behind ToolSearch
     // (TURN_SETTINGS_ENV): a `spawn` turn calls spawn first, with no ToolSearch step.
+    // The Chief's own turn hands its turn seal (chief_profile.rs
+    // TURN_KEY_ENV, in the turn preset's env only) to its `optchat` server:
+    // Claude Code starts a stdio server without the turn's env and expands
+    // `${VAR}` from its own, so the file names the variable, never the
+    // value. A subagent's server gets none.
+    let env = if subagent {
+        json!({})
+    } else {
+        let key = crate::chief_profile::TURN_KEY_ENV;
+        let mut env = serde_json::Map::new();
+        env.insert(key.to_owned(), Value::String(format!("${{{key}:-}}")));
+        Value::Object(env)
+    };
     servers.insert(
         "optchat".into(),
-        json!({"type": "stdio", "command": setup.exe, "args": args, "env": {}, "alwaysLoad": true}),
+        json!({"type": "stdio", "command": setup.exe, "args": args, "env": env, "alwaysLoad": true}),
     );
     // No `cmux` server here: acpmux gives every agent chat its own `cmux mcp
     // serve` (cx-wx93i, acpmux agent_tools.rs), the Chief's turns and

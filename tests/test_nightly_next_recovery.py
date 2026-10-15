@@ -438,6 +438,88 @@ class FailureIssueTests(unittest.TestCase):
         self.assertEqual(self.publication("recovered", **{"republish-nightly-deltas": "failure"}), (True, False))
 
 
+def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
+    """Run the real continuation step against one candidate, with gh, the
+    manifest check, the feed check and notarize-nightly-dmg.sh stubbed. The
+    stub notarizer reports Apple's verdict and exits as `notary` says."""
+    script = step(workflow()["jobs"]["recover-nightly-next-notarization"], "Continue the newest accepted pending notarization")["run"]
+    with tempfile.TemporaryDirectory() as temp:
+        work = Path(temp)
+        app_tar = work / "app.tar.gz"
+        (work / "app" / "cmux NEXT.app").mkdir(parents=True)
+        subprocess.run(["tar", "-C", str(work / "app"), "-czf", str(app_tar), "."], check=True)
+        bin_dir = work / "bin"
+        ci = work / "scripts/ci"
+        bin_dir.mkdir()
+        ci.mkdir(parents=True)
+        stubs = {
+            bin_dir / "gh": f'dir="${{@: -1}}"; mkdir -p "$dir"; cp {str(app_tar)!r} "$dir/cmux-nightly-notarization-recovery-app.tar.gz"\n',
+            ci / "find-nightly-next-recovery.py": (
+                "printf '%s\\n' BUILD=49801 BUILD_SHA=c TIP_SHA=d BEHIND=1 BEHIND_HOURS=2 SUBMISSION_ID=fixture-id "
+                "STATE_NAME=state 'APP_NAME=\"cmux-nightly-notarization-recovery-app/cmux NEXT.app\"' "
+                "DMG_NAME=next.dmg IMMUTABLE_NAME=next-49801.dmg\n"
+            ),
+            ci / "nightly_version.py": "exit 0\n",
+            ci / "notarize-nightly-dmg.sh": (
+                'case "$FIXTURE_NOTARY" in\n'
+                '  accepted-then-failed) echo notary_status=Accepted >> "$GITHUB_OUTPUT"; exit 1 ;;\n'
+                '  invalid) echo notary_status=Invalid >> "$GITHUB_OUTPUT"; exit 1 ;;\n'
+                '  unreadable) exit 1 ;;\n'
+                'esac\n'
+            ),
+        }
+        for path, body in stubs.items():
+            path.write_text("#!/usr/bin/env bash\n" + body)
+            path.chmod(0o755)
+        (bin_dir / "python3").write_text(f'#!/usr/bin/env bash\ncase "$1" in\n  scripts/ci/*) exec bash "$@" ;;\nesac\nexec {sys.executable} "$@"\n')
+        (bin_dir / "python3").chmod(0o755)
+        env = dict(
+            os.environ,
+            PATH=f"{bin_dir}:{os.environ['PATH']}",
+            FIXTURE_NOTARY=notary,
+            CANDIDATES=json.dumps([{"run_id": 498, "artifact": RECOVERY + "aaaaaaa"}]),
+            GITHUB_REPOSITORY=REPO,
+            GITHUB_OUTPUT=str(work / "output"),
+            GITHUB_ENV=str(work / "env"),
+            GITHUB_STEP_SUMMARY=str(work / "summary"),
+            NIGHTLY_NEXT_FEED_BASE="https://example.invalid/next",
+            NIGHTLY_NEXT_LEGACY_FEED_BASE="https://example.invalid/legacy",
+            CHANNEL="nightly",
+            SIGN_CHANNEL="next",
+            CHANNEL_RELEASE_TAG="nightly-next",
+        )
+        result = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True, text=True)
+        result.output = (work / "output").read_text()  # type: ignore[attr-defined]
+        return result
+
+
+class ContinueStepTests(unittest.TestCase):
+    """Run 38677509707 skipped five builds Apple had accepted, saying Apple did
+    not accept them: the bundle notice check after acceptance had failed. The
+    skip must say which happened, and still move on to the next candidate."""
+
+    def test_a_check_failing_after_acceptance_is_an_error_not_apple_s(self):
+        result = run_continue_step("accepted-then-failed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::error::run 498: Apple accepted submission fixture-id, but a check after acceptance failed", result.stdout)
+        self.assertNotIn("did not accept", result.stdout)
+        self.assertIn("accepted=false", result.output)
+
+    def test_a_submission_apple_did_not_accept_names_its_status(self):
+        result = run_continue_step("invalid")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::notice::run 498: Apple did not accept submission fixture-id (status Invalid); skipping", result.stdout)
+        self.assertNotIn("::error::", result.stdout)
+        self.assertIn("accepted=false", result.output)
+
+    def test_a_submission_whose_verdict_is_unknown_says_so(self):
+        result = run_continue_step("unreadable")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::notice::run 498: Apple's verdict on submission fixture-id is unknown", result.stdout)
+        self.assertNotIn("::error::", result.stdout)
+        self.assertIn("accepted=false", result.output)
+
+
 class ShellSnippetTests(unittest.TestCase):
     """Run 37876356169: a `python3 -c '...'` one-liner in these jobs had
     backslash-escaped quotes, which bash single quotes keep, so Python raised
