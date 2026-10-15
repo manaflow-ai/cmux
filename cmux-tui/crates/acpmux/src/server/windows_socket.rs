@@ -93,7 +93,20 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
             Ok(listener) => break listener,
             Err(e) if std::time::Instant::now() < deadline => {
                 tracing::debug!("bind {}: {e}; retrying", path.display());
-                let _ = std::fs::remove_file(path);
+                // As `bind_unix`: another user's socket file is never removed,
+                // and a socket that still answers (a stopping router) is left
+                // until it goes; only a stale file of our user is removed.
+                match cmux::local_socket::connect_same_user(path) {
+                    Ok(_) => {}
+                    Err(refused) if refused.kind() == std::io::ErrorKind::PermissionDenied => {
+                        return Err(
+                            anyhow::Error::new(refused).context(format!("bind {}", path.display()))
+                        );
+                    }
+                    Err(_) => {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
                 std::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {

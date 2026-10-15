@@ -789,8 +789,9 @@ fn refusal(state: FreeState) -> Box<Response<Body>> {
 /// accepted, before the connection is split into read and write halves: the
 /// facts [`provider_peer_allowed`] needs. Reading them is cheap; the app check
 /// runs only when the connection asks to be the provider. Only
-/// [`ProviderPeer::of_unix`] can make a peer that passes.
-#[derive(Clone, Copy)]
+/// [`ProviderPeer::of_unix`] can make a peer that passes. Neither Clone nor
+/// Copy: a peer read for one connection cannot be given to another
+/// (`serve_with_admin` is public).
 pub struct ProviderPeer {
     same_user: bool,
     #[cfg(target_os = "macos")]

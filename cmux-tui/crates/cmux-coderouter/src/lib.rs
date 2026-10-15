@@ -595,13 +595,13 @@ async fn admin_loop(
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     while let Some(accepted) = admin.recv().await {
-        let (read, write, peer) = accepted?;
+        let connection = accepted?;
         let keys = keys.clone();
         let upstream = upstream.clone();
         let free = free.clone();
         let stop = stop.clone();
         tokio::spawn(async move {
-            let _ = admin_connection(read, write, peer, keys, upstream, free, port, stop).await;
+            let _ = admin_connection(connection, keys, upstream, free, port, stop).await;
         });
     }
     anyhow::bail!("the router admin listener ended")
@@ -653,17 +653,15 @@ enum AdminRequest {
     /// app's replies until it ends.
     AttestProvider(free_tier::Register),
 }
-#[allow(clippy::too_many_arguments)]
 async fn admin_connection(
-    read: impl AsyncRead + Unpin,
-    mut write: impl AsyncWrite + Unpin + Send + 'static,
-    peer: free_tier::ProviderPeer,
+    connection: AdminConnection,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
     free: Arc<FreeTier>,
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
+    let (read, mut write, peer) = connection;
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
         let request: AdminRequest = match serde_json::from_str(&line) {
