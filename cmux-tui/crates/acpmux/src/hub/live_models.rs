@@ -71,6 +71,12 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
+        // A live list starts the CLI with its credentials: none while
+        // launches are off (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            tracing::info!("agent launch is disabled; live model probes skipped");
+            return;
+        }
         let handles: Vec<_> = {
             let cfg = self.config.read().await;
             targets(&cfg.harnesses)

@@ -19,7 +19,7 @@ impl Mux {
             old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
         {
             surface.kill();
-            self.emit(MuxEvent::SurfaceExited(surface.id));
+            self.emit(MuxEvent::SurfaceExited(surface.id, None));
         }
     }
 
@@ -151,7 +151,7 @@ impl Mux {
         {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
-            self.emit(MuxEvent::SurfaceExited(surface.id));
+            self.emit(MuxEvent::SurfaceExited(surface.id, None));
         }
         self.ensure_sidebar_plugin(cols, rows, true)
     }

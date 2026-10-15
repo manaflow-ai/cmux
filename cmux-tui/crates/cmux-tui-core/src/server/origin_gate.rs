@@ -141,6 +141,12 @@ pub(super) fn is_user(mux: &Mux, client: u64) -> bool {
     derived_origin(mux, client) == RequestOrigin::User
 }
 
+/// Whether `client` derives the page origin (a page WebSocket or the host's
+/// page relay, with or without a page id).
+pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
+    derived_origin(mux, client) == RequestOrigin::Page
+}
+
 /// The origin `client` derives; a client with no record is an agent.
 fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

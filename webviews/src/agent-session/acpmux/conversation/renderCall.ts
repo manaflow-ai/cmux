@@ -1,7 +1,9 @@
 // Tool calls that hand the transcript HTML to show live: `cmux mcp`'s `render` and T3 Code's
 // `html_render`, under whatever prefix the harness gives an MCP tool (`mcp__cmux__render`,
 // `cmux.render`, `cmux/render`). An ended turn draws each as a render card (RenderCard.tsx).
+// A harness with no render tool writes the page in a ```cmux-render fence instead (renderFence).
 import type { AcpmuxActivity } from "../model";
+import { documentName } from "./artifactPreview";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -38,4 +40,14 @@ function parseInput(summary: string | undefined): Record<string, unknown> | unde
   } catch {
     return undefined;
   }
+}
+
+/// The fence language whose closed block draws as a render card in the reply (Markdown.tsx).
+export const RENDER_FENCE = "cmux-render";
+
+/// The page a reply's fence renders, or nil for every other fence. Its heading is the page's <title>.
+export function renderFence(lang: string, code: string): RenderCall | undefined {
+  if (lang.toLowerCase() !== RENDER_FENCE || !code.trim()) return undefined;
+  const title = documentName({ kind: "html", lang: "html", code });
+  return title ? { html: code, title } : { html: code };
 }
