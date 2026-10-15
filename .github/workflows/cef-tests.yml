@@ -1,0 +1,81 @@
+name: CEF tests
+
+# The CEF shim's policy headers (Packages/macOS/CmuxCEF/CEFShim/src/*.h:
+# download bookkeeping, password reveal relay, feature-list switches, sign-in
+# callbacks, local file handoff, cmux-page paths, proxy values) need no CEF.
+# scripts/cef/test-shim-cpp.sh compiles each CEFShim/tests/*_test.cpp with one
+# clang++ call and runs it. The shim itself is built only by the app build, so
+# this is the one check that runs these cases on every shim change, including
+# from forks and contributors without the CEF artifact.
+#
+# The CEF pipeline scripts (scripts/cef/: ensure-cef, embed-cef, sign-cef,
+# credits, license, build flags) have behavior tests in scripts/cef/tests/
+# that stub the network and the build. They run on macOS, where Xcode's
+# /bin/bash 3.2 and the system tools the scripts call live.
+
+on:
+  pull_request:
+    paths:
+      - "Packages/macOS/CmuxCEF/CEFShim/**"
+      - "scripts/cef/**"
+      - ".github/workflows/cef-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Packages/macOS/CmuxCEF/CEFShim/**"
+      - "scripts/cef/**"
+      - ".github/workflows/cef-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cef-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  shim-cpp:
+    name: CEF shim policy (C++)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Compile and run every shim policy test
+        env:
+          CXX: clang++
+        run: ./scripts/cef/test-shim-cpp.sh
+
+  pipeline-scripts:
+    name: CEF pipeline scripts
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Run every scripts/cef/tests/*.test.sh
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          if [ ! -d scripts/cef/tests ]; then
+            echo "No scripts/cef/tests; nothing to test."
+            exit 0
+          fi
+          tests=(scripts/cef/tests/*.test.sh)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo "::error::scripts/cef/tests has no *.test.sh files"
+            exit 1
+          fi
+          failed=()
+          for test in "${tests[@]}"; do
+            echo "== $test"
+            bash "$test" || failed+=("$test")
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            printf '::error::CEF pipeline script test failed: %s\n' "${failed[@]}"
+            exit 1
+          fi
+          echo "All ${#tests[@]} CEF pipeline script tests passed."

@@ -3,8 +3,9 @@
 # (Packages/macOS/CmuxCEF/CEFShim/tests/*_test.cpp). Each test includes only
 # pure headers from CEFShim/src, so no CEF artifact is needed and this runs on
 # macOS or Linux (CXX overrides the compiler; default xcrun clang++ on macOS,
-# else clang++ or c++). A test listed in VECTOR_TESTS reads cases from a
-# shared vectors file on stdin, the same vectors the Swift copy passes.
+# else clang++ or c++). A test named in vectors_for() reads cases on stdin from
+# CEFShim/tests/vectors/<name>.json (else <schemas-dir>/<name>/vectors.json,
+# cmux Next's layout), the same vectors the Swift copy passes.
 #
 # Usage: scripts/cef/test-shim-cpp.sh [--shim-dir DIR] [--schemas-dir DIR] [NAME...]
 #   NAME selects tests by file stem (e.g. download_state_test); default: all.
@@ -40,11 +41,11 @@ else
   compile=(c++)
 fi
 
-# stem -> "vectors path relative to schemas|python expression for the expected column"
+# stem -> "vectors name|the case field holding the expected verdict"
 vectors_for() {
   case "$1" in
-    agent_url_policy_test) echo 'agent-url-policy/vectors.json|refused' ;;
-    local_file_handoff_test) echo 'local-file-handoff/vectors.json|cef' ;;
+    agent_url_policy_test) echo 'agent-url-policy|refused' ;;
+    local_file_handoff_test) echo 'local-file-handoff|cef' ;;
     *) echo '' ;;
   esac
 }
@@ -80,10 +81,11 @@ for test_file in "${tests[@]}"; do
   fi
   spec="$(vectors_for "$stem")"
   if [ -n "$spec" ]; then
-    vectors="$schemas_dir/${spec%%|*}"
+    vectors="$shim_dir/tests/vectors/${spec%%|*}.json"
+    [ -f "$vectors" ] || vectors="$schemas_dir/${spec%%|*}/vectors.json"
     column="${spec#*|}"
     if [ ! -f "$vectors" ]; then
-      echo "::error::$stem reads $vectors, which is missing" >&2
+      echo "::error::$stem has no ${spec%%|*} vectors in $shim_dir/tests/vectors or $schemas_dir" >&2
       failed+=("$stem (vectors)")
       continue
     fi
