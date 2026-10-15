@@ -175,6 +175,7 @@ import Testing
     @Test func processExitMapsToSadTab() {
         #expect(ChromiumPageGone(BrowserPageProcessExit(kind: .crashed, status: 11)) == ChromiumPageGone(reason: .crashed, code: 11))
         #expect(ChromiumPageGone(BrowserPageProcessExit(kind: .other)).reason == .abnormal)
+        #expect(ChromiumPageGone(BrowserPageProcessExit(kind: .launchFailed)).reason == .launchFailed)
         #expect(ChromiumPageGone(BrowserPageProcessExit(kind: .outOfMemory)).codeDescription == nil)
     }
 

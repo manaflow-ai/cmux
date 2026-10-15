@@ -119,6 +119,7 @@ extension ChromiumPageGone {
         case .crashed: .crashed
         case .killed: .killed
         case .outOfMemory: .outOfMemory
+        case .launchFailed: .launchFailed
         case .other: .abnormal
         }
         self.init(reason: reason, code: exit.status.map(Int.init))
