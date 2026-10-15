@@ -71,7 +71,8 @@ app=$(ssh "$host" "ls -d $cache/*.app | head -1")
 # The build tag is baked into the app name (`cmux DEV <build tag>.app`). State persists per build tag
 # and slot outside the lease root; start (and end) on a clean profile so runs never inherit workspaces.
 btag=$(basename "$app" .app); btag=${btag#cmux DEV }
-as="/Users/cmux/Library/Application Support" bid=com.cmuxterm.app.debug.$btag.capslot$slot
+# The bundle id spells the tag's hyphens as dots (`whatsnew-ff` is `debug.whatsnew.ff`).
+as="/Users/cmux/Library/Application Support" bid=com.cmuxterm.app.debug.${btag//-/.}.capslot$slot
 state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
 # Since per-build isolation a slot clone keeps its state under its build key, `<bundle id>--<tag slug>`
 # (scripts/cmux-next/build_names.py): without these a run restores the last run's workspaces and tabs.
