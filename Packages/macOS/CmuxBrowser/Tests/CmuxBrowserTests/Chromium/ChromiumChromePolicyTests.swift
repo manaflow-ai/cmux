@@ -14,32 +14,25 @@ import Testing
         for code in [-105, -102, -118, -106, -202, -310, -2] {
             let error = ChromiumNetError(code: code, text: "net::ERR_X")
             #expect(error.presentation(chromiumShowsPage: true) == .chromiumPage)
+            #expect(error.presentation(chromiumShowsPage: false) == .cmuxPage)
         }
     }
 
-    @Test func emptyChromiumPageGetsCmuxSentenceAndErrorName() {
-        let notFound = ChromiumNetError(code: -105, text: "net::ERR_NAME_NOT_RESOLVED")
-        #expect(notFound.name == "ERR_NAME_NOT_RESOLVED")
-        guard case .cmuxPage(let message) = notFound.presentation(chromiumShowsPage: false) else {
-            Issue.record("expected cmux page")
-            return
-        }
-        #expect(message.hasSuffix("\nERR_NAME_NOT_RESOLVED"))
-        #expect(message.hasPrefix(notFound.sentence))
-
-        let certificate = ChromiumNetError(code: -202, text: "net::ERR_CERT_AUTHORITY_INVALID")
-        #expect(certificate.isCertificateError)
-        #expect(certificate.message == "\(certificate.sentence) (ERR_CERT_AUTHORITY_INVALID)")
+    @Test func classifiesTitlesLikeWebKitErrorPages() {
+        #expect(ChromiumNetError(code: -105, text: "").title == .cantReach)
+        #expect(ChromiumNetError(code: -137, text: "").detail == .addressNotFound)
+        #expect(ChromiumNetError(code: -102, text: "").detail == .refused)
+        #expect(ChromiumNetError(code: -7, text: "").detail == .timedOut)
+        #expect(ChromiumNetError(code: -118, text: "").title == .cantReach)
+        #expect(ChromiumNetError(code: -106, text: "").title == .noInternet)
+        #expect(ChromiumNetError(code: -202, text: "").title == .insecure)
+        #expect(ChromiumNetError(code: -202, text: "").isCertificateError)
+        #expect(ChromiumNetError(code: -310, text: "").title == .cantOpen)
+        #expect(ChromiumNetError(code: -310, text: "").detail == .generic)
     }
 
-    @Test func sentencesDifferByFailureKind() {
-        let sentences = Set([-105, -102, -118, -106, -200, -2].map { ChromiumNetError(code: $0, text: "").sentence })
-        #expect(sentences.count == 6)
-        #expect(ChromiumNetError(code: -137, text: "").sentence == ChromiumNetError(code: -105, text: "").sentence)
-        #expect(ChromiumNetError(code: -7, text: "").sentence == ChromiumNetError(code: -118, text: "").sentence)
-    }
-
-    @Test func missingTextFallsBackToTheCode() {
+    @Test func errorNameDropsThePrefixAndFallsBackToTheCode() {
+        #expect(ChromiumNetError(code: -105, text: "net::ERR_NAME_NOT_RESOLVED").name == "ERR_NAME_NOT_RESOLVED")
         #expect(ChromiumNetError(code: -999, text: "").name == "net::-999")
         #expect(ChromiumNetError(code: -999, text: "ERR_FOO").name == "ERR_FOO")
     }
@@ -63,51 +56,70 @@ import Testing
         #expect(ChromiumPageGone(reason: .crashed, code: 31).codeDescription == "signal 31")
         #expect(ChromiumPageGone(reason: .abnormal, code: 3 << 8).codeDescription == "exit 3")
         #expect(ChromiumPageGone(reason: .abnormal, code: nil).codeDescription == nil)
-        #expect(ChromiumPageGone(reason: .abnormal, code: nil).errorCodeLine == nil)
+        #expect(ChromiumPageGone(reason: .abnormal, code: 0).errorCodeLine == nil)
     }
 
     @Test func usesChromesWording() {
-        #expect(ChromiumPageGone.title == "Aw, Snap!")
-        #expect(ChromiumPageGone.message == "Something went wrong while displaying this webpage.")
-        #expect(ChromiumPageGone(reason: .crashed, code: 11).errorCodeLine == "Error code: SIGSEGV")
+        let crash = ChromiumPageGone(reason: .crashed, code: 11)
+        #expect(crash.title(repeated: false) == "Aw, Snap!")
+        #expect(crash.message(repeated: false) == "Something went wrong while displaying this webpage.")
+        #expect(crash.errorCodeLine == "Error code: SIGSEGV")
+    }
+
+    @Test func repeatedCrashesChangeTheTitleAndOutOfMemoryAdvice() {
+        let crash = ChromiumPageGone(reason: .crashed)
+        let oom = ChromiumPageGone(reason: .outOfMemory)
+        #expect(crash.title(repeated: true) == "Can\u{2019}t open this page")
+        #expect(crash.message(repeated: true) == crash.message(repeated: false))
+        #expect(oom.message(repeated: false) == crash.message(repeated: false))
+        #expect(oom.message(repeated: true) == "Try closing other tabs or programs to free up memory.")
+    }
+
+    @Test func crashHistoryCountsRepeatsWithinTenSeconds() {
+        var history = ChromiumCrashHistory()
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        #expect(!history.record(at: start))
+        #expect(history.record(at: start.addingTimeInterval(9.9)))
+        #expect(!history.record(at: start.addingTimeInterval(9.9 + 10)))
+        #expect(history.record(at: start.addingTimeInterval(9.9 + 10 + 1)))
     }
 }
 
-@Suite struct ChromiumKeyWindowRuleTests {
-    typealias Rule = ChromiumKeyWindowRule
+@Suite struct ChromiumKeyWindowFactsTests {
+    typealias Facts = ChromiumKeyWindowFacts
 
     @Test func unclickedPageWindowGivesTheKeysBack() {
-        #expect(Rule.decide(.init(parent: .thisWindow, isChromiumPage: true)) == .unchosenPage)
-        #expect(Rule.decide(.init(parent: .thisWindow, isChromiumPage: true, clicked: true, overPane: false))
+        #expect(Facts(parent: .thisWindow, isChromiumPage: true).decision == .unchosenPage)
+        #expect(Facts(parent: .thisWindow, isChromiumPage: true, clicked: true, overPane: false).decision
             == .unchosenPage)
     }
 
     @Test func clickIntoPlacedPageChoosesIt() {
-        #expect(Rule.decide(.init(parent: .thisWindow, isChromiumPage: true, clicked: true, overPane: true))
+        #expect(Facts(parent: .thisWindow, isChromiumPage: true, clicked: true, overPane: true).decision
             == .chosenPage)
     }
 
     @Test func devToolsKeepTheKeys() {
-        #expect(Rule.decide(.init(parent: .thisWindow, isChromiumPage: true, isDevTools: true)) == .devTools)
+        #expect(Facts(parent: .thisWindow, isChromiumPage: true, isDevTools: true).decision == .devTools)
     }
 
     @Test func otherOwnedWindowOverPaneReapplies() {
-        #expect(Rule.decide(.init(parent: .thisWindow, isChromiumPage: false, overPane: true)) == .reapply)
-        #expect(Rule.decide(.init(parent: .thisWindow, isChromiumPage: false)) == .ignore)
+        #expect(Facts(parent: .thisWindow, isChromiumPage: false, overPane: true).decision == .reapply)
+        #expect(Facts(parent: .thisWindow, isChromiumPage: false).decision == .ignore)
     }
 
     @Test func parentlessPageBelongsOnlyToTheActiveWindow() {
-        #expect(Rule.decide(.init(parent: .none, isChromiumPage: true)) == .unchosenPage)
-        #expect(Rule.decide(.init(parent: .none, isChromiumPage: true, thisWindowIsActive: false)) == .ignore)
-        #expect(Rule.shouldReclaim(.init(parent: .none, isChromiumPage: true)))
-        #expect(!Rule.shouldReclaim(.init(parent: .none, isChromiumPage: true, thisWindowIsActive: false)))
-        #expect(!Rule.shouldReclaim(.init(parent: .none, isChromiumPage: false)))
+        #expect(Facts(parent: .none, isChromiumPage: true).decision == .unchosenPage)
+        #expect(Facts(parent: .none, isChromiumPage: true, thisWindowIsActive: false).decision == .ignore)
+        #expect(Facts(parent: .none, isChromiumPage: true).shouldReclaim)
+        #expect(!Facts(parent: .none, isChromiumPage: true, thisWindowIsActive: false).shouldReclaim)
+        #expect(!Facts(parent: .none, isChromiumPage: false).shouldReclaim)
     }
 
     @Test func panelsAndOtherWindowsAreIgnored() {
-        #expect(Rule.decide(.init(parent: .thisWindow, isPanel: true, isChromiumPage: true)) == .ignore)
-        #expect(Rule.decide(.init(parent: .other, isChromiumPage: true, clicked: true, overPane: true)) == .ignore)
-        #expect(!Rule.shouldReclaim(.init(parent: .other, isChromiumPage: true)))
+        #expect(Facts(parent: .thisWindow, isPanel: true, isChromiumPage: true).decision == .ignore)
+        #expect(Facts(parent: .other, isChromiumPage: true, clicked: true, overPane: true).decision == .ignore)
+        #expect(!Facts(parent: .other, isChromiumPage: true).shouldReclaim)
     }
 }
 

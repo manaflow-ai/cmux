@@ -37,26 +37,25 @@ private enum FakeChromiumRuntime {
     @Test func ordinaryWindowsActForThemselves() {
         let window = FakeChromiumRuntime.makeWindow()
         let other = FakeChromiumRuntime.makeWindow()
-        #expect(!ChromiumPageWindow.isPageWindow(window))
-        #expect(ChromiumPageWindow.actingWindow(for: window, fallback: other) === window)
-        #expect(ChromiumPageWindow.actingWindow(for: nil, fallback: other) == nil)
+        #expect(!window.isChromiumPageWindow)
+        #expect(window.chromiumActingWindow(fallback: other) === window)
     }
 
     @Test func placedPageWindowActsForTheTopOfItsParentChain() {
         let main = FakeChromiumRuntime.makeWindow()
         let page = FakeChromiumRuntime.makePageWindow()
-        #expect(ChromiumPageWindow.isPageWindow(page))
+        #expect(page.isChromiumPageWindow)
         main.addChildWindow(page, ordered: .above)
         defer { main.removeChildWindow(page) }
-        #expect(ChromiumPageWindow.actingWindow(for: page, fallback: nil) === main)
+        #expect(page.chromiumActingWindow(fallback: nil) === main)
     }
 
     @Test func parentlessPageWindowActsForTheFallback() {
         let main = FakeChromiumRuntime.makeWindow()
         let page = FakeChromiumRuntime.makePageWindow()
         let otherPage = FakeChromiumRuntime.makePageWindow()
-        #expect(ChromiumPageWindow.actingWindow(for: page, fallback: main) === main)
-        #expect(ChromiumPageWindow.actingWindow(for: page, fallback: nil) == nil)
-        #expect(ChromiumPageWindow.actingWindow(for: page, fallback: otherPage) == nil)
+        #expect(page.chromiumActingWindow(fallback: main) === main)
+        #expect(page.chromiumActingWindow(fallback: nil) == nil)
+        #expect(page.chromiumActingWindow(fallback: otherPage) == nil)
     }
 }

@@ -7482,7 +7482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
         if let window = event.window {
             // A key event for a Chromium page acts for the cmux window around it.
-            return ChromiumPageWindow.actingWindow(for: window, fallback: NSApp.mainWindow)
+            return window.chromiumActingWindow(fallback: NSApp.mainWindow)
         }
         let eventWindowNumber = event.windowNumber
         guard eventWindowNumber > 0 else { return nil }
@@ -7492,10 +7492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return window
         }
 #endif
-        return ChromiumPageWindow.actingWindow(
-            for: NSApp.window(withWindowNumber: eventWindowNumber),
-            fallback: NSApp.mainWindow
-        )
+        return NSApp.window(withWindowNumber: eventWindowNumber)?
+            .chromiumActingWindow(fallback: NSApp.mainWindow)
     }
 
     private func mainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
