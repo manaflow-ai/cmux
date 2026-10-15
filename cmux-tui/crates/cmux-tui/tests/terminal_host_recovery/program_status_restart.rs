@@ -5,8 +5,9 @@
 use super::*;
 
 /// `extra.program_status` of the harness's only terminal.
-/// Without `updated_at_ms`: the host and the daemon each stamp a report
-/// when their own parser reads it.
+/// Without `updated_at_ms` and `since_ms`: the host and the daemon each stamp
+/// a report when their own parser reads it, and a restored record starts at
+/// the host's stamp (`ProgramStatusRecord::since_ms`), often 1 ms apart.
 pub(super) fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     let terminals = resource_request(
         &harness.socket,
@@ -19,7 +20,9 @@ pub(super) fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     assert_eq!(terminals.len(), 1, "expected one terminal: {terminals:?}");
     let mut status = terminals[0]["extra"]["program_status"].clone();
     for record in status.as_array_mut().into_iter().flatten() {
-        record.as_object_mut().unwrap().remove("updated_at_ms");
+        let record = record.as_object_mut().unwrap();
+        record.remove("updated_at_ms");
+        record.remove("since_ms");
     }
     status
 }
