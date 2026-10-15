@@ -177,6 +177,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         models: None,
         permission_policy: d.policy.map(|p| p.to_string()),
         title: None,
+        title_source: None,
+        title_prompt: None,
         last_prompt: None,
         preview: None,
         event_count: 0,
