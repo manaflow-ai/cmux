@@ -6,6 +6,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 import type { IncludedMode } from "./billing-catalog.ts"
+import { creditAdd, creditBalance, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
 import { currentBillable, ensureBillingTables, markBillable, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
@@ -77,6 +78,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     }
     ensureUserTables(ctx.storage.sql)
     ensureBillingTables(ctx.storage.sql)
+    ensureCreditTables(ctx.storage.sql)
   }
 
   /** The usage sync saw this team on a billable subscription (a usage item) whose period ends at `periodEnd` (s), with its included amount. */
@@ -178,6 +180,44 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   /** The pre-S1 name, kept for one release: a Worker isolate from before the deploy still calls it (review P3). */
   async settleUser(entity: string, id: string, actualMicros: number | null): Promise<void> {
     return this.settleCall(entity, id, actualMicros)
+  }
+
+  /** Prepaid credits (usage-credits.ts, credits.ts): money in, once per `key` (a paid top-up or an operator grant). */
+  async creditAdd(entity: string, key: string, kind: "topup" | "grant", micros: number, actor: string, reason: string | null): Promise<{ added: boolean; balance_micros: number }> {
+    this.bind(entity)
+    return creditAdd(this.ctx.storage, key, kind, micros, actor, reason, Date.now())
+  }
+
+  /** Prepaid credits: hold a model call's maximum price before the call (refused below it). */
+  async creditReserve(entity: string, id: string, maxMicros: number, chief: string | null, conversation: string | null): Promise<CreditReserve> {
+    this.bind(entity)
+    const r = creditReserve(this.ctx.storage, id, maxMicros, chief, conversation, Date.now())
+    if (r.ok) this.scheduleAlarm()
+    return r
+  }
+
+  /** Prepaid credits: the call's real price replaces its hold (or is charged once without one). */
+  async creditSettle(entity: string, id: string, priceMicros: number, costMicros: number, chief: string | null, conversation: string | null): Promise<{ charged: boolean; balance_micros: number }> {
+    this.bind(entity)
+    return creditSettle(this.ctx.storage, id, priceMicros, costMicros, chief, conversation, Date.now())
+  }
+
+  /** Prepaid credits: the call never reached a provider. */
+  async creditRelease(entity: string, id: string): Promise<boolean> {
+    if (!this.isBound(entity)) return false
+    return creditRelease(this.ctx.storage, id)
+  }
+
+  /** Prepaid credits: true the first time a conversation is told the team is out of credits (until money comes in). */
+  async creditNoticeOnce(entity: string, conversation: string): Promise<boolean> {
+    this.bind(entity)
+    return creditNoticeOnce(this.ctx.storage.sql, conversation, Date.now())
+  }
+
+  /** Prepaid credits read (GET /v1/credits): balance, holds, spend per chief since `since`, newest entries. Never binds. */
+  async creditBalance(entity: string, since: number, limit = 20): Promise<CreditBalance> {
+    if (!this.isBound(entity)) return { balance_micros: 0, held_micros: 0, available_micros: 0, chiefs: [], entries: [] }
+    return creditBalance(this.ctx.storage.sql, since, Math.min(Math.max(1, Math.floor(limit)), 100))
   }
 
   /** team.ai_limit.get: this month's spend (USD, settled plus open) of the users named, and only those. */
@@ -328,6 +368,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     }
     const reservations = nextUserWake(sql)
     if (reservations !== null) times.push(reservations)
+    const holds = nextCreditWake(sql)
+    if (holds !== null) times.push(holds)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -337,6 +379,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     expireUserReservations(this.ctx.storage, now, utcMonth(now))
+    expireCreditHolds(this.ctx.storage, now)
   }
 
   /**
