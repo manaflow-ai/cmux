@@ -83,7 +83,6 @@ on:
       - web/data/model-catalog/**
       - Resources/markdown-viewer/viewer-navigation.js
       - config/vite-plus/**
-      - Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/fixtures/cua-helper-signatures/**
@@ -229,7 +228,6 @@ on:
       - web/data/model-catalog/**
       - Resources/markdown-viewer/viewer-navigation.js
       - config/vite-plus/**
-      - Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/fixtures/cua-helper-signatures/**
@@ -1159,6 +1157,13 @@ jobs:
           python3 tests/test_cmux_next_route.py
           python3 tests/test_cmux_next_route_replay.py
 
+      # The web bundle source key covers every file outside webviews/ that a bundle
+      # imports, and the publish and routing path lists name each one (cx-wtsf3).
+      - name: Web bundle key inputs
+        id: web-bundle-key-inputs
+        continue-on-error: true
+        run: bash tests/test_web_bundle_key_inputs.sh
+
       # The companion workflows' structure: generated-files catch-up and the
       # next-batch landing queue.
       - name: Companion workflows
@@ -1256,6 +1261,7 @@ jobs:
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)

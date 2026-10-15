@@ -57,16 +57,44 @@ IGNORED_NAMES = {".DS_Store"}
 # The bundlers resolve relative specifiers in these files. A specifier that
 # leaves webviews/ (the agent pane imports web/data/model-catalog/snapshot.json,
 # the webviews app imports Resources/markdown-viewer/viewer-navigation.js) names
-# an input as real as webviews/ itself. Tests and benches never reach a bundle.
+# an input as real as webviews/ itself. Tests, benches, the dev server and the
+# acpmux dev preview (preview:dev / preview:build) never reach a shipped bundle.
 SCANNED_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".css", ".html")
-UNSCANNED = re.compile(r"(^webviews/(test|bench)/)|(\.(test|spec)\.[a-z]+$)")
+UNSCANNED = re.compile(
+    r"(^webviews/(test|bench|dev-server)/)|(^webviews/src/agent-session/acpmux-preview/)|(\.(test|spec)\.[a-z]+$)")
 SPECIFIER = re.compile(
     r"""(?:\bfrom|\bimport|\bimport\s*\(|@import|@source|\burl\(|\bnew\s+URL\()\s*["'`]?(\.{1,2}/[^"'`)\s]+)""")
 # import.meta.glob("a") and import.meta.glob(["a", "b"], ...), across lines.
 GLOB_CALL = re.compile(r"""import\.meta\.glob(?:<[^>]*>)?\(\s*(\[[^\]]*\]|["'`][^"'`]*["'`])""", re.S)
 GLOB_STRING = re.compile(r"""["'`](!?\.{1,2}/[^"'`]+)["'`]""")
 VITE_QUERY = re.compile(r"\?(raw|url|inline|worker|sharedworker|no-inline)(&.*)?$")
-RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".json", "/index.ts", "/index.tsx", "/index.js")
+FILE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".json")
+INDEX_FILES = ("/index.ts", "/index.tsx", "/index.js")
+BRACES = re.compile(r"\{([^{}]*)\}")
+
+
+def expand_braces(pattern):
+    m = BRACES.search(pattern)
+    if not m:
+        return [pattern]
+    return [x for alt in m.group(1).split(",") for x in expand_braces(pattern[:m.start()] + alt + pattern[m.end():])]
+
+
+def unresolved(message):
+    """A specifier the key cannot follow. Builds go on (stderr only); the CI check
+    (tests/test_web_bundle_key_inputs.sh) sets WEB_BUNDLE_KEY_STRICT=1 and fails."""
+    if os.environ.get("WEB_BUNDLE_KEY_STRICT") == "1":
+        sys.exit(f"web-bundle-key: {message}")
+    print(f"web-bundle-key: warning: {message}", file=sys.stderr)
+
+
+def resolve(root, target):
+    """The file a bundler resolves `target` to (a file before a directory index), or the
+    directory itself, or None."""
+    for candidate in [target + s for s in FILE_SUFFIXES] + [target + s for s in INDEX_FILES]:
+        if os.path.isfile(os.path.join(root, candidate)):
+            return candidate
+    return target if os.path.isdir(os.path.join(root, target)) else None
 
 
 def git_files(root, pathspecs):
@@ -107,10 +135,20 @@ def imported_inputs(root):
             target = os.path.normpath(os.path.join(os.path.dirname(rel), spec))
             if target.startswith("..") or target == "webviews" or target.startswith("webviews/"):
                 continue
-            if any(c in target for c in "*?[{"):
-                found.add(":(glob)" + target)
+            if "${" in target:
+                unresolved(f"{rel} imports {spec}, a template the key cannot resolve; "
+                           "import a literal path or add the directory to INPUTS")
                 continue
-            path = next((target + s for s in RESOLVE_SUFFIXES if os.path.exists(os.path.join(root, target + s))), target)
+            if any(c in target for c in "*?[{"):
+                globs = [":(glob)" + g for g in expand_braces(target)]
+                if not git_files(root, globs):
+                    unresolved(f"{rel} imports {spec}, which matches no file")
+                found.update(globs)
+                continue
+            path = resolve(root, target)
+            if path is None:
+                unresolved(f"{rel} imports {spec}, which resolves to no file ({target})")
+                path = target
             found.add(path)
             if path not in seen and path.endswith(SCANNED_SUFFIXES) and os.path.isfile(os.path.join(root, path)):
                 seen.add(path)
