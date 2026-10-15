@@ -220,6 +220,63 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    test("an opened long queue keeps Show less and the focused row in sight, never a half row (capture, 2026-10-15)", async () => {
+      // The real-app capture at 90721dc: five queued, opened, the list stayed capped at 132px, row 4
+      // cut through its text and Show less (focused) below the edge.
+      const page = await openChat(["one", "two", "three", "four", "five", "six", "seven", "eight"]);
+      await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
+      /// Where the focused element sits against the list's own edges, the fold (drawn over the
+      /// rows it pins below) and the page; and whether any row the list shows is cut at an edge.
+      const sight = () =>
+        page.evaluate(
+          () =>
+            new Promise<Record<string, unknown>>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => {
+                  const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+                  const box = list.getBoundingClientRect();
+                  const fold = document.querySelector<HTMLElement>(".acpmux-queue-fold")!.getBoundingClientRect();
+                  const focused = document.activeElement as HTMLElement;
+                  const inside = (rect: DOMRect, bottom: number) =>
+                    rect.top >= box.top - 1 && rect.bottom <= bottom + 1 && rect.bottom <= innerHeight + 1;
+                  const isFold = focused.classList.contains("acpmux-queue-fold");
+                  // Rows show above the fold, and never past the list's own bottom edge.
+                  const edge = Math.min(box.bottom, fold.top);
+                  const rect = focused.getBoundingClientRect();
+                  const snaps = getComputedStyle(list).scrollSnapType.includes("y");
+                  const cut = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")]
+                    .map((row) => row.getBoundingClientRect())
+                    .filter((row) => row.bottom > box.top + 1 && row.top < edge - 1)
+                    .filter((row) => row.top < box.top - 1 || row.bottom > edge + 1).length;
+                  resolve({
+                    focused: focused.dataset.promptId ?? (isFold ? "fold" : focused.className),
+                    inSight: inside(rect, isFold ? box.bottom : edge),
+                    foldInSight: inside(fold, box.bottom),
+                    wholeRows: snaps || cut === 0,
+                  });
+                }),
+              ),
+            ),
+        );
+      expect(await sight()).toEqual({ focused: "fold", inSight: true, foldInSight: true, wholeRows: true });
+      // ↑ through every row and ↓ back to the fold: the focused one is always whole and in sight.
+      for (let i = 8; i >= 1; i--) {
+        await page.keyboard.press("ArrowUp");
+        expect(await sight()).toEqual({ focused: `q-${i}`, inSight: true, foldInSight: true, wholeRows: true });
+      }
+      for (let i = 2; i <= 8; i++) {
+        await page.keyboard.press("ArrowDown");
+        expect(await sight()).toEqual({ focused: `q-${i}`, inSight: true, foldInSight: true, wholeRows: true });
+      }
+      await page.keyboard.press("ArrowDown");
+      expect(await sight()).toEqual({ focused: "fold", inSight: true, foldInSight: true, wholeRows: true });
+      await page.close();
+    });
+
     test("sending the next prompt keeps the fold's count right; a move into the fold opens it", async () => {
       const page = await openChat(PROMPTS);
       await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
