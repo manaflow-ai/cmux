@@ -4592,127 +4592,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Group to New Window"
+            "value": "Move to New Window"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループを新しいウインドウに移動"
+            "value": "新規ウインドウに移動"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "نقل المجموعة إلى نافذة جديدة"
+            "state": "translated",
+            "value": "نقل إلى نافذة جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Premjesti grupu u novi prozor"
+            "value": "Premjesti u novi prozor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flyt gruppe til nyt vindue"
+            "value": "Flyt til nyt vindue"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruppe in neues Fenster bewegen"
+            "state": "translated",
+            "value": "In neues Fenster bewegen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover grupo a nueva ventana"
+            "state": "translated",
+            "value": "Mover a una ventana nueva"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Déplacer le groupe vers une nouvelle fenêtre"
+            "state": "translated",
+            "value": "Déplacer dans une nouvelle fenêtre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sposta gruppo in nuova finestra"
+            "value": "Sposta in una nuova finestra"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្លាស់ក្រុមទៅបង្អួចថ្មី"
+            "value": "ផ្លាស់ទីទៅបង្អួចថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹을 새 윈도우로 이동"
+            "state": "translated",
+            "value": "새 윈도우로 이동"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flytt gruppe til nytt vindu"
+            "value": "Flytt til nytt vindu"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przenieś grupę do nowego okna"
+            "value": "Przenieś do nowego okna"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mover Grupo para Nova Janela"
+            "value": "Mover para nova janela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переместить группу в новое окно"
+            "value": "Переместить в новое окно"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ย้ายกลุ่มไปหน้าต่างใหม่"
+            "value": "ย้ายไปยังหน้าต่างใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grubu Yeni Pencereye Taşı"
+            "value": "Yeni Pencereye Taşı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемістити групу в нове вікно"
+            "value": "Перемістити в нове вікно"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Di chuyển nhóm sang cửa sổ mới"
+            "value": "Chuyển sang cửa sổ mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "将组移到新窗口"
+            "state": "translated",
+            "value": "移到新窗口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "將群組移至新視窗"
+            "state": "translated",
+            "value": "移到新視窗"
           }
         }
       }
