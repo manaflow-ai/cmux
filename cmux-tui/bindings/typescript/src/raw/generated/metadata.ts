@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36" as const;
+export const SDK_IR_SHA256 = "b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -178,7 +178,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
+      "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
     ]
   },
   "browser-activate": {
@@ -13129,6 +13129,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches.",
           "nullable": true,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "harness": {
+          "default": null,
+          "description": "The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone.",
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"
