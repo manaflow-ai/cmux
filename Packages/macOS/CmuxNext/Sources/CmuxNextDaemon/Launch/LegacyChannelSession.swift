@@ -131,7 +131,7 @@ final class DecisionCache: Sendable {
         answers.withLock { answers in
             if let known = answers[key] { return known }
             let value = decide()
-            answers[key] = value
+            answers.updateValue(value, forKey: key)
             return value
         }
     }
