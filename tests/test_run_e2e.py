@@ -244,6 +244,34 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--scenario", result.stderr)
 
+    def test_a_browser_engine_reaches_the_workflow_dispatch(self):
+        for engine in ("webkit", "chromium"):
+            with self.subTest(engine=engine):
+                self.setUp()
+                result = self.launch("ExampleUITests", "--browser-engine", engine)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["browser_engine"], engine)
+
+    def test_without_a_browser_engine_the_dispatch_keeps_the_apps_default(self):
+        result = self.launch("ExampleUITests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("browser_engine", self.dispatch())
+
+    def test_a_browser_engine_run_does_not_attach_to_another_engines_run(self):
+        # Titles do not name the engine, so a live run of the same selector may
+        # be the other engine's; the engine run dispatches its own.
+        live = self._live(selector="cmuxUITests/ExampleUITests")
+        result = self.launch("ExampleUITests", "--browser-engine", "chromium", LAUNCHER_PRIOR_RUNS=live)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("reusing that run", result.stdout)
+        self.assertEqual(self.dispatch()["browser_engine"], "chromium")
+
+    def test_a_browser_engine_needs_ui_selectors(self):
+        result = self.launch("cmuxTests/ExampleTests", "--browser-engine", "chromium")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--browser-engine takes UI selectors", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
     def test_only_unpinned_runs_without_full_build_look_for_ci_products(self):
         for args in (["cmuxTests/ExampleTests"], ["cmuxTests/ExampleTests", "--full-build"],
                      ["cmuxTests/ExampleTests", "--runner", SMALL], ["ExampleUITests"],
