@@ -334,11 +334,9 @@ final class CardSwipeState {
                 if self?.offsets[key] == 0 { self?.raised.remove(key) }
             }
         } else {
-            // Left: Safari's own spring back replayed from the turnaround
-            // (cmux-next re-audit 3 3g); right: the fitted spring (3i passes).
-            let animation: Animation = from > 0
-                ? CardSwipe.snapBackRight.animation(initialVelocity: abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0)
-                : .safari(.snapBack)
+            // Safari's own spring back replayed from the turnaround, after a
+            // left drag (cmux-next re-audit 3 3g) and a right one (3i).
+            let animation: Animation = .safari(from > 0 ? .snapBackRight : .snapBack)
             withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
