@@ -46,4 +46,25 @@ public protocol BrowserPageUIDelegate: AnyObject {
     ///   - download: The download, in ``BrowserPageDownload/State/pending``.
     /// - Returns: The destination file URL, or `nil` to cancel the download.
     func page(_ page: any BrowserPage, destinationForDownload download: BrowserPageDownload) async -> URL?
+
+    /// Takes a page the engine already created for a request this delegate
+    /// answered with ``BrowserPageOpenDisposition/allowPopup`` (`window.open`
+    /// keeps its opener). The delegate hosts `popup` in a new panel or popup
+    /// window, or closes it.
+    /// - Parameters:
+    ///   - page: The opening page.
+    ///   - popup: The new page, not yet shown.
+    ///   - request: What the opener asked for.
+    func page(_ page: any BrowserPage, didCreatePopup popup: any BrowserPage, for request: BrowserPageOpenRequest)
+}
+
+extension BrowserPageUIDelegate {
+    /// Delegates that cannot host engine-created popups refuse them.
+    /// - Parameters:
+    ///   - page: The opening page.
+    ///   - popup: The new page; closed.
+    ///   - request: Ignored.
+    public func page(_ page: any BrowserPage, didCreatePopup popup: any BrowserPage, for request: BrowserPageOpenRequest) {
+        popup.close()
+    }
 }
