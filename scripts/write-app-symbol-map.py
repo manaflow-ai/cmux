@@ -14,8 +14,10 @@ Format, little-endian: b"CMXSYM1\\0", u32 slice count, then per slice the
 Foundation's `.zlib` decompression reads): u32 symbol count, one unsigned
 LEB128 offset delta per symbol, then the names joined by NUL.
 
-An executable with no such symbols (a second strip pass over a stripped
-binary) leaves OUT as it is.
+A second strip pass over the stripped executable leaves OUT as it is: OUT
+already holds a map for every slice UUID (stripping keeps the UUID), and the
+names left (such as __mh_execute_header) would replace it with almost none.
+An executable with no such symbols also leaves OUT alone.
 """
 
 from __future__ import annotations
@@ -102,6 +104,26 @@ def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
     return uuid, sorted(found.items())
 
 
+def mapped_uuids(path: str) -> set[bytes]:
+    """The slice UUIDs of an existing map file; empty when there is none."""
+    try:
+        with open(path, "rb") as f:
+            blob = f.read()
+    except OSError:
+        return set()
+    if blob[:8] != b"CMXSYM1\0" or len(blob) < 12:
+        return set()
+    (count,) = struct.unpack_from("<I", blob, 8)
+    uuids, at = set(), 12
+    for _ in range(count):
+        if at + 20 > len(blob):
+            return set()
+        (size,) = struct.unpack_from("<I", blob, at + 16)
+        uuids.add(blob[at:at + 16])
+        at += 20 + size
+    return uuids
+
+
 def payload(symbols: list[tuple[int, str]]) -> bytes:
     body = bytearray(struct.pack("<I", len(symbols)))
     previous = 0
@@ -122,7 +144,11 @@ def main() -> int:
     executable, out = sys.argv[1], sys.argv[2]
     with open(executable, "rb") as f:
         data = f.read()
-    tables = [t for t in (functions(s) for s in slices(data)) if t and t[1]]
+    found = [t for t in (functions(s) for s in slices(data)) if t]
+    if found and {uuid for uuid, _ in found} <= mapped_uuids(out):
+        print(f"app symbol map: {out} already maps {executable}; unchanged")
+        return 0
+    tables = [t for t in found if t[1]]
     if not tables:
         print(f"app symbol map: no function names in {executable}; {out} unchanged")
         return 0
