@@ -656188,124 +656188,6 @@
         }
       }
     },
-    "browser.automation.error.pageCrashed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The browser page crashed. Reload it with cmux browser reload, then retry."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Browserseite ist abgestürzt. Lade sie mit cmux browser reload neu und versuche es dann erneut."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La page du navigateur a planté. Rechargez-la avec cmux browser reload, puis réessayez."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعطلت صفحة المتصفح. أعد تحميلها باستخدام cmux browser reload، ثم أعد المحاولة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La página del navegador se bloqueó. Recárgala con cmux browser reload y vuelve a intentarlo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "瀏覽器頁面已當機。請使用 cmux browser reload 重新載入，然後再試一次。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "浏览器页面已崩溃。请使用 cmux browser reload 重新加载，然后重试。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "브라우저 페이지가 충돌했습니다. cmux browser reload로 다시 로드한 후 다시 시도하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザのページがクラッシュしました。cmux browser reload で再読み込みしてから、もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "browser.omnibar.chromeSettingsHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opens cmux Settings"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يفتح إعدادات cmux"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Öffnet cmux-Einstellungen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abre la configuración de cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvre les réglages de cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux の設定を開きます"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 설정 열기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开 cmux 设置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟 cmux 設定"
-          }
-        }
-      }
-    },
     "browser.permission.prompt.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -656420,6 +656302,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@（內嵌於 %2$@）"
+          }
+        }
+      }
+    },
+    "browser.omnibar.chromeSettingsHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens cmux Settings"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح إعدادات cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet cmux-Einstellungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre la configuración de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvre les réglages de cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の設定を開きます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 설정 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 cmux 设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 cmux 設定"
           }
         }
       }
@@ -656892,6 +656833,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 想要使用你的麥克風，但這台 Mac 的麥克風取用權限由你的組織管理。"
+          }
+        }
+      }
+    },
+    "browser.automation.error.pageCrashed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser page crashed. Reload it with cmux browser reload, then retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Browserseite ist abgestürzt. Lade sie mit cmux browser reload neu und versuche es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page du navigateur a planté. Rechargez-la avec cmux browser reload, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعطلت صفحة المتصفح. أعد تحميلها باستخدام cmux browser reload، ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página del navegador se bloqueó. Recárgala con cmux browser reload y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器頁面已當機。請使用 cmux browser reload 重新載入，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器页面已崩溃。请使用 cmux browser reload 重新加载，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 페이지가 충돌했습니다. cmux browser reload로 다시 로드한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのページがクラッシュしました。cmux browser reload で再読み込みしてから、もう一度お試しください。"
           }
         }
       }
