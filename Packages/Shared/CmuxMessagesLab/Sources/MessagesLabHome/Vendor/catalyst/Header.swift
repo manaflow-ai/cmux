@@ -160,15 +160,36 @@ final class HeaderView: UIView {
 
 /// Window chrome: traffic lights and the 1 pt light border.
 final class ChromeView: UIView {
-    var drawsTrafficLights = true { didSet { canvas.setNeedsDisplay() } }
+    var drawsTrafficLights = true { didSet { canvas.setNeedsDisplay(); sliceDrawn = nil; setNeedsLayout() } }
     /// The view's left edge is the window's left edge (true), or it meets a sidebar (false: the
     /// border has no left side and square left corners; only the window's edges get the line).
-    var leadingEdgeIsWindowEdge = true { didSet { if leadingEdgeIsWindowEdge != oldValue { canvas.setNeedsDisplay() } } }
+    var leadingEdgeIsWindowEdge = true {
+        didSet { if leadingEdgeIsWindowEdge != oldValue { canvas.setNeedsDisplay(); sliceDrawn = nil; setNeedsLayout() } }
+    }
     private let canvas = CanvasView()
+    /// While the window is resized live (`liveResizing`, set by the AppKit host) the border alone
+    /// (no traffic lights: the live AppKit window, whose titlebar has the real ones) is the same
+    /// drawing made once at `sliceSize` and shown as a nine-part image: the
+    /// corners 1:1, one device-pixel band from the straight middle of each side stretched along
+    /// it. A size change moves the layer's edges and draws nothing. The window-sized canvas was
+    /// drawn again at every width of a live resize: a 628 x 940 pt bitmap and the border's
+    /// stroke rasterized on the main thread in each resize step's commit (Time Profiler, rig,
+    /// main 2c240f5: 270 of 1869 ms of resize-step main-thread time in six drags; cx-3cb resize-drops).
+    private let slice = CALayer()
+    /// The host's live window resize (at rest the canvas draws the border, as the still scenes have it).
+    var liveResizing = false { didSet { if liveResizing != oldValue { setNeedsLayout() } } }
+    /// The scale and leading edge the slice image was drawn for (nil: draw it again).
+    private var sliceDrawn: (scale: CGFloat, leading: Bool)?
+    /// The slice image's side, points: UIKit's continuous corner of radius 15.5 reaches about
+    /// 23.7 pt along each side (UIKitRoundedRect), so the middle band is straight.
+    static let sliceSize: CGFloat = 96
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         addSubview(canvas)
+        slice.actions = ["bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "hidden": NSNull(), "contentsCenter": NSNull()]
+        slice.isHidden = true
+        layer.addSublayer(slice)
         // weak capture, not unowned (crash program: no trap after the view is freed).
         canvas.drawer = { [weak self] ctx, b in
             guard let self else { return }
@@ -217,9 +238,45 @@ final class ChromeView: UIView {
         }
     }
     required init?(coder: NSCoder) { fatalError() }
+    /// A new window or display scale (WindowView.setRenderScale sets every layer's scale, then
+    /// moves the tree to the window again): the slice is drawn again at the new scale.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if sliceDrawn != nil, sliceDrawn?.scale != Fixture.renderScale { sliceDrawn = nil; setNeedsLayout() }
+    }
+    /// A scale or palette change (WindowView) draws the border again.
+    override func setNeedsDisplay() {
+        super.setNeedsDisplay()
+        sliceDrawn = nil
+        setNeedsLayout()
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
-        canvas.frame = bounds
+        let n = ChromeView.sliceSize, scale = Fixture.renderScale
+        // Whole device pixels only: at a fractional width the right and bottom parts would land
+        // between pixels and be resampled (the canvas's backing store is whole pixels).
+        let whole = (bounds.width * scale).rounded() == bounds.width * scale && (bounds.height * scale).rounded() == bounds.height * scale
+        let sliced = liveResizing && !drawsTrafficLights && whole && bounds.width >= n && bounds.height >= n
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        // A hidden canvas is not drawn (UIView.setNeedsDisplay keeps the request until it shows).
+        canvas.isHidden = sliced
+        slice.isHidden = !sliced
+        guard sliced else { canvas.frame = bounds; return }
+        if sliceDrawn?.scale != scale || sliceDrawn?.leading != leadingEdgeIsWindowEdge {
+            let fmt = UIGraphicsImageRendererFormat()
+            fmt.scale = scale
+            fmt.opaque = false
+            fmt.preferredRange = .standard
+            let r = CGRect(x: 0, y: 0, width: n, height: n), draw = canvas.drawer
+            slice.contents = UIGraphicsImageRenderer(size: r.size, format: fmt).image { draw($0.cgContext, r) }.cgImage
+            slice.contentsScale = scale
+            // One device pixel at the middle of each side.
+            let px = n * scale, mid = (px / 2).rounded(.down) / px
+            slice.contentsCenter = CGRect(x: mid, y: mid, width: 1 / px, height: 1 / px)
+            sliceDrawn = (scale, leadingEdgeIsWindowEdge)
+        }
+        slice.frame = bounds
     }
 }
 

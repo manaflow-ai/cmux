@@ -85,6 +85,12 @@
    "family": "action"
   },
   {
+   "name": "action.more.vertical",
+   "meaning": "More options (menu), vertical: the browser toolbar's More button",
+   "sf": "ellipsis.vertical",
+   "family": "action.more"
+  },
+  {
    "name": "action.pause",
    "meaning": "Pause",
    "sf": "pause.circle",

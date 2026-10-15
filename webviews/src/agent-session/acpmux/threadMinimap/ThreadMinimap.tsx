@@ -5,7 +5,7 @@
 // layout (`tops`), so nothing here measures a row; the only element read is the popover itself.
 // Motion is transforms and opacity only (threadMinimap.css). Spec: minimap-spec.md in the lane notes.
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { useBookmarks } from "./bookmarks";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -30,8 +30,8 @@ import {
 const MIN_GUTTER = 28;
 /// How long a Previous or Next Turn step's smooth scroll counts as under way for the next step.
 const STEP_PENDING_MS = 800;
-/// Matches `.acpmux-row`'s left: max(18px, (100% - 760px) / 2).
-const gutter = (width: number) => Math.max(18, (width - 760) / 2);
+/// The space left of the rows (`.acpmux-row`'s left).
+const gutter = (width: number) => transcriptColumn(width).inset;
 
 export function ThreadMinimap({
   rows,

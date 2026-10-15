@@ -8,11 +8,10 @@ import CmuxNextCompat
 /// scheme registration reads the same table.
 public nonisolated struct PageID {
     public nonisolated init() {}
-    /// First-party pages the app ships.
-    public static let firstParty: Set<String> = [
-        "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
-        "cmux.diff", "cmux.markdown", "cmux.icon-picker", "cmux.passwords", "cmux.editor", "cmux.chief-inspector", "cmux.debug-settings",
-    ]
+    /// First-party pages the app ships (``FirstPartyPages/ids``, one table with the daemon page
+    /// listener's admitted origins). A page missing here gets the strict CSP whatever its
+    /// descriptor asks for (``PageDescriptor``).
+    public static var firstParty: Set<String> { FirstPartyPages.ids }
 
     /// Whether `id` is a first-party page in the table (it gets first-party access).
     public static func isFirstParty(_ id: String) -> Bool {

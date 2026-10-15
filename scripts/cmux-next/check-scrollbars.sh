@@ -52,8 +52,15 @@ ALLOWED = {
 ALLOWED_RULES = {
     # `overflow: "scroll"` here is the @pierre/diffs option for unwrapped code rows, not CSS; the
     # rows' scroller follows the host through PIERRE_DIFFS_SCROLLER_CSS.
-    "webviews/src/agent-session/acpmux/conversation/EditDiff.tsx": {"overflow-style": "@pierre/diffs option"},
-    "webviews/src/agent-session/acpmux/conversation/CodeBlock.tsx": {"overflow-style": "@pierre/diffs option"},
+    # EditDiffHunks and HighlightedCode load after the first frame (#19974); EditDiff and CodeBlock
+    # no longer set the option.
+    "webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx": {"overflow-style": "@pierre/diffs option"},
+    "webviews/src/agent-session/acpmux/conversation/HighlightedCode.tsx": {"overflow-style": "@pierre/diffs option"},
+    # The vendored MessagesLab compose box, overlay as SCROLLBARS-THIN asks (as NativeScroll.swift).
+    "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift": {"style": "Home compose, vendored"},
+    # Gallery only (PathPicker parity, #19533): a fixed gutter keeps the field's width the same
+    # across folder sizes so frames compare. The shipped picker keeps the shared style.
+    "webviews/src/viewer-empty/PathPicker.gallery.css": {"overflow": "gallery parity frames", "gutter": "gallery parity frames"},
     "webviews/src/pierre-options.ts": {
         "overflow-style": "@pierre/diffs option",
         # The @pierre/trees list draws its own scroller in this gutter; the gutter width is 0 for

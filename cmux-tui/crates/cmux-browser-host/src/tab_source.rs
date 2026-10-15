@@ -161,6 +161,22 @@ pub trait TabSource: Send + Sync {
     /// when the engine cannot filter (the gate then fails closed).
     fn set_request_filter(&self, session: u64, engine: &str, filter: Option<RequestFilter>)
     -> bool;
+    /// [`crate::driver::Driver::set_connection_policy`] for a session.
+    /// True when the session's new tabs just moved to a store whose
+    /// connections the policy checks: its earlier tabs are outside it.
+    fn set_connection_policy(
+        &self,
+        _session: u64,
+        _engine: &str,
+        _policy: Option<crate::policy_proxy::ConnectionPolicy>,
+    ) -> Result<bool, DriverError> {
+        Ok(false)
+    }
+    /// Whether `target_id` is outside the store the session's connection
+    /// policy checks (it opened before the policy).
+    fn outside_connection_policy(&self, _session: u64, _target_id: &str) -> bool {
+        false
+    }
     /// The session ended: its filter goes.
     fn session_ended(&self, session: u64);
     fn capabilities(&self, engine: &str) -> Vec<&'static str>;

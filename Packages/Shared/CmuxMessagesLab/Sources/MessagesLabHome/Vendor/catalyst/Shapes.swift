@@ -6,15 +6,19 @@ import AppKit
 
 /// Message bubble outline: a rounded body plus the small hanging tail.
 enum BubblePath {
+    /// UIKit's rounded rect uses its limited (pill) corner when half the height is under this times the radius.
+    static let pillLimit: CGFloat = 1.528665
     /// Bubble outlines by size (cells reuse them for the gradient mask).
     private static var cache: [Key: CGPath] = [:]
-    private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool; var cw: CGFloat = 0; var ch: CGFloat = 0 }
-    /// The bubble outline at the origin (main thread). `cornersOf`: as `make`.
-    static func cached(size: CGSize, outgoing: Bool, tail: Bool, cornersOf frame: CGSize? = nil) -> CGPath {
-        let k = Key(w: size.width, h: size.height, outgoing: outgoing, tail: tail, cw: frame?.width ?? 0, ch: frame?.height ?? 0)
+    private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool; var cw: CGFloat = 0; var ch: CGFloat = 0
+        var circularEnds = false }
+    /// The bubble outline at the origin (main thread). `cornersOf`, `circularEnds`: as `make`.
+    static func cached(size: CGSize, outgoing: Bool, tail: Bool, cornersOf frame: CGSize? = nil, circularEnds: Bool = false) -> CGPath {
+        let k = Key(w: size.width, h: size.height, outgoing: outgoing, tail: tail, cw: frame?.width ?? 0, ch: frame?.height ?? 0,
+                    circularEnds: circularEnds)
         if let p = cache[k] { return p }
         if cache.count > 2000 { cache.removeAll() }
-        let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail, cornersOf: frame).cgPath
+        let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds).cgPath
         cache.updateValue(p, forKey: k)
         return p
     }
@@ -23,10 +27,23 @@ enum BubblePath {
     /// its limited (pill) corner when half the height is under 1.528665 r (UIKitRoundedRect), 45.86 pt for r = 15,
     /// so a 45.62 pt balloon built at its own size had pill corners (radius about 22.8 pt; Messages' 2-line
     /// balloon keeps its 15 pt continuous corner: deactivate-activate/tp1200ms.png). The tail is not scaled.
+    ///
+    /// `circularEnds`: a body whose half height is under UIKit's limit (1.528665 r) ends in exact half circles
+    /// (radius half the shorter side) instead of UIKit's pill corner. Real Messages (macOS 27) draws its 1-line
+    /// incoming text balloon so (RowDraw.circularEnds): every 30 pt incoming balloon in deactivate-activate,
+    /// bubble-kinds-scene, typing-dots-01 and state-204892 fits a circle of radius 15 pt within 0.05 px rms per
+    /// device pixel row (tails excluded), its left edge 40.00 px on every row through the middle. Its 1-line outgoing
+    /// balloon too (soft-edge: the pill corner up to 0.68 px fuller near the top and bottom of the end). UIKit's pill
+    /// corner is up to 0.76 px fuller (0.5 px on average) and reaches 0.14 px past the frame at the middle (the
+    /// 39.87 px left edges of tools/evidence/anim/rowxedge.py; tools/evidence/ANIMATIONS.md section 6, cx-3cb
+    /// incoming-edge). Taller bodies keep UIKit's continuous corner, which Messages' 2-line balloon matches.
     static func make(body r: CGRect, outgoing: Bool, tail: Bool, radius: CGFloat = Fixture.bubbleRadius,
-                     cornersOf frame: CGSize? = nil) -> UIBezierPath {
+                     cornersOf frame: CGSize? = nil, circularEnds: Bool = false) -> UIBezierPath {
         let path: UIBezierPath
-        if let f = frame, f != r.size, f.width > 0, f.height > 0 {
+        if circularEnds, r.width > 0, r.height > 0, r.height / 2 < pillLimit * radius {
+            let q = min(r.width, r.height) / 2
+            path = UIBezierPath(cgPath: CGPath(roundedRect: r, cornerWidth: q, cornerHeight: q, transform: nil))
+        } else if let f = frame, f != r.size, f.width > 0, f.height > 0 {
             let full = UIBezierPath(roundedRect: CGRect(origin: .zero, size: f), cornerRadius: min(radius, f.height / 2)).cgPath
             var xf = CGAffineTransform(translationX: r.minX, y: r.minY).scaledBy(x: r.width / f.width, y: r.height / f.height)
             path = full.copy(using: &xf).map { UIBezierPath(cgPath: $0) } ?? UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
@@ -89,7 +106,7 @@ enum SoftBalloon {
     private enum Kind: Int { case one, two, more }
     private struct Template { let image: CGImage; let center: CGRect }
     /// `narrow`: a balloon narrower than its caps gets its own unstretched image (its width and left phase in device px).
-    private struct Key: Hashable { let kind: Int; let tail: Bool; let scale: CGFloat; var narrow: [Int] = [] }
+    private struct Key: Hashable { let kind: Int; let tail: Bool; let scale: CGFloat; var narrow: [Int] = []; var circularEnds = false }
     private static var cache: [Key: Template] = [:]
     /// Space around the frame (pt) and below it for the tail (it hangs 5.14 pt below the balloon).
     static let pad: CGFloat = 1, tailDrop: CGFloat = 6
@@ -117,15 +134,17 @@ enum SoftBalloon {
         // Narrower than the caps (a short 1-line reply, a narrow 2-line balloon): an image of exactly this balloon.
         let narrow = f.maxX - left < cl + cr + 1 / s
             ? [CrashGuard.int(((f.maxX - left) * s).rounded(), in: 0...16_384), CrashGuard.int(((f.minX - left) * s * 1000).rounded(), in: 0...16_384)] : []
-        guard let t = template(k, tail: p.tail, scale: s, narrow: narrow, frame: f.offsetBy(dx: -left, dy: -f.minY)) else { return nil }
+        guard let t = template(k, tail: p.tail, scale: s, narrow: narrow, frame: f.offsetBy(dx: -left, dy: -f.minY),
+                               circularEnds: RowDraw.circularEnds(p)) else { return nil }
         let frame = CGRect(x: left - pad, y: f.minY - pad, width: f.maxX - left + 2 * pad,
                            height: f.height + tailDrop + 2 * pad)
         return Mask(image: t.image, frame: frame, center: t.center)
     }
 
     /// `f`: the body frame relative to its whole-px left edge and its top (used only for a narrow balloon).
-    private static func template(_ k: Kind, tail: Bool, scale s: CGFloat, narrow: [Int], frame f: CGRect) -> Template? {
-        let key = Key(kind: k.rawValue, tail: tail, scale: s, narrow: narrow)
+    /// `circularEnds`: a 1-line balloon with half-circle ends (BubblePath.make, RowDraw.circularEnds).
+    private static func template(_ k: Kind, tail: Bool, scale s: CGFloat, narrow: [Int], frame f: CGRect, circularEnds: Bool) -> Template? {
+        let key = Key(kind: k.rawValue, tail: tail, scale: s, narrow: narrow, circularEnds: circularEnds)
         if let t = cache[key] { return t }
         if cache.count > 200 { cache = cache.filter { $0.key.narrow.isEmpty } }
         let (cl, cr) = caps(k)
@@ -144,7 +163,8 @@ enum SoftBalloon {
         ctx.scaleBy(x: s, y: -s)
         ctx.translateBy(x: pad - d / s, y: pad - d / s)
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.addPath(BubblePath.make(body: RowDraw.insetBalloon(frame), outgoing: true, tail: tail, cornersOf: frame.size).cgPath)
+        ctx.addPath(BubblePath.make(body: RowDraw.insetBalloon(frame), outgoing: true, tail: tail, cornersOf: frame.size,
+                                    circularEnds: circularEnds).cgPath)
         ctx.fillPath()
         // Moved back by d with linear filtering, separable: out = (1 - |d|) src + |d| src moved one whole device px
         // (no interpolation; the two copies add), along x, then along y.

@@ -413,6 +413,8 @@ fn execute_terminal_effect(
         );
     }
 
+    // Bytes queued for this terminal while it was being created go first.
+    mux.wait_for_creating_input_flush(&surface);
     let action = match prepared.operation.as_str() {
         "terminal.input.write" => terminal_write(&surface, &fields),
         "terminal.input.keys" => terminal_keys(&surface, &fields),

@@ -141,6 +141,7 @@ impl Hub {
             session_env,
             // The fork resumes the parent from its store, and its conversation lands there.
             chat_store: parent_meta.chat_store.clone(),
+            adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
         };

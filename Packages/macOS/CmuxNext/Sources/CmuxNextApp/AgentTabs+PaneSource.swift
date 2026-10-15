@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextControl
 import Foundation
 
 /// The agent tabs' pane page and acpmux host (outside AgentTabStore, which is at its size limit).
@@ -9,7 +10,7 @@ import Foundation
     /// socket to acpmux: the host does (AgentPaneTransport), always with the
     /// bundled pane's origin, so even a dev server page reaches LocalApp and
     /// the app starts the daemon with no dev origin and no `--dev`
-    /// (``paneEnvironment(tag:bundledBinDirectory:environment:)``). Only the
+    /// (``AcpmuxEnvironment/resolve(tag:bundledBinDirectory:environment:launchEnvironment:)``). Only the
     /// browser dev slot, with no host, still needs both (dev-slot.sh).
     static func resolvePane(tag: String?, environment: [String: String], showcase: Bool)
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
@@ -32,8 +33,10 @@ import Foundation
         // endpoint after a switch to upstream. acpmux uses v2 only while
         // endpoint.json exists there (ComputerUseHelperV2).
         let upstreamEnvironment = ComputerUseHelperV2.childEnvironment(directory: computerUse.upstream.directory)
+        let launch = LaunchIdentity.current()
         let resolve: @Sendable () -> AcpmuxEnvironment? = {
-            paneEnvironment(tag: tag, bundledBinDirectory: bin, environment: environment).map {
+            AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment,
+                                      launchEnvironment: launch.terminalEnvironment).map {
                 var resolved = $0
                 resolved.childEnvironment.merge(upstreamEnvironment) { $1 }
                 return resolved
@@ -45,11 +48,5 @@ import Foundation
                               computerUse: { computerUse.childEnvironment },
                               daemonReady: { socket in await upstream.registerAcpmuxDaemon(acpmuxSocket: socket) })
         return (source, host)
-    }
-
-    /// The daemon the app starts, in every build configuration and for every page source: no
-    /// `--allow-dev-origin` and no `--dev` (the host's socket carries the bundled pane's origin).
-    nonisolated static func paneEnvironment(tag: String?, bundledBinDirectory: URL?, environment: [String: String]) -> AcpmuxEnvironment? {
-        AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bundledBinDirectory, environment: environment)
     }
 }

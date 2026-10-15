@@ -207,7 +207,7 @@ final class CEFPaneHost {
             let started = shim.createWindow(
                 request, Unmanaged.passUnretained(hostView).toOpaque(),
                 max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
-                tab.initialURLString, contextKey
+                tab.takeInitialURLString(), contextKey
             )
             if started != 1 {
                 runtime.pendingWindows[request] = nil
@@ -229,7 +229,7 @@ final class CEFPaneHost {
         }
         tab.isCreationPending = true
         runtime.tabBeingAdded = tab
-        let browser = shim.tabAdd(anchor, tab.initialURLString, -1, visibleTab === tab ? 1 : 0)
+        let browser = shim.tabAdd(anchor, tab.takeInitialURLString(), -1, visibleTab === tab ? 1 : 0)
         runtime.tabBeingAdded = nil
         if browser == 0 {
             tab.creationFailed()

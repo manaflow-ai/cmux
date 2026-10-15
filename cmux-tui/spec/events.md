@@ -18,6 +18,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
+| Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -71,6 +72,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
@@ -411,14 +413,20 @@ unchanged retry publishes nothing. Bookmarks advance neither
 
 Published by the session's history module when the merged history changes:
 a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
-`history.restore`, `history.visit.record`, `history.visit.title` or
-`history.visit.remove` that changed something, or agent and command journal
-records the module newly folded. The payload is
+`history.restore`, `history.visit.record`, `history.visit.title`,
+`history.visit.remove` or `history.trail.record` that changed something,
+agent and command journal records the module newly folded, or terminal
+command rows the command worker stored or a client deleted. The payload is
 `{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
-names the entry kinds that changed (`page`, `command`, `agent`); interested
-frontends re-read `history.entries.list`. A replayed mutation publishes
-nothing. Changes of closed items and of the app's location trail are
-announced by their owners' events, not by this one. Page visits are shared
+names the entry kinds that changed (`page`, `location`, `command`, `agent`, and
+`closed` when a history remove or clear deleted closed groups, or when a
+committed change closed or deleted a workspace, tab, screen or group in the
+closed-history store, after the module's journal feed started with a history
+read); interested frontends re-read `history.entries.list`. A replayed
+mutation publishes nothing, and a deletion can publish `closed` twice (the
+mutation and its journal record). The daemon owns the location trail
+(cx-hnmbt.12), so its changes are announced here with kind `location`. A page relay hears this event when
+its page lists it in page-router.json (`page-events-v1`). Page visits are shared
 by the sessions of a machine; the event goes to the session that served the
 change.
 
@@ -464,7 +472,8 @@ refetch `keybindings.get`.
 | since | protocol 12 additive extension; capability `local-conversations-v1` |
 
 Published after a `conversation-create` or `conversation-op` commits, never
-for a replay, and only to trusted local connections. Payload:
+for a replay, and only to trusted local connections and (with
+`ws-conversations-v1`) authenticated WebSocket connections. Payload:
 
 ```text
 object{
@@ -506,7 +515,11 @@ in plans/cmux-next/home-cloud-proxy.md section 5. `account` is the cloud user
 id (the JWT `sub`) of the lease the daemon used for the upstream socket that
 produced the event, absent when that lease has no readable `sub`; a client
 drops an event whose `account` is present and differs from the account
-signed in now.
+signed in now. The daemon also sends `cloud-inbox-reset` with `seq` 0 when the
+verified app sets a new lease (a sign-in or another account, not a renewal),
+so the person's other clients (a page, `ws-cloud-conversations-v1`) list the
+inbox again. With `ws-cloud-conversations-v1` these events also reach a paired
+WebSocket connection while the app holds the lease.
 
 ### conversation-typing
 
@@ -517,7 +530,8 @@ signed in now.
 | since | protocol 12 additive extension; capability `local-conversations-v1` |
 
 `object{event:"conversation-typing", conversation:string, participant:string, on:bool}`,
-published for `conversation-typing` to trusted local connections. Ephemeral:
+published for `conversation-typing` to trusted local connections and (with
+`ws-conversations-v1`) authenticated WebSocket connections. Ephemeral:
 never stored or replayed.
 
 ### terminal-registry-changed
@@ -1138,6 +1152,34 @@ Example:
 {"event":"daemon-shutdown"}
 ```
 
+### terminal-input-unclaimed
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-input-unclaimed` |
+| status | implemented control event |
+| since | protocol 12, capability `terminal-input-while-creating-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-input-unclaimed",terminal_id:string,bytes_base64:Base64,reason:string}
+```
+
+Meaning: Input that a connection queued for a terminal still being created (`send` with `terminal_id`,
+[commands.md](commands.md#send)) was not written, because the creation failed (`failed`), its connection
+closed first (`cancelled`), it did not end within 10 seconds of the first queued byte (`expired`), or the
+terminal refused a write of the queue (`write-failed`; the bytes before it were written). `bytes_base64` holds
+this connection's bytes that were not written, in the order they were queued. A frame whose write timed out
+may have reached the terminal in part, so after `write-failed` the first bytes can repeat input it got. It is sent on the control queue of the connection that queued them, also without a
+subscription. The client should give the bytes to the terminal that has focus.
+
+Example:
+
+```json
+{"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
+```
+
 ### terminal-clipboard-read
 
 | Field | Value |
@@ -1539,18 +1581,21 @@ object{
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
   agent?:string|null,
-  updated_at_ms:uint64
+  updated_at_ms:uint64,
+  since_ms?:uint64
 }
 ```
 
 Meaning: The current agent state for a surface changed. `agent` is the
-adapter identity when the producer knows it. Hook authority and source
+adapter identity when the producer knows it. `since_ms` is when the agent
+entered `state` (a report that keeps the state keeps it; after a daemon restart it is the
+last report's time; senders before it omit it, so use `updated_at_ms`). Hook authority and source
 precedence follow `commands.md`.
 
 Example:
 
 ```json
-{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000}
+{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000,"since_ms":1709999940000}
 ```
 
 The earlier draft name `agent-state-changed` is not emitted. Clients must

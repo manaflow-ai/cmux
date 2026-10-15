@@ -43,8 +43,17 @@ use std::path::Path;
 
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
-pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::Control {
+/// `auth` is the proof the connection presented: an unauthenticated one is
+/// held to the Web's rules whatever its origin (and `check` refuses it).
+pub(super) fn control_of(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+) -> crate::hub::Control {
     use crate::hub::Control;
+    if !auth.authenticated() {
+        return Control::Web;
+    }
     match origin {
         super::Origin::Local | super::Origin::LocalApp => Control::Local,
         super::Origin::Web => Control::Web,
@@ -61,8 +70,13 @@ pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::C
 /// this daemon holds to the Web's rules says so, and the peer applies them.
 /// One from the app's pane says `via: app`, so the peer's folder-trust gate
 /// (`trust_gate.rs`) holds it as it holds its own pane's.
-pub(super) fn mark_forwarded(origin: super::Origin, params: &Value, forwarded: &mut Value) {
-    if control_of(origin, params) == crate::hub::Control::Web {
+pub(super) fn mark_forwarded(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+) {
+    if control_of(origin, auth, params) == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
     } else if origin == super::Origin::LocalApp {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "app"}));
@@ -80,9 +94,15 @@ fn refused(what: &str) -> RpcError {
 pub(super) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
+    auth: super::ConnAuth,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    // The mode rules below give an authenticated connection more (any mode
+    // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
+    if !auth.authenticated() {
+        return Err(super::conn_auth::refused());
+    }
     let web = origin.web_class();
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
@@ -185,7 +205,7 @@ pub(super) async fn check(
     // The folder-trust question is the user's: a remote browser cannot answer
     // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
     // is still refused as one.
-    if m == method::ACP_TRUST_SET && control_of(origin, params) == crate::hub::Control::Web {
+    if m == method::ACP_TRUST_SET && control_of(origin, auth, params) == crate::hub::Control::Web {
         return Err(RpcError::invalid_params(
             "trust.remote: the folder's trust is answered only in the app or over the local unix socket",
         )
@@ -193,7 +213,7 @@ pub(super) async fn check(
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
-        web_starts_asking(hub, control_of(origin, params), m, params).await?;
+        web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
     }
     Ok(())
 }
@@ -209,7 +229,7 @@ fn family_of(m: &crate::store::SessionMeta) -> String {
 
 /// Whether a session's mode asks: none reported, or listed for its family.
 async fn mode_asks(hub: &std::sync::Arc<crate::hub::Hub>, m: &crate::store::SessionMeta) -> bool {
-    hub.web_modes().session_asks(m)
+    hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
 }
 
 /// After a request ran: every reply to a non-unix connection is redacted
@@ -478,7 +498,9 @@ async fn web_starts_asking(
             let id = params.get("configId").and_then(Value::as_str);
             (Some(id.unwrap_or_default()), params.get("value").and_then(Value::as_str))
         };
-        return if hub.web_modes().config_value_asks(&family_of(&meta), id, value) {
+        return if hub.any_mode_for_web(&meta)
+            || hub.web_modes().config_value_asks(&family_of(&meta), id, value)
+        {
             Ok(())
         } else {
             Err(RpcError::invalid_params(format!(
@@ -517,14 +539,18 @@ fn outside_roots(field: &str) -> RpcError {
     ))
 }
 
-/// The folders a Web connection may work in: `webRoots` from config.json
-/// and the known projects (every local session's cwd), each in the
+/// The folders a Web connection may work in: `webRoots` from config.json,
+/// the known projects (every local session's cwd) and the workspace folders
+/// the person's app set (`_acpmux/workspace_roots_set`), each in the
 /// filesystem's own spelling. A root that is `/`, the home directory or any
 /// ancestor of it is dropped: one session started in `~` must not open
 /// `~/.ssh` or `~/Library` to the Web. Compared by path components.
 async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
     let mut raw: Vec<String> = hub.config.read().await.web_roots.clone();
     raw.extend(hub.sessions().iter().map(|s| s.meta().cwd.to_string_lossy().into_owned()));
+    // The folders of the workspaces the person's app lists now (its own
+    // daemon's tabs, `_acpmux/workspace_roots_set`), under the same guards.
+    raw.extend(hub.person.workspace_roots());
     raw.sort();
     raw.dedup();
     let home = match dirs::home_dir() {

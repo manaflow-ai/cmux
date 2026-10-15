@@ -125,7 +125,7 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect(state.read_cursors[alice.user]).toBe(2)
   })
 
-  it("threads: thread_root over HTTP, one level, the sender's cursor, and no root below the since_join floor (cx-59n8.4)", async () => {
+  it("threads: thread_root over HTTP, nested replies, the sender's cursor, and no root below the since_join floor (cx-59n8.4)", async () => {
     const send = (token: string, conversation: string, key: string, extra: Record<string, unknown> = {}) =>
       op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text: key }], ...extra }, key)
     const { alice, bob, id } = await twoPersonGroup("threads")
@@ -136,6 +136,10 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     const replyId = reply.json.value.message_id as string
     expect((await history(alice.token, id)).find((m) => m.id === replyId)?.thread_root).toBe(root)
     expect(refused(await send(bob.token, id, "nested", { thread_root: replyId }))).toBe("invalid_thread_root")
+    // Nested threads (conversation-tree-v1): a reply to a thread reply with no thread_root joins the root's thread.
+    const deep = await send(alice.token, id, "deep", { reply_to: { message_id: replyId, part_index: 0 } })
+    expect(deep.json.ok).toBe(true)
+    expect((await history(alice.token, id)).find((m) => m.id === deep.json.value.message_id)?.thread_root).toBe(root)
     expect(refused(await send(bob.token, id, "nowhere", { thread_root: `msg_${"0".repeat(26)}` }))).toBe("invalid_thread_root")
     // Alice is behind (Bob's reply is unread to her): her send keeps her cursor; Bob was caught up: his moves.
     await send(alice.token, id, "behind")
@@ -153,6 +157,9 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     const secret = await runInDurableObject(stash, async (_i, st) => String(st.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
     expect((await op(carol.token, "invite.accept", { code: invites.linkCode(id), secret })).json.ok).toBe(true)
     expect(refused(await send(carol.token, id, "late", { thread_root: root }))).toBe("invalid_thread_root")
+    // A reply Carol can see whose root she cannot: replying to it does not derive the hidden root.
+    const later = (await send(alice.token, id, "later", { thread_root: root })).json.value.message_id as string
+    expect(refused(await send(carol.token, id, "late-deep", { reply_to: { message_id: later, part_index: 0 } }))).toBe("invalid_thread_root")
     const fresh = (await send(alice.token, id, "fresh")).json.value.message_id as string
     expect((await send(carol.token, id, "in-fresh", { thread_root: fresh })).json.ok).toBe(true)
   })

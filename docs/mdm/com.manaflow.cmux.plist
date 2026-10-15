@@ -171,27 +171,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>page</string>
-			<key>pfm_description</key>
-			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabKind</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>same-kind</string>
-				<string>terminal</string>
-				<string>browser</string>
-				<string>agent</string>
-				<string>page</string>
-				<string>auto</string>
-			</array>
-			<key>pfm_title</key>
-			<string>New Tab Opens</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<string>default</string>
 			<key>pfm_description</key>
 			<string>The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.</string>
@@ -283,20 +262,29 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.</string>
+			<string>Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.</string>
 			<key>pfm_name</key>
-			<string>tabs.hiddenButtons</string>
+			<string>tabs.toolbarButtons</string>
 			<key>pfm_subkeys</key>
 			<array>
 				<dict>
 					<key>pfm_name</key>
 					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>splitRight</string>
+						<string>splitDown</string>
+						<string>openDiffViewer</string>
+						<string>file.open</string>
+						<string>agentPane.searchChats</string>
+						<string>toggleSplitZoom</string>
+					</array>
 					<key>pfm_type</key>
 					<string>string</string>
 				</dict>
 			</array>
 			<key>pfm_title</key>
-			<string>Hidden Tab Bar Buttons</string>
+			<string>Tab Bar Buttons</string>
 			<key>pfm_type</key>
 			<string>array</string>
 		</dict>
@@ -675,7 +663,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Lets the cmux cnx app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.</string>
+			<string>Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.</string>
 			<key>pfm_name</key>
 			<string>mobile.allowIPhoneConnections</string>
 			<key>pfm_title</key>
@@ -1831,10 +1819,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
-			<key>pfm_default</key>
-			<string>borders</string>
 			<key>pfm_description</key>
-			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.</string>
+			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.</string>
 			<key>pfm_name</key>
 			<string>layout.paneSeparation</string>
 			<key>pfm_range_list</key>
@@ -2356,7 +2342,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A shell command that runs a while shows as busy.</string>
 			<key>pfm_name</key>
@@ -2498,6 +2484,23 @@
 			<string>Font Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>same</string>
+			<key>pfm_description</key>
+			<string>Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane.</string>
+			<key>pfm_name</key>
+			<string>appearance.sidebarSurface</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>same</string>
+				<string>separate</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sidebar Background</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2708,7 +2711,7 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet.</string>
+			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once.</string>
 			<key>pfm_name</key>
 			<string>sidebar.cards.tips</string>
 			<key>pfm_title</key>
@@ -3543,6 +3546,42 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<array>
+				<string>media</string>
+				<string>zoom</string>
+				<string>downloads</string>
+			</array>
+			<key>pfm_description</key>
+			<string>Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back.</string>
+			<key>pfm_name</key>
+			<string>browser.toolbarButtons</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>media</string>
+						<string>zoom</string>
+						<string>favorites</string>
+						<string>downloads</string>
+						<string>designMode</string>
+						<string>profile</string>
+						<string>theme</string>
+						<string>devTools</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Toolbar Buttons</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>chromium</string>
 			<key>pfm_description</key>
 			<string>New browser tabs open in this engine.</string>
@@ -3733,6 +3772,86 @@
 			<string>browser.omnibar.calculator</string>
 			<key>pfm_title</key>
 			<string>Calculator Answers</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>transparent</string>
+			<key>pfm_description</key>
+			<string>The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.glass</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>transparent</string>
+				<string>regular</string>
+				<string>clear</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Address Bar Glass</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>background</string>
+			<key>pfm_description</key>
+			<string>The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.glassTint</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>background</string>
+				<string>accent</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Glass Tint</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.34999999999999998</real>
+			<key>pfm_name</key>
+			<string>browser.omnibar.glassTintStrength</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Tint Strength</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>theme</string>
+			<key>pfm_description</key>
+			<string>Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.cornerRadius</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>theme</string>
+				<string>capsule</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Address Bar Corners</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A soft shadow under the glass address bar.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.shadow</string>
+			<key>pfm_title</key>
+			<string>Address Bar Shadow</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

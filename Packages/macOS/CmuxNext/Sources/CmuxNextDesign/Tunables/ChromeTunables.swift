@@ -28,7 +28,7 @@ public nonisolated enum ChromeTunables {
     public static let tabBackgroundInset = points("tabBackgroundInset", .tabs, "Tab background inset",
                                                   help: "Inset of a tab's rounded background inside its slot.", 1, range: 0...8)
     public static let tabContentLeadingInset = points("tabContentLeadingInset", .tabs, "Tab content inset",
-                                                      help: "Inset of a tab's icon from its slot's leading edge (the pane content line).", 8, range: 0...24)
+                                                      help: "Inset of a tab's icon from its slot's leading edge (the pane content line).", 6, range: 0...24)
     public static let dividerThickness = points("dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.", 1, range: 0...6)
     public static let dividerHitWidth = points("dividerHitWidth", .panes, "Divider hit width", help: "Draggable width centered on a divider.", 7, range: 1...24)
     public static let panePadding = DerivedTunable<CGFloat>.number(

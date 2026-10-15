@@ -269,7 +269,7 @@ fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
     std::fs::write(&socket_path, b"test socket marker").unwrap();
     let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
 
-    let error = finish_server_shutdown(
+    let error = headless::finish_server_shutdown(
         Some(()),
         &mux,
         &socket_path,
@@ -296,7 +296,7 @@ fn normal_server_cleanup_disarms_the_fallback_guard() {
     let mux = Mux::new("normal-shutdown", SurfaceOptions::default());
     let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket_path.clone());
 
-    finish_server_shutdown(
+    headless::finish_server_shutdown(
         Some(()),
         &mux,
         &socket_path,

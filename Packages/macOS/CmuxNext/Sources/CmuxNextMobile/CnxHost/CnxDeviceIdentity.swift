@@ -28,4 +28,9 @@ public struct CnxDeviceIdentity: Sendable {
         try fileManager().setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         return id
     }
+
+    /// Forgets the stored id (the owner removed this Mac): the next ``deviceID()`` is new.
+    public func forget() {
+        try? fileManager().removeItem(at: file)
+    }
 }

@@ -10,8 +10,10 @@ extension TabCell: StatusIndicatorConfigClient {
     var spinnerPlan: StatusIndicatorPlan {
         guard item.indicator.replacesTabIcon else { return .hidden }
         let config = StatusIndicatorAppearance.shared.config
-        var plan = StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle), animates: config.animatesLoops, set: config.iconSet)
-        if item.isWaiting, plan.animation == .spin { plan.animation = .spinBackward }
+        var plan = StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
+                                            animates: config.animatesLoops && isWindowVisible, set: config.iconSet)
+        // A page waiting for its first response turns the other way; agent work keeps `spin`.
+        if item.isWaiting, item.indicator.isLoading, plan.animation == .spin { plan.animation = .spinBackward }
         return plan
     }
 

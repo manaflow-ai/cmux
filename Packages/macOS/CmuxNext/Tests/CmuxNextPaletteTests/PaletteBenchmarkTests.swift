@@ -39,7 +39,7 @@ import Testing
     /// counts the time the thread waited for a core: with 32 suite processes
     /// on one host the ranking median read 123 ms against a 50 ms budget
     /// (78 s for the test), and the full scan beside it in this suite takes
-    /// cores too. The body is synchronous (JavaScriptCore runs on the
+    /// cores too. The body is synchronous (the ranker runs on the
     /// calling thread), so this thread's CPU time is the search cost.
     static func medianMilliseconds(iterations: Int, _ body: () -> Void) -> Double {
         var samples: [Double] = []

@@ -17,7 +17,7 @@ public actor PaletteSearcher {
     private var betweenCalls: (@Sendable (isolated PaletteSearcher) -> Void)?
 
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.searcher")
-    /// Why the shared ranker did not load here (its bundle is missing or broken), nil when it
+    /// Why the shared ranker did not load here, nil when it
     /// did. Without it every query ranks to no rows, so the reason is kept and logged, not lost.
     public nonisolated let loadError: PaletteRankerBridgeError?
 

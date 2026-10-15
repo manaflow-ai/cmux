@@ -12,6 +12,7 @@ optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server wi
 optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory tools as commands (harnesses without MCP)
 optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9's subagent tools as commands
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
+optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
@@ -96,6 +97,18 @@ fn main() -> std::process::ExitCode {
             }
             Err(e) => {
                 eprintln!("optchat-chief {verb}: {e}");
+                1
+            }
+        },
+        Some("workspace") => match optchat_chief::home_view::HomeView::from_env().read() {
+            Some(block) => {
+                println!("{block}");
+                0
+            }
+            None => {
+                eprintln!(
+                    "chief workspace: this cmux session has no Home workspace (the cmux app makes it)"
+                );
                 1
             }
         },

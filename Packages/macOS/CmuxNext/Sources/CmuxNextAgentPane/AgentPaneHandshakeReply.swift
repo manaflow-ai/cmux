@@ -30,6 +30,11 @@ enum AgentPaneHandshakeReply {
             // The surface holds after the chat has a session (a reload
             // of the quick panel stays compact).
             handshake.surface = model.seed?.surface
+            // A chat opened for its workspace gets its context until it has a session (cx-ihyx2).
+            // A chat on another machine does not: its remote wire carries only the prompt text.
+            if model.sessionId == nil, model.seed?.workspaceContext == true, handshake.connection?.remote == nil {
+                handshake.workspaceContext = true
+            }
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
@@ -53,6 +58,11 @@ enum AgentPaneHandshakeReply {
             if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
             handshake.revealTurn = model.pendingRevealTurn
             model.pendingRevealTurn = nil
+            // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
+            if request == .ready {
+                handshake.wake = model.pendingWake
+                model.pendingWake = nil
+            }
             model.hasHandshake = true
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }

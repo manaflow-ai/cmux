@@ -58,10 +58,14 @@ final class TerminalThemeSetting {
     var repaint: () -> Void = { ThemeBridge.repaintBackground() }
     /// The reload after the last step of a window background drag (the Opacity slider).
     private let reloadTimer = DemandTimer(owner: "terminal-theme.background-reload")
+    /// How long that reload waits after a step (tests lengthen it, so a slow host's steps still coalesce).
+    var reloadDelay = TerminalThemeSetting.backgroundReloadDelay
     /// Shuffle Daily: turns the backdrop to the next work at local midnight.
     private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
-    /// The clock Shuffle Daily reads (tests move it to another day).
-    var now: () -> Date = Date.init
+    /// The clock and calendar (read per pick, so a time zone change applies) Shuffle Daily reads; tests pin both.
+    var now: () -> Date = Date.init, calendar: () -> Calendar = { .current }
+    /// Where it hears of a day, time zone or clock change (tests post to their own); set before `follow`.
+    var notificationCenter: NotificationCenter = .default
     /// Whether the background is Shuffle Daily, so a day, time zone or clock change re-picks the work.
     private var shufflesDaily = false
     private var dayObservers: [any NSObjectProtocol] = []
@@ -84,7 +88,7 @@ final class TerminalThemeSetting {
              daily: BackdropSelectionSetting.shufflesDaily(settings.applied.root))
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
-            dayObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.shufflesDaily else { return }
                     self.showDailyArt()
@@ -122,9 +126,9 @@ final class TerminalThemeSetting {
 
     /// Shows the work of `now()`'s day and turns to the next one at the following midnight.
     func showDailyArt() {
-        let today = now()
-        backdropScope.setBackdropSelection(.art(.daily(on: today)))
-        let wait = max(1, BackdropArt.nextDay(after: today).timeIntervalSince(today) + 1)
+        let (today, calendar) = (now(), calendar())
+        backdropScope.setBackdropSelection(.art(.daily(on: today, calendar: calendar)))
+        let wait = max(1, BackdropArt.nextDay(after: today, calendar: calendar).timeIntervalSince(today) + 1)
         dailyTimer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.showDailyArt() }
     }
 
@@ -159,7 +163,7 @@ final class TerminalThemeSetting {
             // Only the opacity or a frosted radius moved: the window repaints now, and Ghostty
             // reloads once after the last step instead of on every one.
             repaint()
-            return reloadTimer.schedule(after: Self.backgroundReloadDelay) { @MainActor [weak self] in self?.reload() }
+            return reloadTimer.schedule(after: reloadDelay) { @MainActor [weak self] in self?.reload() }
         }
         // At launch the config already loaded with these overrides (primed) or none.
         let loaded = Self.primed ?? State(theme: nil, font: .init(), background: .init())

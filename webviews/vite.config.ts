@@ -37,6 +37,8 @@ export default defineConfig({
       "src/agent-session/shared/agentBrands.generated.ts",
       // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
       "src/icon-picker/generated/**",
+      // cmux-tui/bindings/codegen/page_router.py --check owns these bytes.
+      "src/pages/shared/generated/**",
     ],
   }),
   define: {

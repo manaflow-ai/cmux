@@ -77,6 +77,8 @@ pub struct BrowserProfileDeletion {
     pub deleted_bookmarks: usize,
     /// The new `bookmarks_revision` when bookmarks were deleted.
     pub bookmarks_revision: Option<u64>,
+    /// The frontend browser tabs that named the profile, now on the default one.
+    pub cleared_browsers: Vec<String>,
 }
 
 pub(super) fn read_browser_profiles(
@@ -128,7 +130,42 @@ fn order(connection: &Connection) -> anyhow::Result<Vec<String>> {
     Ok(read_browser_profiles(connection)?.into_iter().map(|profile| profile.id).collect())
 }
 
+pub(crate) fn resolve_browser_profile_id_in(
+    connection: &Connection,
+    value: &str,
+) -> anyhow::Result<String> {
+    let exact_id = connection
+        .query_row(
+            "SELECT browser_profile_id FROM browser_profiles WHERE browser_profile_id = ?1",
+            [value],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(id) = exact_id {
+        return Ok(id);
+    }
+    let mut statement = connection.prepare(
+        "SELECT browser_profile_id FROM browser_profiles
+         WHERE name = ?1 ORDER BY browser_profile_id ASC",
+    )?;
+    let ids = statement
+        .query_map([value], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    match ids.as_slice() {
+        [id] => Ok(id.clone()),
+        [] => anyhow::bail!("unknown browser profile {value}"),
+        _ => anyhow::bail!("browser profile name is ambiguous: {value}"),
+    }
+}
+
 impl WorkspaceRegistry {
+    /// Resolve a browser profile by its stable id or exact display name.
+    /// Stable ids take precedence; ambiguous names are rejected.
+    pub fn resolve_browser_profile_id(&self, value: &str) -> anyhow::Result<String> {
+        let connection = self.connection.get();
+        resolve_browser_profile_id_in(&connection, value)
+    }
+
     /// Create a browser profile at `index` (default last). An existing id
     /// returns the stored record with `false`, so a retried import finds
     /// the profile it made.
@@ -294,6 +331,7 @@ impl WorkspaceRegistry {
             "UPDATE profiles SET browser_profile_id = NULL WHERE browser_profile_id = ?1",
             [id],
         )?;
+        let cleared_browsers = super::presentation_store::clear_frontend_browser_profile(&tx, id)?;
         tx.execute("DELETE FROM browser_profiles WHERE browser_profile_id = ?1", [id])?;
         let (deleted_bookmarks, bookmarks_revision) =
             super::personal_bookmarks::delete_profile_bookmarks(&tx, id)?;
@@ -304,7 +342,8 @@ impl WorkspaceRegistry {
             "personal.browser_profile.deleted",
             vec![subject("browser_profile", id)],
             &json!({"browser_profile_id": id, "cleared_workspaces": cleared_workspaces,
-                    "cleared_rooms": cleared_rooms, "deleted_bookmarks": deleted_bookmarks}),
+                    "cleared_rooms": cleared_rooms, "deleted_bookmarks": deleted_bookmarks,
+                    "cleared_browsers": cleared_browsers}),
         )?;
         tx.commit()?;
         Ok(BrowserProfileDeletion {
@@ -312,6 +351,7 @@ impl WorkspaceRegistry {
             cleared_rooms,
             deleted_bookmarks,
             bookmarks_revision,
+            cleared_browsers,
         })
     }
 }

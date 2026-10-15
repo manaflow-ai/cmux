@@ -2,20 +2,21 @@ import AppKit
 import CmuxNextSettings
 
 #if DEBUG
-/// `debug.quit`: the quit sheet for automation (no system input needed).
-/// `{}` reports it and never quits; the report's `quit_with` names the
-/// socket actions that do (`action.run` `quitEndSessions` stops the app and
-/// its daemon). `{open: true}` starts a quit exactly as Cmd-Q does
-/// (interactive origin); `{remember: bool}` sets "Don't ask again";
-/// `{open: true, inactive: true}` does it as a Dock quit of an inactive app;
-/// `{press: "keep" | "confirm-quit-everything" | "end-everything" | "quit" | "cancel"}`
-/// clicks that button. While "Some sessions did not end" shows, the report
-/// carries `failure` (its lines and buttons) and `press: "retry" |
-/// "quit-anyway"` answers it.
+/// `debug.quit` reports or drives the automation quit sheet. `{}` reports;
+/// `{open: true}` starts an interactive quit, and `fixture_quit` performs a
+/// DEBUG-only fixture quit. `{press: ...}` answers a sheet or failure alert.
+/// `{wedge_engine_stop: true}` makes engine stop block for quit-deadline checks.
 @MainActor
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let quit = services.quit
+        if params["wedge_engine_stop"]?.boolValue == true { quit.wedgesEngineStop = true }
+        if let choice = params["fixture_quit"]?.stringValue {
+            let choices: [String: QuitSessionsChoice] = ["keep": .keep, "end-sessions": .endKeepLayout, "end-everything": .endEverything]
+            guard let picked = choices[choice] else { return .object(["error": .string("fixture_quit: keep, end-sessions or end-everything")]) }
+            quit.requestQuit(.explicit(picked))
+            return .object(["quitting": .string(choice)])
+        }
         if params["open"]?.boolValue == true {
             let started = !quit.isQuitting
             // `inactive`: as a quit from the Dock while cmux is in the background.
@@ -47,6 +48,7 @@ enum DebugQuit {
 
     private static func report(_ quit: QuitCoordinator) -> [String: JSONValue] {
         var result: [String: JSONValue] = ["quitting": .bool(quit.isQuitting), "asking": .bool(quit.sheet != nil),
+                                           "wedges_engine_stop": .bool(quit.wedgesEngineStop),
                                            "activated": .bool(quit.lastAskActivated), "quit_with": quitWith]
         if let failure = quit.failureAlert {
             result["failure"] = .object([

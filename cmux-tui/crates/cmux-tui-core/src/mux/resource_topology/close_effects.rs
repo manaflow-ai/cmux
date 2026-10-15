@@ -559,6 +559,7 @@ impl Mux {
             hook();
         }
         self.publish_resource_event();
+        self.archive_unplaced_terminals(&effects.removed);
         for surface in effects.removed {
             self.purge_surface_side_tables(surface.id);
             if surface.kind() == SurfaceKind::Browser {

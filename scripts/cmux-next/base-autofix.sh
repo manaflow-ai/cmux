@@ -18,6 +18,8 @@
 #     (the typed cmux global, scopes and ops) from the operation catalogs, the
 #     action catalog export and the first-party apps' fragments
 #     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host);
+#   - the defaults snapshot: schemas/defaults/cmux-next.json from the action
+#     and settings exports (scripts/ci/defaults_guard.py snapshot);
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
 #     whose type is fixed or gone (shrink only; with --ratchets);
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
@@ -171,6 +173,23 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
         echo "fixed: regenerated $rel"
       fi
     done <<<"$changed"
+  fi
+fi
+
+# 1e3. The defaults snapshot, from the action and settings exports
+# (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
+# a changed default still needs a call owner's approval on the pull request.
+defaults_snapshot=schemas/defaults/cmux-next.json
+if (( ! unverified_exports )) && [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
+  before="$(cksum < "$repo/$defaults_snapshot" 2>/dev/null || true)"
+  (cd "$repo" && python3 scripts/ci/defaults_guard.py snapshot >/dev/null)
+  if [[ "$before" != "$(cksum < "$repo/$defaults_snapshot")" ]]; then
+    if frozen "$defaults_snapshot"; then
+      git -C "$repo" checkout --quiet -- "$defaults_snapshot" 2>/dev/null || rm -f "$repo/$defaults_snapshot"
+      echo "skipped (frozen): $defaults_snapshot (stale; python3 scripts/ci/defaults_guard.py snapshot)"
+    else
+      echo "fixed: regenerated $defaults_snapshot"
+    fi
   fi
 fi
 

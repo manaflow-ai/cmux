@@ -11,7 +11,7 @@ import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { HomeIcon } from "./icons";
 import { MessageActions } from "./MessageActions";
-import { messageText, mentionsMe, type ThreadSummary } from "./model";
+import { MAX_THREAD_INDENT, messageText, mentionsMe, type ThreadSummary } from "./model";
 import type { HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
@@ -31,6 +31,15 @@ export interface MessageRowProps {
   /** My own messages: edit (resolves true when the owner took it) and delete. */
   onEdit?(message: HomeMessage, text: string): Promise<boolean>;
   onRetract?(message: HomeMessage): void;
+  /** In a thread: reply to this message (threads nest without a limit). */
+  onReply?(message: HomeMessage): void;
+  onCopyLink?(message: HomeMessage): void;
+  /** Indent level in the thread panel (0 = none). */
+  depth?: number;
+  /** The reply this one answers, named above it when the indent is capped. */
+  parent?: HomeMessage;
+  /** A link opened this message: it is marked (the timeline scrolls to it). */
+  highlighted?: boolean;
 }
 
 export const MessageRow = memo(function MessageRow({
@@ -48,8 +57,13 @@ export const MessageRow = memo(function MessageRow({
   onEditEnd,
   onEdit,
   onRetract,
+  onReply,
+  onCopyLink,
+  depth = 0,
+  parent,
+  highlighted = false,
 }: MessageRowProps) {
-  const { t } = strings;
+  const { t, format } = strings;
   const author = people.get(message.author);
   const time = timeFormat.format(message.createdAt);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -58,13 +72,19 @@ export const MessageRow = memo(function MessageRow({
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
   return (
     <article
-      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}`}
+      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}`}
       aria-label={`${author?.name ?? message.author}, ${time}`}
+      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
     >
       <div className="hc-msg-gutter">
         {head ? <Avatar participant={author} size={36} /> : <time className="hc-msg-hover-time">{time}</time>}
       </div>
       <div className="hc-msg-main">
+        {parent && depth > MAX_THREAD_INDENT && (
+          <p className="hc-msg-parent">
+            {format("thread.inReplyTo", people.get(parent.author)?.name ?? parent.author)}
+          </p>
+        )}
         {head && <Head author={author} fallback={message.author} time={time} strings={strings} />}
         {message.retracted ? (
           <p className="hc-msg-retracted">{t("message.retracted")}</p>
@@ -117,7 +137,9 @@ export const MessageRow = memo(function MessageRow({
           canEdit={canEdit}
           canDelete={own && onRetract !== undefined}
           onReact={(value) => onReact(message, value)}
-          onReply={onOpenThread ? () => onOpenThread(message.id) : undefined}
+          onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
+          replyLabel={onReply ? t("action.replyTo") : undefined}
+          onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
           onEdit={() => onEditStart?.(message)}
           onDelete={() => setConfirmDelete(true)}
           onCopy={() => void navigator.clipboard?.writeText(messageText(message))}

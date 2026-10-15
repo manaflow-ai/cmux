@@ -6,7 +6,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { mergeMessages, threadOf } from "./model";
+import { hashLink, mergeMessages, threadOf } from "./model";
 import {
   HomeOps,
   type HomeConversation,
@@ -16,11 +16,14 @@ import {
   type HomeMessage,
   type HomePage,
   type HomeParticipant,
+  type HomeResolvedLink,
   type HomeThreadPage,
   type HomeThreadStats,
 } from "./types";
 
 export const PAGE = 100;
+/** Most pages a link loads to reach its message (older history, or later thread replies). */
+const LINK_PAGES = 20;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
@@ -61,6 +64,8 @@ export interface HomeSnapshot {
   threadsSeen: ReadonlySet<string>;
   /** The open conversation's running agent reply (shown until the reply posts). */
   draft?: HomeDraft;
+  /** The message a link opened: the timeline or thread panel scrolls to it and marks it. */
+  highlight?: string;
   error?: string;
 }
 
@@ -119,10 +124,84 @@ export class HomeChannelsStore {
         }),
       );
       this.stops.push(await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch)));
+      // Replies that came while the page was hidden are read once the person sees them.
+      const shown = () => {
+        if (document.visibilityState === "visible") this.readOpen();
+      };
+      document.addEventListener("visibilitychange", shown);
+      this.stops.push(() => document.removeEventListener("visibilitychange", shown));
     } catch (error) {
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    this.followHash();
+  }
+
+  /** Opens the link in the page URL's hash (`#/conversation/<id>[/message/<id>]`) now and on every
+   * change, so a host (the Messages Home's switch, a pasted URL) opens the page at one message. */
+  private followHash(): void {
+    if (typeof window === "undefined") return;
+    const open = () => {
+      const link = hashLink(window.location.hash);
+      if (link) void this.openLink(link);
+    };
+    window.addEventListener("hashchange", open);
+    this.stops.push(() => window.removeEventListener("hashchange", open));
+    open();
+  }
+
+  /** Opens a conversation or message link (`cmux://conversation/<id>[/message/<id>]`): the
+   * conversation, the message's thread, and the message marked. Resolves true when it opened. */
+  async openLink(url: string): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
+      if (!this.snapshot.conversations.has(link.conversation)) await this.reloadInbox();
+      await this.select(link.conversation);
+      const target = link.message;
+      // A reply from before threads has no owner root; the page shows it in its reply_to thread.
+      const root = link.threadRoot ?? (target ? threadOf(target) : undefined);
+      if (target && root) {
+        await this.openThread(root);
+        await this.pageTo(
+          () => this.snapshot.threadView?.messages,
+          target,
+          async () => {
+            const view = this.snapshot.threadView;
+            if (!view?.hasMore || view.root !== root) return false;
+            await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
+            return true;
+          },
+        );
+      } else if (target) {
+        await this.pageTo(
+          () => this.snapshot.messages,
+          target,
+          async () => {
+            if (!this.snapshot.hasOlder || this.snapshot.selected !== link.conversation) return false;
+            await this.loadOlder();
+            return true;
+          },
+        );
+      }
+      this.set({ highlight: target?.id });
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Loads more pages (at most LINK_PAGES) until `target` is in `loaded()`. */
+  private async pageTo(
+    loaded: () => readonly HomeMessage[] | undefined,
+    target: HomeMessage,
+    more: () => Promise<boolean>,
+  ): Promise<void> {
+    for (let page = 0; page < LINK_PAGES; page += 1) {
+      if (loaded()?.some((message) => message.id === target.id)) return;
+      if (!(await more())) return;
+    }
   }
 
   private stop(): void {
@@ -162,6 +241,7 @@ export class HomeChannelsStore {
       unseen: undefined,
       threadsSeen: new Set(),
       draft: this.drafts.draft(id),
+      highlight: undefined,
     });
     await this.reloadPage(id);
   }
@@ -229,11 +309,12 @@ export class HomeChannelsStore {
     }
   }
 
-  openThread(root: string | undefined): void {
+  /** Opens (or closes) a thread; resolves when its first replies are loaded. */
+  openThread(root: string | undefined): Promise<void> {
     const threadView = root ? { root, messages: [], hasMore: false, loading: true } : undefined;
     if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root, threadView });
     else this.set({ thread: root, threadView, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
-    if (root) void this.loadThread(root, 0);
+    return root ? this.loadThread(root, 0) : Promise.resolve();
   }
 
   /** The next page of the open thread's replies (the owner's thread read). */
@@ -270,8 +351,9 @@ export class HomeChannelsStore {
     }
   }
 
-  /** Sends text to the open conversation (or the open thread). The owner's event shows it. */
-  async send(text: string, thread?: string): Promise<boolean> {
+  /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
+   * or any reply: threads nest without a limit). The owner's event shows it. */
+  async send(text: string, thread?: string, parent?: string): Promise<boolean> {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || !trimmed) return false;
@@ -280,6 +362,7 @@ export class HomeChannelsStore {
         conversation,
         text: trimmed,
         threadRoot: thread,
+        replyTo: parent,
         idempotencyKey: this.key("send"),
       });
       return true;
@@ -362,6 +445,13 @@ export class HomeChannelsStore {
 
   dismissError(): void {
     this.set({ error: undefined });
+  }
+
+  /** Reads the open conversation through its newest loaded message. */
+  private readOpen(): void {
+    const { selected, messages } = this.snapshot;
+    const open = selected ? this.snapshot.conversations.get(selected) : undefined;
+    if (open) this.markRead(open, messages.at(-1)?.seq ?? 0);
   }
 
   /** Moves my read cursor to the newest seq I have seen, once per new seq. */

@@ -382,6 +382,25 @@ describe("guest agent updates", () => {
     })();
   });
 
+  test("an update keeps claude behind its sign-in launcher and moves the real link", async () => {
+    const g = await guest();
+    // An image with the claude launcher (/etc/cmux/claude): the entry is the
+    // launcher, the version sits behind cmux-claude-real.
+    writeFileSync(path.join(g.configDir, "claude"), "#!/bin/bash\n");
+    chmodSync(path.join(g.configDir, "claude"), 0o755);
+    const entry = path.join(g.options.binDir, "claude");
+    const real = path.join(g.options.libexecDir, "cmux-claude-real");
+    symlinkSync(readlinkSync(entry), real);
+    rmSync(entry);
+    symlinkSync(path.join(g.configDir, "claude"), entry);
+    publish(g, "claude", "2.0.0");
+    expect((await runUpdater(g)).status).toBe(0);
+    expect(state(g).versions.claude).toBe("2.0.0");
+    expect(readlinkSync(entry)).toBe(path.join(g.configDir, "claude"));
+    expect(readlinkSync(real)).toBe(path.join(g.options.root, "claude/2.0.0/claude"));
+    expect((await runChild(real, ["--version"])).stdout.trim()).toBe("claude 2.0.0");
+  });
+
   test("a release younger than the minimum age waits; the newest old-enough one installs", async () => {
     const g = await guest();
     publish(g, "codex", "1.1.0", { ageHours: 24 * 10 });

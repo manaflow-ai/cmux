@@ -29,8 +29,9 @@ extension ScreenContentView {
         guard let index = subviews.firstIndex(of: host) else { return [] }
         var rects: [CGRect] = []
         for case let above as PaneHostView in subviews[(index + 1)...] where !above.isHidden && above.alphaValue > 0.99 {
-            let shared = above.frame.intersection(host.frame)
-            if shared.width > 0.5 && shared.height > 0.5 { rects.append(above.frame) }
+            // A host a spring rect reveals hides only what shows of it, not its whole (final-size) frame.
+            let shown = above.revealRect.map(above.frame.intersection) ?? above.frame
+            if shown.intersection(host.frame).width > 0.5 && shown.intersection(host.frame).height > 0.5 { rects.append(shown) }
         }
         return rects
     }
@@ -70,8 +71,12 @@ extension ScreenContentView {
         var visible = revealing.map(host.frame.intersection) ?? host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
         for cover in panes(above: host) { visible = visible.remainder(outside: cover) }
-        if visible == host.frame { return host.setStripClip(nil) }
-        host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
+        let changed = visible == host.frame
+            ? host.setStripClip(nil)
+            : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
+        // A clip can change while the pane stays put (a dock growing over it): the window's
+        // Chromium pages re-read their clip shapes, which carry this mask.
+        if changed { context.stripClipsDidChange() }
     }
 
     /// Glass backdrops for overlay columns and the stacking order: strip

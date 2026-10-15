@@ -1,57 +1,51 @@
 import AppKit
 import CmuxNextDesign
 
-// UPDATE-CARD: the highlights popover (the React ready surface,
-// cx-urd.61.2) opens while the pointer is over the card (or its button) and
-// stays while the pointer moves into it, so "See all changes" can be
-// clicked. No timers: each exit checks where the pointer is now. The
-// highlights were read when the update staged, so opening it reads no
-// network.
+// UPDATE-CARD: the highlights popup (the React ready surface, cx-urd.61.2,
+// in the themed popup of SidebarUpdateNotesPanel) opens while the pointer is
+// over the card (or its button) and stays while the pointer moves into it,
+// so "See all changes" can be clicked. No timers: each exit checks where the
+// pointer is now. The highlights were read when the update staged, so
+// opening it reads no network.
 extension SidebarUpdateCardView {
-    /// Opens the popover beside the card (toward the content, away from
-    /// the window edge). No-op without a card or a window. A popover that
-    /// is still closing (the pointer left and came back) opens again.
+    /// Opens the popup beside the card (toward the content, away from the
+    /// window edge). No-op without a card or a window. A popup that is still
+    /// closing (the pointer left and came back) opens again.
     func showNotes() {
-        guard card != nil, let highlights, highlights.contentHeight > 0, window != nil, !isHiddenOrHasHiddenAncestor else { return }
-        let popover = popover ?? makePopover(highlights)
-        self.popover = popover
-        (popover.contentViewController?.view as? SidebarPopoverIslandHost)?.adopt(highlights)
-        popover.appearance = effectiveAppearance
-        popover.contentViewController?.view.fillWithPopupSurface(themeOf: self)
-        // The page's own height: a zero first size would show nothing.
-        popover.contentSize = NSSize(width: Self.popoverWidth, height: highlights.contentHeight)
-        popover.show(relativeTo: bounds, of: self, preferredEdge: .maxX)
+        guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor else { return }
+        let panel = notesPanel ?? makeNotesPanel(highlights)
+        notesPanel = panel
+        panel.host.adopt(highlights)
+        let anchor = window.convertToScreen(convert(bounds, to: nil))
+        panel.present(beside: anchor, height: highlights.contentHeight, parent: window, themeAnchor: self)
     }
 
     static var popoverWidth: CGFloat { 300 }
 
+    /// The popup shows (or is opening).
+    var notesAreShown: Bool { notesPanel?.isPresented == true }
+
     func hideNotes() {
-        guard let popover, popover.isShown else { return }
-        popover.performClose(nil)
+        notesPanel?.dismiss()
     }
 
-    private func makePopover(_ highlights: any SidebarSurfaceIsland) -> NSPopover {
-        let popover = NSPopover()
-        popover.behavior = .semitransient
-        popover.animates = Motion.animatesMovement
-        let host = SidebarPopoverIslandHost(width: Self.popoverWidth)
-        host.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
-        highlights.onHeightChange = { [weak popover, weak highlights] in
-            guard let popover, let highlights, highlights.contentHeight > 0, popover.isShown else { return }
-            popover.contentSize = NSSize(width: Self.popoverWidth, height: highlights.contentHeight)
+    private func makeNotesPanel(_ highlights: any SidebarSurfaceIsland) -> SidebarUpdateNotesPanel {
+        let panel = SidebarUpdateNotesPanel(width: Self.popoverWidth)
+        panel.host.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
+        // The close finished: the highlights page goes back to wait in the card.
+        panel.onClosed = { [weak self] in self?.parkHighlights() }
+        highlights.onHeightChange = { [weak panel, weak highlights] in
+            guard let panel, let highlights, highlights.contentHeight > 0 else { return }
+            panel.resize(height: highlights.contentHeight)
         }
-        popover.delegate = self
-        let controller = NSViewController()
-        controller.view = host
-        popover.contentViewController = controller
-        return popover
+        return panel
     }
 
-    /// Whether the pointer is over the popover's window now (with a small
-    /// margin for the gap between card and popover).
+    /// Whether the pointer is over the popup now (with a small margin for
+    /// the gap between card and popup).
     func pointerIsOverNotes() -> Bool {
-        guard let window = popover?.contentViewController?.view.window, popover?.isShown == true else { return false }
-        return window.frame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(NSEvent.mouseLocation)
+        guard let panel = notesPanel, panel.isPresented else { return false }
+        return panel.cardFrame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(NSEvent.mouseLocation)
     }
 
     /// Whether the pointer is over the card now.
@@ -61,19 +55,10 @@ extension SidebarUpdateCardView {
         return card.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(NSEvent.mouseLocation)
     }
 
-    /// The pointer left the popover: it closes unless the pointer is back
+    /// The pointer left the popup: it closes unless the pointer is back
     /// on the card.
     func pointerLeftNotes() {
         guard !pointerIsOverCard() else { return }
         hideNotes()
-    }
-}
-
-extension SidebarUpdateCardView: NSPopoverDelegate {
-    /// The popover closed: the highlights page goes back to wait in the card.
-    func popoverDidClose(_ notification: Notification) {
-        // A close that arrives after the popover showed again keeps the page.
-        guard popover?.isShown != true else { return }
-        parkHighlights()
     }
 }

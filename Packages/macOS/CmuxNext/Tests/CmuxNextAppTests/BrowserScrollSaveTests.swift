@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -17,13 +18,14 @@ struct BrowserScrollSaveTests {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/a")))
         tab.scrollPosition = { 640 }
         let sent = Sent()
+        let center = NotificationCenter()
         // The navigation write-back waits an hour: only leaving the app writes.
         let writer = BrowserHistoryWriter(page: tab, recorded: nil, delay: .seconds(3600),
-                                          sleep: { try await Task.sleep(for: $0) },
+                                          sleep: { try await Task.sleep(for: $0) }, center: center,
                                           send: { history in sent.histories.append(history); return true })
         defer { writer.cancel() }
 
-        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: nil)
+        center.post(name: NSApplication.didResignActiveNotification, object: nil)
         let deadline = ContinuousClock.now + .seconds(5)
         while sent.histories.last?.entries.compactMap(\.scrollY).last != 640, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))

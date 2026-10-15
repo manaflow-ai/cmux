@@ -84,7 +84,20 @@ await requireBrowserLane("permission-panel-buttons.test.ts", async () => {
       state,
     );
     await page.locator(".cv-edit-diff").waitFor();
-    await page.waitForTimeout(300);
+    // The diff draws its rows after the element appears, later on a loaded runner with a cold dev
+    // server (#20363 and #20379's react-apps-check read "tall" as false after a fixed 300 ms).
+    // Wait for the request to outgrow the panel, then check what is in view.
+    await page
+      .waitForFunction(
+        () =>
+          [".acpmux-permission-panel", ".acpmux-permission-items"].some((selector) => {
+            const node = document.querySelector(selector);
+            return node !== null && node.scrollHeight > node.clientHeight + 1;
+          }),
+        null,
+        { timeout: 10_000 },
+      )
+      .catch(() => undefined);
     const seen = await page.evaluate(() => {
       const panel = document.querySelector(".acpmux-permission-panel")!.getBoundingClientRect();
       return {

@@ -15,6 +15,7 @@ import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
+import { useMinuteClock } from "../clock";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -24,7 +25,7 @@ export type ActiveChat = {
   id: string;
   title: string;
   harness?: string;
-  state: "input" | "running" | "error" | "unread" | "idle";
+  state: "input" | "running" | "failed" | "error" | "unread" | "idle";
   label: string;
 };
 
@@ -277,7 +278,7 @@ export function AllChatsList({
   onOpenActive,
   onOpenInTerminal,
   onBring,
-  now = Date.now(),
+  now: fixedNow,
 }: {
   load: LoadChatsPage;
   onOpen(key: string): void;
@@ -290,6 +291,9 @@ export function AllChatsList({
 }) {
   const t = useT();
   const nt = useNt();
+  // The shared clock (clock.ts), as the New Tab cards: one age for one chat on every page.
+  const clock = useMinuteClock();
+  const now = fixedNow ?? clock;
   const { state, fetchPage } = useChatPages(load);
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);

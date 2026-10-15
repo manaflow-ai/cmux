@@ -260,4 +260,16 @@ nonisolated enum CatalogArgument {
         default: value
         }
     }
+
+    /// A device title from the daemon's list, or none (`browserDevice`).
+    static var deviceString: ActionArgument {
+        ActionArgument(name: "device", title: String(localized: "argument.device", defaultValue: "Device", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// portrait, landscape, unfolded-portrait or unfolded-landscape (`browserDevice`).
+    static var orientationString: ActionArgument {
+        ActionArgument(name: "orientation", title: String(localized: "argument.orientation", defaultValue: "Orientation", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
 }

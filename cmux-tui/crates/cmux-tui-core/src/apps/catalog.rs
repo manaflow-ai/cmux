@@ -189,7 +189,7 @@ impl Package {
 
     /// A file of the package, refused when it (or a symlink on the way)
     /// leaves the package directory.
-    fn read(&self, relative: &str) -> Option<Vec<u8>> {
+    pub(super) fn read(&self, relative: &str) -> Option<Vec<u8>> {
         let root = self.dir.canonicalize().ok()?;
         let path = self.dir.join(relative).canonicalize().ok()?;
         if !path.starts_with(&root) {

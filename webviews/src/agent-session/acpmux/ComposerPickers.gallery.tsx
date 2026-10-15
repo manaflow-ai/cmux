@@ -187,6 +187,18 @@ const effortPressDragRelease: Play = async (ctx) => {
 const openMode: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
+    (node) => node.textContent?.trim(),
+  );
+  const expected = ["Default", "Full access", "Plan"];
+  if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
+    throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
+  for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {
+    if (item.querySelector(".ui-menu-check")?.parentElement !== item)
+      throw new Error("Permission mode checkmark is not in its leading column");
+    if (item.querySelector<HTMLElement>(".ui-menu-shortcut")?.textContent?.trim() !== String(index + 1))
+      throw new Error("Permission mode shortcut is not a trailing hint");
+  }
 };
 
 const modeFocus: Play = async (ctx) => {

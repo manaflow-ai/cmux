@@ -37,7 +37,7 @@ final class ClosedBrowserHistories {
 
     /// A browser tab's page is closing (`TabContentCache.release`).
     func save(_ page: (any BrowserTab)?) {
-        guard let page, let url = page.state.url?.absoluteString, let state = BrowserTabDuplicate.history(of: page) else { return }
+        guard let page, let url = page.state.url?.absoluteString, let state = BrowserRestoreState.history(of: page) else { return }
         closed.append(Saved(url: url, profile: page.profileID, state: state, at: clock.now))
         if closed.count > Self.limit { closed.removeFirst(closed.count - Self.limit) }
     }

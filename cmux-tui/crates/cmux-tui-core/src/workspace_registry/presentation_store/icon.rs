@@ -60,8 +60,8 @@ pub fn validate_icon_value(value: &str) -> anyhow::Result<()> {
 ///
 /// Asset references (`svg:sha256-<hex>`, `image:sha256-<hex>`) are refused
 /// here. Fields that take assets (`icon-assets-v1`: workspace, screen, room,
-/// tab, workspace group, bookmark folder, browser profile and workspace status
-/// icons) check them with
+/// tab, workspace group, bookmark folder, session (machine), browser profile
+/// and workspace status icons) check them with
 /// `personal_store::blobs::require_icon_asset`, which proves the asset exists
 /// and keeps it out of the blob sweep; the store's put path accepts an SVG
 /// only through [`validate_presentation_icon_asset`].

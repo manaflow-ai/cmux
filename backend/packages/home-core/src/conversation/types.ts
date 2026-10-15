@@ -143,7 +143,7 @@ export interface Message {
   readonly author: string
   readonly parts: ReadonlyArray<Part>
   readonly reply_to?: PartRef
-  /** The root of the thread this message replies in; a root has none (one level). */
+  /** The top root of the thread this message replies in (any depth; the parent is `reply_to`); a root has none. */
   readonly thread_root?: string
   readonly created_at: string
   readonly edited_at?: string

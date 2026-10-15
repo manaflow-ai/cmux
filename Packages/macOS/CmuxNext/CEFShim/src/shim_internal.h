@@ -192,6 +192,8 @@ bool NavigationViolatesGuard(int browser_id, const std::string& url);
 // True when browser_id is agent-driven (guard bit 4) and url is a Chromium
 // page agents may not reach (AgentURLPolicy.swift).
 bool NavigationRefusedForAgent(int browser_id, const std::string& url);
+// True when browser_id is agent-driven (guard bit 4).
+bool BrowserIsAgentDriven(int browser_id);
 void ForgetNavigationGuard(int browser_id);
 // True when url is the sign-in callback of browser_id (cmux_shim_set_auth_callback).
 bool NavigationIsAuthCallback(int browser_id, const std::string& url);

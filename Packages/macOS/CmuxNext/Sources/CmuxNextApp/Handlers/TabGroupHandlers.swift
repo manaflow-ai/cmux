@@ -18,6 +18,7 @@ enum TabGroupHandlers {
             registry.bind(id, unavailable: gate, invoke: invoke)
         }
         bindMembership(bind, ctx)
+        ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { $0.target.flatMap { $0.kind == .tab ? ctx.services.locateTab($0.id) : nil }.map { $0.0.tabGroup == nil } ?? false }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
@@ -176,12 +177,12 @@ enum TabGroupHandlers {
             run("ungroup-tab-group", pane: pane, ctx) { c, t in _ = try await c.ungroupTabGroup(group, transaction: t) }
         }
         bind("tabGroup.close") { invocation in
-            guard let (group, pane) = group(invocation, ctx) else { return }
-            if CloseUndoToasts.isUserClose { // one undo toast for the group (REOPEN-CLOSED)
-                ctx.services.closedTabs?.undoToasts.expectGroup(tabs: pane.tabs.filter { $0.tabGroup == group }, in: pane,
-                                                                daemon: ctx.services.daemon(for: pane), window: ctx.services.windows.active?.window)
-            }
-            run("close-tab-group", pane: pane, ctx) { c, t in _ = try await c.closeTabGroup(group, transaction: t) }
+            guard let (group, pane) = group(invocation, ctx), connection(for: pane, ctx) != nil else { return }
+            let close = { run("close-tab-group", pane: pane, ctx) { c, t in _ = try await c.closeTabGroup(group, transaction: t) } }
+            guard CloseUndoToasts.isUserClose, let undo = ctx.services.closedTabs?.undoToasts else { return close() }
+            // One undo toast for the group (REOPEN-CLOSED), decided before the close ends its terminals (cx-lb4al).
+            let tabs = pane.tabs.filter { $0.tabGroup == group }, window = ctx.services.windows.active?.window
+            undo.decideFirst(tabs, on: ctx.services.daemon(for: pane)) { undo.expectGroup(tabs: tabs, in: pane, window: window, costly: $0); close() }
         }
         bind("tabGroup.save") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }

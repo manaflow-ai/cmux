@@ -139,6 +139,9 @@ pub mod op_names {
     pub const SSO_CONNECTION_DISABLE: &str = "sso.connection.disable";
     pub const SSO_CONNECTION_LIST: &str = "sso.connection.list";
     pub const SSO_CONNECTION_SET_SECRET: &str = "sso.connection.set_secret";
+    pub const TEAM_AI_LIMIT_GET: &str = "team.ai_limit.get";
+    pub const TEAM_AI_LIMIT_MEMBER_SET: &str = "team.ai_limit.member.set";
+    pub const TEAM_AI_LIMIT_SET: &str = "team.ai_limit.set";
     pub const TEAM_AUDIT_LIST: &str = "team.audit.list";
     pub const TEAM_DEVICE_COMPLIANCE: &str = "team.device.compliance";
     pub const TEAM_DEVICE_ENROLL: &str = "team.device.enroll";
@@ -323,6 +326,9 @@ pub mod op_names {
         SSO_CONNECTION_DISABLE,
         SSO_CONNECTION_LIST,
         SSO_CONNECTION_SET_SECRET,
+        TEAM_AI_LIMIT_GET,
+        TEAM_AI_LIMIT_MEMBER_SET,
+        TEAM_AI_LIMIT_SET,
         TEAM_AUDIT_LIST,
         TEAM_DEVICE_COMPLIANCE,
         TEAM_DEVICE_ENROLL,
@@ -510,6 +516,9 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "sso.connection.disable" => visitor.visit::<SsoConnectionDisableOp>(),
         "sso.connection.list" => visitor.visit::<SsoConnectionListOp>(),
         "sso.connection.set_secret" => visitor.visit::<SsoConnectionSetSecretOp>(),
+        "team.ai_limit.get" => visitor.visit::<TeamAiLimitGetOp>(),
+        "team.ai_limit.member.set" => visitor.visit::<TeamAiLimitMemberSetOp>(),
+        "team.ai_limit.set" => visitor.visit::<TeamAiLimitSetOp>(),
         "team.audit.list" => visitor.visit::<TeamAuditListOp>(),
         "team.device.compliance" => visitor.visit::<TeamDeviceComplianceOp>(),
         "team.device.enroll" => visitor.visit::<TeamDeviceEnrollOp>(),

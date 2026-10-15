@@ -100,6 +100,10 @@ export type AcpmuxActivity = {
 /// `line` is where the change starts, when the tool call's locations name it.
 export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; line?: number };
 
+/// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
+/// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
+export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
+
 export type AcpmuxPermission = {
   permissionId: string;
   groupId?: string;
@@ -107,7 +111,7 @@ export type AcpmuxPermission = {
   title?: string;
   kind?: string;
   pending: boolean;
-  options: { id: string; name: string; allow: boolean }[];
+  options: { id: string; name: string; allow: boolean; kind?: string }[];
   /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
   /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
   question?: AgentQuestion;
@@ -207,6 +211,7 @@ export type AcpmuxSnapshot = {
   permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
+  secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
@@ -223,6 +228,9 @@ export type AcpmuxSnapshot = {
     family?: string;
     /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
     icon?: string;
+    /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
+     * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
+    start?: { model?: string; effort?: string; modelSource?: StartSource; effortSource?: StartSource };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
      * (`diagnostic`: its first problem). Global harnesses have none. */
@@ -272,14 +280,14 @@ export type ConversationLayout = {
 const MEASURE_FONT = "14px system-ui";
 const MESSAGE_LINE_HEIGHT = 22.75;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
-const USER_BUBBLE_PADDING = 20;
+const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 const chromeHeight = (row: AcpmuxRow) =>
   row.kind === "user" ? USER_BUBBLE_PADDING + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const USER_BUBBLE_SIDES = 32;
+const USER_BUBBLE_SIDES = 24;
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
 const BLOCK_GAP = 14;
 const LIST_INDENT = 28;
@@ -294,12 +302,15 @@ const CODE_CHAR_WIDTH = 7.3;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
-/// Rows are at most 720px wide, inside 26.5px side gutters (`--cv-column` and `--cv-gutter`
-/// in conversation/conversation.css).
-const MAX_ROW_WIDTH = 720;
-const ROW_GUTTER = 26.5;
-export const transcriptRowWidth = (paneWidth: number) =>
-  Math.max(120, Math.min(MAX_ROW_WIDTH, paneWidth - 2 * ROW_GUTTER));
+/// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
+/// 62.5% of a wider pane up to 800px, centered, at least the page edge from each side.
+const PAGE_EDGE = 18;
+export function transcriptColumn(paneWidth: number) {
+  const column = Math.min(800, Math.max(720, paneWidth * 0.625));
+  const inset = Math.max(PAGE_EDGE, (paneWidth - column) / 2);
+  return { inset, width: paneWidth - 2 * inset };
+}
+export const transcriptRowWidth = (paneWidth: number) => Math.max(120, transcriptColumn(paneWidth).width);
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {
@@ -698,3 +709,7 @@ export function paneHeader(
   }
   return { title, status, detail: reason || rowError || status };
 }
+
+/** Where acpmux's start model or effort comes from: `saved` (acpmux defaults or the person's
+ * pick), `profile` (the harness profile's own), `catalog` (the model catalog's default). */
+export type StartSource = "saved" | "profile" | "catalog";

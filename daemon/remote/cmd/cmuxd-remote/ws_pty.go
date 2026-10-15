@@ -304,6 +304,11 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 		cfg.PTYHub = newWebSocketPTYHub(cfg, stderr)
 	}
 	defer cfg.PTYHub.closeAll()
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
 	if strings.TrimSpace(cfg.RPCAuthLeaseFile) != "" {
 		if cfg.CLIBridge == nil {
 			cfg.CLIBridge = newCloudCLIBridge()
@@ -312,12 +317,6 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 			return fmt.Errorf("cloud CLI bridge: %w", err)
 		}
 	}
-
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
 
 	server := &http.Server{
 		Handler:           newWebSocketPTYHandler(cfg, stderr),

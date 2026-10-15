@@ -43,6 +43,11 @@ pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &st
     }
 }
 
+/// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
+const ARCHIVED_TAG: &str = "archived";
+/// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
+const SIDE_TAG: &str = "side";
+
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -54,11 +59,17 @@ pub(super) async fn handle_request(
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
-        super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
+        super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await?;
     }
     // Only the person allows or widens what runs without asking
     // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    let verdict = hub.person_check(conn.is_person(), m, &params).await?;
+    // Held to the Web's rules: a Web connection, or a peer forwarding for its
+    // own Web client (`via: web`); a peer forwarding its unix socket or app
+    // keeps the person rule.
+    let remote_authenticated = conn.auth.authenticated()
+        && super::remote_guard::control_of(conn.origin, conn.auth, &params)
+            == crate::hub::Control::Web;
+    let verdict = hub.person_check(conn.is_person(), remote_authenticated, m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -108,6 +119,8 @@ async fn dispatch_request(
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
+                // The proof this connection presented (`conn_auth.rs`).
+                "auth": conn.auth.as_str(),
                 // This connection is the person (`hub/person.rs`): never yet,
                 // as the proof comes after this reply.
                 "person": conn.is_person(),
@@ -123,10 +136,10 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -141,6 +154,18 @@ async fn dispatch_request(
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
             }
+        }
+        // The person only (`Hub::person_check`): never reached otherwise.
+        method::MUX_APPROVERS_SET if conn.is_person() => hub.person.approvers.set(&params),
+        method::MUX_APPROVERS if conn.is_person() => Ok(hub.person.approvers.list()),
+        method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
+            Err(crate::hub::person::person_required("changing or reading trusted approvers"))
+        }
+        method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
+            hub.person.set_workspace_roots(&params)
+        }
+        method::MUX_WORKSPACE_ROOTS_SET => {
+            Err(crate::hub::person::person_required("changing the workspace folders"))
         }
         method::MUX_PERSON_HOLDS => {
             // The unix socket only: the app reaches a daemon it started over
@@ -220,7 +245,7 @@ async fn dispatch_request(
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
                 }
-                super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
+                super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = peer.request(method::SESSION_NEW, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     attach(hub, conn, id);
@@ -331,7 +356,7 @@ async fn dispatch_request(
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
-            let blocks = params
+            let mut blocks = params
                 .get("prompt")
                 .and_then(Value::as_array)
                 .cloned()
@@ -344,6 +369,10 @@ async fn dispatch_request(
                 .ok_or_else(|| {
                     RpcError::invalid_params("prompt must be an array of content blocks")
                 })?;
+            // A remote web client may not hide text, directly or through a peer daemon.
+            let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
+                == crate::hub::Control::Web;
+            crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let steer = mux_meta(&params)
                 .and_then(|m| m.get("steer"))
                 .and_then(Value::as_bool)
@@ -362,7 +391,7 @@ async fn dispatch_request(
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
                 resend: flag("resend") == Some(true),
-                control: super::remote_guard::control_of(conn.origin, &params),
+                control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
@@ -410,13 +439,15 @@ async fn dispatch_request(
                 .get("value")
                 .cloned()
                 .ok_or_else(|| RpcError::invalid_params("value is required"))?;
-            hub.set_config(&s, id, value).await
+            // The app pane's effort pick is saved for the next new chat (start_defaults.rs).
+            hub.client_set_config(&s, id, value, conn.origin == Origin::LocalApp).await
         }
         method::SESSION_SET_MODEL => {
             let s = hub.resolve(session_key(&params)?)?;
             let model = str_param(&params, "modelId")
                 .ok_or_else(|| RpcError::invalid_params("modelId is required"))?;
-            hub.set_model(&s, model).await
+            // The app pane's model pick is saved for the next new chat (start_defaults.rs).
+            hub.client_set_model(&s, model, conn.origin == Origin::LocalApp).await
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -862,6 +893,41 @@ async fn dispatch_request(
             );
             Ok(hub.session_summary(&s))
         }
+        // One tag with one value, so a page relay can allow it without
+        // reading tag names (`_acpmux/tag` may set any tag).
+        method::MUX_ARCHIVE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let archived = params
+                .get("archived")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
+            if archived {
+                let mut set = serde_json::Map::new();
+                set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
+                hub.set_tags(&s, Some(&set), &[], None);
+            } else {
+                hub.set_tags(&s, None, &[ARCHIVED_TAG.to_owned()], None);
+            }
+            Ok(hub.session_summary(&s))
+        }
+        // One tag with a session as its value: never another tag (`_acpmux/tag`).
+        method::MUX_SIDE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let chat = params.get("chat").and_then(Value::as_str).ok_or_else(|| {
+                RpcError::invalid_params("chat (the side chat's chat) is required")
+            })?;
+            // The exact session id, never a name or a prefix.
+            let chat = hub.resolve(chat).ok().filter(|c| c.id == chat).ok_or_else(|| {
+                RpcError::not_found(format!("no chat with the session id {chat:?}"))
+            })?;
+            if chat.id == s.id {
+                return Err(RpcError::invalid_params("a chat is not its own side chat"));
+            }
+            let mut set = serde_json::Map::new();
+            set.insert(SIDE_TAG.into(), Value::String(chat.id.clone()));
+            hub.set_tags(&s, Some(&set), &[], None);
+            Ok(hub.session_summary(&s))
+        }
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
@@ -960,7 +1026,7 @@ async fn dispatch_request(
         }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
                 .await
         }
@@ -977,7 +1043,7 @@ async fn dispatch_request(
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             hub.respond_permission_group(&s, params, control).await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
@@ -991,7 +1057,7 @@ async fn dispatch_request(
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // Who answers, for the person rule under the prompt's lock
             // (`hub/person.rs`): an allow that is not the person's counts
             // only on its decision proof, which the answer spends.
@@ -1058,7 +1124,7 @@ async fn dispatch_request(
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => {
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             hub.handoff_start(&params, control).await
         }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,

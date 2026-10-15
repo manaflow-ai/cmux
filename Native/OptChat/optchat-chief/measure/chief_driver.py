@@ -39,7 +39,7 @@ sys.path.insert(0, HERE)
 import scenario  # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20"])
+ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux"])
 ap.add_argument("--out", required=True)
 ap.add_argument("--bins", required=True)
 ap.add_argument("--login-env", default="")
@@ -295,6 +295,7 @@ try:
                     ACPMUX_SOCKET=os.path.join(ACPMUX_HOME, "acpmux.sock"), ACPMUX_BIN=os.path.join(BINS, "acpmux"),
                     MUX_HARNESS=opts.harness, CMUX_DAEMON_SOCKET=SOCK, OPTCHAT_BACKUP_REMOTE="off", **login_env())
     host_env.update(dict(kv.split("=", 1) for kv in opts.env))
+    host_started = now_ms()
     h = subprocess.Popen([oc, "host", "--daemon-socket", SOCK, "--mux-home", MUX], stdout=open(os.path.join(OUT, "host.log"), "w"),
                          stderr=subprocess.STDOUT, env=host_env)
     pids.append(h.pid)
@@ -314,6 +315,8 @@ try:
     if not conv:
         raise SystemExit("no Chief conversation")
     run["conversation"] = conv
+    # Brain cold start: host process start to its tools socket (the brain serves).
+    run["brain_up_ms"] = now_ms() - host_started
     log(f"brain {BRAIN} up; conversation {conv}; harness {opts.harness}")
 
     TRACES = os.path.join(MUX, "optchat", "traces")

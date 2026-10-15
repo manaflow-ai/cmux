@@ -1,5 +1,5 @@
-/// Which New Tab page template shows (cx-yabk, plans/cmux-next/new-tab-templates.md). The page's
-/// dots switch it in place; Terminal skips the page, so New Tab opens a terminal.
+/// Which New Tab page template shows (cx-yabk, plans/cmux-next/new-tab-templates.md), set in
+/// Settings. Terminal draws the default screen: New Tab never opens a terminal by itself.
 public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable {
     /// The one-field screen with agent rows, chat cards and Tools.
     case `default`

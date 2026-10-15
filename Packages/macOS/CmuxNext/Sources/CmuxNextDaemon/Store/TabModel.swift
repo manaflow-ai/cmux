@@ -40,6 +40,8 @@ public final class TabModel: Identifiable {
     public internal(set) var gitBranch: String?
     public internal(set) var gitDetached: Bool
     public internal(set) var browserEngine: String?
+    /// A frontend browser tab's browser profile (`frontend-browser-tab-profile-v1` moves it in place).
+    public internal(set) var browserProfileID: String?
     public internal(set) var faviconURL: String?
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
@@ -52,6 +54,9 @@ public final class TabModel: Identifiable {
     /// The icon the user set on the tab record (`tab.update {icon}`; the shared icon
     /// wire string: one emoji or an SF Symbol name). Nil shows the tab kind's icon.
     public internal(set) var userIcon: String?
+    /// The device a browser tab emulates, as the daemon resolved it
+    /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
+    public internal(set) var emulation: JSONValue?
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -71,6 +76,11 @@ public final class TabModel: Identifiable {
     @ObservationIgnored private var commandTimer: DemandTimer?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
+    /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
+    /// chat picked in an open tab changes only this, and the control snapshot must hear it (cx-sy3w1).
+    public internal(set) var conversation: ConversationTabRef?
+    /// The app an app tab shows (`TabSnapshot.app`), observed like ``conversation``.
+    public internal(set) var app: AppTabRef?
     /// Last snapshot, for fields the record does not surface. Views should
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
@@ -91,23 +101,23 @@ public final class TabModel: Identifiable {
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
     /// source, `agent-session-tabs-v1`); nil for every other tab.
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? snapshot.conversation?.agentSession : nil
+        kind == .conversation ? conversation?.agentSession : nil
     }
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
-        kind == .browser ? snapshot.app : nil
+        kind == .browser ? app : nil
     }
 
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
     /// App Store, Settings); nil for every other tab.
     public var page: String? {
-        kind == .conversation ? snapshot.conversation?.page : nil
+        kind == .conversation ? conversation?.page : nil
     }
 
     /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
     public var pageRoute: String? {
-        kind == .conversation ? snapshot.conversation?.route : nil
+        kind == .conversation ? conversation?.route : nil
     }
 
     init(_ s: TabSnapshot) {
@@ -133,10 +143,13 @@ public final class TabModel: Identifiable {
         gitBranch = s.gitBranch
         gitDetached = s.gitDetached
         browserEngine = s.browserEngine
+        browserProfileID = s.browserProfileID
         faviconURL = s.faviconURL
         isFrontendOwned = s.isFrontendOwned
         tabGroup = s.tabGroup
         remote = s.remote
+        conversation = s.conversation
+        app = s.app
     }
 
     static func identity(_ s: TabSnapshot) -> String {
@@ -166,10 +179,13 @@ public final class TabModel: Identifiable {
         if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
         if gitDetached != s.gitDetached { gitDetached = s.gitDetached }
         if browserEngine != s.browserEngine { browserEngine = s.browserEngine }
+        if browserProfileID != s.browserProfileID { browserProfileID = s.browserProfileID }
         if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
         if remote != s.remote { remote = s.remote }
+        if conversation != s.conversation { conversation = s.conversation }
+        if app != s.app { app = s.app }
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
@@ -178,6 +194,7 @@ public final class TabModel: Identifiable {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
+        if emulation != record.emulation { emulation = record.emulation }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }

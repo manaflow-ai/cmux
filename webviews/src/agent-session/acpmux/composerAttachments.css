@@ -59,6 +59,16 @@
   height: 100%;
   object-fit: cover;
   border-radius: var(--acpmux-attach-radius);
+  /* A neutral checker under the image, so a transparent one still reads as a thumbnail. */
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 8px 8px;
+  /* The hairline edge draws over the image (an outline paints above it), so a screenshot as dark
+     or light as the composer still shows where it ends (Leo, 2026-10-13: dark ones looked missing). */
+  outline: 0.5px solid var(--agent-border-strong);
+  outline-offset: -0.5px;
 }
 .acpmux-attachment-file {
   display: flex;

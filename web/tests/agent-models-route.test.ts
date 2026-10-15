@@ -22,7 +22,7 @@ describe("agent models route", () => {
     expect(await response.json()).toEqual(agentModelCatalog);
   });
 
-  test("adds the Claude Code version gates and keeps the Gemini and OpenCode lists", () => {
+  test("adds the Claude Code version gates and keeps the OpenCode list", () => {
     const claude = agentModelCatalog.providers.claude.models;
     expect(claude.find((model) => model.id === "claude-fable-5")).toMatchObject({
       label: "Claude Fable 5",
@@ -31,17 +31,6 @@ describe("agent models route", () => {
     });
     expect(claude.find((model) => model.id === "claude-opus-4-8")).toMatchObject({ minVersion: "2.1.154", fast: true });
 
-    expect(agentModelCatalog.providers.gemini).toEqual({
-      defaultModel: "gemini-3.1-pro-preview",
-      models: [
-        { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
-        { id: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
-        { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview" },
-        { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-        { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-        { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
-      ],
-    });
     expect(agentModelCatalog.providers.codex.models.every((model) => !("efforts" in model))).toBe(true);
     expect(agentModelCatalog.providers.opencode).toEqual({
       defaultModel: "anthropic/claude-sonnet-5",
@@ -54,24 +43,28 @@ describe("agent models route", () => {
   });
 
   // cx-miuo: the model catalog (services/model-catalog, what /api/models/v1 serves) is the one
-  // source of Claude and Codex models; agent-chat reads this route, so it must not lag it.
-  test("serves every Claude and Codex model the model catalog names", async () => {
+  // source of Claude, Codex and Gemini models; agent-chat reads this route, so it must not lag it.
+  test("serves every Claude, Codex and Gemini model the model catalog names", async () => {
     const { bundledSnapshot } = await import("../services/model-catalog/store");
     const catalog = bundledSnapshot();
     const response = await GET(new Request("https://cmux.test/api/agent-models"));
     const served = (await response.json()) as {
       providers: Record<string, { defaultModel: string; models: Array<{ id: string; label: string }> }>;
     };
-    for (const harness of ["claude", "codex"]) {
+    for (const harness of ["claude", "codex", "gemini"]) {
       const curated = catalog.harnesses.find((entry) => entry.id === harness);
       expect(curated).toBeDefined();
       expect(served.providers[harness].models.map((model) => model.id)).toEqual(
         curated!.models.map((model) => model.id),
       );
     }
-    expect(served.providers.claude.defaultModel).toBe(
-      catalog.harnesses.find((entry) => entry.id === "claude")!.defaultModel!,
-    );
+    for (const harness of ["claude", "gemini"]) {
+      expect(served.providers[harness].defaultModel).toBe(
+        catalog.harnesses.find((entry) => entry.id === harness)!.defaultModel!,
+      );
+    }
+    // The 1M context choice is Claude Code's alone; Gemini's 1M window is not a choice.
+    expect(served.providers.gemini.models.some((model) => "supportsOneMillion" in model)).toBe(false);
   });
 
   test("uses the strong ETag for conditional revalidation", async () => {

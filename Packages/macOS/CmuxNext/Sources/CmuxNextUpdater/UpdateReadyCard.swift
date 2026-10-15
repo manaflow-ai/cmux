@@ -1,21 +1,19 @@
 public import Foundation
 
-/// UPDATE-CARD (Lawrence 2026-10-06; changelog 2026-10-10, cx-lntk): the
-/// card above the sidebar footer while an update is staged: the short title
-/// "Update Ready", the short version and build date, the first changelog
-/// lines, the Automatic Updates checkbox (`updates.downloadAutomatically`),
-/// one Restart to Update button and "See all changes" under it (the What's
-/// New page for the staged span, cx-7rone); while the click installs, the
-/// button reads Installing… and is disabled. Its hover popover is ``notes``.
-/// Pure and localized.
+/// UPDATE-CARD (Lawrence 2026-10-06; Leo 2026-10-13): the card above the sidebar footer while an
+/// update is staged says only what a glance needs: "Update Ready", the short version and build
+/// date ("nightly 3845050 · Oct 13"), the Automatic Updates checkbox
+/// (`updates.downloadAutomatically`) and one Restart to Update button; while the click installs,
+/// the button reads Installing… and is disabled. Its hover popover adds what the card lacks: the
+/// full build, the changelog highlights and "See all changes", once (the card keeps "See all
+/// changes" only as an accessibility action). Pure and localized.
 nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     public var title: String
-    /// "1.0.0 nightly 3801702 · Oct 10, 2026", nil when unknown.
+    /// "nightly 3845050 · Oct 13" (``UpdateChangelog/cardDetail``), nil when unknown.
     public var detail: String?
-    /// The first changelog lines (at most ``UpdateChangelog/shownLines``).
-    public var lines: [String]
-    /// "See all changes": the What's New page for the staged update
-    /// (`UpdaterService.openStagedChangelog()`).
+    /// "See all changes", the What's New page for the staged update
+    /// (`UpdaterService.openStagedChangelog()`): the popup's link, and the card's
+    /// accessibility action (the popup opens on hover only).
     public var seeAllTitle: String
     public var buttonTitle: String
     /// The click was taken: the button is disabled until the relaunch.
@@ -28,8 +26,7 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     public init(version: String?, isInstalling: Bool, automaticUpdates: Bool, notes: UpdateReadyNotes,
                 changelog: UpdateChangelog? = nil) {
         title = UpdaterStrings.readyToInstall
-        detail = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.detail
-        lines = changelog?.lines ?? []
+        detail = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.cardDetail
         seeAllTitle = UpdaterStrings.seeAllChanges
         buttonTitle = isInstalling ? UpdaterStrings.installing : UpdaterStrings.restartToUpdate
         self.isInstalling = isInstalling

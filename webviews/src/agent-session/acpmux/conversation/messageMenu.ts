@@ -17,6 +17,8 @@ export type MessageMenuTarget = {
   text: string;
   markdown?: string;
   forkSeq?: number;
+  /// The chat opens a side chat through `forkSeq` (the chat menu's New side chat, from this turn).
+  sideChat?: true;
   /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
   retryRowId?: string;
   /// The message's web links and images, each once, for Open Link.
@@ -52,8 +54,13 @@ export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): 
 }
 
 /// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
-/// `:fold`), or undefined for a row that is not a prompt or a reply.
-export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): MessageMenuTarget | undefined {
+/// `:fold`), or undefined for a row that is not a prompt or a reply. `sideChat`: the chat opens a
+/// side chat (the chat menu shows New side chat), so a turn that forks opens one too.
+export function messageMenuTarget(
+  snapshot: AcpmuxSnapshot,
+  rowId: string,
+  sideChat = false,
+): MessageMenuTarget | undefined {
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
   const row = snapshot.rows.find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
@@ -67,6 +74,7 @@ export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): Mess
   const target: MessageMenuTarget =
     row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
+  if (forkSeq !== undefined && sideChat) target.sideChat = true;
   if (row.kind === "user" && row.failed) target.retryRowId = row.id;
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;

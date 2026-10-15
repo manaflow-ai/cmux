@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextPages
@@ -49,7 +51,6 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
-    /// The cmux cnx iPhone host (Settings > Mobile); follows the account and mobile.allowIPhoneConnections.
     let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
@@ -85,8 +86,8 @@ final class AppServices {
     /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
     private(set) lazy var modelRouter: ModelRouterLease? = {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AgentTabPaneSource.paneEnvironment(tag: environment.tag, bundledBinDirectory: bin,
-                                                               environment: ProcessInfo.processInfo.environment) else { return nil }
+        guard let acpmux = AcpmuxEnvironment.resolve(tag: environment.tag, bundledBinDirectory: bin,
+                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
     }()
@@ -118,8 +119,6 @@ final class AppServices {
         service.start()
         return service
     }()
-    /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
-    var newTabKinds = NewTabKindMemory()
     /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
     let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
@@ -209,6 +208,7 @@ final class AppServices {
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
+        DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

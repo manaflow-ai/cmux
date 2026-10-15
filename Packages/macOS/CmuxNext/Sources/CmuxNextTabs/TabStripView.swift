@@ -66,6 +66,7 @@ public final class TabStripView: NSView {
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
+    let windowVisibility = WindowVisibilityObserver()
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     var motion: [TabID: TabMotion] = [:]
@@ -75,6 +76,7 @@ public final class TabStripView: NSView {
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
     var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
+    var closingHit = TabClosingModeHit()
     var hasSynced = false
     var lastSelectedID: TabID?
     var lastModelOrder: [TabID] = []
@@ -224,6 +226,7 @@ public final class TabStripView: NSView {
         // A move to another window (or none) ends this strip's card only.
         hoverCards.unregister(hoverCard)
         windowMain.observe(window) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
+        windowVisibility.observe(window) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
         if window != nil {
             hoverCards.register(hoverCard)
             applyTokens(animated: false)

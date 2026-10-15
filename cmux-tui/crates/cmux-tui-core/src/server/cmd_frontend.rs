@@ -203,6 +203,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "session": record.session,
         "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
+        "since_ms": record.since_ms,
     })
 }
 

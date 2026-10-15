@@ -2320,7 +2320,7 @@
    "value": {
     "retired": "every surface draws the one window background; the key is ignored"
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Retired.swift:9"
+   "source": "schemas/settings/retired-keys.json"
   },
   "appearance.accent": {
    "value": {

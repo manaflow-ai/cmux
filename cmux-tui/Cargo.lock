@@ -12,19 +12,23 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-chat-index",
  "cmux-coderouter",
+ "cmux-codex-acp",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-sdk",
  "cmux-unix-socket",
  "crossterm",
  "dirs",
  "futures",
  "futures-util",
+ "getrandom 0.3.4",
  "libc",
  "notify",
  "pulldown-cmark",
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
@@ -40,6 +44,7 @@ dependencies = [
  "unicode-width",
  "uuid",
  "wait-timeout",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -1010,6 +1015,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-codex-acp"
+version = "0.1.0"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=c30e6489d483265dae15360901fafa75bad24a65#c30e6489d483265dae15360901fafa75bad24a65"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-config"
 version = "0.1.0"
 dependencies = [
@@ -1037,7 +1050,9 @@ name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-local-auth",
  "cmux-sdk",
+ "getrandom 0.3.4",
  "libc",
  "log",
  "serde",
@@ -1062,6 +1077,23 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-focus-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-git"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -1144,6 +1176,16 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-palette-ranker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1504,6 +1546,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-git",
  "cmux-history",
  "cmux-layout-reducer",
  "cmux-link",
@@ -1526,6 +1569,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "notify",
  "parking_lot",
  "proptest",
  "quick-xml",

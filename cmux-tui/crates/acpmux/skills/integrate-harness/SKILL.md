@@ -18,7 +18,7 @@ until every step passes.
    adapter (`<name>-acp`).
 2. Start the file: `cmux harness add <id> --command <program>` (ACP) or
    `cmux harness add <id> --command <program> --protocol terminal` (no ACP).
-   For a known agent start from an example: `--example claude|codex|opencode|pi|gemini|aider`.
+   For a known agent start from an example: `--example claude|codex|opencode|pi|gemini|aider|muse`.
 3. Edit the file (schema below).
 4. Run `cmux harness doctor <id>`. It starts the harness in a temp folder,
    runs `initialize`, `session/new` and one prompt, and prints PASS/WARN/FAIL
@@ -53,7 +53,7 @@ schema = 1
 id = "acme"                     # = file name
 name = "Acme Agent"             # display name
 icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB), or
-                                # claude, openai, codex, opencode, pi, gemini, terminal, generic
+                                # claude, openai, codex, opencode, pi, gemini, meta, terminal, generic
 protocol = "acp"                # acp | terminal | claude-stdio
 command = "acme-agent"          # program on PATH, or an absolute path (no spaces, no arguments)
 args = ["acp", "--model", "${model}"]   # ${model} = chosen model, ${cwd} = session folder
@@ -88,7 +88,7 @@ docs = "https://acme.example/agent/setup"
 check = ["acme-agent", "whoami"]  # exit 0 = logged in
 
 [sessions]                      # where its chats are, for the cmux Chats list
-adapter = "jsonl"               # or a built-in: claude-code codex opencode pi gemini cursor-agent amp aider
+adapter = "jsonl"               # or a built-in: claude-code codex opencode pi gemini cursor-agent amp aider muse
 roots = ["${ACME_HOME:-~/.acme}/sessions"]
 files = "*/*.jsonl"
 [sessions.fields]

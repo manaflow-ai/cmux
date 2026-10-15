@@ -544,7 +544,8 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
         (
             1,
             Command::Send {
-                surface: 1,
+                surface: Some(1),
+                terminal_id: None,
                 text: Some("input".to_string()),
                 bytes: None,
                 paste: false,

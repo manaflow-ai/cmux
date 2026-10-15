@@ -44,7 +44,7 @@ typedef enum {
   CMUX_SHIM_TITLE = 5,            // s1 = title
   CMUX_SHIM_FAVICON = 6,          // s1 = first favicon url or ""
   CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
-  CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url
+  CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url, a = 1 when the entry came from a POST
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
   CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
                                   // interstitial for it, s1 = text, s2 = url

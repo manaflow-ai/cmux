@@ -17,7 +17,7 @@ dest="$dest_dir/cnx-hostd"
 rm -f "$dest" "$dest.version"
 
 src="${CMUX_NEXT_CNX_HOSTD_BIN:-}"
-if [[ "${CONFIGURATION:-Debug}" == Release* && -z "$src" ]]; then
+if [[ "${CONFIGURATION:-Debug}" == Release* && -z "$src" && "${CMUX_NEXT_REQUIRE_CNX_HOSTD:-}" != 1 ]]; then
   echo "cnx-hostd: not bundled in this ${CONFIGURATION} build (CMUX_NEXT_CNX_HOSTD_BIN is unset)"
   exit 0
 fi

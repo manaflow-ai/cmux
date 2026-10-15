@@ -114,8 +114,8 @@ describe("POST /api/vm/[id]/resize", () => {
       cpus: 4,
       memoryTotalMb: 8192,
       maxDiskMb: 131072,
-      maxMemoryMb: 32768,
-      maxVcpus: 16,
+      maxMemoryMb: 16384,
+      maxVcpus: 8,
     });
     expect(programs).toHaveLength(1);
     expect(programs[0]).toMatchObject({

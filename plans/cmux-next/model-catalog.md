@@ -45,9 +45,11 @@ Agent launcher (cx-hkat) reuses the same picker and rules.
   ⌘1-⌘4 hint have fixed slots, so the hints form one column. The catalog refresh button sits in
   the search row.
 
-## Open item
+## Seed changes on a seeded database
 
-The `fable` alias is not in the catalog yet: `catalog_overrides` is seeded by migration
-20261007120000, and web/tests/model-catalog.test.ts requires that seed to equal overrides.ts, so
-adding `"claude-fable": "fable"` needs a data migration for databases already seeded. Rule 3 makes
-the alias field matter less: Fable's latest entry comes from Claude Code's own report.
+`catalog_overrides` is seeded by migration 20261007120000, and web/tests/model-catalog.test.ts
+requires that seed to equal overrides.ts. A change to overrides.ts therefore edits that seed (for
+new databases) and adds a data migration that brings an already-seeded database to it without
+overwriting a curator's row: 20261013040000_model_catalog_gemini_fable adds the Gemini CLI harness
+(cx-miuo) and Claude Code's `fable` alias (cx-uxeb; `claude --model fable` runs Fable 5.1 on
+2.1.295). The next publish serves the change.

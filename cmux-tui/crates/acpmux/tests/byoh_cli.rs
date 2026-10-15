@@ -45,7 +45,7 @@ impl User {
             .env("XDG_CONFIG_HOME", self.root.join("xdg"))
             .env("ACPMUX_HOME", self.root.join("amx"))
             .env("ACPMUX_SOCKET", self.root.join("s.sock"))
-            .env_remove("ACPMUX_LOGIN_ENV")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .env_remove("ACPMUX_AGENT_HOSTS")
             .env_remove("XPC_SERVICE_NAME")
             .env_remove("CLAUDECODE")

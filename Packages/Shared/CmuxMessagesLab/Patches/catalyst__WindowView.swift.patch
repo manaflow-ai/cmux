@@ -23,7 +23,7 @@
          Fixture.renderScale = s
          RowBitmaps.shared.removeAll()
          compose.rescale()
-@@ -896,6 +903,7 @@
+@@ -901,6 +908,7 @@
              if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
          case .typing: idx.append(max(0, msgs.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }

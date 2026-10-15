@@ -8,7 +8,7 @@ import CmuxNextIcons
 /// when it has anything. Drag an item to reorder it; drop a link to bookmark
 /// it there. Frames are laid out by hand (no Auto Layout inside the bar).
 public final class BookmarksBarView: NSView {
-    public static var height: CGFloat { Metrics.tabHeight + Metrics.space2 }
+    public static var height: CGFloat { Metrics.controlHeight + Metrics.space2 }
     static let dragType = NSPasteboard.PasteboardType("com.cmuxterm.bookmark-id")
 
     public weak var source: (any BookmarksBarSource)? { didSet { reload() } }
@@ -92,7 +92,7 @@ public final class BookmarksBarView: NSView {
     public override func layout() {
         super.layout()
         let inset = Metrics.paneChromeInset
-        let itemHeight = Metrics.tabHeight
+        let itemHeight = Metrics.controlHeight
         let y = (bounds.height - itemHeight) / 2
         otherButton.font = Typography.body
         overflow.font = Typography.body

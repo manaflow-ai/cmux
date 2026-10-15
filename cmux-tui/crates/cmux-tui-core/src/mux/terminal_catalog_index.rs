@@ -27,7 +27,7 @@ impl State {
 
     /// The catalog owner indexed under host id `terminal_id`, if the index
     /// names one that still carries that host identity.
-    fn indexed_catalog_terminal(&self, terminal_id: &str) -> Option<&Arc<Surface>> {
+    pub(super) fn indexed_catalog_terminal(&self, terminal_id: &str) -> Option<&Arc<Surface>> {
         let public_id = self.terminal_catalog_by_host.get(terminal_id)?;
         self.terminal_catalog.get(public_id).filter(|surface| {
             surface

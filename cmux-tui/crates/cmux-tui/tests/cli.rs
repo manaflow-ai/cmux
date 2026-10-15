@@ -3664,8 +3664,17 @@ mod all_sessions_scope;
 #[path = "cli/app_workspaces.rs"]
 mod app_workspaces;
 #[cfg(unix)]
+#[path = "cli/browser_devices.rs"]
+mod browser_devices;
+#[cfg(unix)]
+#[path = "cli/browser_profiles.rs"]
+mod browser_profiles;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
+#[cfg(unix)]
+#[path = "cli/close_workspace_if_empty.rs"]
+mod close_workspace_if_empty;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
@@ -3677,31 +3686,34 @@ mod command_history;
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
 #[cfg(unix)]
+#[path = "cli/conversation_tree.rs"]
+mod conversation_tree;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/frontend_browser_status.rs"]
+mod frontend_browser_status;
+#[path = "cli/git_branches.rs"]
+mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
-#[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
-#[cfg(unix)]
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
-#[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
 #[path = "cli/state_helpers.rs"]
 mod state_helpers;
-#[cfg(unix)]
 #[path = "cli/status.rs"]
 mod status;
 #[path = "cli/tab_group_hex.rs"]
@@ -3709,6 +3721,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
+#[cfg(unix)]
+#[path = "cli/ws_conversations.rs"]
+mod ws_conversations;
 use state_helpers::*;
 
 #[cfg(unix)]

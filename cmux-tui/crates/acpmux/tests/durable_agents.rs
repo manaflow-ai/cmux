@@ -63,8 +63,11 @@ impl Daemon {
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
+            // No catalog fetch: a test never reaches the network, and the fetch's
+            // warning (a catalog server 404) came on stdout before the ready line.
+            .env("ACPMUX_CATALOG_FETCH", "0")
             .env_remove("ACPMUX_AGENT_HOSTS")
-            .env_remove("ACPMUX_LOGIN_ENV")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .env_remove("XPC_SERVICE_NAME")
             .env_remove("ACPMUX_IDLE_CHILD_SECS")
             .envs(self.env.iter().map(|(k, v)| (k, v)))
@@ -494,9 +497,12 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
         "approve-all",
         &[("FAKE_SETSID_CHILD", helper_file.to_str().unwrap())],
     );
-    let (_session, _host, client) = gated_turn(&daemon).await;
-    let helper: i64 = std::fs::read_to_string(&helper_file).unwrap().trim().parse().unwrap();
-    let _ = std::fs::remove_file(&helper_file);
+    let (_session, host, client) = gated_turn(&daemon).await;
+    // The helper of this session's harness (a model probe's harness starts
+    // one too, in its own file).
+    let helper_path = format!("{}.{}", helper_file.display(), host["harness_pid"]);
+    let helper: i64 = std::fs::read_to_string(&helper_path).unwrap().trim().parse().unwrap();
+    let _ = std::fs::remove_file(&helper_path);
     let out = cli_shutdown(&daemon, &[]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();

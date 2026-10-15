@@ -73,9 +73,12 @@ function openMenuRows(
     const box = row.getBoundingClientRect();
     return box.height > 0 && box.top >= top - 0.5 && box.bottom <= bottom + 0.5;
   });
+  const dialog = popup.closest<HTMLElement>("[role=dialog]");
   return {
     rows: rows.length,
     shown_in_page: whole.length,
+    height: Math.round(frame.height),
+    ...(dialog ? { dialog_height: Math.round(dialog.getBoundingClientRect().height) } : {}),
     // A Base UI menu marks its positioner; a list the page positions itself, itself (popupHost.ts).
     escaped: popup.hasAttribute("data-escaped") || (popup.parentElement?.hasAttribute("data-escaped") ?? false),
   };

@@ -47,7 +47,6 @@ extension AgentHandlers {
         let services = context.services
         let daemon = services.activeDaemon
         guard let window = context.activeWindow, services.agentTabs.canHost(on: daemon) else { return false }
-        if invocation.origin == .user { services.newTabKinds.record(.agent, folder: nil) }
         let windowID = window.state.id
         context.registry.track(Task { @MainActor in
             var spawn = WorkspaceSpawn(cwd: seed.cwd)

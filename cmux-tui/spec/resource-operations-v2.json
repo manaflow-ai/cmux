@@ -34,9 +34,92 @@
     "git_checkpoint",
     "conversation",
     "setting",
-    "keybinding"
+    "keybinding",
+    "browser_device"
   ],
   "types": {
+    "BrowserDeviceList": {
+      "kind": "object",
+      "fields": {
+        "chrome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Where the Chrome part comes from: {repository, path, ref, commit, chromium, devices}."
+        },
+        "devices": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Custom devices first, then Chrome's, then cmux's newer devices; each a Chrome JSONV1 device object with origin (chrome, cmux or custom)."
+        }
+      },
+      "extra": false
+    },
+    "BrowserDeviceAddResult": {
+      "kind": "object",
+      "fields": {
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The stored device (origin custom)."
+        }
+      },
+      "extra": false
+    },
+    "BrowserDeviceRemoveResult": {
+      "kind": "object",
+      "fields": {
+        "removed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when no custom device had the title."
+        }
+      },
+      "extra": false
+    },
+    "BrowserTabProfileResult": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "profile_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The profile the tab's record names now."
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the tab was in that profile already."
+        }
+      },
+      "extra": false
+    },
     "RequestOrigin": {
       "kind": "enum",
       "values": [
@@ -1987,7 +2070,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. pinned, tab_group_id, zoom (browser page zoom or terminal font scale), and a browser tab's back and forward URL lists (at most 20 each) are present when set. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. pinned, tab_group_id, zoom (browser page zoom or terminal font scale), and a browser tab's back and forward URL lists (at most 20 each) are present when set. A frontend-rendered browser tab carries browser_profile_id: the browser profile whose store its page uses (default when none was set; browser-profile-agent-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -2221,7 +2304,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; busy ({since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1), absent once the terminal exits. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. Both are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -3586,6 +3669,24 @@
               "overlay"
             ]
           }
+        },
+        "role": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "agent_chat"
+            ]
+          },
+          "description": "What the docked column holds: agent_chat is the workspace's agent chat dock. Absent for a plain dock."
+        },
+        "permanent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "True when the dock cannot be undocked or closed. Absent when false."
         }
       },
       "extra": false,
@@ -8247,6 +8348,196 @@
       },
       "extra": false
     },
+    "GitBranch": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The short name, for example main or origin/main."
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The full ref, for example refs/heads/main."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "local",
+              "remote"
+            ]
+          }
+        },
+        "commit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The object the ref names."
+        },
+        "current": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The branch HEAD is on."
+        },
+        "upstream": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "A local branch's upstream, for example origin/main."
+        },
+        "upstream_gone": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true when the upstream is configured but its ref no longer exists."
+        },
+        "ahead": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits on the branch and not on its upstream; absent without a live upstream, or when the reply's counting bound ran out before this branch."
+        },
+        "behind": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits on the upstream and not on the branch; absent without a live upstream, or when the reply's counting bound ran out before this branch."
+        },
+        "committed_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The tip's committer date in seconds since the epoch; absent when the ref names something other than a commit or the date is before 1970 or after 2106."
+        }
+      },
+      "extra": false
+    },
+    "GitBaseCandidate": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The short name, for example origin/main."
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The full ref, for example refs/remotes/origin/main."
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "recorded_base",
+              "default_branch",
+              "upstream"
+            ]
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitBranchesResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level, as in every git operation."
+        },
+        "current": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The branch HEAD is on, possibly without a commit yet; absent when HEAD is detached."
+        },
+        "detached": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "branches": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitBranch"
+            },
+            "max_items": 1000
+          },
+          "description": "At most limit, local branches first."
+        },
+        "truncated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "More branches exist than limit, or a listing was cut at its size bound."
+        },
+        "suggested_bases": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitBaseCandidate"
+            },
+            "max_items": 3
+          },
+          "description": "Bases a branch diff may compare with, best first; the first is the suggestion. Empty when there is none."
+        }
+      },
+      "extra": false
+    },
     "GitFileMatch": {
       "kind": "object",
       "fields": {
@@ -9516,7 +9807,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "Qualified id: page:<profile>:<visit>, agent:<machine>/<provider>/<session>, command:<machine>/<terminal>/<start ms>, closed:daemon:<id> or location:<machine>:<tab>:<index>."
+          "description": "Qualified id: page:<profile>:<visit>, agent:<machine>/<provider>/<session>, command:<machine>/<command row id>, closed:daemon:<id> or location:<trail entry id>."
         },
         "kind": {
           "required": true,
@@ -9652,6 +9943,22 @@
             "name": "string"
           },
           "description": "Agent: the hook adapter id, for the localized title."
+        },
+        "window": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Location: the window the step was made in."
+        },
+        "location": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "HistoryTrailLocation"
+          },
+          "description": "Location: the place as the app recorded it (an app rebuilds its Back and Forward steps from it)."
         }
       },
       "extra": false
@@ -9767,6 +10074,150 @@
       },
       "extra": false
     },
+    "HistoryTrailLocation": {
+      "kind": "object",
+      "fields": {
+        "machine": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192,
+            "min_length": 1
+          },
+          "description": "The machine id of the tab (the app's own id for this machine), or top-page for a top page."
+        },
+        "tab": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192,
+            "min_length": 1
+          },
+          "description": "The tab id on that machine, or the top page's route."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The tab's or page's title when the step was made."
+        },
+        "page": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "A top page's route, when the step is a top page."
+        },
+        "workspace": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The workspace key on its machine."
+        },
+        "workspace_title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The workspace name, shown under the title."
+        },
+        "pane": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        },
+        "screen": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        },
+        "content": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "terminal, browser or other."
+        },
+        "machine_name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The machine name; absent for this machine."
+        },
+        "url": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "A browser tab's page URL (context only)."
+        },
+        "cwd": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "A terminal's folder."
+        }
+      },
+      "extra": false
+    },
+    "HistoryTrailRecordResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The entry id, location:<trail entry id>; absent for an incognito step (never stored)."
+        },
+        "recorded": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the trail did not change (the same place and context, or an incognito step)."
+        }
+      },
+      "extra": false
+    },
     "HistoryVisitImportResult": {
       "kind": "object",
       "fields": {
@@ -9838,6 +10289,36 @@
         "command",
         "agent"
       ]
+    },
+    "ProjectSourceSummary": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The source id."
+        },
+        "enabled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the user has the source on."
+        },
+        "projects": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many projects the source reports."
+        }
+      },
+      "extra": false
     },
     "ProjectSourceSeen": {
       "kind": "object",
@@ -9972,6 +10453,17 @@
             }
           },
           "description": "Pinned first (by order), then the most recently used."
+        },
+        "sources": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectSourceSummary"
+            }
+          },
+          "description": "Every source seen or turned off, with its project count (Settings)."
         }
       },
       "extra": false
@@ -12512,6 +13004,139 @@
         "validation.invalid"
       ]
     },
+    "browser.devices.add_custom": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "browser_device",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "device": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "A device in Chrome's JSONV1 format (a Chrome custom-device export reads unchanged): title (1 to 128 characters), screen.vertical and screen.horizontal {width, height} of 50 to 9999 CSS px, screen.device-pixel-ratio above 0 and at most 10, optional capabilities (touch, mobile), user-agent (\"%s\" is replaced by the Chromium version), user-agent-metadata and modes."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stores the device in the home session's store; a custom device with the same title is replaced in place. At most 200 custom devices. A device outside Chrome's limits is validation.invalid."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserDeviceAddResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.devices.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "browser_device",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {chrome, devices}: the custom devices (origin custom, oldest first), then the built-in list compiled into the daemon: Chrome DevTools' device list verbatim and in Chrome's order (origin chrome; chrome names the devtools-frontend ref, commit and Chromium milestone), then newer devices Chrome does not list yet (origin cmux, each with its sources). Each device also has category (Chrome's device menu section: mobile, foldable, tablet-desktop or smart-display). Each device is Chrome's JSONV1 device object (title, type, order, show-by-default, screen, capabilities, user-agent, user-agent-metadata, modes, dual-screen, foldable-screen)."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserDeviceList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.devices.remove_custom": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "browser_device",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The custom device's title."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Removes the custom device; a built-in title or a missing one removes nothing (removed false). Tabs that emulate the device keep their own copy."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserDeviceRemoveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "browser.forward": {
       "class": "mutation",
       "idempotency": "required",
@@ -13127,6 +13752,217 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.tab.emulate": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "device": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "A device title from browser.devices.list: an exact title first (custom devices win), else a match that ignores case, spaces and punctuation."
+          },
+          "custom": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "An inline device in Chrome's JSONV1 format (the limits of browser.devices.add_custom); not stored in the custom list."
+          },
+          "orientation": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "vertical",
+                "horizontal",
+                "vertical-spanned",
+                "horizontal-spanned",
+                "portrait",
+                "landscape",
+                "unfolded-portrait",
+                "unfolded-landscape"
+              ]
+            },
+            "description": "The device's mode orientation; absent is its first. portrait, landscape, unfolded-portrait and unfolded-landscape name vertical, horizontal, vertical-spanned and horizontal-spanned."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A browser tab only. device or custom (not both); with neither, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
+          "An unknown title, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.tab.emulate.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A browser tab only. Stops the tab's device emulation: extra.emulation goes away and the engine restores the view's own size, scale factor and user agent. A tab that emulates nothing keeps emulating nothing (the tab is still published again)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.tab.set_profile": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "A browser profile: its id (`default` or a lowercase UUID), else its exact name, else the one name that matches ignoring case."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A frontend-rendered browser tab only. The tab keeps its id and place in the pane; its record names the profile (frontend-browser-tab-profile-v1), and the app that shows it makes the page in that profile's store and loads the same URL, so cookies, local storage and IndexedDB switch at once. Back/forward history and session storage stay with the old store: the page in the new profile starts a new history. The same profile again changes nothing (changed false)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserTabProfileResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14887,6 +15723,67 @@
         "validation.invalid"
       ]
     },
+    "git.branches": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "default": 200,
+            "description": "Branches to return, local ones first."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitBranchesResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Local branches come first, then remote-tracking branches; each group is ordered by newest tip commit, then by name. A remote's HEAD alias is not listed.",
+        "suggested_bases is best first, and the first is the base git.diff's branch scope compares with: the base git.worktree.create recorded for HEAD's branch, then origin's default branch (else origin/main, origin/master, main or master), then the upstream of HEAD's branch; each only when it exists and is a different ref from the ones before it.",
+        "ahead and behind are counted only for the returned local branches with a live upstream, newest first, for at most 200 branches and 5 seconds per reply; branches past that bound are listed without them.",
+        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
+      ]
+    },
     "git.checkpoint.create": {
       "class": "mutation",
       "idempotency": "required",
@@ -16325,7 +17222,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits in the range are removed; agent and command entries are hidden by range (not with a profile); closed and location entries are never touched; removed counts visits."
+        "Page visits in the range are removed; agent entries are hidden by range; command rows started in the range, trail entries entered in the range and closed groups closed in the range are deleted for good (closed groups as closed.delete); none of these with a profile. removed counts visits, command rows, trail entries and deleted closed groups."
       ]
     },
     "history.entries.list": {
@@ -16416,7 +17313,7 @@
         "validation.invalid"
       ],
       "constraints": [
-        "The merged history, newest first: page visits of every browser profile (shared by the machine's sessions), agent sessions and finished commands folded from the session journal minus the hidden ones, closed items, and the app's location trail."
+        "The merged history, newest first: page visits of every browser profile (shared by the machine's sessions), agent sessions folded from the session journal minus the hidden ones, this machine's terminal command rows (terminal-command-history-v1; recorded only while command history is on), closed items, and the location trail (history.trail.record; current marks the newest entry)."
       ]
     },
     "history.entries.remove": {
@@ -16471,7 +17368,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits are removed; agent and command entries are hidden; closed entries are left to age out; any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
+        "Page visits are removed; agent entries are hidden; command rows are deleted for good (as delete-terminal-commands); closed entries delete their closed group for good as closed.delete (it cannot be reopened; no restore id; an already gone group counts nothing); a location removes every trail entry of its place (machine and tab). removed counts each of them."
       ]
     },
     "history.restore": {
@@ -16580,6 +17477,102 @@
       ],
       "constraints": [
         "Every removal moves the visits to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention."
+      ]
+    },
+    "history.trail.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "window": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The window the person moved in (the app's window id)."
+          },
+          "location": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HistoryTrailLocation"
+            },
+            "description": "Where the person is now."
+          },
+          "at_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The step's time in Unix milliseconds, from the recording app's clock (quick passes compare these). Omitted: the daemon's clock."
+          },
+          "steps": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "workspaces",
+                "everything"
+              ]
+            },
+            "description": "What a step is (navigation.history.steps): workspaces, a location in the newest entry's sidebar item replaces it; everything, every place is a step.",
+            "default": "workspaces"
+          },
+          "jump": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "A place the person jumped to on purpose: the newest entry is never coalesced away as a quick pass.",
+            "default": false
+          },
+          "incognito": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "An incognito window's step: answered, never stored.",
+            "default": false
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryTrailRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: the app that shows the windows reports where the person went, so no agent adds a step. Any other origin is refused with origin.forbidden.",
+        "The daemon owns the trail (projection history.locations; the first write adopts the app's older history.trail document) and runs the Swift LocationTrail step rules at the end of the trail: the same machine and tab as the newest entry refresh it; with steps workspaces and no jump, a location in the newest entry's sidebar item (the same top page, or the same workspace on the same machine) replaces its place; a step less than 750 ms after the newest entry (and no jump) drops that entry as a quick pass, refreshing the entry before it when it is this place; else a new entry is appended. At most 200 entries are kept (the oldest go). A remove or clear joins two neighbours of the same place. Every change emits history-changed with kind location."
       ]
     },
     "history.visit.import": {
@@ -19258,6 +20251,63 @@
         "extra": false,
         "constraints": [
           "A project a source still reports is hidden (so a resync does not bring it back); any other one is deleted."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.source.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The source id (claude-code, codex, codex-app, vscode, cursor, zed, t3code, conductor, ...); not user."
+          },
+          "enabled": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "On: its reports count again (an editor or app source is read at once). Off: it leaves every project and its reports are ignored."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The user source is validation.invalid; an edited project keeps its edits when its last source goes off."
         ]
       },
       "result": {

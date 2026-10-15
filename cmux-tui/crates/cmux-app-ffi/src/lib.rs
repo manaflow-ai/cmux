@@ -10,4 +10,5 @@
 //! Add a new in-tree C ABI here, never as another static library.
 
 pub use cmux_layout_reducer_ffi as layout_reducer;
+pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;

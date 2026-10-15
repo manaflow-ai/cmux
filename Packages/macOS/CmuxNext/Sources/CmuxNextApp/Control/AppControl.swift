@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
@@ -134,8 +135,10 @@ final class AppControl {
                 return .value(DebugLayers.report(services: services))
             },
             // The one hover card: machine phase, card window, timer, monitor.
-            .mainActor("debug.hover_cards") { [weak services] _ in
+            // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
+            .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
                 return .value(.object(services.hoverCards.report.mapValues(JSONValue.string)))
             },
             // Pane chrome alignment: tab pill gaps, border, first terminal cell.
@@ -257,7 +260,7 @@ final class AppControl {
             .async("debug.palette.entries") { [weak services] call in
                 try await DebugPaletteEntries.write(call.params, services: services)
             },
-            .mainActor("debug.mouse") { [weak services] call in
+            .mainActor("debug.omnibar_mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
@@ -272,8 +275,7 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already (a fixture tab the daemon
-                // restored from an earlier run of the same tag shows no transcript).
+                // `new`: one more fixture tab, also when the window lists one already.
                 let fresh = call.params["new"]?.boolValue ?? false
                 return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
             },
@@ -327,9 +329,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugViewKey.focusRingReport(call.params, services: services))
             },
+            // CEF's own DevTools wait is 5 s (CEFRuntime.devToolsTimeout); the 2 s
+            // control-plane deadline cut off replies that arrive between 2 and 5 s.
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
-            },
+            }.withDeadline(.fixed(.seconds(6))),
             // React agent pane: synthetic transcript, fling and frame/typing
             // timing through the page's cmuxAcpmuxDebug, WebContent pid.
             .async("debug.agent_pane") { [weak services] call in
@@ -392,6 +396,15 @@ final class AppControl {
             // Every open cmux dialog (R96): list, fixtures, keys, presses.
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
+            },
+            // The Passwords reveal sheet with a fixture secret (no store, no device owner prompt), so a
+            // live check proves the sheet stays out of screen capture (cx-bkyn9).
+            .mainActor("debug.passwords_reveal") { [weak services] call in
+                let secret = SecretBytes(copying: Array((call.params["secret"]?.stringValue ?? "fixture").utf8))
+                let surface = NativePasswordSecretSurface(), anchor = services?.windows.active?.window?.contentView
+                // task-owner: the reveal sheet's own lifetime; it ends when the sheet is answered or the app quits
+                Task { await surface.reveal(secret, site: call.params["site"]?.stringValue ?? "example.com", username: "proof", anchor: anchor) }
+                return .value(["shown": .bool(true)])
             },
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)

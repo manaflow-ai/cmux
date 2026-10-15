@@ -4856,6 +4856,26 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "since_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
+    },
+    "agent": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports."
     }
    },
    "additional_properties": false
@@ -9363,8 +9383,19 @@
        "kind": "ref",
        "name": "Id"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-input-while-creating-v1"
      },
      "text": {
       "type": {
@@ -9402,15 +9433,30 @@
     },
     "additional_properties": false,
     "constraints": [
-     "When both are present, UTF-8 text bytes precede decoded bytes."
+     "When both are present, UTF-8 text bytes precede decoded bytes.",
+     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
     ]
    },
    "result": {
-    "kind": "ref",
-    "name": "EmptyResult"
+    "kind": "object",
+    "fields": {
+     "queued": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "terminal-input-while-creating-v1"
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event."
+   ]
   },
   "read-screen": {
    "authority": "control",
@@ -13126,6 +13172,17 @@
       "capability": "close-reason-v1",
       "description": "With end_terminals: the close is not recorded in the closed history (session_end)."
      },
+     "if_empty": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "close-workspace-if-empty-v1",
+      "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -16444,6 +16501,16 @@
       "nullable": true,
       "default": null
      },
+     "profile_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "Move the frontend browser tab to this browser profile; null clears its profile."
+     },
      "owner": {
       "type": {
        "kind": "scalar",
@@ -19471,6 +19538,42 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "set-session-icon": {
+   "authority": "control",
+   "since": 12,
+   "capability": "session-icon-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "An icon value sets the session's (machine's) icon; null clears it."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "import-session-organization": {
    "authority": "control",
    "since": 12,
@@ -20248,6 +20351,86 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
+   ]
+  },
+  "conversation-link-resolve": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-tree-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "message": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationMessage"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "thread_root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "path": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "truncated": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. url is <scheme>://conversation/<conv_id>[/message/<msg_id>] (scheme cmux or cmux-<tag>, at most 512 bytes; query and fragment ignored), else bad request. An unknown conversation is unknown_conversation, a message unknown or of another conversation unknown_message. path runs from the thread root to the message along reply_to parents. See spec/commands.md."
    ]
   },
   "conversation-search": {
@@ -21281,6 +21464,67 @@
     "Trusted local connections only. Drops the lease. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "ws-listen": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "ws-listen-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "allow_origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "allow_origins": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "The page origins the listener admits besides its own (capability ws-listen-origins-v1), joined with allow_origin."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Opens (or reports) the owner's loopback page listener and writes its credential to <socket>.websocket.json (0600); returns url, pages and opened, never the credential. See spec/commands.md."
+   ]
+  },
+  "page-credential": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "page-credential-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. See spec/commands.md."
+   ]
+  },
   "cloud-session-status": {
    "authority": "local-admin",
    "since": 12,
@@ -21296,7 +21540,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-inbox-list": {
@@ -22684,6 +22928,16 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "since_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
      }
     },
     "additional_properties": false
@@ -24893,6 +25147,52 @@
       "type": {
        "kind": "ref",
        "name": "Tab"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "terminal-input-unclaimed": {
+   "since": 12,
+   "capability": "terminal-input-while-creating-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-input-unclaimed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bytes_base64": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
       },
       "presence": "required",
       "nullable": false
