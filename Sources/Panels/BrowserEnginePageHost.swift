@@ -138,8 +138,11 @@ final class BrowserEnginePageContainerView: NSView {
         case .chosenPage where !wantsPageFocus:
             onPageClicked?()
         case .unchosenPage where facts.overPane && !wantsPageFocus:
-            // Chromium took the keys for this pane's page on its own.
-            window.makeKey()
+            // Chromium took the keys for this pane's page on its own. Not
+            // while a gated focus change runs: that change made this page
+            // window key, and taking the key back would focus the page again
+            // through cmux's becomeKey handler, recursing until the stack ends.
+            ChromiumFocusReentrancyGate.shared.run { window.makeKey() }
         case .chosenPage, .unchosenPage, .devTools, .reapply, .ignore:
             break
         }

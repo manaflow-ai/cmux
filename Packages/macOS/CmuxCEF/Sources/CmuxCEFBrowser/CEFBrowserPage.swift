@@ -326,7 +326,13 @@ public final class CEFBrowserPage: BrowserPage {
     /// - Returns: `true`; Chromium applies focus once the page is shown.
     @discardableResult
     public func setFocused(_ focused: Bool) -> Bool {
-        browser.setFocused(focused)
+        // Focusing makes the page window key, and a pane reclaiming the key
+        // focuses the page again; the shared gate keeps that from recursing.
+        guard focused else {
+            browser.setFocused(false)
+            return true
+        }
+        ChromiumFocusReentrancyGate.shared.run { browser.setFocused(true) }
         return true
     }
 

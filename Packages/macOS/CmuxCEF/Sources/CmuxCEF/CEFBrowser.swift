@@ -392,6 +392,9 @@ public final class CEFBrowser {
     }
 
     private func grantFocus(_ id: Int32) {
+        // SetFocus can make cmux's window key, whose handler focuses this
+        // page again before SetFocus returns; the outer grant already does it.
+        guard !isGrantingFocus else { return }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(id, 1)
