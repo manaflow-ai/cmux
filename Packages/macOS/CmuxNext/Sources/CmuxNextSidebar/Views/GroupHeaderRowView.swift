@@ -305,7 +305,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let nx = (hasIcon ? glyph.frame.maxX + Metrics.space3 : lead) - Metrics.space1
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
-        let countWidth = count.stringValue.isEmpty || renaming ? 0 : ceil(count.intrinsicContentSize.width)
+        var countWidth = count.stringValue.isEmpty || renaming ? 0 : ceil(count.intrinsicContentSize.width)
+        // A sidebar too narrow for the count drops it rather than drawing it over the trailing controls.
+        if nx + pinRoom + countWidth + Metrics.space2 > trailing { countWidth = 0 }
         let countRoom = countWidth > 0 ? countWidth + Metrics.space2 : 0
         let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - countRoom - nx))
         let nh = ceil(name.intrinsicContentSize.height)

@@ -37,7 +37,7 @@ extension ThemeTokens {
 }
 
 /// The inks a colored chip may take (`ThemeTokens.chip`).
-public enum ChipInks: Sendable {
+public nonisolated enum ChipInks: Sendable {
     /// The theme's primary text when it reads, else near-black or white.
     case theme
     /// Near-black or white, whichever has more contrast on the chip's color.
