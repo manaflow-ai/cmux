@@ -102,10 +102,17 @@ def track(video, hexc, band_px=90, tol=28, lock_rows=False, rows_pt=None):
 
 # The bottom bar's "N Tabs" label (points), for the count timing.
 COUNT_BOX = (150, 800, 252, 828)
-# motion -> (lo, hi) ms: when the count may change, against the motion's
-# first moving frame (reflow: Safari's count changes the frame before) or
-# the finger's end (fling: Safari +5..12 ms).
-COUNT_WINDOW = {'reflow': (-25.0, -8.0), 'kit-reflow': (-25.0, -8.0), 'fling': (0.0, 25.0)}
+# When the count may change. reflow: on the presented frame just before the
+# first moving one (Safari's frame-before, whatever the frame rate: the kit
+# demo's grid presents at about 30 Hz there). fling: (lo, hi) ms after the
+# finger's end (Safari +5..12 ms).
+COUNT_WINDOW = {'reflow': 'frame-before', 'kit-reflow': 'frame-before', 'fling': (0.0, 25.0)}
+
+
+def frame_times(video):
+    return [float(p.strip(',')) for p in subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'v', '-show_entries', 'frame=pts_time', '-of', 'csv=p=0', video],
+        capture_output=True, text=True).stdout.split() if p.strip(',')]
 
 
 def count_change(video):
@@ -209,8 +216,17 @@ def compare(motion, video):
     cross_ok = all(abs(d) <= 16.7 for _, _, _, d in rows) and all(o == o for _, o, _, _ in rows)
     ok = (cross_ok or worst <= 2.0) and (at_release or abs(jump) <= 8.0)
     if motion in COUNT_WINDOW:
-        lo, hi = COUNT_WINDOW[motion]
-        ok = ok and count_ms is not None and lo <= count_ms <= hi
+        window = COUNT_WINDOW[motion]
+        if window == 'frame-before':
+            # The count's frame is the presented frame right before the first move.
+            pts = frame_times(video)
+            ref = t[max(1, int(np.argmax(p > 0.005)))]
+            tc = None if count_ms is None else ref + count_ms / 1000
+            between = None if tc is None else sum(1 for x in pts if tc + 1e-4 < x < ref - 1e-4)
+            ok = ok and count_ms is not None and count_ms < 0 and between == 0
+        else:
+            lo, hi = window
+            ok = ok and count_ms is not None and lo <= count_ms <= hi
     return {'motion': motion, 'crossings': rows, 'max_delta_pt': worst, 'jump_pt': float(jump), 'count_ms': count_ms, 'pass': ok}
 
 
