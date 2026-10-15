@@ -41,13 +41,28 @@ extension TabStripView {
             }
         }
 
-        let animated = hasSynced && !reduceMotion && animating
+        // A new tab grows into its slot while its neighbours slide, on one clock, and a closed one
+        // gives its room back, only with `ui.animations.newTab` on (hq-1d, Lawrence 2026-10-14: no big
+        // animations by default). Off (the default) or under Reduce Motion the strip takes its new
+        // places in one step, with no crossfade standing in for the motion (DESIGN P6). A tab that
+        // comes or goes during a person's gesture (a drag, a group drag, a drop settling) appears or
+        // leaves at once while the gesture's other springs keep running. Reorders keep their motion.
         let ids = Set(ordered.map(\.id))
-        if hasSynced { TabStripCrossfade.run(in: tabsClip, shown: Set(cells.keys), next: ids) }
+        let adding = ordered.contains { cells[$0.id] == nil }
+        let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
+        let structureAnimates = !(adding || removing) || Motion.animates(.newTab)
+        let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
+        let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
+        // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
+        let cellsAnimate = animated && structureAnimates && !inGesture
+        if MotionTrace.isEnabled {
+            MotionTrace.note("tabs.sync fromModel=\(fromModel) animating=\(animating) animated=\(animated)"
+                + " added=\(ordered.filter { cells[$0.id] == nil }.map(\.id.rawValue)) removed=\(cells.keys.filter { !ids.contains($0) }.map(\.rawValue))")
+        }
         // A tab taking another's place (`TabStripModel.successors`) gets its cell's place; that cell goes now.
         let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
-            if animated {
+            if cellsAnimate {
                 dying.insert(id)
                 motion[id]?.width.target = 0
                 motion[id]?.alpha.target = 0
@@ -69,7 +84,7 @@ extension TabStripView {
                 motion[item.id] = place
                 removeTab(from)
             } else {
-                added.insert(makeCell(item, animated: animated))
+                added.insert(makeCell(item, animated: cellsAnimate))
             }
         }
         added.formUnion(syncChips(ordered, animated: animated))
@@ -90,7 +105,7 @@ extension TabStripView {
             needsLayout = true
         }
 
-        relayout(animated: animated || (styleChanged && !reduceMotion), added: added)
+        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding)
 
         let selected = model.selectedID
         if let selected, selected != lastSelectedID || added.contains(selected) {
