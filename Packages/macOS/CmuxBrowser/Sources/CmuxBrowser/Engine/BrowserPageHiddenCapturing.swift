@@ -25,4 +25,15 @@ public protocol BrowserPageHiddenCapturing: AnyObject {
     /// - Returns: What `body` returns.
     /// - Throws: What `body` throws.
     func withContentVisibleForCapture<T>(_ body: () async throws -> T) async rethrows -> T
+
+    /// Runs an automation command with the page's renderer running at full
+    /// speed: a hidden page is treated as visible for the duration, without
+    /// drawing on screen, so its timers, script evaluation and input are not
+    /// throttled. Same nesting and restore rules as
+    /// ``withContentVisibleForCapture(_:)``; a page on screen runs `body`
+    /// unchanged. Wrap each engine command in it.
+    /// - Parameter body: The command.
+    /// - Returns: What `body` returns.
+    /// - Throws: What `body` throws.
+    func withRendererActiveForAutomation<T>(_ body: () async throws -> T) async rethrows -> T
 }
