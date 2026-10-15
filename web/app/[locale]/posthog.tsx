@@ -104,6 +104,10 @@ function PageviewTracker() {
           "$anon_distinct_id",
           "$had_persisted_distinct_id",
           "$groups",
+          // Account properties are re-read from the identity resolved just
+          // now, not the value persisted when the event was buffered.
+          "account_plan",
+          "is_internal_user",
         ]) {
           delete properties[identityProperty];
         }

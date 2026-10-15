@@ -171,7 +171,9 @@ run with fewer arms.
   the exposure count and the primary metric. A free account that later buys
   keeps its earlier free exposure, so its conversion counts. A signed-out
   visitor counts as free; a paying customer who browses signed out is a
-  known, small leak.
+  known, small leak. Events buffered before the identity resolves take the
+  plan resolved for that page view, not a value persisted from an earlier
+  visit.
 - **Hypotheses:** `yearly-emphasis`: a note that yearly billing costs less per
   month raises paid conversion. `highlight-pro`: one recommended plan raises
   Pro checkouts. `outcome-headline`: an outcome headline (agents keep working
