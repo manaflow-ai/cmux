@@ -11,6 +11,7 @@ import { setAgentDiffColors } from "./diffColors";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
+import { setStashedCount } from "./newtab/stashed";
 import { setHeaderState } from "./header/headerState";
 import { setFloatingState } from "./floatingState";
 
@@ -93,6 +94,8 @@ export function applyHostEvent(event: HostEvent): void {
       return setDeviceChats(event.value);
     case "recentlyClosed":
       return setRecentlyClosed(event.value);
+    case "stashedCount":
+      return setStashedCount(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);

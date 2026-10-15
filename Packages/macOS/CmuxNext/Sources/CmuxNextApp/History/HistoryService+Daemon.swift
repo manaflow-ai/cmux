@@ -2,6 +2,7 @@ import CmuxNextBrowser
 import CryptoKit
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import Foundation
 
 /// The daemon history module as the owner (`history-v1`, react-pages.md H3). When the local daemon
