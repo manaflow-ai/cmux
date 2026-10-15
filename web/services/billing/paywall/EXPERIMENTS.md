@@ -33,17 +33,30 @@ Code:
    - A copy edit therefore reaches only new users. To test new copy, add a
      new variant key. Do not edit an exposed variant: the optimizer logs
      every edit as `copy_changed`, and that arm then holds two versions.
-3. **Exposure is the server's `$feature_flag_called` event.** It is recorded
-   when the server serves a variant (at most once per user, variant and UTC
-   day). The app fetches the config when the plans screen opens, and also
-   from the Settings plan row. So an exposure means "loaded the paywall
-   config", which can happen without seeing the paywall. This dilutes all
-   arms equally and does not bias the comparison. It carries `paywall_experiment`,
+3. **Assignment and exposure are different events.**
+   - **Assignment:** the server records `paywall_assigned` when it serves a
+     variant (at most once per user, variant and UTC day). It carries
+     `paywall_experiment`, `paywall_variant`, `paywall_layout`,
+     `paywall_platform`, `paywall_channel`, `paywall_internal` and
+     `paywall_sticky`. The app also fetches the config from the Settings
+     plan row, so an assignment is not an exposure.
+   - **Exposure:** the app's own view event (`ios_paywall_viewed` for iOS),
+     which carries `paywall_experiment` and `paywall_variant`. A person is
+     exposed at their first view event after their first assignment (5
+     minutes of clock skew allowed). The person is counted in the
+     server-assigned arm, never the arm the client reports. The report counts
+     people whose app reported a different arm; that number must be 0.
+   - At current traffic, about 1 view a day, counting config fetches would
+     dilute the arms, which is why the client view event is the exposure.
+   - **PostHog Experiments:** use the custom exposure event
+     `ios_paywall_viewed`. The analytics proxy stamps `$feature/<experiment>`
+     from `paywall_variant` on every app event that carries both properties,
+     so PostHog can read the arm. It carries `paywall_experiment`,
    `paywall_variant`, `paywall_layout`, `paywall_platform`,
    `paywall_channel`, `paywall_internal` and `paywall_sticky`.
 4. **Exclusions.** These groups never enter the analysis:
    - internal accounts (staff, and `PAYWALL_EXPERIMENT_INTERNAL_EMAILS`),
-     which are tagged `paywall_internal`;
+     which are tagged `paywall_internal` on the assignment;
    - synthetic probe accounts, which never enter the experiment;
    - non-production channels (`paywall_channel` other than `production`);
    - for web experiments, also bots (that predicate is set in each web
@@ -67,8 +80,12 @@ Code:
    its daily markdown report. Staff can read both through
    `GET /api/billing/paywall/variants?experiment=<key>`.
 7. **Who may change traffic.** The cron writes splits only when
-   `PAYWALL_OPTIMIZER_APPLY=1`. Otherwise it observes: it records the run and
-   the proposed split, but it does not write the split to the flag.
+   `PAYWALL_OPTIMIZER_APPLY=1` (set in production after merge: full
+   automation, visible in the change log). Otherwise it observes: it records
+   the run and the proposed split, but it does not write the split to the
+   flag. If the flag write fails (for example, the key has no write scope),
+   the run logs the error, reports a billing error, and stays in observe
+   mode.
 
 ## Default decision rule (Beta-Bernoulli Thompson sampling)
 
@@ -133,13 +150,14 @@ run with fewer arms.
 
 1. Append its definition to `PAYWALL_EXPERIMENTS` in `experiments.ts`. Give
    it a flag key, a platform, a control variant, the exposure predicate
-   (`COMMON_EXPOSURE_EXCLUSIONS` plus bot filtering for the web), the metrics
+   (`assignmentWhere` with `COMMON_EXPOSURE_EXCLUSIONS`, and an `exposureEvent` and `exposureWhere` with bot filtering for the web), the metrics
    and `validatePayload`. Use `copyErrors` from `validator.ts` for every
    string field.
 2. Add a seed flag to `SEED_FLAGS` in `runAll.ts`, so that dry runs work
    before the flag exists.
-3. Record the exposure with `$feature_flag_called` and the properties in
-   rule 3. Keep the assignment sticky through `PaywallAssignmentStore`.
+3. Record the assignment with `paywall_assigned` and the properties in
+   rule 3, and send the exposure event from the client with
+   `paywall_experiment` and `paywall_variant`. Keep the assignment sticky through `PaywallAssignmentStore`.
 4. Add a section to this file before the experiment gets traffic.
 
 ## ios-paywall-v1 trial arm (pro-trial-7d)

@@ -1,8 +1,8 @@
 // Resolves the paywall the iOS app shows: control for everyone outside the
 // `ios-paywall-v1` experiment, else the user's sticky variant from the
 // PostHog multivariate flag, with copy from the flag payload after the
-// validator passes it. Records the PostHog exposure (`$feature_flag_called`)
-// so PostHog Experiments and the optimizer count the arm.
+// validator passes it. Records the assignment (`paywall_assigned`); the
+// exposure is the app's `ios_paywall_viewed` (see EXPERIMENTS.md).
 
 import { isAdminUser } from "../../admin/access";
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
@@ -26,6 +26,9 @@ import { databasePaywallAssignmentStore, type PaywallAssignmentStore } from "./s
 import { validateIosPaywallPayload, type IosPaywallConfig } from "./validator";
 
 const FLAG_TIMEOUT_MS = 1_500;
+
+/** Server record of the variant served to a user; joined to the app's view event for exposure. */
+export const PAYWALL_ASSIGNMENT_EVENT = "paywall_assigned";
 
 /** The flag's answer for one person. */
 export type PaywallFlagEvaluation =
@@ -161,16 +164,18 @@ async function chooseVariant(
   return null;
 }
 
-function exposureEvent(userId: string, config: IosPaywallConfig, enrolled: Enrollment, sticky: boolean, now: Date): ServerEventInput {
+/**
+ * The server's assignment record. Not an exposure: the app fetches the config
+ * from the Settings plan row too. The exposure is the app's
+ * `ios_paywall_viewed`, joined to this record by person (EXPERIMENTS.md).
+ */
+function assignmentEvent(userId: string, config: IosPaywallConfig, enrolled: Enrollment, sticky: boolean, now: Date): ServerEventInput {
   return {
-    event: "$feature_flag_called",
+    event: PAYWALL_ASSIGNMENT_EVENT,
     distinctId: userId,
-    // One exposure per user, variant and UTC day; PostHog counts unique persons anyway.
-    insertId: `paywall_exposure:${config.experiment}:${userId}:${config.variant}:${now.toISOString().slice(0, 10)}`,
+    // One record per user, variant and UTC day.
+    insertId: `paywall_assigned:${config.experiment}:${userId}:${config.variant}:${now.toISOString().slice(0, 10)}`,
     properties: {
-      $feature_flag: config.experiment,
-      $feature_flag_response: config.variant,
-      [`$feature/${config.experiment}`]: config.variant,
       paywall_experiment: config.experiment,
       paywall_variant: config.variant,
       paywall_layout: config.layout,
@@ -210,7 +215,7 @@ export async function resolveIosPaywall(
       ctaStyle: chosen.config.ctaStyle,
       showYearlySavings: chosen.config.showYearlySavings,
     });
-    void deps.captureEvent(exposureEvent(user.id, chosen.config, enrolled, chosen.sticky, deps.now()));
+    void deps.captureEvent(assignmentEvent(user.id, chosen.config, enrolled, chosen.sticky, deps.now()));
     return chosen.config;
   } catch (error) {
     console.error("billing.paywall.resolve_failed", {

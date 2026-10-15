@@ -51,7 +51,18 @@ export type ExperimentDefinition = {
   readonly controlVariant: string;
   /** Exposures and conversions before this date are ignored. */
   readonly startDate: string;
-  /** HogQL predicate over `$feature_flag_called` events, beyond the flag key. */
+  /**
+   * HogQL predicate over the server's `paywall_assigned` events for this
+   * experiment (exclusions: internal, synthetic, non-production).
+   */
+  readonly assignmentWhere: string;
+  /**
+   * The client event that is the exposure: the person actually saw the
+   * paywall. It must carry `paywall_experiment`; the variant always comes
+   * from the server assignment, never from the client.
+   */
+  readonly exposureEvent: string;
+  /** HogQL predicate over the exposure event (web experiments add bot filtering here). */
   readonly exposureWhere: string;
   readonly primary: ExperimentMetric;
   readonly secondary: readonly ExperimentMetric[];
@@ -80,9 +91,10 @@ export const DEFAULT_EXPERIMENT_POLICY: ExperimentPolicy = {
 };
 
 /**
- * Exposure exclusions every experiment shares: internal and synthetic
- * accounts and non-production channels. Server-recorded exposures carry
- * these properties; web experiments add bot filtering in their own predicate.
+ * Assignment exclusions every experiment shares: internal and synthetic
+ * accounts and non-production channels. The server's `paywall_assigned`
+ * events carry these properties; web experiments add bot filtering in their
+ * exposure predicate.
  */
 export const COMMON_EXPOSURE_EXCLUSIONS = [
   "coalesce(toString(properties.paywall_internal), '') NOT IN ('true', '1')",
@@ -96,7 +108,9 @@ export const IOS_PAYWALL_V1: ExperimentDefinition = {
   platform: "ios",
   controlVariant: IOS_PAYWALL_CONTROL_VARIANT,
   startDate: "2026-10-15",
-  exposureWhere: `properties.paywall_platform = 'ios' AND ${COMMON_EXPOSURE_EXCLUSIONS}`,
+  assignmentWhere: `properties.paywall_platform = 'ios' AND ${COMMON_EXPOSURE_EXCLUSIONS}`,
+  exposureEvent: "ios_paywall_viewed",
+  exposureWhere: "1 = 1",
   primary: {
     key: "paid_subscriber",
     label: "Paid entitlement granted (App Store, Production)",

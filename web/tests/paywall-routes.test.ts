@@ -129,11 +129,10 @@ describe("GET /api/billing/paywall", () => {
       expect(paywall).toEqual({ experiment: "ios-paywall-v1", variant: variant.key, ...variant.payload });
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
-        event: "$feature_flag_called",
+        event: "paywall_assigned",
         distinctId: "user-a",
         properties: {
-          $feature_flag: "ios-paywall-v1",
-          $feature_flag_response: variant.key,
+          paywall_experiment: "ios-paywall-v1",
           paywall_variant: variant.key,
           paywall_channel: "production",
           paywall_internal: false,
