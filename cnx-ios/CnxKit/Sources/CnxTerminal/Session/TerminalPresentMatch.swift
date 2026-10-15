@@ -41,13 +41,39 @@ public struct TerminalPresentMatch: Equatable, Sendable {
     /// The frame's top row: the best matching candidate (at least 90 % of the
     /// non-blank rows equal), else the last report.
     public func top(previous: [UInt64], current: [UInt64]) -> Int {
+        match(previous: previous, current: current).top
+    }
+
+    /// The frame's top row and whether a candidate matched (false: the last
+    /// report, a fallback).
+    public func match(previous: [UInt64], current: [UInt64]) -> (top: Int, matched: Bool) {
         var best: (shift: Int, score: Double)?
         for shift in candidateShifts {
             let score = Self.score(previous, current, shift: shift)
             if score > (best?.score ?? -1) + 0.02 { best = (shift, score) }
         }
-        if let best, best.score >= 0.9 { return presentedTop + best.shift }
-        return reportedTop
+        if let best, best.score >= 0.9 { return (presentedTop + best.shift, true) }
+        return (reportedTop, false)
+    }
+
+    /// The viewport a read frame confirmed, when frames after it need no
+    /// pixel read: it matched, it is the viewport asked for and reported, and
+    /// it is in the scrollback (Ghostty moves the viewport on its own only in
+    /// the active area, where it follows the output).
+    public func confirmed(_ result: (top: Int, matched: Bool), epoch: Int) -> TerminalSteadyViewport? {
+        guard result.matched, result.top == reportedTop, result.top == requestedTop, result.top < activeTop else { return nil }
+        return TerminalSteadyViewport(top: result.top, epoch: epoch)
+    }
+
+    /// The new frame's top row without reading its pixels, when it is known:
+    /// the confirmed viewport, while nothing moved it since (the same request
+    /// and report, the same surface epoch, still in the scrollback). Frames
+    /// reach the main thread in render order, so none older than the
+    /// confirmed one comes after it.
+    public func knownTop(steady: TerminalSteadyViewport?, epoch: Int) -> Int? {
+        guard let steady, steady.epoch == epoch, steady.top == presentedTop, reportedTop == steady.top,
+              requestedTop == steady.top, steady.top < activeTop else { return nil }
+        return steady.top
     }
 
     /// Fraction of the new frame's non-blank rows equal to the previous
@@ -68,5 +94,18 @@ public struct TerminalPresentMatch: Equatable, Sendable {
         var counts: [UInt64: Int] = [:]
         for value in values { counts[value, default: 0] += 1 }
         return counts.max { $0.value < $1.value }?.key ?? 0
+    }
+}
+
+/// A viewport a read frame confirmed (`TerminalPresentMatch.confirmed`), and
+/// the surface's viewport epoch then: anything that can move Ghostty's
+/// viewport (a scroll request, a resize, a font change) bumps the epoch.
+public struct TerminalSteadyViewport: Equatable, Sendable {
+    public var top: Int
+    public var epoch: Int
+
+    public init(top: Int, epoch: Int) {
+        self.top = top
+        self.epoch = epoch
     }
 }

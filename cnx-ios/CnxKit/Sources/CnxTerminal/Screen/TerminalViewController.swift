@@ -98,8 +98,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var presentedTop = 0
     private var documentTotal = 0
     private var outputSinceProbe = false
-    /// Row signatures of the frame on screen.
+    /// Row signatures of the frame on screen (the last one read).
     private var presentedRows: [UInt64]?
+    /// The scrollback viewport a read frame confirmed: frames after it are
+    /// placed without a pixel read until something moves the viewport.
+    private var steadyViewport: TerminalSteadyViewport?
+    /// Presents placed with and without a pixel read (the frame log reports them).
+    private(set) var presentReads = 0
+    private(set) var presentSkips = 0
     #if DEBUG
     var presentLog: [String] = []
     private var presentDebug = ""
@@ -1301,11 +1307,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         presentDebug = ""
         #endif
-        if let rows = surface.presentedRowSignatures(rowHeight: rowPixels) {
+        let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
+                                         recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
+        let epoch = surface.viewportEpoch
+        if !placesFromReport, let known = match.knownTop(steady: steadyViewport, epoch: epoch) {
+            // Reading scrollback while output streams: the viewport has not
+            // moved since a read frame confirmed it, so no pixel read.
+            top = known
+            presentSkips += 1
+            #if DEBUG
+            presentDebug = " steady"
+            #endif
+        } else if let rows = measured("present-read", { surface.presentedRowSignatures(rowHeight: rowPixels) }) {
+            steadyViewport = nil
             if let previous = presentedRows {
-                let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
-                                                 recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
-                top = match.top(previous: previous, current: rows)
+                let result = match.match(previous: previous, current: rows)
+                top = result.top
+                steadyViewport = placesFromReport ? nil : match.confirmed(result, epoch: epoch)
                 #if DEBUG
                 if CommandLine.arguments.contains("-CnxPresentLog") {
                     presentDebug = match.candidateShifts.map { String(format: " %d:%.2f", $0, TerminalPresentMatch.score(previous, rows, shift: $0)) }.joined()
@@ -1313,6 +1331,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 #endif
             }
             presentedRows = rows
+            presentReads += 1
         }
         #if DEBUG
         if CommandLine.arguments.contains("-CnxPresentLog") {
@@ -1355,6 +1374,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func applyMode(tui: Bool) {
         presentedRows = nil
+        steadyViewport = nil
         // Moving the surface to another superview resigns first responder:
         // typing into vim, then `:q`, used to drop the keyboard's input on the
         // floor (the composer still said "Typing into terminal").
