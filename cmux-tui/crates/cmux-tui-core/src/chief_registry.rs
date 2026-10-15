@@ -41,11 +41,19 @@ pub(crate) const MAX_AVATAR_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_CHIEFS: usize = 64;
 const SCHEMA_VERSION: i64 = 1;
 
-/// The tools a Chief may be granted (DESIGN.md section 4).
+/// The tools a Chief may be granted (DESIGN.md section 4). `chiefs`: see,
+/// make and edit other Chiefs within its own grant (server/chief_manage.rs).
 pub(crate) const TOOLS: [&str; 7] =
     ["browser", "chiefs", "cloud_vms", "memory_import", "spawn", "tell", "workspaces"];
-/// A new Chief's tools when the person names none.
-const DEFAULT_NEW_TOOLS: [&str; 3] = ["spawn", "tell", "workspaces"];
+/// A new Chief's tools when the person names none (`chiefs` is on by
+/// default, Lawrence 2026-10-14).
+pub(crate) const DEFAULT_NEW_TOOLS: [&str; 4] = ["chiefs", "spawn", "tell", "workspaces"];
+/// The grant fields of a record (who may hold what), by request field name.
+pub(crate) const GRANT_FIELDS: [&str; 6] =
+    ["effort", "harness", "harnesses", "model", "self_edit", "tools"];
+/// The meta key of the one-time migration that gives every record that
+/// existed before the `chiefs` grant was on by default that grant.
+const CHIEFS_GRANT_MIGRATION: &str = "chiefs_grant_v1";
 /// The fields a Chief may be allowed to change about itself.
 pub(crate) const SELF_EDITABLE: [&str; 5] =
     ["avatar", "display_name", "instructions", "personality", "role"];
@@ -288,6 +296,7 @@ impl ChiefStore {
                 params![DEFAULT_CHIEF, serde_json::to_string(&record)?],
             )?;
         }
+        migrate_chiefs_grant(&transaction)?;
         transaction.commit()?;
         Ok(Self { connection })
     }
@@ -593,6 +602,14 @@ fn insert_new(
     Ok(record)
 }
 
+/// The record `record` would be after `fields` (already checked): what a
+/// grant check compares before the write.
+pub(crate) fn preview(record: &ChiefRecord, fields: &Map<String, Value>) -> ChiefRecord {
+    let mut next = record.clone();
+    apply(&mut next, fields);
+    next
+}
+
 /// `chief.profile.update`'s write: `fields` (already checked) on `id`, guarded by
 /// `expected_rev` when given; `avatar` sets or clears the image.
 pub(crate) fn update(
@@ -781,6 +798,58 @@ fn apply(record: &mut ChiefRecord, fields: &Map<String, Value>) {
     if fields.contains_key("effort") {
         record.engine.effort = engine(text("effort"));
     }
+}
+
+/// A new Chief's tools before `chiefs` was on by default.
+const OLD_DEFAULT_NEW_TOOLS: [&str; 3] = ["spawn", "tell", "workspaces"];
+/// The ledger actor of the one-time `chiefs` grant migration.
+const MIGRATION_ACTOR: &str = "daemon via migration";
+
+/// Gives `chiefs` once to every live record of a registry made before it was
+/// on by default whose tools the person never set (they are still the old
+/// default set; the documented "a missing grant reads as granted"). A record
+/// whose tools the person chose keeps them. Each change is written to the
+/// ledger as actor [`MIGRATION_ACTOR`]. From then on `chiefs` is a set member
+/// the person can remove.
+fn migrate_chiefs_grant(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
+    let done: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM meta WHERE key = ?1)",
+        [CHIEFS_GRANT_MIGRATION],
+        |r| r.get(0),
+    )?;
+    if done {
+        return Ok(());
+    }
+    let rows: Vec<(String, String)> = {
+        let mut statement = tx.prepare("SELECT id, record FROM chief WHERE record IS NOT NULL")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for (id, text) in rows {
+        let mut record: ChiefRecord = serde_json::from_str(&text)?;
+        if record.tools != OLD_DEFAULT_NEW_TOOLS {
+            continue;
+        }
+        record.tools.push("chiefs".into());
+        record.tools.sort();
+        record.rev += 1;
+        record.updated_at = now_text();
+        let text = serde_json::to_string(&record)?;
+        tx.execute("UPDATE chief SET record = ?2 WHERE id = ?1", params![id, text])?;
+        let request = json!({"migration": CHIEFS_GRANT_MIGRATION, "chief": id});
+        tx.execute(
+            "INSERT OR IGNORE INTO op_ledger (actor, key, operation, fingerprint, result)
+             VALUES (?1, ?2, 'chief.profile.migrate', ?3, ?4)",
+            params![
+                MIGRATION_ACTOR,
+                format!("{CHIEFS_GRANT_MIGRATION}:{id}"),
+                fingerprint(&request)?,
+                text
+            ],
+        )?;
+    }
+    tx.execute("INSERT INTO meta (key, value) VALUES (?1, '1')", [CHIEFS_GRANT_MIGRATION])?;
+    Ok(())
 }
 
 fn load(connection: &Connection, id: &str) -> anyhow::Result<Option<ChiefRecord>> {

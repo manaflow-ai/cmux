@@ -32,6 +32,8 @@ export interface BrainConfig extends ChiefProfile {
   readonly enabled: boolean
   readonly model: string
   readonly compactor_model: string
+  /** The `chiefs` grant (brain-chiefs.ts): see, make and edit other Chiefs. Missing = on. */
+  readonly chiefs: boolean
 }
 
 export const PROFILE_LIMITS = { role: 200, personality: 4_000, instructions: 32_000 } as const
@@ -39,6 +41,7 @@ export const PROFILE_LIMITS = { role: 200, personality: 4_000, instructions: 32_
 /** The first problem of an owner's settings patch, or null. */
 export const patchError = (patch: Partial<Record<string, unknown>>, validModel: (v: unknown) => boolean): string | null => {
   if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") return "enabled must be a boolean"
+  if (patch.chiefs !== undefined && typeof patch.chiefs !== "boolean") return "chiefs must be a boolean"
   for (const k of ["model", "compactor_model"]) if (patch[k] !== undefined && !validModel(patch[k])) return `${k} must be "fake", "claude-opus-5-5" or a Workers AI id @cf/<vendor>/<model>`
   for (const k of ["role", "personality", "instructions"] as const) {
     const v = patch[k]
@@ -56,6 +59,7 @@ export const readConfig = (sql: SqlStorage, defaults: { model: string; compactor
     enabled: get("enabled") === "1",
     model: get("model") ?? defaults.model,
     compactor_model: get("compactor_model") ?? defaults.compactor_model,
+    chiefs: String(get("chiefs") ?? "1") !== "0",
     display_name: get("display_name") ?? "Chief",
     role: get("role") ?? "",
     personality: get("personality") ?? "",
