@@ -116,7 +116,8 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
   return script.replace(/\\(.)/g, (escape, character: string) => {
     if (character === "(") throw new Error("gallery: bootstrapScript has a Swift interpolation; extend the reader");
     const decoded = SWIFT_ESCAPES[character];
-    if (decoded === undefined) throw new Error(`gallery: bootstrapScript has the Swift escape ${escape}; extend the reader`);
+    if (decoded === undefined)
+      throw new Error(`gallery: bootstrapScript has the Swift escape ${escape}; extend the reader`);
     return decoded;
   });
 }

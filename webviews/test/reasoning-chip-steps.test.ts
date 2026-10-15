@@ -100,8 +100,7 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
       if (style.textOverflow === "ellipsis" && element.scrollWidth > element.clientWidth + 0.5)
         cut.push(`"${value}" ends in an ellipsis`);
       const rect = element.getBoundingClientRect();
-      if (rect.left < box.left - 0.5 || rect.right > box.right + 0.5)
-        cut.push(`"${value}" runs outside its chip`);
+      if (rect.left < box.left - 0.5 || rect.right > box.right + 0.5) cut.push(`"${value}" runs outside its chip`);
     }
     return { labels, cut };
   }
