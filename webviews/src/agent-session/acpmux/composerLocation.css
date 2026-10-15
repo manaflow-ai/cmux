@@ -158,7 +158,7 @@
    last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
    name. Above it the folder cuts only when the strip runs out of room. */
 @media (max-width: 340px) {
-  .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child :is(.acpmux-location-button, .acpmux-location-readonly) { max-width: 120px; }
+  .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child :is(.acpmux-location-button, .acpmux-location-readonly) { max-width: 128px; }
 }
 .acpmux-location-button .acpmux-icon,
 .acpmux-location-readonly .acpmux-icon { flex: none; color: currentColor; opacity: .8; }
