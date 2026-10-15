@@ -60,26 +60,57 @@ import Testing
     @Test func theGridOpeningAsksTheMacAgain() {
         var refresh = TerminalCardScreenRefresh()
         let t0 = Date(timeIntervalSince1970: 1000)
-        let asked1 = refresh.begin("s1", now: t0)
+        let asked1 = refresh.begin("s1", now: t0) != nil
         #expect(asked1)
         // A card rebuilt within 3 s does not ask again ...
-        let asked2 = refresh.begin("s1", now: t0.addingTimeInterval(1))
+        let asked2 = refresh.begin("s1", now: t0.addingTimeInterval(1)) != nil
         #expect(!asked2)
         // ... but the grid opening does.
-        let asked3 = refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true)
+        let asked3 = refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true) != nil
         #expect(asked3)
     }
 
     @Test func aFailedReadIsAskedAgainAtTheNextBuild() {
         var refresh = TerminalCardScreenRefresh()
         let t0 = Date(timeIntervalSince1970: 1000)
-        let asked4 = refresh.begin("s1", now: t0)
+        let asked4 = refresh.begin("s1", now: t0) != nil
         #expect(asked4)
         // The link was not up yet: no answer. The next card build asks again
         // instead of keeping the saved frame for the throttle's sake.
-        refresh.failed("s1")
-        let asked5 = refresh.begin("s1", now: t0.addingTimeInterval(0.5))
+        refresh.failed("s1", request: 1)
+        let asked5 = refresh.begin("s1", now: t0.addingTimeInterval(0.5)) != nil
         #expect(asked5)
+    }
+}
+
+/// Round 11 A6: card reads are ordered: a slower old reply never replaces
+/// a newer card text, and an old failure never clears a newer read's time.
+@Suite struct TerminalCardScreenRefreshOrderTests {
+    @Test func anOlderReplyAfterANewerOneIsDropped() throws {
+        var refresh = TerminalCardScreenRefresh()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let old = try #require(refresh.begin("s1", now: t0))
+        let new = try #require(refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true))
+        #expect(refresh.finished("s1", request: new))
+        #expect(!refresh.finished("s1", request: old))
+    }
+
+    @Test func aCardBuildWhileAReadIsOutAsksNothing() {
+        var refresh = TerminalCardScreenRefresh()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(refresh.begin("s1", now: t0) != nil)
+        // 4 s later the first read has not answered: no second one.
+        #expect(refresh.begin("s1", now: t0.addingTimeInterval(4)) == nil)
+    }
+
+    @Test func anOldFailureKeepsTheNewerReadsTime() throws {
+        var refresh = TerminalCardScreenRefresh()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let old = try #require(refresh.begin("s1", now: t0))
+        let new = try #require(refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true))
+        refresh.failed("s1", request: old)
+        #expect(refresh.finished("s1", request: new))
+        #expect(refresh.begin("s1", now: t0.addingTimeInterval(2)) == nil)
     }
 }
 
