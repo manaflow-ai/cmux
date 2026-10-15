@@ -42,15 +42,14 @@ public struct BrowserClientCertificateAutoSelectionRule: Equatable, Hashable, Se
     /// Returns whether this rule applies to a WebKit client-certificate challenge.
     public func matches(_ protectionSpace: URLProtectionSpace) -> Bool {
         guard let scheme = protectionSpace.protocol,
-              let host = protectionSpace.host,
               !scheme.isEmpty,
-              !host.isEmpty else {
+              !protectionSpace.host.isEmpty else {
             return false
         }
 
         var components = URLComponents()
         components.scheme = scheme
-        components.host = host
+        components.host = protectionSpace.host
         components.port = protectionSpace.port > 0 ? protectionSpace.port : nil
         guard let url = components.url else { return false }
         return pattern.matches(url)
