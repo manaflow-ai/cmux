@@ -818,27 +818,84 @@ fn refusal(state: FreeState) -> Box<Response<Body>> {
     Box::new(crate::json_error(status, code, message))
 }
 
+/// The peer of one admin connection, read from the whole socket when it is
+/// accepted, before the connection is split into read and write halves: the
+/// facts [`provider_peer_allowed`] needs. Reading them is cheap; the app check
+/// runs only when the connection asks to be the provider. Only
+/// [`ProviderPeer::of_unix`] can make a peer that passes. Neither Clone nor
+/// Copy: a peer read for one connection cannot be given to another
+/// (`serve_with_admin` is public).
+pub struct ProviderPeer {
+    same_user: bool,
+    #[cfg(target_os = "macos")]
+    token: Option<cmux_link::app_caller::PeerToken>,
+}
+
+impl ProviderPeer {
+    /// A peer that is never the provider: for a host that cannot read its
+    /// peer's user and audit token. The Windows admin socket passes it, so
+    /// Windows refuses `attest_provider` (providers are mac and ios only).
+    pub fn refused() -> Self {
+        Self {
+            same_user: false,
+            #[cfg(target_os = "macos")]
+            token: None,
+        }
+    }
+
+    /// The peer of an accepted unix socket: its user and, on macOS, its
+    /// audit token.
+    #[cfg(unix)]
+    pub fn of_unix(stream: &tokio::net::UnixStream) -> Self {
+        // SAFETY: geteuid has no preconditions.
+        let own = unsafe { libc::geteuid() };
+        Self {
+            same_user: stream.peer_cred().is_ok_and(|cred| cred.uid() == own),
+            #[cfg(target_os = "macos")]
+            token: {
+                use std::os::fd::AsRawFd;
+                cmux_link::app_caller::peer_token(stream.as_raw_fd())
+            },
+        }
+    }
+}
+
 /// Whether the peer of an admin connection may be the attestation provider:
 /// the same user always; on a Team-signed macOS build also the signed cmux app
 /// that contains this relay (cmux-link prover A, named by the audit token). A
 /// DEV (ad-hoc) build checks the user only: a wrong provider can only deny the
 /// free tier, never forge a proof (the API checks the attestation).
-#[cfg(unix)]
-pub fn provider_peer_allowed(stream: &tokio::net::UnixStream) -> bool {
-    // SAFETY: geteuid has no preconditions.
-    let own = unsafe { libc::geteuid() };
-    if !stream.peer_cred().is_ok_and(|cred| cred.uid() == own) {
+pub fn provider_peer_allowed(peer: &ProviderPeer) -> bool {
+    if !peer.same_user {
         return false;
     }
     #[cfg(target_os = "macos")]
-    {
-        use std::os::fd::AsRawFd;
-        if cmux_link::app_caller::signed_app_build() {
-            let Some(token) = cmux_link::app_caller::peer_token(stream.as_raw_fd()) else {
-                return false;
-            };
-            return cmux_link::app_caller::verify_containing_app(&token).is_ok();
-        }
+    if cmux_link::app_caller::signed_app_build() {
+        let Some(token) = peer.token.as_ref() else {
+            return false;
+        };
+        return cmux_link::app_caller::verify_containing_app(token).is_ok();
     }
     true
+}
+
+#[cfg(test)]
+mod peer_tests {
+    use super::*;
+
+    #[test]
+    fn a_peer_the_host_cannot_read_is_never_the_provider() {
+        assert!(!provider_peer_allowed(&ProviderPeer::refused()));
+    }
+
+    /// Off macOS there is no app check: a same-user peer read at accept,
+    /// before the split, may be the provider.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[tokio::test]
+    async fn a_same_user_unix_peer_read_at_accept_may_be_the_provider() {
+        let (stream, _other) = tokio::net::UnixStream::pair().expect("socket pair");
+        let peer = ProviderPeer::of_unix(&stream);
+        let (_read, _write) = stream.into_split();
+        assert!(provider_peer_allowed(&peer));
+    }
 }

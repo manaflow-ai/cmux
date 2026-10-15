@@ -23,6 +23,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -96,7 +97,7 @@ await requireBrowserLane("editor-page.test.ts", async () => {
   }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
     fs.rmSync(root, { recursive: true, force: true });
   });
 

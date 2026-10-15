@@ -5,7 +5,11 @@ extension SidebarModel {
     /// own row layout, so collapsed sections and rows the filter hides are not
     /// stops). A collapsed group is one stop; an empty one is none.
     public var itemOrder: SidebarItemOrder {
-        let top = layout.sections(in: .top, room: activeProfileID?.rawValue).flatMap(\.items).filter { item in
+        // An anchored client item (Channels after Home) is a stop at its place, placed among the shown items as
+        // the band draws it (a hidden Home is no anchor); other client items are not stops.
+        let hidden = Set(itemInfo.filter(\.value.isHidden).keys)
+        let shown = layout.sections(in: .top, room: activeProfileID?.rawValue).presenting(hidingItems: hidden, apps: suppressedApps)
+        let top = placingTransientItems(in: shown, anchoredOnly: true).flatMap(\.items).filter { item in
             let info = itemInfo[item.id]
             return info?.isHidden != true && info?.isMissing != true && !suppressedApps.contains(item.owningAppID ?? "")
         }

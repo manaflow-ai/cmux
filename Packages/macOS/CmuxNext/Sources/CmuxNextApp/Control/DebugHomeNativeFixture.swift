@@ -54,6 +54,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
+        if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
         let view: HomeNativeTranscriptView?
         if let tab = params["tab"]?.stringValue {
             view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host

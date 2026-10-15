@@ -1578,6 +1578,12 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
+    "home.channelsEnabled" : {
+      "default" : false,
+      "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
+      "title" : "Channels",
+      "type" : "boolean"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",

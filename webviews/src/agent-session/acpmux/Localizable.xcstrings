@@ -15710,127 +15710,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جهد مرتفع جدًا مع تنسيق سير عمل متعدد الوكلاء"
+            "value": "مرتفع جدًا + متعدد الوكلاء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vrlo visok napor uz orkestraciju rada više agenata"
+            "value": "Vrlo visoko + više agenata"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekstra høj indsats plus orkestrering af arbejdsgange med flere agenter"
+            "value": "Ekstra høj + flere agenter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sehr hoher Aufwand plus Orchestrierung von Multi-Agent-Workflows"
+            "value": "Sehr hoch + Multi-Agent"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "xhigh effort plus multi-agent workflow orchestration"
+            "value": "Extra High + multi-agent"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esfuerzo muy alto más orquestación de flujos con varios agentes"
+            "value": "Muy alto + multiagente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Effort très élevé et orchestration de flux multi-agents"
+            "value": "Très élevé + multi-agents"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sforzo molto alto più orchestrazione di flussi multi-agente"
+            "value": "Molto alto + multi-agente"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "最高の推論とマルチエージェントのワークフロー調整"
+            "state": "needs_review",
+            "value": "最高 + マルチエージェント"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កម្លាំងខ្ពស់បំផុត និងការសម្របសម្រួលលំហូរការងារភ្នាក់ងារច្រើន"
+            "value": "ខ្ពស់បំផុត + ភ្នាក់ងារច្រើន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "매우 높은 노력과 다중 에이전트 워크플로 조율"
+            "value": "매우 높음 + 다중 에이전트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekstra høy innsats pluss orkestrering av arbeidsflyter med flere agenter"
+            "value": "Ekstra høy + flere agenter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bardzo wysoki wysiłek i orkiestracja przepływów wielu agentów"
+            "value": "Bardzo wysoki + wiele agentów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esforço muito alto com orquestração de fluxos com vários agentes"
+            "value": "Muito alto + multiagente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Очень высокое усилие и оркестрация многоагентных процессов"
+            "value": "Очень высокий + много агентов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ความพยายามสูงมากพร้อมการประสานเวิร์กโฟลว์หลายเอเจนต์"
+            "value": "สูงมาก + หลายเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çok yüksek çaba ve çok ajanlı iş akışı orkestrasyonu"
+            "value": "Çok yüksek + çoklu ajan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дуже високе зусилля й оркестрація багатоагентних процесів"
+            "value": "Дуже високий + кілька агентів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nỗ lực rất cao kèm điều phối quy trình nhiều tác tử"
+            "value": "Rất cao + nhiều tác tử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "超高推理加多智能体工作流编排"
+            "value": "超高 + 多智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "超高推理加多代理工作流程編排"
+            "value": "超高 + 多代理"
           }
         }
       }

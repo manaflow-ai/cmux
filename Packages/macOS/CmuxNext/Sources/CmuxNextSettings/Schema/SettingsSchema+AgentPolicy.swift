@@ -172,6 +172,8 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "labs.classicHome",
+        // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
+        "home.channelsEnabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
