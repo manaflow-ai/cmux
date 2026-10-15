@@ -96,17 +96,17 @@ export class BrainStream {
     return this.generation
   }
 
-  /** A model request of the running turn starts (pi-durable GenerationTask beforeRequest). */
   /** Timing marks of a run: its first model request and its first token (brain-gateway.ts stores them on the run). */
   onMark: (run: string, mark: "request" | "first_token", at: number) => void = () => undefined
   private firstToken = false
 
+  /** A model request of the running turn starts (pi-durable GenerationTask beforeRequest). */
   request(taskId: string): void {
     const t = this.target()
     if (!t.run) return
     if (t.run !== this.run) [this.run, this.line, this.firstToken] = [t.run, undefined, false]
-    this.onMark(t.run, "request", this.now())
     else this.flush(false)
+    this.onMark(t.run, "request", this.now())
     // A new attempt of the same generation streams its text again from the start.
     for (const s of this.steps.values()) [s.seq, s.pending] = [0, ""]
     if (taskId !== this.generation) this.steps.clear()
