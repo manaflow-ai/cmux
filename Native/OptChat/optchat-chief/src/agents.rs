@@ -54,6 +54,144 @@ fn mine(list: Vec<SessionSummary>) -> Vec<SessionSummary> {
     list.into_iter().filter(|s| is_mine(s, &parent)).collect()
 }
 
+/// Whether `s` is one of the sessions of the Chief whose `MUX_HOME` is
+/// `home`: its turns and compactor (`cmux.chief` = its home id) or its
+/// children (`mux.parent` = its parent tag).
+pub fn owned_by(s: &SessionSummary, home: &std::path::Path) -> bool {
+    s.tags.get(crate::acpmux::CHIEF_TAG).map(String::as_str)
+        == Some(crate::paths::home_id(home).as_str())
+        || is_mine(s, &parent_tag(home))
+}
+
+/// Stops (`_acpmux/kill`, records kept, so each stays resumable) every
+/// session of the Chief of `home` on this host's acpmux, and no other: on
+/// a Chief home's shared acpmux (`acpmux_daemon::shared`), what `acpmux
+/// daemon shutdown` did for a Chief's own daemon. The daemon keeps
+/// running. Returns the names it stopped.
+pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
+    let client = connect_bounded()?;
+    // All kills at once, bounded together: a host stops within the
+    // supervisor's grace (5 s before SIGKILL), whatever one session does.
+    let started: Vec<_> = sessions_bounded(&client)?
+        .into_iter()
+        .filter(|s| owned_by(s, home) && s.status != cmux_chief::acp::SessionStatus::Closed)
+        .map(|s| {
+            let answer = client.start(
+                "_acpmux/kill",
+                json!({"sessionId": s.session_id, "purge": false}),
+            );
+            (s.name, answer)
+        })
+        .collect();
+    let deadline = std::time::Instant::now() + END_SESSIONS_LIMIT;
+    let mut ended = Vec::new();
+    let mut failed = Vec::new();
+    for (name, answer) in started {
+        match answer.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Ok(_)) => ended.push(name),
+            Ok(Err(e)) => failed.push(format!("{name}: {e}")),
+            Err(_) => failed.push(format!("{name}: no answer")),
+        }
+    }
+    client.close();
+    if failed.is_empty() {
+        Ok(ended)
+    } else {
+        Err(format!("stopping {}", failed.join("; ")))
+    }
+}
+
+/// Who else uses the acpmux of the Chief at `home`, whose Chief home is
+/// `chief_home` (hq-6d 2026-10-14: the Chief home's acpmux stops only when
+/// its last user leaves): another Chief of that home whose host runs (its
+/// host lock held: the Chief home's own, the default Chief's, or one of
+/// `chief_home/c/*`), or another Chief's open session on the daemon (its
+/// turns and compactor, `cmux.chief`, or its children, `mux.parent`). The
+/// person's own sessions do not count. Names, for the log.
+pub fn other_users(
+    home: &std::path::Path,
+    chief_home: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    let mut users = Vec::new();
+    let chiefs = std::fs::read_dir(chief_home.join("c"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| chief_home.join("c").join(entry.file_name()));
+    for chief in std::iter::once(chief_home.to_path_buf()).chain(chiefs) {
+        if chief != home && crate::lock::in_use(&chief.join("state/host.lock")) {
+            users.push(format!("host {}", chief.display()));
+        }
+    }
+    let client = connect_bounded()?;
+    let listed = sessions_bounded(&client);
+    client.close();
+    let listed = listed?;
+    let me = crate::paths::home_id(home);
+    let my_parent = parent_tag(home);
+    for s in listed {
+        if s.status == cmux_chief::acp::SessionStatus::Closed {
+            continue;
+        }
+        let other_chief = s
+            .tags
+            .get(crate::acpmux::CHIEF_TAG)
+            .is_some_and(|id| *id != me);
+        let other_child = s.tags.get(PARENT_TAG).is_some_and(|parent| {
+            parent
+                .strip_prefix(crate::brain::PARENT)
+                .is_some_and(|rest| rest.starts_with(':'))
+                && *parent != my_parent
+        });
+        if other_chief || other_child {
+            users.push(format!("session {}", s.name));
+        }
+    }
+    Ok(users)
+}
+
+/// How long a stop waits for each acpmux answer ([`connect_bounded`]).
+const STOP_ANSWER_LIMIT: Duration = Duration::from_secs(1);
+
+/// [`connect`] for a stop: it never hangs on a daemon that does not answer.
+fn connect_bounded() -> Result<Arc<RpcClient>, String> {
+    let socket = crate::acpmux_daemon::socket_path();
+    let client = crate::acpmux_peer::connect(&socket, |_| {})
+        .map_err(|e| format!("acpmux is not reachable at {}: {e}", socket.display()))?;
+    let answer = ask_bounded(
+        &client,
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "chief-agents", "version": env!("CARGO_PKG_VERSION")}}),
+    );
+    if let Err(e) = answer {
+        client.close();
+        return Err(e);
+    }
+    Ok(client)
+}
+
+fn ask_bounded(client: &RpcClient, method: &str, params: Value) -> Result<Value, String> {
+    client
+        .start(method, params)
+        .recv_timeout(STOP_ANSWER_LIMIT)
+        .map_err(|_| format!("{method}: no answer in {} s", STOP_ANSWER_LIMIT.as_secs()))?
+        .map_err(|e| format!("{method}: {e}"))
+}
+
+/// `_acpmux/sessions`, bounded.
+fn sessions_bounded(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
+    Ok(ask_bounded(client, "_acpmux/sessions", json!({}))?
+        .get("sessions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|s| serde_json::from_value(s.clone()).ok())
+        .collect())
+}
+
+/// How long [`end_own_sessions`] waits for all its kills.
+const END_SESSIONS_LIMIT: Duration = Duration::from_secs(3);
+
 /// Which session `spawn --name` uses: a child of this Chief with that name
 /// (left by a failed earlier start) is reused; a session of that name that
 /// is not this Chief's (the user's, mux/host's, another home's) is refused,

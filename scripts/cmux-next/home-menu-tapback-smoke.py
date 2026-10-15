@@ -16,6 +16,9 @@ Usage: home-menu-tapback-smoke.py --tag <tag> [--out DIR]
 import argparse, json, os, socket, subprocess, sys, time
 import re
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp/home-menu-tapback-smoke")
@@ -74,12 +77,15 @@ if os.path.exists(sock):
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
        "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
        "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **home_classic.ENV}
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
 pid = process.pid
 print(f"launched pid {pid}", flush=True)
 try:
+    # Classic Home or stop at once (cx-h0kds): these checks drive the native classic Home transcript.
+    if not home_classic.require(rpc):
+        sys.exit(2)
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
