@@ -378,8 +378,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter != 'model.spend_usd' AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
-    expireUserReservations(this.ctx.storage, now, utcMonth(now))
     expireCreditHolds(this.ctx.storage, now)
+    expireUserReservations(this.ctx.storage, now, utcMonth(now))
   }
 
   /**

@@ -10,11 +10,14 @@ import type { Env } from "../env.ts"
  *   beforeRequest: const g = await gate.before(String(api.taskId), model, modelName, messages)
  *                  if (!g.ok) throw new CreditsRefusedError(g)      // stops the turn, no provider call
  *   afterResponse: await gate.after(String(api.taskId), message)    // charges usage.cost.total x margin
- *   turn ended without afterResponse (abort, crash): await gate.release(String(api.taskId))
+ *   aborted BEFORE the request was sent: await gate.release(String(api.taskId))   (after the send, never
+ *                  release: keep the hold, the meter charges it in full after an hour)
  *   turn failed with CreditsRefusedError: const text = await gate.notice(conversation); if (text) post it once
  *
  * Request ids are `<scope>:<taskId>:<attempt>`, so every provider attempt (pi-durable retries call
- * beforeRequest again) is held and charged once. `scope` must be unique per brain object (its DO id):
+ * beforeRequest again) is held and charged once. An attempt that was sent but got no afterResponse
+ * (a stream error, an eviction) keeps its hold, which the meter charges in full after an hour; the
+ * next attempt holds a new id. That can charge a lost attempt above its real cost, never below. `scope` must be unique per brain object (its DO id):
  * pi-durable task ids are unique only inside one harness. A hold the brain never settles (eviction
  * mid-call) is charged in full by the team meter after one hour.
  */
@@ -47,7 +50,11 @@ export class CreditsGate {
   /** Before one provider request: hold its maximum price. Not ok = out of credits (send nothing). */
   async before(taskId: string, model: Model<Api>, modelName: string, messages: ReadonlyArray<unknown>): Promise<GateResult> {
     if (!creditsRequired(this.env, modelName)) return { ok: true, skipped: true }
-    if (this.open.has(taskId)) return { ok: true }
+    if (this.open.has(taskId)) {
+      // The previous attempt was sent and never answered: its hold stays (charged in full by expiry).
+      this.open.delete(taskId)
+      this.attempt.set(taskId, (this.attempt.get(taskId) ?? 0) + 1)
+    }
     const { team, chief, conversation } = this.who()
     const maxCostUsd = maxCallCostUsd(model.cost, JSON.stringify(messages).length, model.maxTokens || 16_384)
     for (let i = 0; i < MAX_ATTEMPT_IDS; i++) {
@@ -60,7 +67,8 @@ export class CreditsGate {
           Effect.catchTag("CreditsAlreadySettled", () => Effect.succeed(null))
         )
       )
-      if (r === null) {
+      // Already charged, or held by an attempt from before this object restarted: use the next id.
+      if (r === null || (r.ok && r.res.replayed)) {
         this.attempt.set(taskId, n + 1)
         continue
       }

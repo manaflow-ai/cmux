@@ -65,7 +65,8 @@ export const handleCredits = async (request: Request, env: Env, sub: string | un
     if (!body || typeof body.usd !== "number" || !amounts.includes(body.usd)) return fail({ status: 400, code: "validation.invalid", message: `usd: one of ${amounts.join(", ")}` })
     const key = creditsKey(env)
     if (!key.ok) return fail(unavailable(key.reason))
-    const s = await createCheckout(env, key.key, url.origin, who.team, body.usd, who.user)
+    const s = await createCheckout(env, key.key, url.origin, who.team, body.usd, who.user).catch((e: unknown) => (console.error(JSON.stringify({ msg: "credits.checkout_failed", error: String(e).slice(0, 200) })), null))
+    if (!s) return fail({ status: 502, code: "billing.unavailable", message: "The billing service did not answer; retry", extra: { retryable: true } })
     return ok({ url: s.url, team: who.team, usd: body.usd })
   }
   if (request.method !== "GET") return page("Not found", "This page does not exist.", 405)
@@ -86,7 +87,8 @@ export const handleCredits = async (request: Request, env: Env, sub: string | un
   const amounts = topupAmounts(env)
   const usd = url.searchParams.has("usd") ? Number(url.searchParams.get("usd")) : (amounts.includes(20) ? 20 : amounts[0]!)
   if (!amounts.includes(usd)) return page("Pick an amount", `Choose one of ${amounts.join(", ")} USD.`, 400)
-  const s = await createCheckout(env, key.key, url.origin, team, usd, "link")
+  const s = await createCheckout(env, key.key, url.origin, team, usd, "link", link).catch((e: unknown) => (console.error(JSON.stringify({ msg: "credits.checkout_failed", error: String(e).slice(0, 200) })), null))
+  if (!s) return page("Billing unavailable", "The billing service did not answer. Try the link again in a minute.", 502)
   return Response.redirect(s.url, 303)
 }
 

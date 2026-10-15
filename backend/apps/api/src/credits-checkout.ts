@@ -24,6 +24,8 @@ const TEAM = /^team_[0-9a-f]{20}$/
 export const creditsKey = (env: Env): { ok: true; key: string } | { ok: false; reason: string } => {
   const key = env.STRIPE_CREDITS_KEY || env.STRIPE_USAGE_KEY
   const mode = stripeKeyMode(key)
+  // A test-mode payment (the public test card) must never buy real model spend on production.
+  if (mode === "test" && env.ENVIRONMENT === "production") return { ok: false, reason: "test_key_on_production" }
   if (mode === "test") return { ok: true, key: key! }
   return { ok: false, reason: mode === "live" ? "live_key_refused" : mode === "none" ? "no_key" : "invalid_key" }
 }
@@ -64,10 +66,11 @@ export const teamOfLink = async (env: Env, token: string, now = Date.now()): Pro
 }
 
 /**
- * A Checkout session for `usd` of credits for `team`. The idempotency key repeats within the hour,
- * so clicking the same link again reuses the same payment page instead of making new ones.
+ * A Checkout session for `usd` of credits for `team`. `once` (a link click) repeats its idempotency
+ * key for ten minutes, so clicking the same link again reuses the payment page instead of making
+ * new ones; an explicit request (`once` undefined) always gets a new page.
  */
-export const createCheckout = async (env: Env, key: string, origin: string, team: string, usd: number, by: string, now = Date.now()): Promise<{ id: string; url: string }> => {
+export const createCheckout = async (env: Env, key: string, origin: string, team: string, usd: number, by: string, once?: string, now = Date.now()): Promise<{ id: string; url: string }> => {
   const cents = Math.round(usd * 100)
   const base = origin.replace(/\/$/, "")
   const meta = { app: "cmux", kind: CREDITS_KIND, team, by }
@@ -82,11 +85,11 @@ export const createCheckout = async (env: Env, key: string, origin: string, team
     client_reference_id: team,
     ...Object.fromEntries(Object.entries(meta).flatMap(([k, v]) => [[`metadata[${k}]`, v], [`payment_intent_data[metadata][${k}]`, v]]))
   }
-  const s = (await stripeFetch(key, "POST", "/v1/checkout/sessions", form, `cmux-credits:${team}:${cents}:${by}:${Math.floor(now / 3600_000)}`)) as { id: string; url: string }
+  const s = (await stripeFetch(key, "POST", "/v1/checkout/sessions", form, once ? `cmux-credits:${team}:${cents}:${once.slice(-32)}:${Math.floor(now / 600_000)}` : `cmux-credits:${crypto.randomUUID()}`)) as { id: string; url: string }
   return { id: s.id, url: s.url }
 }
 
-type Session = { id?: string; payment_status?: string; status?: string; currency?: string; amount_subtotal?: number; metadata?: Record<string, string> | null; mode?: string }
+type Session = { id?: string; payment_status?: string; status?: string; currency?: string; amount_subtotal?: number; amount_total?: number; metadata?: Record<string, string> | null; mode?: string }
 
 export type GrantResult = { ok: true; team: string; added: boolean; usd: number; balance_usd: number } | { ok: false; reason: string }
 
@@ -95,8 +98,9 @@ export const grantPaidSession = async (env: Env, s: Session): Promise<GrantResul
   const m = s.metadata ?? {}
   if (!s.id || m.app !== "cmux" || m.kind !== CREDITS_KIND || !m.team || !TEAM.test(m.team) || s.mode !== "payment") return { ok: false, reason: "not_a_credits_session" }
   if (s.payment_status !== "paid") return { ok: false, reason: "not_paid" }
-  if (s.currency !== "usd" || typeof s.amount_subtotal !== "number" || s.amount_subtotal <= 0) return { ok: false, reason: "bad_amount" }
-  const micros = s.amount_subtotal * 10_000
+  // The amount paid, and only when nothing changed it (a discount or tax would make the two differ).
+  if (s.currency !== "usd" || typeof s.amount_total !== "number" || s.amount_total <= 0 || s.amount_total !== s.amount_subtotal) return { ok: false, reason: "bad_amount" }
+  const micros = s.amount_total * 10_000
   const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(m.team))
   const r = await meter.creditAdd(m.team, `topup:${s.id}`, "topup", micros, m.by ?? "checkout", null)
   if (r.added) console.log(JSON.stringify({ msg: "credits.topup", team: m.team, session: s.id, usd: micros / 1_000_000, balance_usd: r.balance_micros / 1_000_000 }))

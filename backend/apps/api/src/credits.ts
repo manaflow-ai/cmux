@@ -64,6 +64,8 @@ export interface Reservation {
   readonly conversation: string | null
   readonly held_usd: number
   readonly margin: number
+  /** The id already had an open hold (a repeated reserve of the same request). */
+  readonly replayed: boolean
 }
 
 export interface Balance {
@@ -115,7 +117,7 @@ export const makeCredits = (env: Env): CreditsShape => {
       Effect.gen(function* () {
         const held = Math.max(maxCostUsd * margin, floor)
         const r = yield* call(() => meter(team).creditReserve(team, request, toMicros(held), chief, conversation) as unknown as Promise<CreditReserve>)
-        if (r.ok) return { team, request, chief, conversation, held_usd: toUsd(r.held_micros), margin } satisfies Reservation
+        if (r.ok) return { team, request, chief, conversation, held_usd: toUsd(r.held_micros), margin, replayed: r.replayed } satisfies Reservation
         if (r.code === "credits.settled") return yield* Effect.fail(new CreditsAlreadySettled({ request }))
         return yield* Effect.fail(new CreditsExhausted({ team, balance_usd: toUsd(r.balance_micros), available_usd: toUsd(r.available_micros), needed_usd: toUsd(r.needed_micros) }))
       }),

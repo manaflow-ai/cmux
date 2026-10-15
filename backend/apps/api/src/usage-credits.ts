@@ -121,9 +121,9 @@ export const creditRelease = (storage: DurableObjectStorage, id: string): boolea
 export const expireCreditHolds = (storage: DurableObjectStorage, now: number) => {
   const sql = storage.sql
   storage.transactionSync(() => {
-    const stale = sql.exec<{ id: string; micros: number; chief: string | null; conversation: string | null }>(`SELECT id, micros, chief, conversation FROM credit_hold WHERE at < ?`, now - CREDIT_HOLD_TTL_MS).toArray()
+    const stale = sql.exec<{ id: string; micros: number; chief: string | null; conversation: string | null }>(`SELECT id, micros, chief, conversation FROM credit_hold WHERE at <= ?`, now - CREDIT_HOLD_TTL_MS).toArray()
     for (const h of stale) writeEntry(sql, { key: `charge:${h.id}`, kind: "expired", micros: -Number(h.micros), chief: h.chief, conversation: h.conversation, reason: "not settled within an hour" }, now)
-    sql.exec(`DELETE FROM credit_hold WHERE at < ?`, now - CREDIT_HOLD_TTL_MS)
+    sql.exec(`DELETE FROM credit_hold WHERE at <= ?`, now - CREDIT_HOLD_TTL_MS)
     sql.exec(`DELETE FROM credit_entry WHERE kind IN ('charge', 'expired', 'correction') AND at < ?`, now - CREDIT_CHARGE_RETENTION_MS)
   })
 }

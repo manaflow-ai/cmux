@@ -57,7 +57,7 @@ const fakeCheckout = () => {
       made.push(form)
       const id = `cs_test_${made.length}abc`
       const metadata = Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith("metadata[")).map(([k, v]) => [k.slice(9, -1), v]))
-      sessions.set(id, { id, object: "checkout.session", mode: form.mode, payment_status: "paid", status: "complete", currency: form["line_items[0][price_data][currency]"], amount_subtotal: Number(form["line_items[0][price_data][unit_amount]"]), metadata })
+      sessions.set(id, { id, object: "checkout.session", mode: form.mode, payment_status: "paid", status: "complete", currency: form["line_items[0][price_data][currency]"], amount_subtotal: Number(form["line_items[0][price_data][unit_amount]"]), amount_total: Number(form["line_items[0][price_data][unit_amount]"]), metadata })
       return Response.json({ id, url: `https://checkout.test/pay/${id}` })
     }
     const one = url.pathname.match(/^\/v1\/checkout\/sessions\/(cs_test_[A-Za-z0-9]+)$/)
@@ -122,6 +122,9 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     expect((await call(e, "POST", "/v1/credits/topup", { token: t, body: JSON.stringify({ usd: 7 }) })).status).toBe(400)
     const event2 = JSON.stringify({ type: "checkout.session.completed", livemode: false, data: { object: stripe.sessions.get("cs_test_2abc") } })
     expect((await call(e, "POST", "/v1/hooks/stripe/credits", { body: event2, headers: { "stripe-signature": await signed(event2) } })).json).toEqual({ received: true, granted: true })
+    // A session whose paid total differs from its price (a discount) grants nothing.
+    const discounted = JSON.stringify({ type: "checkout.session.completed", livemode: false, data: { object: { ...stripe.sessions.get("cs_test_2abc"), id: "cs_test_9abc", amount_total: 500 } } })
+    expect((await call(e, "POST", "/v1/hooks/stripe/credits", { body: discounted, headers: { "stripe-signature": await signed(discounted) } })).json).toEqual({ received: true, granted: false })
 
     const after = await call(e, "GET", "/v1/credits", { token: t })
     expect(after.json.value).toMatchObject({ balance_usd: 30, available_usd: 30 })
@@ -129,6 +132,10 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     expect(await gate.canStart("claude-opus-5-5")).toBe(true)
     expect(await gate.before("task-1", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
 
+    // A test key on production is refused (test payments must not buy real spend), as is a live key anywhere.
+    const prod = await call(runEnv({ ENVIRONMENT: "production" }), "GET", link.pathname)
+    expect(prod.status, prod.text).toBe(503)
+    expect(prod.text).toContain("Billing unavailable")
     // A live key is refused before any payment-service call.
     const live = runEnv({ STRIPE_USAGE_KEY: "sk_live_not_a_real_key" })
     const refused = await call(live, "POST", "/v1/credits/topup", { token: t, body: JSON.stringify({ usd: 10 }) })
@@ -161,6 +168,19 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     expect(b.held_usd).toBe(0)
     expect(b.chiefs).toEqual([expect.objectContaining({ chief: "agent_charge", spent_usd: 0.045, calls: 2 })])
 
+    // An attempt sent but never answered keeps its hold; the retry holds a new id (two holds open).
+    expect(await gate.before("task-3", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
+    expect(await gate.before("task-3", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
+    const two = (await call(e, "GET", "/v1/credits", { token: t })).json.value
+    expect(two.held_usd).toBeCloseTo(2 * held.held_usd, 6)
+    await gate.after("task-3", answered(0.01))
+    // A restarted brain (attempt counter back at 0) does not reuse the earlier attempt's hold.
+    const restarted = new CreditsGate(e, "brain-b", () => ({ team, chief: "agent_charge", conversation: "conv_charge" }))
+    expect(await restarted.before("task-3", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
+    expect((await call(e, "GET", "/v1/credits", { token: t })).json.value.held_usd).toBeCloseTo(2 * held.held_usd, 6)
+    await restarted.after("task-3", answered(0.01))
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => m.onWake(Date.now() + 2 * 3600_000))
+    const lostHold = held.held_usd
     // A call whose maximum is above the available balance is refused (nothing is sent).
     const big = { ...MODEL, maxTokens: 100_000 }
     expect(await gate.before("task-2", big, "claude-opus-5-5", MESSAGES)).toMatchObject({ ok: false })
@@ -172,13 +192,14 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => m.onWake(Date.now() + 2 * 3600_000))
     b = (await call(e, "GET", "/v1/credits", { token: t })).json.value
     expect(b.held_usd).toBe(0)
-    expect(b.balance_usd).toBeCloseTo(1 - 0.045 - holdUsd, 6)
+    // So far: 0.045 (task-1), 2 x 0.015 (task-3's answered attempts), task-3's lost attempt in full.
+    expect(b.balance_usd).toBeCloseTo(1 - 0.075 - lostHold - holdUsd, 6)
     expect(b.entries[0]).toMatchObject({ kind: "expired", usd: -holdUsd })
     await lost.after("task-9", answered(0.004))
     b = (await call(e, "GET", "/v1/credits", { token: t })).json.value
-    expect(b.balance_usd).toBeCloseTo(1 - 0.045 - 0.006, 6)
-    expect(b.chiefs[0]).toMatchObject({ chief: "agent_charge", calls: 3 })
-    expect(b.chiefs[0].spent_usd).toBeCloseTo(0.051, 6)
+    expect(b.balance_usd).toBeCloseTo(1 - 0.075 - lostHold - 0.006, 6)
+    expect(b.chiefs[0]).toMatchObject({ chief: "agent_charge", calls: 6 })
+    expect(b.chiefs[0].spent_usd).toBeCloseTo(0.081 + lostHold, 6)
   })
 
   it("the operator's dogfood grant gives each configured team its amount once per round", async () => {
