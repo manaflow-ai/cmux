@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextHome
 import CmuxNextSettings
 
@@ -36,7 +37,24 @@ extension DebugHome {
             "switch_selected": .number(Double(control.selectedSegment)),
             "switch_labels": .array((0..<control.segmentCount).map { .string(control.label(forSegment: $0) ?? "") }),
             "switch_frame": header.map(box) ?? .null,
+            // The Messages list as drawn: the pinned grid, then the rows (id, title, pinned, unread).
+            "messages_list": .array(((view.messages?.list.model).map { $0.pinned + $0.rows } ?? []).map { item in
+                .object(["id": .string(item.id.rawValue), "title": .string(item.title), "pinned": .bool(item.isPinned),
+                         "unread": .bool(item.unread), "chief": .bool(item.isChief)])
+            }),
+            "messages_note": view.messages?.list.model.note.map { .string($0) } ?? .null, "messages_cloud": view.messages?.list.model.cloudState.map { .string($0) } ?? .null,
             "handoff": view.lastHandoff.map { .object(["conversation": .string($0.conversation), "message": $0.message.map { .string($0) } ?? .null]) } ?? .null,
         ])
+    }
+
+    /// `debug.home.drive {action: list, op: pin | unpin | unread | read, conversation}`: the docked Messages list's menu handlers.
+    static func driveDockList(_ params: [String: JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
+        let fail = { (why: String) in CmuxNextSettings.JSONValue.object(["ok": .bool(false), "error": .string(why)]) }
+        guard let list = HomeDockTab.view(services)?.messages?.list, let id = params["conversation"]?.stringValue else { return fail("no docked Messages list, or no conversation") }
+        let ops: [String: (ConversationID) -> Void] = ["pin": { list.onSetPinned(true, $0) }, "unpin": { list.onSetPinned(false, $0) },
+                                                       "unread": list.onMarkUnread, "read": list.onMarkRead]
+        guard let op = params["op"]?.stringValue.flatMap({ ops[$0] }) else { return fail("op must be pin, unpin, unread or read") }
+        op(ConversationID(id))
+        return .object(["ok": .bool(true)])
     }
 }

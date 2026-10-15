@@ -130,6 +130,22 @@ SECTIONS = [
         "enums": {"tasks.layout": "TasksLayoutPreference"},
     },
     {
+        "source": "schemas/settings/source/hover-cards.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
+        "type": "HoverCardSettingsSchema",
+        "lists": {"hoverCards": ("descriptors", "HoverCardSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/color-transition.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ColorTransition.generated.swift",
+        "type": "ColorTransitionSettingsSchema",
+        "lists": {"colorTransition": ("descriptors", "ColorTransitionSetting")},
+        "enums": {"appearance.colorTransition.curve": "ColorTransitionCurveSetting",
+                  "appearance.colorTransition.colorSpace": "ColorTransitionSpaceSetting",
+                  "appearance.colorTransition.reduceMotion": "ColorTransitionReduceMotionSetting"},
+    },
+    {
         "source": "schemas/settings/source/feed.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",
@@ -138,7 +154,7 @@ SECTIONS = [
     },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
-UNITS = {"points", "seconds", "minutes", "days", "count", "fraction"}
+UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
 ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "range", "default",
               "default_label", "aliases", "keywords"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")

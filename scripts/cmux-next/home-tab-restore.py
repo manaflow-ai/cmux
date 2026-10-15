@@ -120,6 +120,13 @@ try:
     fx = poll(fixture_texts, timeout=30)
     check("launch 1: the fixture shows its transcript", bool(fx), rpc("debug.home.drive", {"action": "texts"}))
     rpc("action.run", {"id": "home.tab", "focus": True})
+    # A new Home tab opens the Chief conversation, which is empty in this test's Chief home (last_seq 0, cx-w67hc):
+    # one message there, so the tab has a transcript to restore. (home.openConversation would show the classic
+    # top page instead of this tab.)
+    tab = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown")), None), timeout=90)
+    if tab and not tab.get("transcript_tail"):
+        sent = submit(kind="send", conversation=tab["shown"], text="restore check %d" % int(time.time()))
+        check("launch 1: a message in the Home tab's conversation", sent.get("ok") is True, sent)
     before = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown") and t.get("transcript_tail")), None),
                   timeout=90)
     check("launch 1: a native Home tab shows a conversation with messages", bool(before), home_tabs())
@@ -168,7 +175,7 @@ try:
 finally:
     quit_app(pid)
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
