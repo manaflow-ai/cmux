@@ -339,6 +339,7 @@ cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 cmux terminal <selector> copy [--mode screen|selection|scrollback]
 cmux terminal <selector> process show
 cmux terminal <selector> process wait [--timeout-ms <n>]
+cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>|--timeout-ms <n>]
 cmux terminal <selector> viewport scroll --delta-rows <n>
 cmux terminal <selector> move|project --workspace <sel> --screen <sel> --pane <sel> --index <n>
 cmux terminal <selector> attach [--read-only]
@@ -355,6 +356,12 @@ Example: `cmux terminal current keys ctrl+c enter`.
 
 `screen wait` prints its result either way and exits 1 when the timeout passes
 without a match.
+
+`wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
+from OSC 133 shell integration); `--until idle` when no plain command runs, no
+program reports `working` (OSC 7501) and no OSC 9;4 progress is under way. Both
+follow the session's event stream instead of polling and print the terminal
+record. A passed timeout exits 124 with `wait.timeout`.
 
 ### browser (daemon-owned)
 
