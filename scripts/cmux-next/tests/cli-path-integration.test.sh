@@ -143,7 +143,7 @@ pid, fd = pty.fork()
 if pid == 0:
     os.execv(sys.argv[1], [sys.argv[1], "-i"])
 buf, sent, end = b"", False, time.time() + 30
-while time.time() < end and not re.search(rb"cmux=/[^\r\n]* leak=[0-9]|replay-env=(unset|/)[^\r\n]*[\r\n]|codex=[^\r\n]*[\r\n]", buf):
+while time.time() < end and not re.search(rb"cmux=/[^\r\n]* leak=[0-9]|replay-env=(unset|/)[^\r\n]*[\r\n]|codex=/[^\r\n]*[\r\n]", buf):
     if select.select([fd], [], [], 0.2)[0]:
         try: buf += os.read(fd, 65536)
         except OSError: break
