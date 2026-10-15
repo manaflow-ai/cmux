@@ -24,9 +24,15 @@ extension HostView {
     /// WindowView.swift; read by reflection, no vendored edit). If upstream renames it: a fault is
     /// logged and the view is found by its place and shape instead (`threadLayerByPlace`).
     static func threadLayerView(of demo: MessagesWindowView) -> UIView? {
-        if let v = Mirror(reflecting: demo).children.first(where: { $0.label == "threadLayer" })?.value as? UIView { return v }
+        if let v = reflectedThreadLayer(of: demo) { return v }
         log.fault("Home: MessagesWindowView has no threadLayer property; finding the thread layer by its place")
         return threadLayerByPlace(of: demo)
+    }
+
+    /// The `threadLayer` stored property itself (nil when upstream renamed or removed it; a test fails then:
+    /// PaneClickTests.theReflectedThreadLayerIsTheWindowViewsThreadLayer).
+    static func reflectedThreadLayer(of demo: MessagesWindowView) -> UIView? {
+        Mirror(reflecting: demo).children.first(where: { $0.label == "threadLayer" })?.value as? UIView
     }
 
     /// The fallback: WindowView's init adds clip, threadLayer, header, compose, ...; the thread layer
@@ -61,36 +67,51 @@ extension HostView {
         CATransaction.commit()
     }
 
-    /// cmux: the thread's rows over the header (round 4 capture: in a light close, thread rows flying
-    /// back to their places under the header drew over the avatar for 14 frames; in an open a row
-    /// covered the pill). The thread's row layers (the thread layer's sublayers other than
-    /// ThreadBackdrop's `threadDim`) move into `threadRows`, one container masked out at the avatar's
-    /// disc and the pill's capsule: a row passes under the header's controls, as transcript rows do,
-    /// while the backdrop under them still blurs the controls. Called after every engine change (the
-    /// vendored thread view adds its rows during a dispatch) and on layout (the controls' places).
-    func clipThreadRows() {
-        guard let thread = liftedThread, thread.layer.superlayer === threadHost.root,
-              let dim = thread.subviews.first?.layer else { return }
+    /// cmux: nothing of the thread view draws over the header's controls (round 4 and 5 captures:
+    /// in a light close, thread rows flying back under the header drew over the avatar and pill).
+    /// No vendored layer is moved for it:
+    /// - `threadHost` (the vendored thread layer: its backdrop and rows) is masked out at the avatar's
+    ///   disc and the pill's capsule, so a row passes under the controls, as transcript rows do;
+    /// - `headerVeil`, over the header and masked to those same shapes, is a ThreadBackdrop of its own
+    ///   (the vendored class: the same blur, tint and curves), opened and closed in the same turn as
+    ///   the window view's (`followThread`), so the controls are blurred and darkened as before.
+    /// Updated on layout (the controls' places) and after every engine change (open and close).
+    func clipThreadToHeader() {
+        let holes = paneHeader.controlRects(width: bounds.width)
+        guard holes != threadHoles || headerVeil.root.sublayers?.first !== veilBackdrop.root else { return }
+        threadHoles = holes
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if threadRows.superlayer !== thread.layer {
-            threadRows.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
-            thread.layer.insertSublayer(threadRows, above: dim)
+        if headerVeil.root.sublayers?.first !== veilBackdrop.root { headerVeil.root.addSublayer(veilBackdrop.root) }
+        veilBackdrop.frame = bounds
+        func shapes(_ path: CGMutablePath) {
+            for r in holes { path.addRoundedRect(in: r, cornerWidth: min(r.width, r.height) / 2, cornerHeight: min(r.width, r.height) / 2) }
         }
-        for l in thread.layer.sublayers ?? [] where l !== dim && l !== threadRows { threadRows.addSublayer(l) }
-        if threadRows.frame != thread.layer.bounds { threadRows.frame = thread.layer.bounds }
-        let holes = paneHeader.controlRects(width: bounds.width)
-        guard holes != threadRowsHoles else { return }
-        threadRowsHoles = holes
-        let mask = (threadRows.mask as? CAShapeLayer) ?? CAShapeLayer()
-        mask.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
-        mask.fillRule = .evenOdd
-        mask.frame = threadRows.bounds
-        let path = CGMutablePath()
-        path.addRect(threadRows.bounds.insetBy(dx: -4096, dy: -4096))
-        for r in holes { path.addRoundedRect(in: r, cornerWidth: min(r.width, r.height) / 2, cornerHeight: min(r.width, r.height) / 2) }
-        mask.path = path
-        threadRows.mask = mask
+        let outside = CGMutablePath()
+        outside.addRect(bounds.insetBy(dx: -4096, dy: -4096))
+        shapes(outside)
+        let inside = CGMutablePath()
+        shapes(inside)
+        threadHost.root.mask = Self.shapeMask(outside, evenOdd: true, frame: bounds, reuse: threadHost.root.mask)
+        headerVeil.root.mask = Self.shapeMask(inside, evenOdd: false, frame: bounds, reuse: headerVeil.root.mask)
+    }
+
+    private static func shapeMask(_ path: CGPath, evenOdd: Bool, frame: CGRect, reuse: CALayer?) -> CAShapeLayer {
+        let m = (reuse as? CAShapeLayer) ?? CAShapeLayer()
+        m.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        m.fillRule = evenOdd ? .evenOdd : .nonZero
+        m.frame = frame
+        m.path = path
+        return m
+    }
+
+    /// The veil's backdrop opens and closes with the window view's thread view (after every engine
+    /// change, in the same turn as the vendored open or close, so both run on the same curve).
+    func followThread(open: Bool) {
+        clipThreadToHeader()
+        guard open != veilOpen else { return }
+        veilOpen = open
+        veilBackdrop.animate(open: open)
     }
 
     /// The thread layer lives in `threadHost` (tests, the DEBUG socket).

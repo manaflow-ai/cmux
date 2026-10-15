@@ -58,9 +58,12 @@ final class HostView: NSView {
     weak var liftedThread: UIView?
     /// The window view the thread layer was last searched in.
     var threadLayerSearch: ObjectIdentifier?
-    /// The thread's rows, masked out at the header's controls (PaneHost+ThreadLayer.swift).
-    let threadRows = CALayer()
-    var threadRowsHoles: [CGRect] = []
+    /// The header's controls' blur under an open thread view, and the shapes cut from `threadHost`
+    /// (PaneHost+ThreadLayer.swift).
+    let headerVeil = LayerHostView()
+    let veilBackdrop = ThreadBackdrop()
+    var veilOpen = false
+    var threadHoles: [CGRect] = []
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
@@ -108,6 +111,7 @@ final class HostView: NSView {
         // and darkens it with the transcript, as Messages does (PaneHost+ThreadLayer.swift).
         addSubview(paneHeader)
         addSubview(threadHost)
+        addSubview(headerVeil)
         liftThreadLayer(demo)
         addSubview(selectionHost)
         // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).
@@ -146,7 +150,7 @@ final class HostView: NSView {
 
     override func layout() {
         super.layout()
-        for v in [below, threadHost, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
+        for v in [below, threadHost, headerVeil, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
             demo.frame = bounds
@@ -164,7 +168,7 @@ final class HostView: NSView {
         // in the window can change with no size change of the window view (RowCell.windowPlace).
         refreshWindowPlace()
         CATransaction.commit()
-        if let demo { liftThreadLayer(demo); clipThreadRows() }  // cmux: the thread layer stays over the header
+        if let demo { liftThreadLayer(demo); clipThreadToHeader() }  // cmux: the thread layer stays over the header
         placeNativeViews()
     }
 
@@ -567,7 +571,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // sits above the thread view's blur). cmux: the scroll view, scroller included, is under
         // `threadHost` (PaneHost+ThreadLayer.swift), so the thread backdrop blurs and darkens it with
         // the transcript, as real Messages does; its alpha stays SequenceScroller's own.
-        host.clipThreadRows()  // cmux: a thread view's new rows pass under the header's controls
+        host.followThread(open: demo?.threadOpen ?? false)  // cmux: the header's controls blur with the thread view
         prefetchNextReceipt()
         scheduleWake()
     }
