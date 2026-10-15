@@ -23,6 +23,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var eventContinuation: AsyncStream<BrowserPageEvent>.Continuation?
     private var pendingEvents: [BrowserPageEvent] = []
     private var userScriptIdentifiers: [String] = []
+    /// User scripts added before the Chromium browser existed.
+    private(set) var pendingUserScriptSources: [String] = []
     private var devToolsVisible = false
     private var muted = false
     private var lastFaviconURL: URL?
@@ -71,6 +73,9 @@ public final class CEFBrowserPage: BrowserPage {
         )
         browser.onEvent = { [weak self] event in
             self?.handle(event)
+        }
+        browser.onWindowCreated = { [weak self] id in
+            self?.registerPendingUserScripts(browserID: id)
         }
     }
 
@@ -194,12 +199,12 @@ public final class CEFBrowserPage: BrowserPage {
     /// Injects a script into every new document of this page.
     /// - Parameter script: The script; `documentEnd` scripts wait for `DOMContentLoaded`.
     public func addUserScript(_ script: BrowserPageUserScript) {
-        var source = script.source
-        if script.injectionTime == .documentEnd {
-            source = "document.addEventListener('DOMContentLoaded', () => {\n\(source)\n}, { once: true });"
-        }
-        if script.isMainFrameOnly {
-            source = "if (window === window.top) {\n\(source)\n}"
+        let source = Self.userScriptSource(script)
+        guard browser.browserID != nil else {
+            // Registered synchronously when the browser is created, before
+            // its first load (`registerPendingUserScripts`).
+            pendingUserScriptSources.append(source)
+            return
         }
         let params = Self.json(["source": source])
         Task { @MainActor [weak self, browser] in
@@ -211,8 +216,35 @@ public final class CEFBrowserPage: BrowserPage {
         }
     }
 
+    /// Sends the scripts added before the browser existed, in order, right
+    /// before its first load. Their DevTools identifiers are not collected,
+    /// so ``removeAllUserScripts()`` cannot remove them later.
+    func registerPendingUserScripts(browserID: Int32) {
+        let sources = pendingUserScriptSources
+        pendingUserScriptSources.removeAll()
+        guard !sources.isEmpty, let shim = shimProvider() else { return }
+        for source in sources {
+            let params = Self.json(["source": source])
+            _ = shim.devToolsCall(browserID, "Page.addScriptToEvaluateOnNewDocument", params)
+        }
+    }
+
+    /// The script source as Chromium runs it: `documentEnd` waits for
+    /// `DOMContentLoaded`; main-frame-only scripts skip subframes.
+    nonisolated static func userScriptSource(_ script: BrowserPageUserScript) -> String {
+        var source = script.source
+        if script.injectionTime == .documentEnd {
+            source = "document.addEventListener('DOMContentLoaded', () => {\n\(source)\n}, { once: true });"
+        }
+        if script.isMainFrameOnly {
+            source = "if (window === window.top) {\n\(source)\n}"
+        }
+        return source
+    }
+
     /// Removes every script added with ``addUserScript(_:)``.
     public func removeAllUserScripts() {
+        pendingUserScriptSources.removeAll()
         let identifiers = userScriptIdentifiers
         userScriptIdentifiers.removeAll()
         Task { @MainActor [browser] in
