@@ -42,7 +42,12 @@ final class CEFApplicationSupport {
     @discardableResult
     func install(application: NSApplication) -> Bool {
         if isInstalled { return true }
-        guard let appClass = object_getClass(application) else { return false }
+        // The class `-class` reports, not the isa: Key-Value Observing gives
+        // NSApp a hidden NSKVONotifying_ subclass, while `-conformsToProtocol:`
+        // (what CEF checks) asks `[self class]`, which KVO maps back to the
+        // real class. Patching the real class covers the KVO subclass too.
+        let reported = application.perform(NSSelectorFromString("class"))?.takeUnretainedValue()
+        guard let appClass = (reported as? AnyClass) ?? object_getClass(application) else { return false }
         let proto: Protocol = (any CEFAppProtocol).self
 
         let getSelector = NSSelectorFromString("isHandlingSendEvent")
@@ -81,5 +86,18 @@ final class CEFApplicationSupport {
             original(app, selector, event)
         }
         class_replaceMethod(appClass, selector, imp_implementationWithBlock(wrapped), method_getTypeEncoding(method))
+    }
+
+    /// What the conformance check sees, for the start failure message.
+    @MainActor
+    func diagnosis(application: NSApplication) -> String {
+        let proto: Protocol = (any CEFAppProtocol).self
+        let isa = object_getClass(application).map(NSStringFromClass) ?? "nil"
+        let reported = NSStringFromClass(type(of: application))
+        return "installed=\(isInstalled) isa=\(isa) class=\(reported) " +
+            "conforms=\(application.conforms(to: proto)) " +
+            "registered=\(objc_getProtocol("CefAppProtocol") != nil) " +
+            "get=\(application.responds(to: NSSelectorFromString("isHandlingSendEvent"))) " +
+            "set=\(application.responds(to: NSSelectorFromString("setHandlingSendEvent:")))"
     }
 }
