@@ -24,6 +24,9 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
     /// - Parameter topLevelURL: The page's address, so a request from an
     ///   embedded frame of another site names both sites.
     func decidePermission(_ request: BrowserPagePermissionRequest, topLevelURL: URL? = nil) async -> BrowserPagePermissionCoordinator.Outcome {
+        #if DEBUG
+        cmuxDebugLog("browser.chromium.permission.request kinds=\(request.kinds.count) panel=\(panel != nil)")
+        #endif
         guard let panel else { return BrowserPagePermissionCoordinator.Outcome(.prompt) }
         let coordinator = BrowserPagePermissionCoordinator(queue: permissionQueue) { profileID in
             BrowserChromiumProfileEngineStore.current?.sitePermissions.store(forProfileID: profileID)
@@ -47,6 +50,9 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
     /// Chooses a new engine download's temporary file and lists it.
     func stageDownload(_ download: BrowserPageDownload) -> URL? {
         guard let panel, let downloads = panel.downloadDelegate else { return nil }
+        #if DEBUG
+        cmuxDebugLog("browser.chromium.download.stage")
+        #endif
         let staged = downloadLedger.stage(download)
         downloads.onDownloadStarted?(staged.suggestedFilename, staged.downloadID)
         // A REPL session sees it as it sees WebKit downloads.
