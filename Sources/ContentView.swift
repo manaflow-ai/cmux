@@ -1780,6 +1780,17 @@ struct ContentView: View {
         return max(titlebarLeadingInset, visibleSidebarTitleInset)
     }
 
+    nonisolated static func rightSidebarWindowFrame(
+        currentFrame: CGRect,
+        sidebarWidth: CGFloat,
+        isShowing: Bool,
+        visibleFrame: CGRect?,
+        minimumWindowWidth: CGFloat,
+        isFullScreen: Bool
+    ) -> CGRect? {
+        nil
+    }
+
     /// Where the always-visible fullscreen titlebar controls (sidebar toggle,
     /// history, new tab, notifications) are anchored inside the titlebar band.
     struct FullscreenControlsPlacement: Equatable {

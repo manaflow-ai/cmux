@@ -2464,6 +2464,72 @@ struct CustomTitlebarLeadingPaddingTests {
     }
 }
 
+@Suite("Right sidebar window resize")
+struct RightSidebarWindowResizePolicyTests {
+    @Test func showingSidebarExpandsWindowWithoutMovingItsLeadingEdge() {
+        let frame = CGRect(x: 120, y: 80, width: 900, height: 640)
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_600, height: 900)
+
+        let resized = ContentView.rightSidebarWindowFrame(
+            currentFrame: frame,
+            sidebarWidth: 280,
+            isShowing: true,
+            visibleFrame: visibleFrame,
+            minimumWindowWidth: 300,
+            isFullScreen: false
+        )
+
+        #expect(resized == CGRect(x: 120, y: 80, width: 1_180, height: 640))
+    }
+
+    @Test func showingSidebarFallsBackWhenWindowWouldCrossDisplayEdge() {
+        let frame = CGRect(x: 600, y: 80, width: 900, height: 640)
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_600, height: 900)
+
+        let resized = ContentView.rightSidebarWindowFrame(
+            currentFrame: frame,
+            sidebarWidth: 280,
+            isShowing: true,
+            visibleFrame: visibleFrame,
+            minimumWindowWidth: 300,
+            isFullScreen: false
+        )
+
+        #expect(resized == nil)
+    }
+
+    @Test func hidingSidebarShrinksWindowByTheSidebarWidth() {
+        let frame = CGRect(x: 120, y: 80, width: 1_180, height: 640)
+
+        let resized = ContentView.rightSidebarWindowFrame(
+            currentFrame: frame,
+            sidebarWidth: 280,
+            isShowing: false,
+            visibleFrame: nil,
+            minimumWindowWidth: 300,
+            isFullScreen: false
+        )
+
+        #expect(resized == CGRect(x: 120, y: 80, width: 900, height: 640))
+    }
+
+    @Test func fullscreenSidebarToggleKeepsCurrentWindowFrame() {
+        let frame = CGRect(x: 0, y: 0, width: 1_600, height: 900)
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_600, height: 900)
+
+        let resized = ContentView.rightSidebarWindowFrame(
+            currentFrame: frame,
+            sidebarWidth: 280,
+            isShowing: true,
+            visibleFrame: visibleFrame,
+            minimumWindowWidth: 300,
+            isFullScreen: true
+        )
+
+        #expect(resized == nil)
+    }
+}
+
 
 @Suite("Fullscreen titlebar controls placement")
 struct FullscreenControlsPlacementTests {
