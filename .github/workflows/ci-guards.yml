@@ -283,6 +283,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
 
+      - name: Validate reload's xcodebuild lock root ignores TMPDIR
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_xcodebuild_lock_root.sh
+
       - name: Validate reload emits the app module on Xcode versions that fail the module merge
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_app_module_emission.sh

@@ -185,7 +185,7 @@ final class ScreenContentView: NSView {
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
             }
-            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius)
+            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
         }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
