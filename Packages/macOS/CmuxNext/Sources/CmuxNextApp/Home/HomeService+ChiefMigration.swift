@@ -21,11 +21,13 @@ nonisolated struct ChiefOwnerMigrationAdapter: ChiefMigrationOwner {
 }
 
 extension HomeService {
-    /// Moves the old per-tag Chiefs into the Chief home before Home or the
-    /// brain host use its owner (home-state-ownership.md section 7). While an
+    /// NIGHTLY only (``ChiefHome/importsOldChiefs``): after the shared
+    /// Chief home's one-time backup (``ChiefAdoption``, before the owner starts), moves the old per-tag Chiefs
+    /// into it before Home or the brain host use its owner
+    /// (home-state-ownership.md section 7). While an
     /// older build's host still runs, Home says so and the owner stays
-    /// unpublished; the next launch tries again. Nothing is stopped. A DEV
-    /// build's own Chief home starts empty (`ChiefHome.importsOldChiefs`).
+    /// unpublished; the next launch tries again. Nothing is stopped. Every
+    /// other build's Chief home starts empty.
     func installChiefMigration() {
         let home = chief.home
         guard home.importsOldChiefs else { return }
@@ -36,6 +38,9 @@ extension HomeService {
         let logger = logger
         let tool = BundledChiefMemoryTool.bundled()
         chief.prepare = { [weak self] connection in
+            // NIGHTLY's backup of the shared home exists first (taken before the owner started,
+            // ChiefConversationOwner.adoption); without it the move waits for a later launch.
+            guard let adoption = await self?.chief.adoption, adoption != .busy else { return }
             let outcome: ChiefMigration.Outcome
             do {
                 outcome = try await ChiefMigration.run(home: home, owner: ChiefOwnerMigrationAdapter(connection: connection, create: create), olds: olds, tool: tool)

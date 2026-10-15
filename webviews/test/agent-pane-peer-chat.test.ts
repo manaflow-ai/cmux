@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -102,6 +103,7 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // In CI the first load of the dev server can stall past 30 s while it transforms deps
     // (#20276's run 38480535894), as in agent-pane-replay. Load it here, again if it stalls, so

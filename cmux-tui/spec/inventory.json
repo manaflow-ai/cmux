@@ -32,6 +32,7 @@
     "browser.viewer.resize",
     "chief.engine.get",
     "chief.engine.set",
+    "chief.profile.adopt",
     "chief.profile.avatar.get",
     "chief.profile.avatar.set",
     "chief.profile.create",
@@ -804,6 +805,12 @@
     },
     {
       "name": "participant-avatar-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "chief-changed",
       "streams": [
         "subscribe"
       ]

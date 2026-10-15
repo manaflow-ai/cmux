@@ -6,7 +6,6 @@ import "../../pages/shared/desktop.css";
 import "../../ui/popupSurface.css";
 import "../shared/styles.css";
 import "./styles.css";
-import "katex/dist/katex.min.css";
 import "./conversation/conversation.css";
 import "./chips/chips.css";
 import "./previewCard/previewCard.css";

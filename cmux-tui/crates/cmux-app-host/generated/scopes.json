@@ -209,6 +209,10 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.adopt": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.profile.avatar.get": {
       "scope": "chief:read",
       "class": "read"
