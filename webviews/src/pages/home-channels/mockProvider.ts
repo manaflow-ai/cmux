@@ -11,6 +11,8 @@ import {
   type HomeConversation,
   type HomeDraftItem,
   type HomeEventBatch,
+  type HomeLiveFrame,
+  type HomeLiveSnapshot,
   type HomeMessage,
   type HomeParticipant,
   type HomeRun,
@@ -288,7 +290,17 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
       { file_path: "CHANGELOG.md" },
       "## 0.66.0 (unreleased)\n- Sidebar fix",
     ),
-    tool(3, "t3", "Edit", "edit", "Edit release/checklist.md", { file_path: "release/checklist.md" }, "", {
+    {
+      id: "thought:0",
+      seq: 3,
+      at: at + 18_000,
+      rev: 3,
+      kind: "thought",
+      text: "The changelog has the sidebar fix; the checklist still lists it as open.",
+      attachments: [],
+      links: [],
+    },
+    tool(4, "t3", "Edit", "edit", "Edit release/checklist.md", { file_path: "release/checklist.md" }, "", {
       files: [
         {
           path: "release/checklist.md",
@@ -301,9 +313,9 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
     }),
     {
       id: "talk:0",
-      seq: 4,
+      seq: 5,
       at: at + 50_000,
-      rev: 4,
+      rev: 5,
       kind: "talk",
       text: "Started. I post in #release when each one lands.",
       attachments: [],
@@ -319,7 +331,7 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
       startedAt: at,
       endedAt: BASE + 3 * MINUTE,
       updatedAt: BASE + 3 * MINUTE,
-      rev: 5,
+      rev: 6,
       stepCount: steps.length,
       turn: RUN_TURN,
       answers: ["c-chief-m3"],
@@ -359,6 +371,8 @@ export class MockHomeProvider implements PageClient {
   private seq = 0;
 
   private readonly runs = new Map<string, { run: HomeRun; steps: HomeRunStep[] }>();
+  /** The live run's text so far (chief-live-v1): what `cmux.home.live` answers. */
+  private liveSnapshot: HomeLiveSnapshot | undefined;
   private readonly uploads = new Map<string, Record<string, unknown>>();
   /** The Chief records (the sample Chief is the default one). */
   private readonly chiefs = new Map<string, HomeChief>([
@@ -499,6 +513,59 @@ export class MockHomeProvider implements PageClient {
     ];
     this.runs.set(run.id, { run, steps });
     this.emit({ messages: [asked], runs: [{ run, steps }] });
+    // It writes its reply as it works (chief-live-v1): two frames, and what it works on now.
+    const since = started + 9_000;
+    const frames: HomeLiveFrame[] = [
+      {
+        type: "run.activity",
+        conversation: "c-chief",
+        run: run.id,
+        author: chief.id,
+        line: "Running gh run view --log-failed",
+        since,
+        at: since,
+      },
+      {
+        type: "step.delta",
+        conversation: "c-chief",
+        run: run.id,
+        author: chief.id,
+        step: "talk:0",
+        kind: "talk",
+        seq: 0,
+        text: "Two of the three runs passed. ",
+      },
+      {
+        type: "step.delta",
+        conversation: "c-chief",
+        run: run.id,
+        author: chief.id,
+        step: "talk:0",
+        kind: "talk",
+        seq: 1,
+        text: "Reading the failed job's log now",
+      },
+    ];
+    this.liveSnapshot = {
+      type: "run.live",
+      conversation: "c-chief",
+      runs: [
+        {
+          run: run.id,
+          author: chief.id,
+          steps: [
+            {
+              step: "talk:0",
+              kind: "talk",
+              seq: 1,
+              text: "Two of the three runs passed. Reading the failed job's log now",
+            },
+          ],
+          activity: { line: "Running gh run view --log-failed", since, at: since },
+        },
+      ],
+    };
+    this.emit({ live: frames });
   }
 
   /** The Chief writes its reply after the page subscribes: one fresh item, then appends. */
@@ -792,6 +859,8 @@ export class MockHomeProvider implements PageClient {
         );
         return { runs, hasMore: false } as R;
       }
+      case HomeOps.live:
+        return (this.liveSnapshot?.conversation === id ? this.liveSnapshot : null) as R;
       case HomeOps.run: {
         const entry = this.runs.get(String(params.run ?? ""));
         if (!entry) throw pageError("cmux.home.run_rejected", "unknown_run");

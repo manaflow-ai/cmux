@@ -131,6 +131,28 @@ impl Client {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value> {
+        let reply = self.send_request(m, params).await?;
+        if m == method::SESSION_NEW {
+            self.tag_spawned_by(&reply).await;
+        }
+        Ok(reply)
+    }
+
+    /// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`,
+    /// `acpmux run`): tags the new session with that one (`hub::views::SPAWNED_BY_TAG`), so the chat
+    /// lists fold it under its parent. The session exists either way; a failed tag only lists
+    /// it on its own.
+    async fn tag_spawned_by(&self, reply: &Value) {
+        let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
+        else {
+            return;
+        };
+        let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
+        let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
+        let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
+    }
+
+    async fn send_request(&self, m: &str, params: Value) -> Result<Value> {
         let context = format!("sending {m}");
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();

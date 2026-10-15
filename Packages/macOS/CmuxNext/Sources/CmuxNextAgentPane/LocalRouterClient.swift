@@ -2,7 +2,7 @@ public import Foundation
 import Network
 
 /// The local model relay's admin socket (cmux-tui crate cmux-coderouter,
-/// `<acpmux home>/router/router.sock`, 0600): one JSON object per line,
+/// ``socketPath(acpmuxHome:uid:)``, 0600): one JSON object per line,
 /// `{"op": ...}`, one reply line each. The app uses it to hand the relay the
 /// signed-in account's bearer for the hosted cmux model router
 /// (`set_upstream`) and to take it back (`clear_upstream`). The bearer goes
@@ -11,13 +11,48 @@ public nonisolated struct LocalRouterClient: Sendable {
     public enum Failure: Error, Equatable {
         case refused(String)
         case closed
+        /// The socket path does not fit a Unix socket address (`sun_path`).
+        case socketPathTooLong(String)
+        /// The short socket folder is not a folder that only this user owns and can enter.
+        case untrustedSocketFolder(String)
     }
 
     /// The admin socket of the relay that the daemon in the acpmux home starts.
     public let socketPath: String
 
     public init(acpmuxHome home: URL) {
-        socketPath = home.appendingPathComponent("router", isDirectory: true).appendingPathComponent("router.sock").path
+        socketPath = Self.socketPath(acpmuxHome: home)
+    }
+
+    /// The relay's admin socket for the acpmux home `home`, by the rule the relay
+    /// (cmux-coderouter `admin_socket_path`) and acpmux share:
+    /// `<home>/router/router.sock` when it fits a Unix socket address
+    /// (``AcpmuxEnvironment/maxSocketPathBytes``), else
+    /// `/tmp/acpmux-<uid>/<fnv1a64(home)>-router.sock`, the private per-user
+    /// folder of the daemon socket's short alias (cx-8iw6m: a long home made a
+    /// path that the Network framework traps on).
+    public static func socketPath(acpmuxHome home: URL, uid: UInt32 = getuid()) -> String {
+        let preferred = home.appendingPathComponent("router", isDirectory: true).appendingPathComponent("router.sock").path
+        if preferred.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes { return preferred }
+        return "\(shortFolder(uid: uid))/\(String(format: "%016llx", AcpmuxEnvironment.fnv1a64(home.path)))-router.sock"
+    }
+
+    static func shortFolder(uid: UInt32) -> String { "/tmp/acpmux-\(uid)" }
+
+    /// The endpoint for `path`, or a ``Failure`` where a connection must not be
+    /// tried: a path past the Unix socket limit (`NWEndpoint.unix` traps on one)
+    /// or a short-folder path whose folder another user could control (the
+    /// bearer goes over this socket).
+    static func endpoint(_ path: String, uid: UInt32 = getuid()) throws -> NWEndpoint {
+        guard path.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes else { throw Failure.socketPathTooLong(path) }
+        let folder = shortFolder(uid: uid)
+        if (path as NSString).deletingLastPathComponent == folder {
+            var info = stat()
+            guard lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 else {
+                throw Failure.untrustedSocketFolder(folder)
+            }
+        }
+        return .unix(path: path)
     }
 
     /// Hands the relay the hosted router's origin and a bearer valid until
@@ -38,7 +73,8 @@ public nonisolated struct LocalRouterClient: Sendable {
     /// which happens only when the relay exits (a new relay holds no
     /// bearer). Returns false at once when no relay answers.
     @concurrent public func waitUntilGone(pid: Int?) async -> Bool {
-        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+        guard let endpoint = try? Self.endpoint(socketPath) else { return false }
+        let connection = NWConnection(to: endpoint, using: .tcp)
         defer { connection.cancel() }
         return await withTaskCancellationHandler {
             // Cancelled before the start: a cancelled connection may never report a state.
@@ -73,7 +109,8 @@ public nonisolated struct LocalRouterClient: Sendable {
     }
 
     private static func exchange(socketPath: String, line: Data, deadline: Duration) async throws -> ResultBox {
-        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+        let target = try endpoint(socketPath)
+        let connection = NWConnection(to: target, using: .tcp)
         defer { connection.cancel() }
         return try await withAgentPaneDeadline(deadline, label: "local router", onTimeout: { connection.cancel() }) {
             try await AcpmuxStatusClient.start(connection)

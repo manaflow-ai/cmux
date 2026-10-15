@@ -340,7 +340,7 @@ finally:
     cli = os.path.join(opts.app, "Contents/Resources/bin/cmux")
     acpmux_home = os.path.join(os.path.expanduser("~"), ".cmux/chief/isolated", opts.tag, "acpmux")
     if os.path.exists(acpmux):
-        subprocess.run([acpmux, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": acpmux_home,
+        subprocess.run([acpmux, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": acpmux_home,
                        "ACPMUX_SOCKET": os.path.join(acpmux_home, "acpmux.sock")}, capture_output=True, timeout=30)
     if os.path.exists(cli):
         subprocess.run([cli, "server", "stop", "--session", f"cmux-app-{opts.tag}", "--end-terminals"],

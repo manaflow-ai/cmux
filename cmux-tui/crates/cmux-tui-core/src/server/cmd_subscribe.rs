@@ -144,6 +144,17 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A Chief's live frames only to a connection that asked for
+                // them in set-client-info (`chief-live-v1`).
+                MuxEvent::Conversation(event)
+                    if event.is_live()
+                        && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::conversation_live::CHIEF_LIVE_CAPABILITY,
+                        ) =>
+                {
+                    continue;
+                }
                 // An avatar change only to a connection that asked for it in
                 // set-client-info (`participant-avatars-v1`).
                 MuxEvent::Conversation(event)
@@ -188,6 +199,19 @@ pub(super) fn subscribe_command(
                     ) && !event_mux.control_clients.supports_capability(
                         client,
                         super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+                    ) =>
+                {
+                    continue;
+                }
+                // A Cloud Chief's live frame only to a connection that asked
+                // for live frames (`chief-live-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::Live { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::conversation_live::CHIEF_LIVE_CAPABILITY,
                     ) =>
                 {
                     continue;

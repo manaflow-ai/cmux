@@ -41,6 +41,7 @@ pub mod harness_limits;
 pub mod hub;
 #[cfg(windows)]
 mod job;
+pub mod launch_credential;
 pub mod launch_policy;
 pub mod live_models;
 pub mod local_stream;

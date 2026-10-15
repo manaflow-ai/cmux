@@ -407,6 +407,21 @@ final class MorphBubble {
 
     func remove() { insideClip.removeFromSuperlayer(); sharpClip.removeFromSuperlayer() }
 
+    /// The landing hand-off (WindowView.landMorphs): the cell shows under the overlay in the same transaction,
+    /// and the overlay fades out over it (group opacity: the two trees blend as one picture). What changes at the
+    /// hand-off is the text raster, not the geometry (every element is within 0.1 pt at landTime): the overlay's
+    /// text image is drawn at `scale * peakScale` and shown scaled down, the cell draws it on the device pixels.
+    /// A one-frame swap moved every glyph edge (live takes, cx-3cb live-motion); the fade spreads that change.
+    func fadeOut(begin: CFTimeInterval) {
+        for l in [insideClip, sharpClip] {
+            l.allowsGroupOpacity = true
+            l.opacity = 0
+            Animate.scalar(l, "opacity", from: 1, to: 0, Springs.landFade, begin: begin)
+        }
+    }
+    /// Seconds after `fadeOut` begins when the overlay is invisible (Springs.landFade under 0.002).
+    static let fadeOutTime = 0.3
+
     /// The largest value of the fitted scale pulse (sampled at 240 Hz).
     static let peakScale: CGFloat = {
         var peak = 1.0

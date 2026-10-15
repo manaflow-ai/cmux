@@ -27,6 +27,7 @@ pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
 mod chief_registry;
 mod conversation_drafts;
+mod conversation_live;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;

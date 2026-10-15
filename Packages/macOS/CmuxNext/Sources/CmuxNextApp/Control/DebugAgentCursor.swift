@@ -48,9 +48,9 @@ enum DebugAgentCursor {
 
     private static func encode(_ result: AgentCursorVisibility) -> JSON {
         switch result {
-        case let .visible(window, viewport, clip, zoom):
+        case let .visible(window, viewport, clip, zoom, scale):
             return .object(["kind": .string("visible"), "window": .string(window), "viewport": rect(viewport),
-                            "clip": rect(clip), "zoom": .number(zoom)])
+                            "clip": rect(clip), "zoom": .number(zoom), "scale": .number(scale)])
         case let .hidden(window, anchor, area):
             return .object(["kind": .string("hidden"), "window": .string(window), "anchor": .string(name(anchor)), "rect": rect(area)])
         case let .notDrawn(reason):

@@ -11155,6 +11155,268 @@
           }
         }
       }
+    },
+    "home.list.cloudSignedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to see your Cloud conversations."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول لرؤية محادثاتك في السحابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se da vidite svoje razgovore u oblaku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind for at se dine Cloud-samtaler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich an, um deine Cloud-Unterhaltungen zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión para ver tus conversaciones en la nube."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous pour voir vos conversations Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi per vedere le tue conversazioni Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クラウドの会話を見るにはサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនី ដើម្បីមើលការសន្ទនាលើ Cloud របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드 대화를 보려면 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på for å se Cloud-samtalene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się, aby zobaczyć rozmowy w chmurze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre para ver suas conversas na nuvem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите, чтобы увидеть разговоры в облаке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้เพื่อดูการสนทนาบนคลาวด์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut sohbetlerinizi görmek için oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть, щоб побачити розмови в хмарі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập để xem các cuộc trò chuyện trên Cloud."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录以查看你的云端对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入以查看你的雲端對話。"
+          }
+        }
+      }
+    },
+    "home.list.cloudUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud conversations are not available right now."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محادثات السحابة غير متاحة الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razgovori u oblaku trenutno nisu dostupni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-samtaler er ikke tilgængelige lige nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Unterhaltungen sind gerade nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las conversaciones en la nube no están disponibles ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les conversations Cloud ne sont pas disponibles pour le moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le conversazioni Cloud non sono disponibili al momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クラウドの会話は現在利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសន្ទនាលើ Cloud មិនអាចប្រើបានឥឡូវនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "지금은 클라우드 대화를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-samtaler er ikke tilgjengelige akkurat nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmowy w chmurze są teraz niedostępne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As conversas na nuvem não estão disponíveis agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разговоры в облаке сейчас недоступны."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การสนทนาบนคลาวด์ใช้งานไม่ได้ในขณะนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut sohbetleri şu anda kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмови в хмарі зараз недоступні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các cuộc trò chuyện trên Cloud hiện không khả dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "云端对话目前不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雲端對話目前無法使用。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

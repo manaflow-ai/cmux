@@ -294,6 +294,37 @@ impl WorkspaceRegistry {
         Ok(StateCommit { revision, result, replayed: false, personal_revision })
     }
 
+    /// What [`Self::commit_state_mutation`] answers before it applies
+    /// anything: `Some` replay of the first result of a retry under the same
+    /// key, or its refusal of a key reused with other input or of a stale
+    /// `expected_revision`; `None` when it would apply. For a mutation that
+    /// acts outside the registry before its commit.
+    pub(crate) fn state_mutation_replay(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<StateCommit>> {
+        let fingerprint = canonical_json(fingerprint)?;
+        let db = self.connection.get();
+        if let Some(replayed) = resource_patch_replay(&db, mutation, operation, &fingerprint)? {
+            return Ok(Some(replayed.into()));
+        }
+        if let Some(expected) = expected_revision {
+            let current: String = db.query_row(
+                "SELECT value FROM meta WHERE key = 'resource_revision'",
+                [],
+                |row| row.get(0),
+            )?;
+            let current: u64 = current.parse().context("resource revision is invalid")?;
+            if expected != current {
+                anyhow::bail!("resource revision conflict: expected {expected}, current {current}");
+            }
+        }
+        Ok(None)
+    }
+
     /// Run a read against the registry connection.
     pub(crate) fn read_state<T>(
         &self,

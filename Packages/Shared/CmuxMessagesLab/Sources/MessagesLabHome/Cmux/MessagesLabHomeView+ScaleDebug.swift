@@ -32,6 +32,11 @@ extension MessagesLabHomeView {
         return ["renderScale": Double(s), "windowScale": Double(controller.host.window?.backingScaleFactor ?? 0),
                 "rowBitmaps": Double(bitmaps), "rowBitmapsOffScale": Double(offScale), "cellsOffScale": Double(cellsOff),
                 "composeScale": Double(demo.compose.renderScale), "headerScale": Double(demo.header.layer.contentsScale),
-                "bitmapPxPerPtMin": bitmaps > 0 ? Double(ratioMin) : 0, "bitmapPxPerPtMax": Double(ratioMax)]
+                "bitmapPxPerPtMin": bitmaps > 0 ? Double(ratioMin) : 0, "bitmapPxPerPtMax": Double(ratioMax),
+                // The palette state the rows draw with (process-wide) and the window's key state, and whether the
+                // bitmaps' colour space is the window screen's (b5742f3 display-change colour check).
+                "fixtureInactive": Fixture.inactive ? 1 : 0, "windowKey": (controller.host.window?.isKeyWindow ?? false) ? 1 : 0,
+                "appActive": NSApp.isActive ? 1 : 0, "lightAppearance": Fixture.lightAppearance ? 1 : 0,
+                "colorSpaceIsScreen": controller.host.window?.screen?.colorSpace?.cgColorSpace.map { $0 == DisplayScale.colorSpace } == true ? 1 : 0]
     }
 }

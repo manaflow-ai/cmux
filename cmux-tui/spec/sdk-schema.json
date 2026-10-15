@@ -22525,6 +22525,33 @@
     "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-conversation-live": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-chief-live-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "A subscriber of the conversation only (not_subscribed). Asks the Cloud owner for its run.live snapshot on the shared socket (run.live.get); the answer arrives as a cloud-conversation-live event. Answers the subscription's state. See spec/commands.md."
+   ]
+  },
   "browser-host-provider": {
    "authority": "local-admin",
    "since": 12,
@@ -23736,6 +23763,97 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. The steps written after after_rev (default 0), oldest write first, limit 1-500 (default 500). An unknown run is run_rejected unknown_run. See spec/commands.md."
+   ]
+  },
+  "conversation-live-publish": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "chief-live-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "frame": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; the caller's principal must be an agent participant (not_agent), the run its own (not_run_author) and running (run_not_running). frame is {type:\"step.delta\", conversation, run, step, kind:\"talk\"|\"thought\", seq, text, final?} (text 1-4096 characters, seq from 0 without gaps: seq_gap, step_final) or {type:\"run.activity\", conversation, run, line, since, at} (line 1-80 characters). Never stored. See spec/commands.md."
+   ]
+  },
+  "conversation-live": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "chief-live-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "type": {
+      "type": {
+       "kind": "literal",
+       "value": "run.live"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "runs": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "JsonValue"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. The run.live snapshot: the running runs' streamed text so far (each step at most its last 64 KiB) and activity. See spec/commands.md."
    ]
   },
   "cloud-mux-subscribe": {
@@ -27969,6 +28087,44 @@
     "additional_properties": false
    }
   },
+  "conversation-live": {
+   "since": 12,
+   "capability": "chief-live-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "conversation-live"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "frame": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "participant-avatar-changed": {
    "since": 12,
    "capability": "participant-avatars-v1",
@@ -28341,6 +28497,52 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-conversation-live": {
+   "since": 12,
+   "capability": "cloud-chief-live-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-live"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "frame": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
      },
      "account": {
       "type": {

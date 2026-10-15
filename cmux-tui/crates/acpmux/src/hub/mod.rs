@@ -90,7 +90,7 @@ mod turns;
 mod warm;
 mod xai;
 pub(crate) use turns::merge_mux_meta;
-mod views;
+pub(crate) mod views;
 mod web_control;
 mod web_token;
 pub use web_control::Control;

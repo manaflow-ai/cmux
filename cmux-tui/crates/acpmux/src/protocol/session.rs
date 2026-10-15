@@ -33,6 +33,9 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
+    /// The session whose agent started this one (its `spawnedBy` tag), kept
+    /// only while that parent is listed; one level.
+    pub spawned_by: Option<String>,
     pub title: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,

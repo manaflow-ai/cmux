@@ -74,8 +74,8 @@ final class FieldTextView: NSTextView {
     /// Messages' caret is UIKit's, not AppKit's insertion indicator (lossless references,
     /// macOS 27): it shows at once when the field takes focus or the caret moves (AppKit's
     /// fades in over 0.15 s), stays solid 0.56 s, then blinks with a 1.0 s period in four
-    /// steps of 25 % about 35 ms apart (out at +0.56, in at +0.90); it is 1 x 17 pt, 0.5 pt
-    /// left of and 1.25 pt below AppKit's 1 x 16 pt one. AppKit's blink has the same period,
+    /// steps of 25 % about 35 ms apart (out at +0.56, in at +0.90); it is 2 x 17 pt with round ends, its
+    /// left edge 0.5 pt left of and 1.25 pt below AppKit's 1 x 16 pt one. AppKit's blink has the same period,
     /// so only the reset, the fade-in and the geometry differ; this layer replaces it.
     private let caretView = CaretView()
     /// A plain sublayer of the caret view's layer (AppKit manages the view's own layer).
@@ -109,7 +109,10 @@ final class FieldTextView: NSTextView {
         insertionPointColor = .clear
         caretView.wantsLayer = true
         caretView.layer?.addSublayer(caretLayer)
-        caretLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 17)
+        caretLayer.frame = CGRect(x: 0, y: 0, width: Self.caretWidth, height: 17)
+        // UIKit's caret ends are round (lossless references: the first and last two device rows of the
+        // 2 pt column are 42 % and 77 % covered at each side).
+        caretLayer.cornerRadius = Self.caretWidth / 2
         caretLayer.backgroundColor = Fixture.caret.cgColor
         caretLayer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "opacity": NSNull()]
         caretView.isHidden = true
@@ -139,11 +142,11 @@ final class FieldTextView: NSTextView {
             // that brought the field in moved no view of the field, so the caret stayed hidden).
             let local: CGRect
             if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
-                local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: 1, height: 17)
+                local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
             } else {
                 let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
                 let r = convert(window.convertFromScreen(screen), from: nil)
-                local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17)
+                local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: Self.caretWidth, height: 17)
             }
             caretFrame = convert(local, to: host)
             // A caret line scrolled out of the field (past `ComposeView.maxHeight`) hides the caret,
@@ -166,11 +169,15 @@ final class FieldTextView: NSTextView {
         (!caretView.isHidden && caretView.superview != nil, caretView.frame, caretLayer.animation(forKey: "blink") != nil)
     }
 
-    /// Caret geometry against the line rect AppKit reports: Messages' caret is 62.5-63.5 x
+    /// Caret geometry against the line rect AppKit reports: Messages' caret is 62.5-64.5 x
     /// 1006-1023 pt in the 31 pt one-line field (field-focus-type, deactivate-activate, every
     /// send take while typing), 7 pt under the field top; 1007-1024 in the 30 pt field after a send
     /// (the first fit, 1007-1024, was of that field: ours sat 1 pt low while typing).
     static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 0.75
+    /// Messages' caret is 2 pt wide (62.5-64.5 pt, device columns 125-128 at 2x, in every lossless
+    /// reference with the empty field: deactivate-activate, send-typed, receive-media, swipe-full; the
+    /// placeholder's "i" stem shares columns 127-128, which read as a 1 pt caret before), with round ends.
+    static let caretWidth: CGFloat = 2
 
     /// Solid time after a reset (references: 0.55 s in reply-menu-send, 0.58 s in field-focus-type).
     static let caretSolid: CFTimeInterval = 0.56
@@ -379,7 +386,7 @@ final class FieldTextView: NSTextView {
         }
         guard let l = line else { return nil }
         let o = textContainerOrigin
-        return CGRect(x: l.minX + o.x, y: l.midY + o.y + Self.caretDY, width: 1, height: 17)
+        return CGRect(x: l.minX + o.x, y: l.midY + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
     }
     /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
     /// whole text is laid out again from scratch (equal when no layout input went stale).
@@ -826,10 +833,12 @@ final class ComposeView: UIView {
     func rescale() {
         for l in [glass, placeholderLayer, waveLayer, chipsLayer, caret, textSnapshot, overlay, veil, rim] { l.contentsScale = renderScale }
         textView.view.applyScale()
-        renderGlass()
+        // The drawn glass and buttons are hidden under AppKit's glass in the live window (nativeChrome): drawn when
+        // shown (nativeChrome's didSet), as layoutSubviews does. They were a third of a display move's pass on main
+        // (cx-3cb display-budget, Time Profiler: ComposeView.renderGlass).
+        if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
         renderPlaceholder()
         renderChips()
-        buttons.setNeedsDisplay()
     }
 
     /// The "+" button (opens the file picker).
@@ -924,6 +933,10 @@ final class ComposeView: UIView {
 
     /// The scale the placeholder and the waveform were drawn at (nil: not drawn).
     private var placeholderScale: CGFloat?
+    /// The light or dark appearance changed (WindowView.setLightAppearance): the placeholder and the waveform
+    /// are drawn again in its ink.
+    func appearanceChanged() { renderPlaceholder() }
+
     private func renderPlaceholder() {
         placeholderScale = renderScale
         let fmt = UIGraphicsImageRendererFormat()
@@ -935,7 +948,7 @@ final class ComposeView: UIView {
         }.cgImage
         placeholderLayer.contentsScale = fmt.scale
         waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
-            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
+            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above); the see-through ink without a theme
             // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
             // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
             // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.

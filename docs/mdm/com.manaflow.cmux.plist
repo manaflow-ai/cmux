@@ -2903,6 +2903,185 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.enabled</string>
+			<key>pfm_title</key>
+			<string>Animate Color Changes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>200</integer>
+			<key>pfm_description</key>
+			<string>How long a color change takes. 0 changes colors at once.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.duration</string>
+			<key>pfm_range_max</key>
+			<real>2000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Color Change Duration</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>easeOut</string>
+			<key>pfm_description</key>
+			<string>How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.curve</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>easeOut</string>
+				<string>easeInOut</string>
+				<string>linear</string>
+				<string>spring</string>
+				<string>cubicBezier</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Color Change Curve</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.29999999999999999</real>
+			<key>pfm_description</key>
+			<string>Seconds a spring color change takes to reach its new colors.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.springResponse</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.050000000000000003</real>
+			<key>pfm_title</key>
+			<string>Spring Response</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.springDamping</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.10000000000000001</real>
+			<key>pfm_title</key>
+			<string>Spring Damping</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.41999999999999998</real>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierX1</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Bezier X1</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierY1</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>-1</real>
+			<key>pfm_title</key>
+			<string>Bezier Y1</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.57999999999999996</real>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierX2</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Bezier X2</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierY2</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>-1</real>
+			<key>pfm_title</key>
+			<string>Bezier Y2</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>oklab</string>
+			<key>pfm_description</key>
+			<string>OKLab blends with even lightness. sRGB mixes the red, green and blue channels.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.colorSpace</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>oklab</string>
+				<string>srgb</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Color Blend Space</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>crossfade</string>
+			<key>pfm_description</key>
+			<string>What color changes do while Reduce Motion is on in macOS.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.reduceMotion</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>crossfade</string>
+				<string>instant</string>
+				<string>full</string>
+			</array>
+			<key>pfm_title</key>
+			<string>With Reduce Motion</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>The icon or emoji you chose for a workspace.</string>
 			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.icon</string>

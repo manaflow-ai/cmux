@@ -192,6 +192,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
+    ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
     ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
     ("history.site.remove", HISTORY_MCP_PENDING_REASON),
@@ -210,6 +211,9 @@ const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent messag
 
 const AGENT_MESSAGE_RELEASE_REASON: &str = "Releasing a held agent message is the person's \
      decision (`cmux agent message release`); an agent gets no tool to approve messages.";
+
+const AGENT_MESSAGE_UNSEND_REASON: &str = "Agent messages go through `cmux agent message`; \
+     taking one back is `cmux agent message unsend`, beside the send it undoes.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =
@@ -713,6 +717,10 @@ fn summary(wire: &str, target: &str) -> String {
         "back" | "forward" => format!("Go {action} in a browser's history"),
         "reload" => "Reload a browser's page".into(),
         "activate" => format!("Activate a {target}"),
+        "profile list" => "List the browser profiles: names and ids, never their data".into(),
+        "profile create" => "Create an empty browser profile".into(),
+        "profile open" => "Open a browser tab in a browser profile".into(),
+        "tab set profile" => "Move a browser tab to another browser profile".into(),
         _ => format!("{} a {target}", capitalized(&action)),
     }
 }

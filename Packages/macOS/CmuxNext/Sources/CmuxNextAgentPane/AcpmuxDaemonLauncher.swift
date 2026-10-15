@@ -53,6 +53,8 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
+        // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
+        await AcpmuxEnvironment.adoptBuildHomes()
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
         try FileManager.default.createDirectory(at: environment.home, withIntermediateDirectories: true)
         let variables = spawnEnvironment(environment, inherited: ProcessInfo.processInfo.environment)

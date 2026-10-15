@@ -275,6 +275,38 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     expect((await call(e, "GET", "/v1/credits", { token: t })).json.value.balance_usd).toBeCloseTo(1.99, 6)
   })
 
+  it("a team whose mirror starts after rows were pruned gets one opening entry, so the mirrored ledger sums to its balance", async () => {
+    const { team } = await person("credits-opening")
+    const e = runEnv()
+    expect((await admin(e, { action: "grant", team, usd: 3, actor: "test", reason: "opening test", key: "o1" })).json).toMatchObject({ added: true })
+    const gate = new CreditsGate(e, "brain-o", () => ({ team, chief: "agent_open", conversation: "conv_open" }))
+    expect(await gate.before("task-1", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
+    await gate.after("task-1", answered(0.5))
+    const sent: Array<[string, Array<unknown>]> = []
+    const ok = { query: async (q: string, v?: Array<unknown>) => void sent.push([q, v ?? []]) }
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
+      const storage = m.ctx.storage as DurableObjectStorage
+      // The charge row left the hot copy before any mirror ran (the 400-day prune with the mirror off).
+      storage.sql.exec(`DELETE FROM credit_entry WHERE kind = 'charge'`)
+      const r = await mirrorCredits(storage, team, ok)
+      expect(r.entries).toBe(2)
+      const rows = sent[0]![1]
+      const keys = rows.filter((_, i) => i % 12 === 1)
+      const micros = rows.filter((_, i) => i % 12 === 3).map(Number)
+      expect(keys).toEqual(["grant:o1", "opening:3"])
+      expect(micros).toEqual([3_000_000, -500_000])
+      expect(micros.reduce((x, y) => x + y, 0)).toBe(Number(sent[1]![1][1]))
+      // Only once: a later run adds no second opening entry.
+      sent.length = 0
+      await mirrorCredits(storage, team, ok)
+      expect(sent.some(([q]) => q.includes("credit_ledger"))).toBe(false)
+    })
+    // The balance itself never moved, and the opening entry is not a chief's spend.
+    const b = (await call(e, "GET", "/v1/credits", { token: (await token("credits-opening")) })).json.value
+    expect(b.balance_usd).toBeCloseTo(2.5, 6)
+    expect(b.chiefs).toEqual([])
+  })
+
   it("the operator's dogfood grant gives each configured team its amount once per round", async () => {
     const a = await person("credits-dogfood-a")
     const b = await person("credits-dogfood-b")

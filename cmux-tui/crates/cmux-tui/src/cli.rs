@@ -36,6 +36,8 @@ mod host_mount;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
+pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
+#[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
 mod machine_server;
@@ -933,6 +935,7 @@ USAGE
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
   cmux agent message release <message-id> --recipient <agent> --approve|--decline
+  cmux agent message unsend <message-id> [--recipient <agent>]
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>

@@ -16,7 +16,15 @@ import {
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
-import { homePath, listed, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  folded,
+  homePath,
+  listed,
+  projectLabel,
+  sessionEntry,
+  sessionMark,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 
@@ -156,12 +164,22 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 }
 
 /// The newest sessions first, the ones waiting on the user ahead of them.
-export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = RECENT_COUNT): AcpmuxSessionEntry[] {
-  const entries = sessions
+export function recentSessions(
+  sessions: AcpmuxSnapshot["sessions"],
+  count = RECENT_COUNT,
+  fold = true,
+): AcpmuxSessionEntry[] {
+  const all = sessions
     .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
     .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  return entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, count);
+  const order = (entries: AcpmuxSessionEntry[]) =>
+    entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  if (!fold) return order(all).slice(0, count);
+  // A child folds only under a parent this list shows; under one past the cut it lists on its own.
+  const shown = order(all.filter((entry) => !entry.spawnedBy)).slice(0, count);
+  const parents = new Set(shown.map((entry) => entry.sessionId));
+  return order(all.filter((entry) => !folded(entry, parents))).slice(0, count);
 }
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.

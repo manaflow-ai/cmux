@@ -1,4 +1,4 @@
-//! The local CodeRouter's admin socket (`<acpmux home>/router/router.sock`)
+//! The local CodeRouter's admin socket (`cmux_coderouter::admin_socket_path`)
 //! as routes.rs reads it: std's unix stream on Unix. The Windows port
 //! (src/platform.rs) has no router socket yet, so there a connect always
 //! fails and every route that needs the router is unavailable.

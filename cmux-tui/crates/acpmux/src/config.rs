@@ -914,7 +914,8 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
 /// The cmux terminal launch credential (plans/cmux-next/identity.md
 /// section 2). It names the one terminal that started a process; acpmux, its
 /// daemon, agents and hooks serve many terminals, so none of them carries it.
-/// Both scrubs remove it from every child they prepare.
+/// Both scrubs remove it from every child they prepare; an agent gets one
+/// minted for its own session instead (`launch_credential.rs`).
 pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 
 /// A Chief host's credential and participant (optchat-chief: the token file

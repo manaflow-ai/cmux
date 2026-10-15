@@ -1,6 +1,7 @@
 import { Context, type Effect, Schema, type Stream } from "effect"
 import type { Credits } from "../credits.ts"
 import type { Minted } from "../hand-api.ts"
+import type { Sandbox } from "../hand-sandbox.ts"
 import type { HandsError, HandSummary, Profile, StoredEvent } from "../hand-wire.ts"
 
 /**
@@ -214,6 +215,8 @@ export interface HandsShape {
   readonly list: () => Effect.Effect<ReadonlyArray<HandSummary>, HandsError>
   /** A single-use pairing code (10 min) and the install line for a new machine. */
   readonly pairCode: (name: string, profile: Profile) => Effect.Effect<Minted, HandsError>
+  /** A new Freestyle sandbox with its hand installed and paired (hand-sandbox.ts). */
+  readonly newSandbox: (name: string) => Effect.Effect<Sandbox, HandsError>
   /** A hand id, or the name of one of the owner's hands. */
   readonly resolve: (hand: string) => Effect.Effect<string, HandsError>
   readonly call: (hand: string, action: string, params: unknown, timeoutMs?: number) => Effect.Effect<unknown, HandsError>

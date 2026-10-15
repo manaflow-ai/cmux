@@ -3,6 +3,7 @@ import type { ToolRegistration } from "@earendil-works/pi-durable"
 import { Effect, Layer } from "effect"
 import type { Env } from "../env.ts"
 import { apiOrigin, handStub, listHands, mintPairCode, resolveHand } from "../hand-api.ts"
+import { createSandbox } from "../hand-sandbox.ts"
 import { HandsError, type AgentEvent, type HandCaller, type HandReply } from "../hand-wire.ts"
 import { Hands } from "./contract.ts"
 import type { StepPatch } from "./brain-runs.ts"
@@ -28,6 +29,7 @@ export const handsLayer = (env: Env, caller: HandCaller) =>
     Hands.of({
       list: () => rpc(() => listHands(env, caller)),
       pairCode: (name, profile) => rpc(() => mintPairCode(env, caller, name, apiOrigin(env), profile)),
+      newSandbox: (name) => rpc(() => createSandbox(env, caller, name, apiOrigin(env))),
       resolve: (hand) => rpc(() => resolveHand(env, caller, hand)),
       call: (hand, action, params, timeoutMs) => rpc(() => handStub(env, hand).call(caller, action, params, timeoutMs)),
       events: (hand, session, afterSeq, waitMs) => rpc(() => handStub(env, hand).events(caller, session, afterSeq, waitMs))
@@ -108,8 +110,8 @@ export const followTurn = (hand: string, handName: string, harness: string, sess
 // --- Tools ---
 
 const HandsArgs = Type.Object({
-  action: Type.Union([Type.Literal("list"), Type.Literal("pair_code"), Type.Literal("read"), Type.Literal("write"), Type.Literal("edit"), Type.Literal("patch"), Type.Literal("ls"), Type.Literal("glob"), Type.Literal("grep"), Type.Literal("exec")], {
-    description: "list: your hands. pair_code: a single-use code + install line for a new machine. read/write/edit/patch/ls/glob/grep: files on a hand. exec: run a program (sandbox hands only)."
+  action: Type.Union([Type.Literal("list"), Type.Literal("pair_code"), Type.Literal("new_sandbox"), Type.Literal("read"), Type.Literal("write"), Type.Literal("edit"), Type.Literal("patch"), Type.Literal("ls"), Type.Literal("glob"), Type.Literal("grep"), Type.Literal("exec")], {
+    description: "list: your hands. pair_code: a single-use code + install line for a new machine. new_sandbox: a new cloud sandbox with its hand (name it with name). read/write/edit/patch/ls/glob/grep: files on a hand. exec: run a program (sandbox hands only)."
   }),
   hand: Type.Optional(Type.String({ description: "Hand id (hand_...) or its name. Required except for list and pair_code." })),
   path: Type.Optional(Type.String({ description: "Absolute path (or relative to cwd)." })),
@@ -134,7 +136,8 @@ const AgentArgs = Type.Object({
   action: Type.Union([Type.Literal("start"), Type.Literal("send"), Type.Literal("wait"), Type.Literal("cancel"), Type.Literal("deny"), Type.Literal("events")], {
     description: "start: a new agent session with a first prompt. send: another prompt. wait: follow the running turn. cancel: stop the turn. deny: refuse a permission the agent asked for. events: raw event page."
   }),
-  hand: Type.String({ description: "Hand id (hand_...) or its name." }),
+  hand: Type.String({ description: "Hand id (hand_...) or its name; for start, \"new\" makes a new sandbox for it." }),
+  name: Type.Optional(Type.String({ description: "start with hand \"new\": the new sandbox's name." })),
   harness: Type.Optional(Type.Union([Type.Literal("claude"), Type.Literal("codex"), Type.Literal("opencode")])),
   cwd: Type.Optional(Type.String({ description: "start: the project folder on the hand." })),
   prompt: Type.Optional(Type.String()),
@@ -156,6 +159,7 @@ export const handsProgram = (a: HandsArgsT) =>
     const hands = yield* Hands
     if (a.action === "list") return yield* hands.list()
     if (a.action === "pair_code") return yield* hands.pairCode(a.name ?? "hand", a.profile ?? "sandbox")
+    if (a.action === "new_sandbox") return yield* hands.newSandbox(yield* need(a.name, "name"))
     const hand = yield* hands.resolve(yield* need(a.hand, "hand"))
     const { action: _a, hand: _h, ...params } = a
     if (a.action === "glob" || a.action === "grep") (params as Record<string, unknown>).root ??= a.cwd ?? a.path
@@ -167,7 +171,10 @@ export const handsProgram = (a: HandsArgsT) =>
 export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: string) =>
   Effect.gen(function* () {
     const hands = yield* Hands
-    const hand = yield* hands.resolve(a.hand)
+    // hand "new": one request makes a sandbox with its hand, then starts the agent there.
+    const fresh = a.hand === "new" && a.action === "start" ? (a.name ?? `sb-${Date.now().toString(36)}`) : null
+    if (fresh) report({ type: "run.activity", line: fit(`Making sandbox ${fresh}`), at: Date.now() })
+    const hand = fresh ? (yield* hands.newSandbox(fresh)).hand : yield* hands.resolve(a.hand)
     const handName = (yield* hands.list()).find((h) => h.hand === hand)?.name ?? hand
     const budget = Math.min(Math.max(a.wait_seconds ?? 120, 0), 600) * 1000
     const harness = a.harness ?? "agent"

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607";
+inline constexpr std::string_view kProtocolIrSha256 = "de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -266,6 +266,7 @@ struct CloudAttachmentReadResult;
 struct CloudAttachmentUploadRequest;
 struct CloudAttachmentUploadResult;
 struct CloudConversationHistoryRequest;
+struct CloudConversationLiveRequest;
 struct CloudConversationOpRequest;
 struct CloudConversationRunRequest;
 struct CloudConversationRunsRequest;
@@ -308,6 +309,9 @@ struct ConversationLinkResolveRequest;
 struct ConversationLinkResolveResult;
 struct ConversationListRequest;
 struct ConversationListResult;
+struct ConversationLiveRequest;
+struct ConversationLiveResult;
+struct ConversationLivePublishRequest;
 struct ConversationOpRequest;
 struct ConversationOpResult;
 struct ConversationRunRequest;
@@ -548,6 +552,7 @@ struct ClientChangedEvent;
 struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
+struct CloudConversationLiveEvent;
 struct CloudConversationResyncedEvent;
 struct CloudConversationRunChangedEvent;
 struct CloudInboxChangedEvent;
@@ -561,6 +566,7 @@ struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
 struct ConversationDraftEvent;
 struct ConversationInboxChangedEvent;
+struct ConversationLiveEvent;
 struct ConversationRunChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
@@ -1604,6 +1610,18 @@ struct CloudConversationHistoryRequest {
     friend bool operator==(const CloudConversationHistoryRequest&, const CloudConversationHistoryRequest&) = default;
 };
 
+struct CloudConversationLiveEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    std::optional<JsonValue> frame{};
+    friend bool operator==(const CloudConversationLiveEvent&, const CloudConversationLiveEvent&) = default;
+};
+
+struct CloudConversationLiveRequest {
+    std::string conversation{};
+    friend bool operator==(const CloudConversationLiveRequest&, const CloudConversationLiveRequest&) = default;
+};
+
 struct CloudConversationOpRequest {
     Field<std::string> conversation{};
     std::string idempotency_key{};
@@ -2176,6 +2194,29 @@ struct ConversationListRequest {
 struct ConversationListResult {
     std::vector<ConversationSummary> conversations{};
     friend bool operator==(const ConversationListResult&, const ConversationListResult&) = default;
+};
+
+struct ConversationLiveEvent {
+    std::string conversation{};
+    std::optional<JsonValue> frame{};
+    friend bool operator==(const ConversationLiveEvent&, const ConversationLiveEvent&) = default;
+};
+
+struct ConversationLivePublishRequest {
+    std::string conversation{};
+    std::optional<JsonValue> frame{};
+    friend bool operator==(const ConversationLivePublishRequest&, const ConversationLivePublishRequest&) = default;
+};
+
+struct ConversationLiveRequest {
+    std::string conversation{};
+    friend bool operator==(const ConversationLiveRequest&, const ConversationLiveRequest&) = default;
+};
+
+struct ConversationLiveResult {
+    std::string conversation{};
+    std::vector<JsonValue> runs{};
+    friend bool operator==(const ConversationLiveResult&, const ConversationLiveResult&) = default;
 };
 
 struct ConversationOpRequest {
@@ -7201,6 +7242,12 @@ struct Codec<CloudConversationHistoryRequest> {
 };
 
 template <>
+struct Codec<CloudConversationLiveRequest> {
+    static Result<Json> encode(const CloudConversationLiveRequest& value);
+    static Result<CloudConversationLiveRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationOpRequest> {
     static Result<Json> encode(const CloudConversationOpRequest& value);
     static Result<CloudConversationOpRequest> decode(const Json& value);
@@ -7450,6 +7497,24 @@ template <>
 struct Codec<ConversationListResult> {
     static Result<Json> encode(const ConversationListResult& value);
     static Result<ConversationListResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLiveRequest> {
+    static Result<Json> encode(const ConversationLiveRequest& value);
+    static Result<ConversationLiveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLiveResult> {
+    static Result<Json> encode(const ConversationLiveResult& value);
+    static Result<ConversationLiveResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLivePublishRequest> {
+    static Result<Json> encode(const ConversationLivePublishRequest& value);
+    static Result<ConversationLivePublishRequest> decode(const Json& value);
 };
 
 template <>
@@ -8893,6 +8958,12 @@ struct Codec<CloudConversationChangedEvent> {
 };
 
 template <>
+struct Codec<CloudConversationLiveEvent> {
+    static Result<Json> encode(const CloudConversationLiveEvent& value);
+    static Result<CloudConversationLiveEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationResyncedEvent> {
     static Result<Json> encode(const CloudConversationResyncedEvent& value);
     static Result<CloudConversationResyncedEvent> decode(const Json& value);
@@ -8968,6 +9039,12 @@ template <>
 struct Codec<ConversationInboxChangedEvent> {
     static Result<Json> encode(const ConversationInboxChangedEvent& value);
     static Result<ConversationInboxChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLiveEvent> {
+    static Result<Json> encode(const ConversationLiveEvent& value);
+    static Result<ConversationLiveEvent> decode(const Json& value);
 };
 
 template <>

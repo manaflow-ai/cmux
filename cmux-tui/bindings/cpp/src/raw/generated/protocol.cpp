@@ -16285,6 +16285,31 @@ Result<CloudConversationHistoryRequest> Codec<CloudConversationHistoryRequest>::
     return result;
 }
 
+Result<Json> Codec<CloudConversationLiveRequest>::encode(const CloudConversationLiveRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_conversation = encode_value(value.conversation);
+    if (!encoded_conversation) return std::move(encoded_conversation).error();
+    object.emplace("conversation", std::move(encoded_conversation).value());
+    return Json(std::move(object));
+}
+
+Result<CloudConversationLiveRequest> Codec<CloudConversationLiveRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloudConversationLiveRequest result{};
+    const Json* field_conversation = value.find("conversation");
+    if (!field_conversation) {
+        return make_error(ErrorCode::decode, "missing required field 'conversation'");
+    }
+    if (field_conversation) {
+        auto decoded = decode_value<std::string>(*field_conversation);
+        if (!decoded) return std::move(decoded).error();
+        result.conversation = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<CloudConversationOpRequest>::encode(const CloudConversationOpRequest& value) {
     (void)value;
     Json::Object object;
@@ -18365,6 +18390,123 @@ Result<ConversationListResult> Codec<ConversationListResult>::decode(const Json&
         auto decoded = decode_value<std::vector<ConversationSummary>>(*field_conversations);
         if (!decoded) return std::move(decoded).error();
         result.conversations = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ConversationLiveRequest>::encode(const ConversationLiveRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_conversation = encode_value(value.conversation);
+    if (!encoded_conversation) return std::move(encoded_conversation).error();
+    object.emplace("conversation", std::move(encoded_conversation).value());
+    return Json(std::move(object));
+}
+
+Result<ConversationLiveRequest> Codec<ConversationLiveRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ConversationLiveRequest result{};
+    const Json* field_conversation = value.find("conversation");
+    if (!field_conversation) {
+        return make_error(ErrorCode::decode, "missing required field 'conversation'");
+    }
+    if (field_conversation) {
+        auto decoded = decode_value<std::string>(*field_conversation);
+        if (!decoded) return std::move(decoded).error();
+        result.conversation = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ConversationLiveResult>::encode(const ConversationLiveResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_conversation = encode_value(value.conversation);
+    if (!encoded_conversation) return std::move(encoded_conversation).error();
+    object.emplace("conversation", std::move(encoded_conversation).value());
+    auto encoded_runs = encode_value(value.runs);
+    if (!encoded_runs) return std::move(encoded_runs).error();
+    object.emplace("runs", std::move(encoded_runs).value());
+    object.emplace("type", Json(std::string("run.live")));
+    return Json(std::move(object));
+}
+
+Result<ConversationLiveResult> Codec<ConversationLiveResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ConversationLiveResult result{};
+    const Json* field_conversation = value.find("conversation");
+    if (!field_conversation) {
+        return make_error(ErrorCode::decode, "missing required field 'conversation'");
+    }
+    if (field_conversation) {
+        auto decoded = decode_value<std::string>(*field_conversation);
+        if (!decoded) return std::move(decoded).error();
+        result.conversation = std::move(decoded).value();
+    }
+    const Json* field_runs = value.find("runs");
+    if (!field_runs) {
+        return make_error(ErrorCode::decode, "missing required field 'runs'");
+    }
+    if (field_runs) {
+        auto decoded = decode_value<std::vector<JsonValue>>(*field_runs);
+        if (!decoded) return std::move(decoded).error();
+        result.runs = std::move(decoded).value();
+    }
+    const Json* field_type = value.find("type");
+    if (!field_type) {
+        return make_error(ErrorCode::decode, "missing required field 'type'");
+    }
+    if (field_type) {
+        if (*field_type != Json(std::string("run.live"))) {
+            return make_error(ErrorCode::decode, "field 'type' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ConversationLivePublishRequest>::encode(const ConversationLivePublishRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_conversation = encode_value(value.conversation);
+    if (!encoded_conversation) return std::move(encoded_conversation).error();
+    object.emplace("conversation", std::move(encoded_conversation).value());
+    if (value.frame) {
+        auto encoded = encode_value(*value.frame);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("frame", std::move(encoded).value());
+    } else {
+        object.emplace("frame", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ConversationLivePublishRequest> Codec<ConversationLivePublishRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ConversationLivePublishRequest result{};
+    const Json* field_conversation = value.find("conversation");
+    if (!field_conversation) {
+        return make_error(ErrorCode::decode, "missing required field 'conversation'");
+    }
+    if (field_conversation) {
+        auto decoded = decode_value<std::string>(*field_conversation);
+        if (!decoded) return std::move(decoded).error();
+        result.conversation = std::move(decoded).value();
+    }
+    const Json* field_frame = value.find("frame");
+    if (!field_frame) {
+        return make_error(ErrorCode::decode, "missing required field 'frame'");
+    }
+    if (field_frame) {
+        if (field_frame->is_null()) {
+            result.frame.reset();
+        } else {
+            auto decoded = decode_value<JsonValue>(*field_frame);
+            if (!decoded) return std::move(decoded).error();
+            result.frame = std::move(decoded).value();
+        }
     }
     return result;
 }
@@ -32761,6 +32903,72 @@ Result<CloudConversationChangedEvent> Codec<CloudConversationChangedEvent>::deco
     return result;
 }
 
+Result<Json> Codec<CloudConversationLiveEvent>::encode(const CloudConversationLiveEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("cloud-conversation-live")));
+    if (value.account) {
+        auto encoded = encode_value(*value.account);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("account", std::move(encoded).value());
+    }
+    auto encoded_conversation = encode_value(value.conversation);
+    if (!encoded_conversation) return std::move(encoded_conversation).error();
+    object.emplace("conversation", std::move(encoded_conversation).value());
+    if (value.frame) {
+        auto encoded = encode_value(*value.frame);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("frame", std::move(encoded).value());
+    } else {
+        object.emplace("frame", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<CloudConversationLiveEvent> Codec<CloudConversationLiveEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloudConversationLiveEvent result{};
+    const Json* field_account = value.find("account");
+    if (field_account) {
+        auto decoded = decode_value<std::string>(*field_account);
+        if (!decoded) return std::move(decoded).error();
+        result.account = std::move(decoded).value();
+    }
+    const Json* field_conversation = value.find("conversation");
+    if (!field_conversation) {
+        return make_error(ErrorCode::decode, "missing required field 'conversation'");
+    }
+    if (field_conversation) {
+        auto decoded = decode_value<std::string>(*field_conversation);
+        if (!decoded) return std::move(decoded).error();
+        result.conversation = std::move(decoded).value();
+    }
+    const Json* field_frame = value.find("frame");
+    if (!field_frame) {
+        return make_error(ErrorCode::decode, "missing required field 'frame'");
+    }
+    if (field_frame) {
+        if (field_frame->is_null()) {
+            result.frame.reset();
+        } else {
+            auto decoded = decode_value<JsonValue>(*field_frame);
+            if (!decoded) return std::move(decoded).error();
+            result.frame = std::move(decoded).value();
+        }
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("cloud-conversation-live"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<CloudConversationResyncedEvent>::encode(const CloudConversationResyncedEvent& value) {
     (void)value;
     Json::Object object;
@@ -33769,6 +33977,61 @@ Result<ConversationInboxChangedEvent> Codec<ConversationInboxChangedEvent>::deco
     }
     if (field_event) {
         if (*field_event != Json(std::string("conversation-inbox-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ConversationLiveEvent>::encode(const ConversationLiveEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("conversation-live")));
+    auto encoded_conversation = encode_value(value.conversation);
+    if (!encoded_conversation) return std::move(encoded_conversation).error();
+    object.emplace("conversation", std::move(encoded_conversation).value());
+    if (value.frame) {
+        auto encoded = encode_value(*value.frame);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("frame", std::move(encoded).value());
+    } else {
+        object.emplace("frame", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ConversationLiveEvent> Codec<ConversationLiveEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ConversationLiveEvent result{};
+    const Json* field_conversation = value.find("conversation");
+    if (!field_conversation) {
+        return make_error(ErrorCode::decode, "missing required field 'conversation'");
+    }
+    if (field_conversation) {
+        auto decoded = decode_value<std::string>(*field_conversation);
+        if (!decoded) return std::move(decoded).error();
+        result.conversation = std::move(decoded).value();
+    }
+    const Json* field_frame = value.find("frame");
+    if (!field_frame) {
+        return make_error(ErrorCode::decode, "missing required field 'frame'");
+    }
+    if (field_frame) {
+        if (field_frame->is_null()) {
+            result.frame.reset();
+        } else {
+            auto decoded = decode_value<JsonValue>(*field_frame);
+            if (!decoded) return std::move(decoded).error();
+            result.frame = std::move(decoded).value();
+        }
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("conversation-live"))) {
             return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
         }
     }
@@ -39390,6 +39653,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "cloud-conversation-live") {
+        auto decoded = decode_value<CloudConversationLiveEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "cloud-conversation-resynced") {
         auto decoded = decode_value<CloudConversationResyncedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -39452,6 +39720,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "conversation-inbox-changed") {
         auto decoded = decode_value<ConversationInboxChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "conversation-live") {
+        auto decoded = decode_value<ConversationLiveEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -39777,55 +40050,55 @@ constexpr std::array<CommandFieldRequirement, 8> kCommand32FieldRequirements{{
     {"origin", 7U, ""},
     {"reason", 0U, "close-reason-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand81FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand84FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand83FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand86FieldRequirements{{
     {"detached", 12U, "detached-terminals-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand94FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand97FieldRequirements{{
     {"view", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand95FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand98FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand141FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand144FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand146FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand149FieldRequirements{{
     {"dock", 12U, "dock-columns-v1"},
     {"keep_focus", 12U, "tab-split-keep-focus-v1"},
     {"respawn", 12U, "tab-column-respawn-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand147FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand150FieldRequirements{{
     {"name", 0U, "tab-workspace-name-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand148FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand151FieldRequirements{{
     {"keep_focus", 12U, "tab-split-keep-focus-v1"},
     {"respawn", 12U, "tab-split-respawn-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand149FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand152FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand151FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand154FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand155FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand158FieldRequirements{{
     {"agent_session", 0U, "agent-session-tabs-v1"},
     {"page", 0U, "page-tabs-v1"},
     {"route", 0U, "page-tab-route-v1"},
     {"transaction", 0U, "conversation-tab-transaction-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand157FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand160FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
     {"env", 12U, "terminal-placement-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
@@ -39834,7 +40107,7 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand157FieldRequirements{{
     {"tab_id", 12U, "split-client-keys-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 9> kCommand158FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 9> kCommand161FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
     {"env", 12U, "terminal-placement-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
@@ -39845,55 +40118,55 @@ constexpr std::array<CommandFieldRequirement, 9> kCommand158FieldRequirements{{
     {"terminal_id", 12U, "terminal-placement-env-v1"},
     {"url", 12U, "pane-browser-kind-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand161FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand164FieldRequirements{{
     {"env", 12U, "screen-terminal-env-v1"},
     {"shell_args", 12U, "screen-terminal-env-v1"},
     {"terminal_id", 12U, "screen-terminal-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand162FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand165FieldRequirements{{
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand165FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand168FieldRequirements{{
     {"source", 12U, "notification-source-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand179FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand182FieldRequirements{{
     {"hosting", 0U, "browser-provider-native-hosting-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand180FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand183FieldRequirements{{
     {"view", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand190FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand193FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand195FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand198FieldRequirements{{
     {"identity", 12U, "shared-sizing-v1"},
     {"view", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand199FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand202FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand206FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand209FieldRequirements{{
     {"paste", 7U, ""},
     {"terminal_id", 0U, "terminal-input-while-creating-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand210FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand213FieldRequirements{{
     {"device_id", 12U, "shared-sizing-v1"},
     {"device_kind", 12U, "shared-sizing-v1"},
     {"device_name", 12U, "shared-sizing-v1"},
     {"display_name", 12U, "shared-sizing-v1"},
     {"user_id", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand212FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand215FieldRequirements{{
     {"role", 12U, "dock-column-role-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand213FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand216FieldRequirements{{
     {"complete", 9U, ""},
     {"cursor", 9U, ""},
     {"cursor_blink", 9U, ""},
@@ -39902,25 +40175,25 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand213FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand216FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand219FieldRequirements{{
     {"remote_localhost", 12U, "personal-remote-localhost-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand225FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand228FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand230FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand233FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand232FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand235FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand233FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand236FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 9> kCommand236FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 9> kCommand239FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
@@ -39931,20 +40204,20 @@ constexpr std::array<CommandFieldRequirement, 9> kCommand236FieldRequirements{{
     {"terminal_id", 12U, "terminal-placement-env-v1"},
     {"url", 12U, "pane-browser-kind-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand237FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand240FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand253FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand256FieldRequirements{{
     {"icon", 12U, "bookmark-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand259FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand262FieldRequirements{{
     {"icon", 12U, "screen-group-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand260FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand263FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 270> kCommands{{
+constexpr std::array<CommandMetadata, 273> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -39982,6 +40255,7 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"cloud-attachment-read", "local-admin", 12U, "cloud-attachments-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-attachment-upload", "local-admin", 12U, "cloud-attachments-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-conversation-history", "local-admin", 12U, "cloud-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"cloud-conversation-live", "local-admin", 12U, "cloud-chief-live-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-conversation-op", "local-admin", 12U, "cloud-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-conversation-run", "local-admin", 12U, "cloud-conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-conversation-runs", "local-admin", 12U, "cloud-conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40012,6 +40286,8 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"conversation-inbox-op", "local-admin", 12U, "conversation-inbox-state-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-link-resolve", "local-admin", 12U, "conversation-tree-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-list", "local-admin", 12U, "local-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"conversation-live", "local-admin", 12U, "chief-live-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"conversation-live-publish", "local-admin", 12U, "chief-live-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-op", "local-admin", 12U, "local-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-run", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-run-append", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40026,9 +40302,9 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"create-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"create-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"create-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"create-surface-with-receipt", "control", 10U, "creation-receipts-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand81FieldRequirements)},
+    {"create-surface-with-receipt", "control", 10U, "creation-receipts-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand84FieldRequirements)},
     {"create-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand83FieldRequirements)},
+    {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand86FieldRequirements)},
     {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"create-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"delete-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40039,8 +40315,8 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"delete-saved-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"delete-terminal-commands", "local-admin", 12U, "terminal-command-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"delete-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"detach-attached-view", "frontend", 10U, "view-attachment-detach-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand94FieldRequirements)},
-    {"detach-client", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand95FieldRequirements)},
+    {"detach-attached-view", "frontend", 10U, "view-attachment-detach-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand97FieldRequirements)},
+    {"detach-client", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand98FieldRequirements)},
     {"export-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"feed-local-handoff-abort", "local-admin", 12U, "feed-local-owner-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"feed-local-handoff-begin", "local-admin", 12U, "feed-local-owner-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40086,31 +40362,31 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"move-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-screen", "control", 12U, "screen-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand141FieldRequirements)},
+    {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand144FieldRequirements)},
     {"move-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab-group-to-column", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab-group-to-new-workspace", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab-group-to-split", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-tab-to-column", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand146FieldRequirements)},
-    {"move-tab-to-new-workspace", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand147FieldRequirements)},
-    {"move-tab-to-split", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand148FieldRequirements)},
-    {"move-tab-to-workspace", "control", 12U, "tab-workspace-move-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand149FieldRequirements)},
+    {"move-tab-to-column", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand149FieldRequirements)},
+    {"move-tab-to-new-workspace", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand150FieldRequirements)},
+    {"move-tab-to-split", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand151FieldRequirements)},
+    {"move-tab-to-workspace", "control", 12U, "tab-workspace-move-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand152FieldRequirements)},
     {"move-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand151FieldRequirements)},
+    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand154FieldRequirements)},
     {"move-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-workspace-to-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-conversation-tab", "control", 12U, "conversation-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand155FieldRequirements)},
+    {"new-conversation-tab", "control", 12U, "conversation-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand158FieldRequirements)},
     {"new-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand157FieldRequirements)},
-    {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand158FieldRequirements)},
+    {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand160FieldRequirements)},
+    {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand161FieldRequirements)},
     {"new-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-row", "control", 12U, "rows-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand161FieldRequirements)},
-    {"new-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand162FieldRequirements)},
+    {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand164FieldRequirements)},
+    {"new-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand165FieldRequirements)},
     {"new-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"note-size-activity", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"notify", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand165FieldRequirements)},
+    {"notify", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand168FieldRequirements)},
     {"page-credential", "local-admin", 12U, "page-credential-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"pairing-response", "local-admin", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"pane-neighbor", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40124,8 +40400,8 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"read-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"read-scrollback", "control", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"reattach-view", "control", 12U, "sizing-view-detach-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"register-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand179FieldRequirements)},
-    {"release-attached-view-size", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand180FieldRequirements)},
+    {"register-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand182FieldRequirements)},
+    {"release-attached-view-size", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand183FieldRequirements)},
     {"release-surface-size", "control", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"reload-config", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"remote-terminal-snapshot", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40135,33 +40411,33 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"rename-provider-managed-workspace", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand190FieldRequirements)},
+    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand193FieldRequirements)},
     {"reopen-saved-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"reopen-saved-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"report-agent", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"report-focus", "control", 12U, "client-focus-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"resize-attached-view", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand195FieldRequirements)},
+    {"resize-attached-view", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand198FieldRequirements)},
     {"resize-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resolve-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"restart-tab", "control", 12U, "tab-restart-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand199FieldRequirements)},
+    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand202FieldRequirements)},
     {"save-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"save-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"scroll-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand206FieldRequirements)},
+    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand209FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"server-stats", "local-admin", 12U, "server-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand210FieldRequirements)},
+    {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand213FieldRequirements)},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-column-dock", "control", 12U, "dock-columns-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand212FieldRequirements)},
-    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand213FieldRequirements)},
+    {"set-column-dock", "control", 12U, "dock-columns-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand215FieldRequirements)},
+    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand216FieldRequirements)},
     {"set-frontend-browser-history", "control", 12U, "frontend-browser-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-personal-terminal", "control", 12U, "personal-terminals-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-personal-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand216FieldRequirements)},
+    {"set-personal-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand219FieldRequirements)},
     {"set-profile-follows", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-ratio", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-row-heights", "control", 12U, "rows-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40170,19 +40446,19 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"set-session-icon", "control", 12U, "session-icon-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-size-counts", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-size-policy", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand225FieldRequirements)},
+    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand228FieldRequirements)},
     {"set-tab-pinned", "control", 12U, "tab-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-command-history", "local-admin", 12U, "terminal-command-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-idle-policy", "control", 12U, "terminal-idle-close-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-keep", "control", 12U, "terminal-reap-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand230FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand233FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand232FieldRequirements)},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand233FieldRequirements)},
+    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand235FieldRequirements)},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand236FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"snapshot-request", "frontend", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand236FieldRequirements)},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand237FieldRequirements)},
+    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand239FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand240FieldRequirements)},
     {"subscribe-activity", "local-admin", 12U, "vm-activity-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-clipboard-reply", "frontend", 12U, "terminal-clipboard-read-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40198,14 +40474,14 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand253FieldRequirements)},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand256FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand259FieldRequirements)},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand260FieldRequirements)},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand262FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand263FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40216,7 +40492,7 @@ constexpr std::array<CommandMetadata, 270> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 81> kEvents{{
+constexpr std::array<EventMetadata, 83> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
@@ -40229,6 +40505,7 @@ constexpr std::array<EventMetadata, 81> kEvents{{
     {"client-detached", 6U, "", "subscribe", "emitted"},
     {"client-list-invalidated", 9U, "", "subscribe", "serialized-never-emitted"},
     {"cloud-conversation-changed", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
+    {"cloud-conversation-live", 12U, "cloud-chief-live-v1", "subscribe", "emitted"},
     {"cloud-conversation-resynced", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-conversation-run-changed", 12U, "cloud-conversation-runs-v1", "subscribe", "emitted"},
     {"cloud-inbox-changed", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
@@ -40242,6 +40519,7 @@ constexpr std::array<EventMetadata, 81> kEvents{{
     {"conversation-changed", 12U, "local-conversations-v1", "subscribe", "emitted"},
     {"conversation-draft", 12U, "conversation-draft-events-v1", "subscribe", "emitted"},
     {"conversation-inbox-changed", 12U, "conversation-inbox-state-v1", "subscribe", "emitted"},
+    {"conversation-live", 12U, "chief-live-v1", "subscribe", "emitted"},
     {"conversation-run-changed", 12U, "conversation-runs-v1", "subscribe", "emitted"},
     {"conversation-typing", 12U, "local-conversations-v1", "subscribe", "emitted"},
     {"daemon-shutdown", 12U, "", "control", "emitted"},
@@ -40725,6 +41003,17 @@ Result<JsonValue> Client::cloud_conversation_history(
     return decode_value<JsonValue>(response.value());
 }
 
+Result<JsonValue> Client::cloud_conversation_live(
+    const CloudConversationLiveRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("cloud-conversation-live", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<JsonValue>(response.value());
+}
+
 Result<JsonValue> Client::cloud_conversation_op(
     const CloudConversationOpRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
@@ -41053,6 +41342,28 @@ Result<ConversationListResult> Client::conversation_list(
     auto response = core_.request("conversation-list", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<ConversationListResult>(response.value());
+}
+
+Result<ConversationLiveResult> Client::conversation_live(
+    const ConversationLiveRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("conversation-live", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<ConversationLiveResult>(response.value());
+}
+
+Result<EmptyResult> Client::conversation_live_publish(
+    const ConversationLivePublishRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("conversation-live-publish", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<EmptyResult>(response.value());
 }
 
 Result<ConversationOpResult> Client::conversation_op(

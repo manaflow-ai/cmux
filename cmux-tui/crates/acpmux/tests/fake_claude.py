@@ -342,7 +342,9 @@ while True:
         if said.startswith("sandbox-probe "):
             import os
             import socket
-            outside, port = said.split()[1], int(said.split()[2])
+            # The path may hold spaces (a home under Application Support): the port is the last word.
+            outside, port = said[len("sandbox-probe "):].rstrip().rsplit(" ", 1)
+            port = int(port)
             result = {}
             try:
                 with open(outside, "w") as f:
