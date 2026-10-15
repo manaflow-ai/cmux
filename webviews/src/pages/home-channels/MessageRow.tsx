@@ -279,6 +279,7 @@ function Reactions({
           type="button"
           className={`hc-reaction${entry.mine ? " mine" : ""}`}
           aria-pressed={entry.mine}
+          // tooltip-allow: who reacted, shown nowhere else
           title={entry.authors.join(", ")}
           onClick={() => onReact(message, value)}
         >
