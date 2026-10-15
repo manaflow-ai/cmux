@@ -110,8 +110,10 @@ extension HomeNativeTranscriptView {
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
+    #if DEBUG
     /// The same click through the real mouse path (mouseDown and mouseUp); the open thread's root.
     public func debugClickNewestReplies() -> String? { transcript.debugClickNewestReplies() }
+    #endif
     /// The open thread's root (the transcript's id), nil when none is open.
     public var debugOpenThread: String? { transcript.debugOpenThread }
     /// Esc through the field's path.
@@ -120,6 +122,7 @@ extension HomeNativeTranscriptView {
     public func debugReplyNewest(mine: Bool) -> String? { transcript.debugReplyNewest(mine: mine) }
     /// A real Esc key press through the app's event queue (`outside`: the key focus leaves the pane first).
     public func debugPostEscape(outside: Bool) { transcript.debugPostEscape(outside: outside) }
+    #if DEBUG
     /// Links and attachments call `handler` instead of opening another app (DEBUG fixtures; nil restores).
     public func debugReplaceExternalOpens(_ handler: ((URL) -> Void)?) { transcript.debugReplaceExternalOpens(handler) }
     /// The main menu's Paste sent to this window's first responder, as from a key window.
@@ -128,6 +131,7 @@ extension HomeNativeTranscriptView {
     public func debugKeyEscape() { transcript.debugKeyEscape() }
     /// A left click at a window point (bottom-left origin) through the real mouse path; `count` 2: a double click.
     public func debugClick(atWindow p: CGPoint, count: Int = 1) -> Bool { transcript.debugClick(atWindow: p, count: count) }
+    #endif
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

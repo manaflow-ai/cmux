@@ -407,6 +407,7 @@ public final class MessagesLabHomeView: NSView {
         return debugOpenThread
     }
 
+    #if DEBUG
     /// Automation (DEBUG socket): the same click, through the real mouse path (`debugClick`: the
     /// transcript's mouseDown and mouseUp, then `ChatController.mouseUp` -> `clicked`).
     public func debugClickNewestReplies() -> String? {
@@ -414,6 +415,7 @@ public final class MessagesLabHomeView: NSView {
         _ = debugClick(atWindow: controller.host.convert(p, to: nil))
         return debugOpenThread
     }
+    #endif
 
     /// A point (transcript coordinates) on the newest "N Replies" row or thread preview, read from
     /// the row itself (the part of a preview `MessagesWindowView.repliesHit` takes), checked once
@@ -471,6 +473,7 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    #if DEBUG
     /// Automation (DEBUG socket): a left click at `wp` (window points, bottom-left origin: the space of
     /// the socket's "rows") through the real mouse path: the view AppKit's hit test finds there gets the
     /// mouse down and up (TranscriptDocumentView -> ChatController.mouseDown/mouseUp), as a key
@@ -532,6 +535,8 @@ public final class MessagesLabHomeView: NSView {
     public func debugReplaceExternalOpens(_ handler: ((URL) -> Void)?) {
         controller.openExternally = handler ?? { NSWorkspace.shared.open($0) }
     }
+
+    #endif
 
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points
     /// through AppKit's scroll view.
