@@ -11,6 +11,7 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
+import { FastToggle, type SpeedTiers } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -262,6 +263,17 @@ export function ComposerPickers({
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
           onPick: (value: string) => onEffort(fastOption.id, value),
+        }
+      : undefined;
+  // The bolt left of the mic (FastToggle.tsx): every tier the option offers past off, where the
+  // running model honors fast mode (as the menu's speed section), or while a tier is still on.
+  const speedTiers: SpeedTiers | undefined =
+    fastOption && fastMode && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue)
+      ? {
+          current: fastOption.currentValue,
+          off: fastMode.offValue,
+          tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
+          onPick: fastMode.onPick,
         }
       : undefined;
   const model = models.find((choice) => choice.id === summary?.model);
@@ -590,7 +602,12 @@ export function ComposerPickers({
       )}
     </div>
   );
-  return chips;
+  return (
+    <>
+      {chips}
+      {speedTiers && <FastToggle speed={speedTiers} />}
+    </>
+  );
 }
 
 /// A control the session has not reported yet, as this harness's chats last showed it: the real

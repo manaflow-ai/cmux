@@ -772,7 +772,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (with its line) and Fast Mode On/Off; the chip reads Medium Fast.",
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (with its line) and Fast Mode On/Off; the chip reads Medium (the bolt beside the mic shows Fast).",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
