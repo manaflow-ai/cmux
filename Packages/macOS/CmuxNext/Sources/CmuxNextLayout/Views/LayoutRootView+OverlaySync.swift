@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 import Foundation
 
 /// Keeps one overlay sync observer registered; removing it (or releasing
@@ -41,4 +42,22 @@ extension LayoutRootView {
     func notifyOverlaySync() {
         for block in overlaySyncObservers.values { block() }
     }
+}
+
+/// The floating panes' cards (`MainPaneChromeShadeView`): every displayed
+/// pane of the shown screens, cut to what this view shows (a column
+/// scrolled past its edge, a screen sliding in).
+extension LayoutRootView: PaneCardSource {
+    public var paneCardsInWindow: [PaneCard] {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return [] }
+        let visible = convert(bounds, to: nil)
+        return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.01 }.flatMap { screen in
+            screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.01 }.compactMap { host in
+                let rect = host.cardInWindow.intersection(visible)
+                return rect.isEmpty ? nil : PaneCard(rect: rect, radius: PaneChromeGeometry.cornerRadius(for: host.contentRect, style: context.style))
+            }
+        }
+    }
+
+    public func observePaneCards(_ block: @escaping () -> Void) -> AnyObject { observeOverlaySync(block) }
 }
