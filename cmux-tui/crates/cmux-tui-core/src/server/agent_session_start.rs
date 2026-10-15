@@ -44,7 +44,7 @@ use serde_json::{Value, json};
 use super::agent_session_link::AcpmuxLink;
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
-use crate::state::conversation_tabs_store::ConversationTabRecord;
+use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
 
 pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
 /// `require_person_key` and `person_instance` on `agent-session-start`, and
@@ -403,10 +403,16 @@ fn start_and_bind(
     if !folder_trusted(&trust, Some(&family)) {
         return Err(end(Refusal::UntrustedFolder));
     }
+    // The agent the session runs, as acpmux answered it (`_meta.acpmux.harness`
+    // of `session/new`), else its family: the tab's brand mark (cx-w4bbw).
+    let harness = [created.pointer("/_meta/acpmux/harness").and_then(Value::as_str), Some(&family)]
+        .into_iter()
+        .flatten()
+        .find(|harness| validate_harness(harness).is_ok());
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
     let (record, _) = mux
-        .bind_conversation_tab_session_as(&actor, params.surface, &session, None)
+        .bind_conversation_tab_session_as(&actor, params.surface, &session, None, harness)
         .map_err(|_| end(startable(mux, params.surface).err().unwrap_or(Refusal::Refused)))?;
     Ok(json!({"surface": params.surface, "session": session, "conversation": record.wire()}))
 }
