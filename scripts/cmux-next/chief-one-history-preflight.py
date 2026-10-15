@@ -16,6 +16,7 @@ Each step saves debug.home JSON and a window snapshot. Only processes this
 script started, or that run for its scratch Chief home, are stopped (by pid).
 
 Usage: chief-one-history-preflight.py --app-a APP --tag-a TAG --app-b APP --tag-b TAG [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, signal, socket, subprocess, sys, tempfile, time
 
@@ -27,6 +28,11 @@ ap.add_argument("--tag-b", required=True)
 ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "chief-one-history"))
 ap.add_argument("--reply-wait", type=int, default=240)
 opts = ap.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-one-history-preflight.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 os.makedirs(opts.out, exist_ok=True)
 # A new Chief home per run: its owner session and the app cache are keyed by the path.
 CHIEF = os.path.join(opts.out, "chief-home-%d" % int(time.time()))

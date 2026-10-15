@@ -10,6 +10,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -99,8 +104,10 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     std::fs::create_dir_all(&bin).unwrap();
     let cua = fake_bin(&bin, "cmux-cua");
     let cmux = fake_bin(&bin, "cmux");
-    let cmux_json = root.join("cmux.json");
-    std::fs::write(&cmux_json, r#"{"mcp": {"enabled": true}}"#).unwrap();
+    // A settings file that does not mention MCP: every agent chat still gets
+    // the cmux MCP server (cx-wx93i: on by default, `mcp.enabled: false` is off).
+    let cmux_json = root.join("cmux-next.json");
+    std::fs::write(&cmux_json, r#"{"agents": {"chats": {"enabled": true}}}"#).unwrap();
     // SAFETY: the only test in this binary; set before any session starts.
     unsafe {
         std::env::set_var("CMUX_AGENT_TOOLS_BIN_DIR", &bin);
@@ -108,11 +115,12 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         std::env::set_var("ACPMUX_HOME", root.join("home"));
         std::env::remove_var("ACPMUX_AGENT_TOOLS");
         std::env::set_var("ACPMUX_SECRET_TOOLS", "1");
+        std::env::set_var("ACPMUX_OFFER_TOOLS", "1");
     }
     let hub = hub();
 
     // An ACP harness: the servers in session/new, the secret tools (cx-ncc.42)
-    // for this session on this daemon's socket.
+    // and the offer tool (cx-807da) for this session on this daemon's socket.
     let mut local = client(&hub, Origin::Local);
     let id = local.new_session("fake").await;
     let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
@@ -122,12 +130,15 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         .iter()
         .filter_map(|s| s["name"].as_str())
         .collect();
-    assert_eq!(names, ["cmux-cua", "cmux-secrets", "cmux"], "{servers}");
+    assert_eq!(names, ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"], "{servers}");
     assert_eq!(servers[0]["command"], json!(cua), "{servers}");
     assert_eq!(servers[1]["args"], json!(["secret-mcp"]), "{servers}");
     let secret_env = servers[1]["env"].to_string();
     assert!(secret_env.contains("ACPMUX_SECRET_SESSION") && secret_env.contains(&id), "{servers}");
-    assert_eq!(servers[2]["args"], json!(["mcp", "serve"]), "{servers}");
+    assert_eq!(servers[2]["args"], json!(["offer-mcp"]), "{servers}");
+    let offer_env = servers[2]["env"].to_string();
+    assert!(offer_env.contains("ACPMUX_OFFER_SESSION") && offer_env.contains(&id), "{servers}");
+    assert_eq!(servers[3]["args"], json!(["mcp", "serve"]), "{servers}");
 
     // Claude Code: the same servers in --mcp-config, the skills as a plugin.
     let id = local.new_session("fakeclaude").await;
@@ -144,6 +155,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(config["mcpServers"]["cmux-cua"]["command"], json!(cua), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
+    assert_eq!(config["mcpServers"]["cmux-sessions"]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
     let plugin = PathBuf::from(&argv[at + 1]);

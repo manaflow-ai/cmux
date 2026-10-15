@@ -362,11 +362,12 @@ fn two_turns_and_two_nodes_through_local_acp() {
     );
     let setup = SessionSetup {
         exe: env!("CARGO_BIN_EXE_optchat-chief").to_owned(),
-        cmux_mcp: None,
         env,
         instructions: None,
         tools: tools.clone(),
         user_env: Default::default(),
+        profile_tool: false,
+        chiefs_tool: false,
     };
     session_dir::write(&paths, &setup).unwrap();
     let system = system_text(None, &tools);

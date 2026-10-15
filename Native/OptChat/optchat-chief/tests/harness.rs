@@ -355,11 +355,12 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
     paths.create().unwrap();
     let setup = optchat_chief::session_dir::SessionSetup {
         exe: "/x/optchat-chief".into(),
-        cmux_mcp: None,
         env: Default::default(),
         instructions: None,
         tools: Tools::Cli(paths.bin.join("chief").display().to_string()),
         user_env: Default::default(),
+        profile_tool: false,
+        chiefs_tool: false,
     };
     optchat_chief::session_dir::write(&paths, &setup).unwrap();
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
@@ -694,8 +695,9 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
     for harness in ["claude", "claude-sr"] {
         let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
         // An allowlist of built-ins (checked on Claude Code 2.1.287: the
-        // session's init lists exactly these and the Chief's MCP tools), so
-        // a built-in a later Claude Code adds is not offered to a turn.
+        // session's init lists exactly these built-ins), so a built-in a
+        // later Claude Code adds is not offered to a turn. ToolSearch loads
+        // the cmux MCP tools that wait behind it (cx-l0vf8).
         assert_eq!(
             turn.args,
             [
@@ -703,7 +705,7 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
                 "project",
                 "--disable-slash-commands",
                 "--tools",
-                "Bash,Read,Edit,Write,WebFetch,WebSearch"
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
             ],
             "{harness}"
         );
@@ -760,11 +762,12 @@ fn the_session_settings_carry_the_users_settings_env() {
     let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
     let setup = SessionSetup {
         exe: "/x/optchat-chief".into(),
-        cmux_mcp: None,
         env: [("PATH".to_owned(), "/ours".to_owned())].into(),
         instructions: None,
         tools: Tools::Mcp,
         user_env,
+        profile_tool: false,
+        chiefs_tool: false,
     };
     let settings = settings_json(&setup, &paths, &[]);
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
@@ -789,11 +792,12 @@ fn the_session_settings_files_are_private_and_the_copy_is_gated() {
     paths.create().unwrap();
     let setup = SessionSetup {
         exe: "/x/optchat-chief".into(),
-        cmux_mcp: None,
         env: Default::default(),
         instructions: None,
         tools: Tools::Mcp,
         user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+        profile_tool: false,
+        chiefs_tool: false,
     };
     write(&paths, &setup).unwrap();
     for name in ["settings.json", "settings.local.json"] {
@@ -990,4 +994,39 @@ fn the_bundled_codex_is_the_fallback_for_the_chiefs_own_codex() {
         Some(paths.codex_bin.clone()),
         "the Chief home's copy wins"
     );
+}
+
+/// cosmic-gray 2026-10-14 (cg-steward): a Chief whose engine.json picks
+/// `claude-sr`, on a machine with no `claude` login of its own, compacted on
+/// `claude` and every node failed "not signed in". With no compactor harness
+/// set, the compactor follows the turns' engine harness when it is a Claude
+/// one; a codex engine still compacts on a Claude route, and a set compactor
+/// harness wins.
+#[test]
+fn the_compactor_follows_the_engines_claude_harness() {
+    use optchat_chief::engine::EngineChoice;
+    use optchat_chief::host::compactor_harness_for;
+    let answer = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/bin/claude"]},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+        "codex": {"argv": ["/u/.local/share/cmux-acp/current/bin/codex-acp"], "family": "codex"},
+    }});
+    let engine = |harness: Option<&str>| EngineChoice {
+        harness: harness.map(str::to_owned),
+        ..EngineChoice::default()
+    };
+    for (set, engine_harness, turn, compactor) in [
+        (None, Some("claude-sr"), "claude", "claude-sr"),
+        (None, None, "claude", "claude"),
+        (None, Some("codex"), "claude", "claude"),
+        (None, Some("codex"), "claude-sr", "claude-sr"),
+        (None, None, "codex", "claude"),
+        (Some("codex"), Some("claude-sr"), "claude", "codex"),
+    ] {
+        assert_eq!(
+            compactor_harness_for(&answer, set, turn, &engine(engine_harness)),
+            compactor,
+            "set {set:?}, engine.json harness {engine_harness:?}, host turn {turn}"
+        );
+    }
 }

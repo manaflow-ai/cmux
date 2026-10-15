@@ -29,6 +29,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rustls",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -948,6 +949,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-build-identity"
+version = "0.1.0"
+dependencies = [
+ "cmux-tui-source-watch",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -1275,12 +1283,12 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-build-identity",
  "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-tui-core",
- "cmux-tui-source-watch",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -1467,6 +1475,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-build-identity",
  "cmux-host",
  "cmux-link",
  "cmux-pty",
@@ -1491,6 +1500,7 @@ dependencies = [
  "parking_lot",
  "plist",
  "ratatui",
+ "regex",
  "reqwest",
  "rusqlite",
  "rustls",
@@ -1541,6 +1551,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-agent-pane-policy",
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-config",

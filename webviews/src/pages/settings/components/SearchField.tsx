@@ -54,7 +54,7 @@ export function SearchField({
           }}
         />
       </label>
-      <Tooltip label={filterLabel}>
+      <Tooltip /* tooltip-allow: an icon and a count; the tooltip names the filter */ label={filterLabel}>
         <button
           type="button"
           className="icon-button filter-button"

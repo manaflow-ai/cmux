@@ -33,7 +33,7 @@ import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
-import { conversationMutate, conversationRead } from "./home-routes.ts"
+import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
@@ -233,6 +233,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
+        if (payload.op === "participant.avatar.set") return yield* Effect.tryPromise({ try: () => avatarSetRoute(env, principal, frame), catch: unreachable }) // Participant avatars (home-avatar-routes.ts).
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
         if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
@@ -383,23 +384,21 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
         if (payload.op === "server.pair.preview") {
           const r = yield* Effect.tryPromise({ try: () => pairPreview(env, principal, payload.params), catch: unreachable })
-          if (!r.ok) {
-            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-            return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
-          }
+          if (!r.ok && r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+          if (!r.ok) return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
         const resolved = yield* principalFor(def.owner, principal)
+        const avatar = payload.op === "participant.avatar.get" ? yield* Effect.tryPromise({ try: () => avatarGetRoute(env, resolved, payload.params), catch: unreachable }) : undefined
+        if (avatar) return "invalid" in avatar ? yield* new BadRequest({ code: "validation.invalid", message: avatar.invalid }) : "hidden" in avatar ? yield* new BadRequest({ code: "selector.not_found", message: "no such participant picture" }) : { op: payload.op, value: avatar.value, stream: "avatars", revision: "0" }
         // G8: an approval is read from the team and owner (ConnectionDO, or CloudDO for Cloud) that posted it, for its members (approval-route.ts).
         const { reader, owner } = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalRoute(env, resolved, payload.params), catch: unreachable }) : { reader: resolved, owner: def.owner }
         // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
         if (payload.op === "home.search") {
           const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
-          if (!r.ok) {
-            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-            if (r.code === "search.unavailable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
-            return yield* new BadRequest({ code: "validation.invalid", message: r.message })
-          }
+          if (!r.ok && r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+          if (!r.ok && r.code === "search.unavailable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
+          if (!r.ok) return yield* new BadRequest({ code: "validation.invalid", message: r.message })
           return { op: payload.op, value: r.value, stream: `search:${reader.user}`, revision: "0" }
         }
         if (providerReadOpNames.has(payload.op) || googleReadOpNames.has(payload.op)) {

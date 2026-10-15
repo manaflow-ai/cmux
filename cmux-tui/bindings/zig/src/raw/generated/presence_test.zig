@@ -32,11 +32,14 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "if_empty");
     try expectExplicitNullRejected(protocol.CloudInboxListRequest, "include_archived");
     try expectExplicitNullRejected(protocol.ConversationHistoryResult, "threads");
+    try expectExplicitNullRejected(protocol.ConversationInboxOpResult, "pin_position");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "message");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "thread_root");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "truncated");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "seq");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
+    try expectExplicitNullRejected(protocol.ConversationRunRequest, "after_rev");
+    try expectExplicitNullRejected(protocol.ConversationRunAppendRequest, "steps");
     try expectExplicitNullRejected(protocol.ConversationSnapshotResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationThreadRequest, "after_seq");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
@@ -55,6 +58,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MoveScreenRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.MoveScreenGroupRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.MoveTabToColumnRequest, "keep_focus");
+    try expectExplicitNullRejected(protocol.MoveTabToSplitRequest, "keep_focus");
     try expectExplicitNullRejected(protocol.NewConversationTabResult, "transaction");
     try expectExplicitNullRejected(protocol.NewFrontendBrowserTabRequest, "activate");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
@@ -77,6 +82,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
     try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudConversationRunChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
     try expectExplicitNullRejected(protocol.CloudMuxResyncedEvent, "account");
@@ -85,6 +91,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
+    try expectExplicitNullRejected(protocol.ConversationInboxChangedEvent, "pin_position");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
     try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
@@ -166,6 +173,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "emoji");
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "tapback");
     try expectExplicitNullRejected(protocol.ConversationSummary, "last_message");
+    try expectExplicitNullRejected(protocol.ConversationSummary, "marked_unread");
+    try expectExplicitNullRejected(protocol.ConversationSummary, "pin_position");
+    try expectExplicitNullRejected(protocol.ConversationSummary, "pinned");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "agent_session");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "conversation");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "owner");
@@ -182,6 +192,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "status");
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "title");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "chief");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "chief_state");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "last_author");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "pin_position");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "preview");
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");

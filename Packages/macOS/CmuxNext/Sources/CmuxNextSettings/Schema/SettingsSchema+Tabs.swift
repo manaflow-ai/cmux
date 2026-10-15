@@ -93,7 +93,7 @@ nonisolated enum TabSettingsSchema {
                 kind.settingsPath, section: .general, group: group,
                 title: title(kind),
                 help: SettingsText.keyed("settings.tabs.tabBar.help",
-                                         "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."),
+                                         "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."),
                 kind: .choice([
                     SettingChoice(PaneTabBarMode.auto.rawValue, SettingsText.keyed("settings.choice.tabBarAuto", "Automatic")),
                     SettingChoice(PaneTabBarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),

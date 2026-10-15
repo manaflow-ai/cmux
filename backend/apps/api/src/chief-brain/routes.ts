@@ -7,7 +7,9 @@ import { brainName, type ConfigPatch } from "./brain-do.ts"
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
  *
  *   GET  /v1/chiefs/<agent>/brain           the owner: settings and state
- *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, compactor_model?, role?, personality?, instructions?}
+ *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, effort?, compactor_model?, role?, personality?, instructions?, chiefs?}
+ *        model: fake | claude-opus-5-5 | claude-sonnet-5-5 | claude-haiku-5-5 | openrouter:<vendor>/<model> | @cf/<vendor>/<model>
+ *        effort: off | minimal | low | medium | high | xhigh | max (default low); model-routes.ts says who may use which
  *   GET  /v1/chiefs/<agent>/runs?conversation=<id>&before=<ms>&limit=<n>   a member: the chief's runs there, newest first
  *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
  *
@@ -22,7 +24,7 @@ export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
 const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
-const PATCH_KEYS = new Set(["enabled", "model", "compactor_model", "role", "personality", "instructions"])
+const PATCH_KEYS = new Set(["enabled", "model", "effort", "compactor_model", "role", "personality", "instructions", "chiefs"])
 
 export const handleChiefBrain = async (request: Request, env: Env, agent: string, path: string, run: string | undefined): Promise<Response> => {
   if (env.CHIEF_BRAIN_ENABLED !== "1") return fail({ status: 404, code: "not_found", message: "Chief brains are off on this deployment" })

@@ -4,6 +4,25 @@ import UIKit
 import AppKit
 #endif
 
+/// The render scale of the view whose work runs now on this thread (cx-3cb view-scale). Two window views can show at
+/// two backing scales at the same time (cmux Home: windows on a 2x and a 1x display), so the scale is the view's own
+/// (MessagesWindowView.renderScale, set by its setRenderScale), not one process value. Code that has its view uses
+/// that value directly; the static drawing and layout helpers it calls (RowDraw, SoftBalloon, RowBitmaps.render,
+/// ThreadPreview.height, Images.load) read `Fixture.renderScale`, which is the scope's value inside
+/// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
+/// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
+enum RenderScaleScope {
+    @TaskLocal static var scoped: CGFloat? = nil
+}
+
+extension Fixture {
+    /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
+    static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+        guard s > 0, RenderScaleScope.scoped != s else { return try body() }
+        return try RenderScaleScope.$scoped.withValue(s, operation: body)
+    }
+}
+
 /// Text measured and wrapped with Core Text, the way the bubbles draw it.
 struct TextLayout: Hashable {
     struct Line: Hashable {
@@ -366,8 +385,11 @@ struct ThreadPreview: Hashable {
     /// (nosb-active against deactivate-activate tp0000ms: incoming edges 798.00 / 864.00 px, ours were 798.31 / 864.31
     /// with 41.65), so its preview row is 41.5 pt at 2x. The drawing keeps its measured places from the row's top: the
     /// stub's end lies 0.15 pt inside the reply gap (cx-3cb row-snap).
-    var height: CGFloat {
-        let s = max(1, Fixture.renderScale)
+    var height: CGFloat { height(scale: Fixture.renderScale) }
+    /// The height at a view's own scale (a window view derives its rows at its renderScale: two views on displays of
+    /// two scales round the same preview to their own grids).
+    func height(scale: CGFloat) -> CGFloat {
+        let s = max(1, scale)
         return ((box.height + stubGap + stubHeight) * s).rounded() / s
     }
 }
@@ -414,28 +436,28 @@ enum Sizing {
     /// both sides (cx-3cb incoming-width, tools/evidence/ANIMATIONS.md, tools/evidence/anim/balwidth): the accessibility
     /// frames of 50 balloons in the reference scenes (ax-scene.json, round 3-6) are ceil(2 (t + 24)) / 2 pt exactly, and
     /// 117 balloons in the lossless stills (incoming right edges, outgoing left edges; windows 434-628 pt) are within
-    /// 0.09 px of it; without the rounding the frames were 0.01-0.50 pt narrower. The grid is 2x, the references'
-    /// scale (layout runs off the main thread and keys its cache on the width only; a 1x screen keeps half points). The
-    /// iOS app keeps the unrounded width (no reference).
-    static func textBalloonWidth(_ text: CGFloat, column: CGFloat) -> CGFloat {
+    /// 0.09 px of it; without the rounding the frames were 0.01-0.50 pt narrower. The grid is the view's scale
+    /// (`scale`, its renderScale; cx-3cb view-scale: whole pixels at 1x too); measurements are cached per scale
+    /// (MeasureCache.Key). The iOS app keeps the unrounded width (no reference).
+    static func textBalloonWidth(_ text: CGFloat, column: CGFloat, scale: CGFloat = Fixture.renderScale) -> CGFloat {
         let w = min(text, column) + 2 * Fixture.bubblePadX
 #if os(iOS) && !targetEnvironment(macCatalyst)
         return w
 #else
         // 1e-4 px: a width on the grid stays there (no step up from float noise).
-        return (w * balloonGrid - 1e-4).rounded(.up) / balloonGrid
+        let g = max(1, scale)
+        return (w * g - 1e-4).rounded(.up) / g
 #endif
     }
-    /// Device pixels per point of `textBalloonWidth`'s grid.
-    static let balloonGrid: CGFloat = 2
 
-    static func size(of part: Part, width: CGFloat) -> (CGSize, TextLayout?) {
+    /// `scale`: the view's (text balloon widths end on its device pixels).
+    static func size(of part: Part, width: CGFloat, scale: CGFloat = Fixture.renderScale) -> (CGSize, TextLayout?) {
         let m = Metrics(width: width)
         let maxTextWidth = m.maxTextWidth, mediaWidth = m.mediaWidth
         switch part {
         case let .text(t, runs):
             let tl = TextLayout.make(t, runs: runs, maxWidth: maxTextWidth)
-            let w = Sizing.textBalloonWidth(tl.width, column: maxTextWidth)
+            let w = Sizing.textBalloonWidth(tl.width, column: maxTextWidth, scale: scale)
             return (CGSize(width: w, height: CGFloat(tl.lines.count) * Fixture.lineHeight + 2 * Fixture.bubblePadY), tl)
         case let .link(_, title, site, image, _):
             if Sizing.linkPending(title: title, site: site, image: image) { return (Sizing.linkPlaceholder, nil) }
@@ -633,8 +655,10 @@ final class MeasureCache: @unchecked Sendable {
     static let shared = MeasureCache()
     /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
     /// id and text (a host marking a message later, a local echo) is a new measurement.
-    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool }
-    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool }
+    /// `scale`: the asking view's render scale (text balloon widths end on its device pixels; two views at two
+    /// scales keep their own measurements).
+    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat }
+    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
     private var store: [Key: Value] = [:]
     /// The latest exact measurement of each part at any width (estimates).
@@ -666,12 +690,12 @@ final class MeasureCache: @unchecked Sendable {
     /// The part's size at `width`. With `estimate`, a miss does not run Core
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
-    func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
+    func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false, scale: CGFloat = Fixture.renderScale) -> Value {
         // a part index from another version of the message measures nothing (no trap).
         guard let part = m.parts[checked: pi] else { return Value(size: .zero, text: nil, width: width) }
         // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
         if case let .text(t, _) = part, LongText.isLong(t) { // checked part
-            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id, markdown: m.isMarkdown), text: nil, width: width)
+            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id, markdown: m.isMarkdown, scale: scale), text: nil, width: width)
         }
         // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
         if case let .custom(c) = part {
@@ -679,14 +703,14 @@ final class MeasureCache: @unchecked Sendable {
             return Value(size: s, text: tl, width: width, estimated: est)
         }
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
-        let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown)
-        let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown)
+        let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
+        let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
         lock.lock()
         if let v = store[k] { hits += 1; lock.unlock(); return v }
         // Plain text that no width wrapped and that fits the new column: the same lines at the new
         // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
         // short bubbles' widths only in this way.
-        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part) { // the checked part
+        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
             reuses += 1
             store[k] = v
             lock.unlock()
@@ -695,7 +719,7 @@ final class MeasureCache: @unchecked Sendable {
         if estimate, let old = latest[pk] {
             estimates += 1
             lock.unlock()
-            return MeasureCache.scale(old, to: width, part: part)
+            return MeasureCache.scale(old, to: width, part: part, scale: scale)
         }
         misses += 1
         lock.unlock()
@@ -703,7 +727,7 @@ final class MeasureCache: @unchecked Sendable {
         if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
             v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
         } else {
-            let (size, tl) = Sizing.size(of: part, width: width)
+            let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
             v = Value(size: size, text: tl, width: width)
         }
         lock.lock()
@@ -725,11 +749,11 @@ final class MeasureCache: @unchecked Sendable {
     /// each line is the same again; the bubble width follows the new column (Sizing.size: a wrapped line's
     /// trailing space can reach past it). A line within 0.01 pt of the column is measured again (Core Text's
     /// own fit test may sum the widths differently from the cut line's).
-    static func sameLayout(_ v: Value, at width: CGFloat, part: Part) -> Value? {
+    static func sameLayout(_ v: Value, at width: CGFloat, part: Part, scale: CGFloat = Fixture.renderScale) -> Value? {
         guard v.markdown == nil, !v.estimated, let tl = v.text, case .text = part else { return nil }
         let col = Metrics(width: width).maxTextWidth
         if v.width > 0, col <= Metrics(width: v.width).maxTextWidth, tl.lines.allSatisfy({ $0.fit <= col - 0.01 }) {
-            return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col), height: v.size.height), text: tl, width: width)
+            return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col, scale: scale), height: v.size.height), text: tl, width: width)
         }
         guard tl.width <= col else { return nil }
         let s = tl.text as NSString
@@ -740,7 +764,7 @@ final class MeasureCache: @unchecked Sendable {
         return Value(size: v.size, text: tl, width: width)
     }
 
-    private static func scale(_ v: Value, to width: CGFloat, part: Part) -> Value {
+    private static func scale(_ v: Value, to width: CGFloat, part: Part, scale: CGFloat) -> Value {
         if v.markdown != nil {
             // Markdown keeps its height until measured at the new width.
             let col = Metrics(width: width).maxTextWidth + 2 * Fixture.bubblePadX
@@ -748,30 +772,31 @@ final class MeasureCache: @unchecked Sendable {
         }
         guard let tl = v.text else {
             // Media and cards: same aspect, clamped to the new column.
-            let (fresh, _) = Sizing.size(of: part, width: width)
+            let (fresh, _) = Sizing.size(of: part, width: width, scale: scale)
             return Value(size: fresh, text: nil, width: width, estimated: true)
         }
         let col = Metrics(width: width).maxTextWidth
         let total = tl.lines.reduce(0) { $0 + $1.width }
         let lines = max(1, CrashGuard.int((total / col).rounded(.up), in: CrashGuard.countRange)) // no trap on NaN
-        let w = Sizing.textBalloonWidth(max(tl.width, total / CGFloat(lines)), column: col)
+        let w = Sizing.textBalloonWidth(max(tl.width, total / CGFloat(lines)), column: col, scale: scale)
         return Value(size: CGSize(width: w, height: CGFloat(lines) * Fixture.lineHeight + 2 * Fixture.bubblePadY),
                      text: nil, width: width, estimated: true)
     }
 
     /// Measure every part of `messages` at `width` (call off the main thread).
-    func prefetch(_ messages: [Message], width: CGFloat) {
-        for m in messages { for pi in m.parts.indices { _ = size(m, pi, width: width) } }
+    /// `scale`: the view's (pass it from another queue: a task-local scope does not follow a block).
+    func prefetch(_ messages: [Message], width: CGFloat, scale: CGFloat = Fixture.renderScale) {
+        for m in messages { for pi in m.parts.indices { _ = size(m, pi, width: width, scale: scale) } }
     }
     /// `prefetch` on all cores (interleaved slices); returns when every message is measured.
-    func prefetchParallel(_ messages: [Message], width: CGFloat) {
+    func prefetchParallel(_ messages: [Message], width: CGFloat, scale: CGFloat = Fixture.renderScale) {
         let n = min(messages.count / 4, ProcessInfo.processInfo.activeProcessorCount)
-        guard n > 1 else { return prefetch(messages, width: width) }
+        guard n > 1 else { return prefetch(messages, width: width, scale: scale) }
         DispatchQueue.concurrentPerform(iterations: n) { k in
             for i in stride(from: k, to: messages.count, by: n) {
                 // checked read (crash ratchet)
                 guard let m = messages[checked: i] else { continue }
-                for pi in m.parts.indices { _ = size(m, pi, width: width) }
+                for pi in m.parts.indices { _ = size(m, pi, width: width, scale: scale) }
             }
         }
     }
@@ -798,7 +823,8 @@ enum RowBuilder {
     /// `width`: layout width (captured on main). `exact`: message indices to
     /// measure exactly; others may use estimates (nil: all exact).
     static func rows(_ s: AppState, messages: [Message], now: Date, threadMode: Bool = false, range: Range<Int>? = nil,
-                     previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil) -> [RowSpec] {
+                     previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
+                     scale: CGFloat = Fixture.renderScale) -> [RowSpec] {
         let me = s.me
         var rows: [RowSpec] = []
         let receipts = receiptTargets(messages, me: me)
@@ -881,7 +907,7 @@ enum RowBuilder {
                 let root = s.conversation.messages.first { $0.id == r.messageId }
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
                 let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
-                rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: ThreadPreview.gap, height: pv.height))
+                rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: ThreadPreview.gap, height: pv.height(scale: scale)))
                 gap = ThreadPreview.replyGap
             }
 
@@ -893,7 +919,7 @@ enum RowBuilder {
                     || next.retractedAt != nil || next.replyTo != m.replyTo
                     || thread(next, at: messages.dropFirst(idx + 1).firstIndex { $0.deletedAt == nil } ?? idx + 1) != thread(m, at: idx) } ?? true
                 for (pi, part) in m.parts.enumerated() {
-                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
+                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false, scale: scale)
                     let (size, tl) = (measured.size, measured.text)
                     let reactions = m.reactions.filter { $0.partIndex == pi }
                     var g = pi == 0 ? gap : 3
@@ -957,7 +983,8 @@ enum RowBuilder {
     /// divider drag or live resize step re-measures the parts and skips the derivation (receipts,
     /// reply counts, thread previews, day labels) over the loaded window. Nil when a part row
     /// does not name a loaded message (the caller then derives).
-    static func rewidth(_ derived: [RowSpec], messages: [Message], width: CGFloat, exact: Range<Int>?) -> [RowSpec]? {
+    static func rewidth(_ derived: [RowSpec], messages: [Message], width: CGFloat, exact: Range<Int>?,
+                        scale: CGFloat = Fixture.renderScale) -> [RowSpec]? {
         var out: [RowSpec] = []
         out.reserveCapacity(derived.count)
         var idx = 0
@@ -968,7 +995,7 @@ enum RowBuilder {
             if case let .threadPreview(pv) = row.kind, pv.isText {
                 let again = ThreadPreview.make(root: pv.root, part: pv.part, count: pv.count, outgoing: pv.outgoing, width: width)
                 row.kind = .threadPreview(again)
-                row.height = again.height
+                row.height = again.height(scale: scale)
             }
             guard case var .part(p) = row.kind else { out.append(row); continue }
             // Rows follow message order: the part's message is at or after the previous one.
@@ -976,7 +1003,7 @@ enum RowBuilder {
             while let m = messages.dropFirst(idx).first, m.id != p.ref.messageId { idx += 1 }
             guard let m = messages.dropFirst(idx).first, p.ref.partIndex < m.parts.count else { return nil }
             let measured = MeasureCache.shared.size(m, p.ref.partIndex, width: width,
-                                                    estimate: exact.map { !$0.contains(idx) } ?? false)
+                                                    estimate: exact.map { !$0.contains(idx) } ?? false, scale: scale)
             p.size = measured.size
             p.text = measured.text
             p.markdown = measured.markdown

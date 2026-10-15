@@ -430,6 +430,7 @@ impl Mux {
                         required_str(fields, "url")?.to_string(),
                         size,
                         Some(identity),
+                        frontend_browser_transaction(fields),
                     )?,
                     None => {
                         let (workspace_key, workspace_public_id, workspace_mutation) =
@@ -454,6 +455,7 @@ impl Mux {
                             required_str(fields, "url")?.to_string(),
                             size,
                             Some(identity),
+                            frontend_browser_transaction(fields),
                         )?
                     }
                 };

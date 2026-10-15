@@ -12,12 +12,17 @@
 //! The other-user socket case needs a second account (bead cx-8coo).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SECRET: &str = "00112233445566778899aabbccddeeff";
@@ -72,7 +77,7 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
 
 /// Runs `acpmux cua-mcp` for one `tools/list` and returns its reply.
 fn tools_list(dir: &Path) -> Value {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(dir)
         .arg("cua-mcp")
         .env("CMUX_NEXT_CUA_V2_DIR", dir)
         .stdin(Stdio::piped())

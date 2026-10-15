@@ -11,6 +11,13 @@
 //! Without ACPMUX_CODEX_LIVE each test says so and passes (CI has no model).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// Live by design (only with ACPMUX_CODEX_LIVE): the real codex it names and
+// the CODEX_HOME that reaches a model are kept; nothing else of the host.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACPMUX_CODEX_LIVE", "CODEX_HOME"]);
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
@@ -88,7 +95,20 @@ impl Daemon {
         // SAFETY: closing our own write end.
         unsafe { libc::close(fds[1]) };
         let read_end = fds[0];
-        let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        // Live by design: the real codex named by ACPMUX_CODEX_LIVE (an absolute
+        // path in the harness argv), its own directory (an npm install keeps its
+        // node there) right after the tool links, before the system directories.
+        // That directory can hold other agent CLIs: only codex is probed.
+        let codex = std::env::var("ACPMUX_CODEX_LIVE").expect("ACPMUX_CODEX_LIVE");
+        assert!(Path::new(&codex).is_absolute(), "ACPMUX_CODEX_LIVE must be absolute");
+        let codex_dir = Path::new(&codex).parent().expect("codex directory").to_owned();
+        let path = format!(
+            "{}:{}:/usr/bin:/bin:/usr/sbin:/sbin",
+            daemon_env::tool_dir(&[]).display(),
+            codex_dir.display()
+        );
+        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
+        command.env("PATH", path).env("ACPMUX_PROBE_HARNESSES", "codex-app-server");
         // SAFETY: only dup2 between fork and exec (async-signal-safe).
         unsafe {
             command.pre_exec(move || {
@@ -104,8 +124,6 @@ impl Daemon {
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             .env("ACPMUX_AGENT_HOSTS", if self.direct { "0" } else { "1" })
-            .env_remove("ACPMUX_LOGIN_ENV")
-            .env_remove("XPC_SERVICE_NAME")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

@@ -59,16 +59,14 @@ one host each, with their own `MUX_HOME`, acpmux home, participant id
 id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
 answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
-it too (never its own; other agents never do). Loop guard: after
-`CHIEF_TURN_BUDGET` (6) consecutive Chief messages in one thread (or the top
-level), no Chief answers a Chief there until a person writes
-(`cmux_chief::rules::chief_streak`, computed from the conversation, so every
-host and the page agree with no shared state). The owner's own guard is
-lower today: at most `MAX_AGENT_TURNS` (4) agent messages per conversation
-after a person's message (`cmux_conversation::check_agent_streak`), so a
-Chief also stays quiet once that streak is reached (`owner_agent_streak`)
-instead of running a turn whose reply would be refused. A page shows
-"Chiefs paused" for a thread when either streak at its tail is at its limit. `every` adds a constant
+it too (never its own; other agents never do). Loop guard: the owner's
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
+texts in one thread (the replies of one root, or the top level) since a
+person's text in that thread; the owner refuses more (`agent_budget`), and a
+Chief pre-checks it from the messages it read (`thread_agent_streak` on the
+thread its reply goes into) so it stays quiet instead of running that turn.
+A person's text resets its own thread only. A page shows "Chiefs paused" for
+a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
 In a conversation of more than two participants the reply goes into the
@@ -298,8 +296,8 @@ For the bundled host in a tagged cmux-next DEV app, `MUX_HOME` is
    variable set, or `launchctl setenv CMUX_NEXT_MUX_HOST /abs/path/optchat-chief`
    before `open`). The app starts the host when Home first opens, as
    `optchat-chief host --daemon-socket <daemon socket> --mux-home ~/.cmux/mux/tags/<tag>`,
-   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*`, `MUX_HARNESS`
-   and `CMUX_MCP_COMMAND` set. Its stderr goes to `$MUX_HOME/host.log`.
+   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*` and `MUX_HARNESS`
+   set. Its stderr goes to `$MUX_HOME/host.log`.
 
 3. Open Home and write in the Chief conversation. The reply shows as the
    `mux` participant (the conversation is the same one mux/host creates).
@@ -383,7 +381,6 @@ replies).
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
-| `CMUX_MCP_COMMAND` | none | cmux binary whose `mcp serve` is added as MCP server `cmux` |
 | `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
 | `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
@@ -825,7 +822,7 @@ file. A sign-in kept in the keyring instead of auth.json is not linked. The node
 deleted when it ends (and a crash's leftovers before the next node in the
 slot). The start-up probe fails when the session lists any `$skill`
 command.
-acpmux gives codex no MCP servers, so the memory tools are the launcher's
+acpmux gives codex no `optchat` MCP server, so the memory tools are the launcher's
 `zoom` and `date` commands (`optchat-chief zoom ID N`, `optchat-chief date
 ID`), named by absolute path in AGENTS.md.
 
@@ -1476,3 +1473,24 @@ an old host.json moves into the database once; `tests/backup.rs` pushes to a
 local bare repository (holds on a secret, retries offline, never forces).
 In optchat-host, `tests/bench.rs` is
 the ignored benchmark above.
+
+### First-turn cost guard
+
+A gate step of optchat-chief changes (not of every CI run): a new Chief's
+first turn must stay under 50,000 input tokens. `scripts/ci/chief-first-turn-cost.sh`
+runs the production trio on a scratch brain (`measure/chief_driver.py`,
+smoke turn `s01`) with Claude Code against a local stand-in
+(`measure/first_turn_cost.py proxy`) that answers with one canned reply,
+so no model runs and no credential reaches the worker. It then counts each
+recorded `/v1/messages` request with `count_tokens` on the team subrouter
+(the request's own `anthropic-beta`, so deferred tools count as the API
+counts them) and fails over the limit, or when no request names a cmux MCP
+tool (the server never reached the turn). `force_full_tools=1` proves it
+red: a `--settings` file turns tool search off, the behavior before
+`session_dir::TURN_SETTINGS_ENV`, and every cmux MCP tool loads with the turn.
+
+```bash
+gate-run.sh --head "$HEAD_SHA" --out /tmp/gates/$HEAD_SHA.json -- \
+  ~/.local/bin/cmux-ci run --class isolated --script scripts/ci/chief-first-turn-cost.sh --ref "$HEAD_SHA" \
+  --key chief-first-turn-${HEAD_SHA:0:8} --arg=count_url=http://ROUTER:PORT --timeout 6000
+```

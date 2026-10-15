@@ -43,6 +43,7 @@ members = [
     "crates/cmux-unix-socket",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
+    "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
@@ -103,6 +104,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
+    "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-relay",
     "crates/chatmux-relay",
@@ -182,6 +184,7 @@ cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
+cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-server = { path = "crates/cmux-server" }

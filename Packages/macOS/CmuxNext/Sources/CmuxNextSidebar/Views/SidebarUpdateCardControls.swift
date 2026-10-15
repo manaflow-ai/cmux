@@ -71,7 +71,7 @@ final class SidebarUpdateButton: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     static var height: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
-    static var font: NSFont { .systemFont(ofSize: Typography.caption.pointSize, weight: .semibold) }
+    static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .semibold) }
 
     func configure(title: String, enabled: Bool, help: String?) {
         label.stringValue = title

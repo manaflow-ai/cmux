@@ -145,9 +145,11 @@ final class HistoryService {
     }
 
     /// Closed tabs, screens and workspaces, as the daemons record them
-    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9).
+    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
+    /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
     func closedEntries() -> [HistoryEntry] {
-        DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }.map { entry in
+        let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
+        return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = Self.shownTab(item)
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
             case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab

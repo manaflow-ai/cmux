@@ -3683,6 +3683,15 @@ mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
+#[path = "cli/conversation_inbox_state.rs"]
+mod conversation_inbox_state;
+#[cfg(unix)]
+#[path = "cli/conversation_person_credentials.rs"]
+mod conversation_person_credentials;
+#[cfg(unix)]
+#[path = "cli/conversation_runs.rs"]
+mod conversation_runs;
+#[cfg(unix)]
 #[path = "cli/conversation_thread_objects.rs"]
 mod conversation_thread_objects;
 #[cfg(unix)]
@@ -3691,6 +3700,9 @@ mod conversation_threads;
 #[cfg(unix)]
 #[path = "cli/conversation_tree.rs"]
 mod conversation_tree;
+#[cfg(unix)]
+#[path = "cli/dock_tab_placement.rs"]
+mod dock_tab_placement;
 #[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
@@ -3703,6 +3715,9 @@ mod frontend_browser_status;
 mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
+#[cfg(unix)]
+#[path = "cli/home_inbox.rs"]
+mod home_inbox;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]

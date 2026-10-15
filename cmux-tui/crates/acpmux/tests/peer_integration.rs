@@ -1,6 +1,11 @@
 //! Two hubs: B serves WebSocket, A mirrors B as a peer. Everything for B's
 //! sessions is driven through A's protocol handler.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
@@ -150,6 +155,9 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
         v["sessions"].as_array().unwrap().iter().any(|x| x["name"] == "b/remote-one"),
         "peer session not listed after add_peer settled: {v}"
     );
+    // cx-v9k2f: a peer's session carries its lane like a local one.
+    let listed = v["sessions"].as_array().unwrap().iter().find(|x| x["name"] == "b/remote-one");
+    assert_eq!(listed.unwrap()["lane"]["state"], "idle", "{v}");
 
     // Prompt through A by the prefixed name; the reply streams to A's client.
     ca.call(method::MUX_ATTACH, json!({"session": "b/remote-one", "limit": 0})).await.unwrap();
@@ -230,6 +238,96 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     let st = ca.call(method::MUX_STATUS, json!({})).await.unwrap();
     assert_eq!(st["peers"][0]["name"], "b");
     assert_eq!(st["peers"][0]["connected"], true);
+}
+
+/// Two daemons peered both ways (a real pair on 10-14 grew names
+/// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
+/// sessions to a peer, both in the watch snapshot and in later changes, so a
+/// mirror never comes back as `b/a/cycle` and never nests.
+#[tokio::test]
+async fn bidirectional_peers_do_not_reexport_mirrored_sessions() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (a_port, a_peer_token) = listen_with_peer_token(a.clone(), "cycle-a").await;
+    let (b_port, b_peer_token) = listen_with_peer_token(b.clone(), "cycle-b").await;
+
+    let mut owner = client(a.clone()).await;
+    let created = owner
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": "cycle"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+
+    a.add_peer(
+        "b",
+        &format!("ws://127.0.0.1:{b_port}"),
+        Some("tok".into()),
+        Some(b_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    b.add_peer(
+        "a",
+        &format!("ws://127.0.0.1:{a_port}"),
+        Some("tok".into()),
+        Some(a_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut mirror = client(b.clone()).await;
+
+    let rows = |v: &Value| {
+        v["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["sessionId"].as_str().unwrap_or("").to_owned(),
+                    s["name"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // A change after the snapshot travels as `session_changed`, the path that
+    // ping-ponged: rename on A, then wait until B shows the new name.
+    owner.call(method::MUX_RENAME, json!({"sessionId": id, "newName": "renamed"})).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let b_now = mirror.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+        if rows(&b_now).iter().any(|(_, n)| n == "a/renamed") {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "B never mirrored the rename: {b_now}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // An echo needs one more round trip each way; give it several before
+    // taking the public views. Each list must hold exactly one row for the
+    // one session, under its exact name.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let a_rows = rows(&owner.call(method::MUX_SESSIONS, json!({})).await.unwrap());
+    let b_rows = rows(&mirror.call(method::MUX_SESSIONS, json!({})).await.unwrap());
+    assert_eq!(
+        a_rows,
+        vec![(id.clone(), "renamed".to_owned())],
+        "owner re-imported its own session from the peer"
+    );
+    assert_eq!(
+        b_rows,
+        vec![(id.clone(), "a/renamed".to_owned())],
+        "peer exposed recursive mirrors"
+    );
 }
 
 #[tokio::test]
@@ -583,4 +681,245 @@ async fn every_answer_for_a_peers_prompt_goes_to_the_peer_within_a_hop_limit() {
         })
         .await;
     assert_eq!(decided["msg"]["outcome"]["optionId"], "no", "{decided}");
+}
+
+/// Prompt bookmarks of a peer's chat live on the daemon that owns it: A forwards both
+/// `_acpmux/bookmark_set` and `_acpmux/bookmark_get` to B, which checks the seq in its own log.
+#[tokio::test]
+async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "marks").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "marked"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "hi"}]});
+    cb.call(method::SESSION_PROMPT, prompt).await.unwrap();
+    let page = cb.call(method::MUX_EVENTS, json!({"sessionId": remote_id, "limit": 5000})).await;
+    let page = page.unwrap();
+    let events = page["events"].as_array().unwrap();
+    let seq_of = |kind: &str| events.iter().find(|e| e["kind"] == kind).unwrap()["seq"].clone();
+    let (prompt_seq, reply_seq) = (seq_of("user_message"), seq_of("turn_result"));
+
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let refused = ca
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": reply_seq, "bookmarked": true}),
+        )
+        .await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("not a prompt")), "{refused:?}");
+    let set = ca
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": prompt_seq, "bookmarked": true}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(set["peer"], "b", "{set}");
+    assert_eq!(set["bookmarks"], json!([prompt_seq]), "{set}");
+    let got = ca.call("_acpmux/bookmark_get", json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(got["peer"], "b", "{got}");
+    assert_eq!(got["bookmarks"], json!([prompt_seq]), "{got}");
+    // B holds it, in its own session.
+    let on_b = cb.call("_acpmux/bookmark_get", json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(on_b["bookmarks"], json!([prompt_seq]), "{on_b}");
+    assert!(on_b.get("peer").is_none(), "{on_b}");
+}
+
+/// A TCP relay in front of `port` that counts the bytes each way: what
+/// crosses the peer link between two daemons. Returns its port and the
+/// counters (toward the client, toward the server).
+async fn counting_relay(
+    port: u16,
+) -> (u16, Arc<std::sync::atomic::AtomicU64>, Arc<std::sync::atomic::AtomicU64>) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let down = Arc::new(AtomicU64::new(0));
+    let up = Arc::new(AtomicU64::new(0));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = l.local_addr().unwrap().port();
+    let (d, u) = (down.clone(), up.clone());
+    tokio::spawn(async move {
+        while let Ok((client, _)) = l.accept().await {
+            let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let (mut cr, mut cw) = client.into_split();
+            let (mut sr, mut sw) = server.into_split();
+            let (d, u) = (d.clone(), u.clone());
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 64 * 1024];
+                while let Ok(n) = sr.read(&mut buf).await {
+                    if n == 0 || cw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                    d.fetch_add(n as u64, Ordering::SeqCst);
+                }
+            });
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 64 * 1024];
+                while let Ok(n) = cr.read(&mut buf).await {
+                    if n == 0 || sw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                    u.fetch_add(n as u64, Ordering::SeqCst);
+                }
+            });
+        }
+    });
+    (relay_port, down, up)
+}
+
+/// Opening a long chat that lives on a peer daemon (cmux server, a remote
+/// over ssh) stays within the same payload budget as a local one (cx-2lv1k):
+/// the local daemon forwards the pane's `maxBytes` to the owning daemon, so a
+/// 5000-turn chat with 4 KB tool outputs crosses the peer link as one page of
+/// at most 160 KiB that ends on the newest record. An older page asked with
+/// `beforeSeq` is forwarded the same way. Bytes are counted on the link itself.
+#[tokio::test]
+async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() {
+    use acpmux::store::EventRecord;
+    use std::sync::atomic::Ordering;
+    let dir = std::env::temp_dir().join(format!("acpmux-peer-budget-{}", uuid::Uuid::now_v7()));
+    let mut cfg = config(PermissionPolicy::ApproveAll);
+    cfg.store.mode = StoreMode::Local;
+    cfg.store.segment_bytes = 8 * 1024 * 1024;
+
+    // B owns a chat of 5000 turns, written straight into its store.
+    let b = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "long"}}})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut seq = b.resolve("long").unwrap().meta().last_seq;
+    b.shutdown_all().await;
+    drop(cb);
+    drop(b);
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let output = "x".repeat(4000);
+    let mut append = |dir: &str, kind: &str, msg: Value| {
+        seq += 1;
+        store
+            .append(
+                &id,
+                &EventRecord {
+                    seq,
+                    at: seq,
+                    dir: dir.into(),
+                    kind: kind.into(),
+                    msg,
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+    };
+    let update = |body: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1", "update": body}});
+    for turn in 0..5000 {
+        append("mux", "user_message", json!({"text": format!("Question {turn}")}));
+        append("mux", "turn_started", json!({}));
+        let call = format!("call-{turn}");
+        append(
+            "in",
+            "tool_call",
+            update(json!({"sessionUpdate": "tool_call", "toolCallId": call,
+            "title": "cat build.log", "kind": "read", "status": "in_progress"})),
+        );
+        append(
+            "in",
+            "tool_call_update",
+            update(json!({"sessionUpdate": "tool_call_update",
+            "toolCallId": call, "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": output}}]})),
+        );
+        append(
+            "in",
+            "agent_message_chunk",
+            update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": format!("Answer {turn}")}})),
+        );
+        append("mux", "turn_result", json!({"status": "completed"}));
+    }
+    let last = seq;
+    let b = Hub::new(cfg.clone(), store);
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "budget").await;
+    let (relay, down, up) = counting_relay(port).await;
+
+    // A reaches B through the counting relay.
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let kinds = json!([
+        "transcript",
+        "available_commands_update",
+        "usage_update",
+        "config_option_update",
+        "secret_request",
+        "secret_decision"
+    ]);
+
+    let before = down.load(Ordering::SeqCst);
+    let att = ca
+        .call(
+            method::MUX_ATTACH,
+            json!({"session": "b/long", "limit": 400, "maxBytes": 128 * 1024,
+                "eventStream": true, "kinds": kinds}),
+        )
+        .await
+        .unwrap();
+    let link = down.load(Ordering::SeqCst) - before;
+    let wire = serde_json::to_string(&att).unwrap().len();
+    eprintln!(
+        "peer open: {link} bytes on the link, {wire} bytes to the client, {} records, {} bytes on the link in all",
+        att["events"].as_array().unwrap().len(),
+        down.load(Ordering::SeqCst) + up.load(Ordering::SeqCst)
+    );
+    assert_eq!(att["peer"], "b");
+    assert!(link <= 160 * 1024, "opening sent {} KiB over the peer link", link / 1024);
+    assert!(wire <= 160 * 1024, "opening sent {} KiB to the client", wire / 1024);
+    let events = att["events"].as_array().unwrap();
+    assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
+    assert!(events.len() >= 6, "the page holds at least the last turn: {}", events.len());
+    assert_eq!(att["hasMore"], true);
+    // Linking and opening never pull the history: it is about 25 MB.
+    assert!(
+        down.load(Ordering::SeqCst) <= 512 * 1024,
+        "the link carried {} KiB in all",
+        down.load(Ordering::SeqCst) / 1024
+    );
+
+    // Scrolling up: beforeSeq and maxBytes reach B too.
+    let first = events[0]["seq"].as_u64().unwrap();
+    let before = down.load(Ordering::SeqCst);
+    let older = ca
+        .call(
+            method::MUX_EVENTS,
+            json!({"session": "b/long", "beforeSeq": first, "limit": 400,
+                "maxBytes": 64 * 1024, "kinds": kinds}),
+        )
+        .await
+        .unwrap();
+    let link = down.load(Ordering::SeqCst) - before;
+    let seqs: Vec<u64> =
+        older["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+    assert!(!seqs.is_empty(), "an older page has records");
+    // Dropping beforeSeq would page from the start of the chat instead.
+    assert!(
+        *seqs.last().unwrap() + 6 >= first,
+        "the older page ends just before {first}: {:?}",
+        &seqs[seqs.len().saturating_sub(3)..]
+    );
+    assert!(
+        seqs.iter().all(|s| *s < first),
+        "the older page holds only records before {first}: {:?}",
+        &seqs[seqs.len().saturating_sub(3)..]
+    );
+    assert!(link <= 80 * 1024, "an older page sent {} KiB over the peer link", link / 1024);
+    assert_eq!(older["hasMore"], true);
+    let _ = std::fs::remove_dir_all(&dir);
 }

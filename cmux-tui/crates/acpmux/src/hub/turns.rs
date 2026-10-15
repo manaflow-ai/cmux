@@ -253,6 +253,7 @@ impl Hub {
             control,
             trust_gate,
             interrupt: opts.interrupt,
+            provenance: opts.provenance.as_ref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -272,12 +273,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
             clear_sent_draft(&mut m, &text);
-            if m.title.is_none() {
-                let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-                if !first.is_empty() {
-                    m.title = Some(short_text(first, 80));
-                }
-            }
+            super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
@@ -292,12 +288,9 @@ impl Hub {
         });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
-        self.append(
-            session,
-            "mux",
-            "user_message",
-            json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
-        );
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        self.append(session, "mux", "user_message", msg);
         if !waiting {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
@@ -562,6 +555,10 @@ impl Hub {
                 let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     o.extend(self.turn_error_fields(session, None));
+                    // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
+                    if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
+                        o.insert("cancelForced".into(), Value::Bool(true));
+                    }
                 }
                 self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);
@@ -614,13 +611,11 @@ impl Hub {
             drop(state);
         }
         self.save_meta(session);
+        self.send_offer_result(session);
         result
     }
 
-    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
-    /// A turn refused after it was accepted (the dispatch check again, or
-    /// the remote floor): failed as an unstarted turn, the agent kept.
+    /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     fn refuse_started_turn(
         &self,
         session: &Arc<Session>,
@@ -634,6 +629,8 @@ impl Hub {
         }
     }
 
+    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
+    /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
         &self,
         session: &Arc<Session>,
@@ -676,9 +673,9 @@ impl Hub {
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
-    fn record_last_turn(&self, session: &Session, turn_result: &Value) {
+    pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let mut last = serde_json::Map::new();
-        for k in ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource"] {
+        for k in super::views::LAST_TURN_KEYS {
             if let Some(v) = turn_result.get(k) {
                 last.insert(k.to_owned(), v.clone());
             }
@@ -740,24 +737,6 @@ impl Hub {
             );
         }
         Some(text)
-    }
-
-    pub async fn cancel(&self, session: &Arc<Session>) -> Result<(), RpcError> {
-        let child = session
-            .child
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| RpcError::invalid_params("session has no live agent"))?;
-        let sid = session
-            .meta()
-            .agent_session_id
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
-        self.cancel_pending_permissions(session);
-        child
-            .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// Pass a session-scoped request to the child, rewriting the session id.
@@ -850,8 +829,8 @@ impl Hub {
         {
             let mut applied =
                 session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if super::start_defaults::is_effort_id(config_id) {
-                applied.effort = value.as_str().map(str::to_owned);
+            if let Some(effort) = super::start_defaults::effort_of(config_id, &value) {
+                applied.effort = Some(effort.to_owned());
             }
         }
         Ok(r)

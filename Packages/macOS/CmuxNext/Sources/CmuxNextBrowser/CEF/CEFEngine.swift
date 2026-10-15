@@ -105,6 +105,13 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); newValue?() } }
     }
 
+    /// Runs when starting CEF fails in this process (process-wide). A failed
+    /// `CefInitialize` has already reset every signal action.
+    public var onStartFailed: (() -> Void)? {
+        get { CEFRuntime.shared.onStartFailed }
+        set { CEFRuntime.shared.onStartFailed = newValue }
+    }
+
     /// How this process started CEF (for `debug.cef`).
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 
@@ -119,6 +126,13 @@ public final class CEFEngine: BrowserEngine {
     public var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)? {
         get { CEFRuntime.shared.openURLWithoutWindow }
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
+    }
+
+    /// cmux.json `browser.builtInAdBlocker`: whether the bundled full uBlock
+    /// Origin loads; asked once, when Chromium starts.
+    public var builtInAdBlocker: @MainActor () -> Bool {
+        get { CEFRuntime.shared.builtInAdBlockerSetting }
+        set { CEFRuntime.shared.builtInAdBlockerSetting = newValue }
     }
 
     /// What modified link clicks do (cmux.json `browser.links.*`;
