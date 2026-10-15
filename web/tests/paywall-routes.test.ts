@@ -6,6 +6,8 @@ import * as teamResolutionModule from "../services/billing/teamResolution";
 import * as paywallStoreModule from "../services/billing/paywall/store";
 import * as serverEventsModule from "../services/analytics/serverEvents";
 import { IOS_PAYWALL_CONTROL, IOS_PAYWALL_V1_SEED } from "../services/billing/paywall/iosPaywallV1";
+import { PLAN_SPECS } from "../services/billing/paywall/facts";
+import { copyErrors } from "../services/billing/paywall/validator";
 import type { ServerEventInput } from "../services/analytics/serverEvents";
 
 // The route boundary: GET /api/billing/paywall and POST account-token with
@@ -102,7 +104,7 @@ function request(path: string, method: "GET" | "POST", bundleId = "com.cmux.app"
   });
 }
 
-const ALL_LAYOUTS = "cards,comparison,focus,checklist,planTabs,hero,trialTimeline";
+const ALL_LAYOUTS = "cards,comparison,focus,checklist,planTabs,hero,trialTimeline,specList";
 
 /** `layouts: null` sends no `x-cmux-paywall-layouts` header (an older app). */
 async function paywallFor(bundleId = "com.cmux.app", layouts: string | null = ALL_LAYOUTS) {
@@ -129,7 +131,10 @@ describe("GET /api/billing/paywall", () => {
       events.length = 0;
       flagAnswer = { variant: variant.key, payload: variant.payload };
       const paywall = await paywallFor();
-      expect(paywall).toEqual({ experiment: "ios-paywall-v1", variant: variant.key, ...variant.payload });
+      expect(paywall).toEqual({
+        experiment: "ios-paywall-v1", variant: variant.key, ...variant.payload,
+        ...(variant.payload.layout === "specList" ? { planSpecs: PLAN_SPECS } : {}),
+      });
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
         event: "paywall_assigned",
@@ -239,6 +244,20 @@ describe("layouts the app can draw", () => {
     expect(served).not.toHaveProperty("fallbackLayout");
     assignments.clear();
     flagAnswer = { variant: "hero-pro", payload: { ...seed("hero-pro").payload, layout: "trialTimeline" } };
+    expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+  });
+
+  test("specList gets the facts' spec lines, which pass the copy rules; older apps get cards without them", async () => {
+    flagAnswer = { variant: "speclist-specs-first", payload: seed("speclist-specs-first").payload };
+    expect(await paywallFor()).toMatchObject({ layout: "specList", planSpecs: PLAN_SPECS });
+    const old = await paywallFor("com.cmux.app", null);
+    expect(old.layout).toBe("cards");
+    expect(old).not.toHaveProperty("planSpecs");
+    for (const [plan, lines] of Object.entries(PLAN_SPECS)) {
+      expect(lines.flatMap((line, index) => copyErrors(`${plan}[${index}]`, line, { maxLength: 80, required: true }))).toEqual([]);
+    }
+    assignments.clear();
+    flagAnswer = { variant: "speclist-specs-first", payload: { ...seed("speclist-specs-first").payload, planSpecs: { pro: ["Up to 50 Cloud VMs"] } } };
     expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
   });
 

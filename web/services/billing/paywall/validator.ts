@@ -223,7 +223,7 @@ export function copyErrors(
 // The iOS paywall payload (contract with the iOS app).
 
 /** Every layout the server knows. An app declares the ones it can draw (`x-cmux-paywall-layouts`). */
-export const IOS_PAYWALL_LAYOUTS = ["cards", "comparison", "focus", "checklist", "planTabs", "hero", "trialTimeline"] as const;
+export const IOS_PAYWALL_LAYOUTS = ["cards", "comparison", "focus", "checklist", "planTabs", "hero", "trialTimeline", "specList"] as const;
 /** What an app that sends no `x-cmux-paywall-layouts` header can draw. */
 export const IOS_PAYWALL_BASE_LAYOUTS = ["cards", "comparison", "focus"] as const;
 export type IosPaywallLayout = (typeof IOS_PAYWALL_LAYOUTS)[number];
@@ -240,6 +240,11 @@ export type IosPaywallConfig = {
   readonly variant: string;
   readonly layout: IosPaywallLayout;
   readonly headline: string;
+  /**
+   * Set by the server (never by a payload) when the served layout is
+   * `specList`: the spec lines per plan, from facts.ts PLAN_SPECS.
+   */
+  readonly planSpecs?: Readonly<Record<"pro" | "max", readonly string[]>>;
   /** Optional headline per entry point, validated like `headline`. */
   readonly entryPointHeadlines?: Readonly<Record<string, string>>;
   /**
@@ -251,6 +256,10 @@ export type IosPaywallConfig = {
   readonly subheadline: string;
   readonly bullets: readonly string[];
   readonly highlightedPlanId: (typeof IOS_PAYWALL_PLAN_IDS)[number] | null;
+  /**
+   * The period preselected for plans that offer both. Not a global toggle:
+   * not every plan has a yearly product, so the app shows periods per plan.
+   */
   readonly defaultBillingPeriod: (typeof IOS_PAYWALL_BILLING_PERIODS)[number];
   readonly ctaStyle: (typeof IOS_PAYWALL_CTA_STYLES)[number];
   readonly showYearlySavings: boolean;

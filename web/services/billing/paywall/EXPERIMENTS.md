@@ -133,9 +133,21 @@ queue still lets every idea get tested in turn.
   increase paid conversion compared with the current screen.
 - **Arms:** `control` (the app's built-in copy, cards), `focus-pro-yearly`,
   `comparison` and `outcome-copy` start live at 25% each. Queued in this
-  order: `checklist-pro-monthly`, `plantabs-yearly` and `hero-pro`.
+  order: `checklist-pro-monthly`, `plantabs-yearly`, `hero-pro`,
+  `speclist-specs-first`, then 7 more so that every layout has an outcome
+  angle ("Run coding agents in the cloud, reach them from your iPhone") and
+  a compute angle ("More cloud compute"): `cards-compute`,
+  `comparison-outcome`, `focus-outcome`, `checklist-outcome`,
+  `plantabs-outcome`, `hero-compute` and `speclist-outcome`. The Paywall
+  Lab lists every variant, including the queued ones.
+- **Billing period:** `defaultBillingPeriod` is the period preselected for
+  plans that offer both periods. It is not a global Monthly/Yearly toggle,
+  because not every plan has a yearly product.
 - **Layouts:** `cards`, `comparison`, `focus`, `checklist`, `planTabs`,
-  `hero` and `trialTimeline`.
+  `hero`, `trialTimeline` and `specList`.
+  - When the served layout is `specList`, the server adds `planSpecs` (the
+    spec lines per plan from `facts.ts` `PLAN_SPECS`). A payload cannot set
+    `planSpecs`.
   - The app declares the layouts it can draw in `x-cmux-paywall-layouts`.
     An app that sends no header gets only `cards`, `comparison` and `focus`.
   - The server sends a layout only if the app can draw it. Otherwise it sends
