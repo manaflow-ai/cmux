@@ -41,3 +41,18 @@ import Testing
                                            screenText: nil) == .placeholder)
     }
 }
+
+/// VERIFY-round5 V5-6 / T-TABS-01: a grid card shows the top of the page
+/// (TabsKit lays a page-sized card out top-aligned in a 177 x 249.3 card),
+/// so the newest rows and the agent's prompt were cut off. The snapshot is
+/// placed so its bottom is the card's bottom edge.
+@Suite struct TerminalCardCropTests {
+    @Test func theCardShowsTheBottomOfThePage() {
+        let crop = TerminalCardCrop(width: 402, imageHeight: 874)
+        #expect(abs(crop.visibleHeight - 402 * 249.3 / 177) < 0.01)
+        // The image moves up by what the card cannot show.
+        #expect(abs(crop.imageTop - (crop.visibleHeight - 874)) < 0.01)
+        // A short image is not moved.
+        #expect(TerminalCardCrop(width: 402, imageHeight: 300).imageTop == 0)
+    }
+}
