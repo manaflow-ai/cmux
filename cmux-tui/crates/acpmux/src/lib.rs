@@ -53,6 +53,7 @@ pub mod probe_cleanup;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod protected_folders;
+pub mod protocol;
 pub mod question_answer;
 pub mod registry;
 mod router_socket;
