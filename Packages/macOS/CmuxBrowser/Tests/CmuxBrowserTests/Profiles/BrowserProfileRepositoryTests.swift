@@ -69,6 +69,19 @@ private actor FakeFileRemover: BrowserProfileFileRemoving {
 }
 
 @MainActor
+private final class FakeEngineStore: BrowserProfileEngineStoreManaging {
+    let engineName = "chromium"
+    var kinds = ["cookies", "cache"]
+    private(set) var cleared: [UUID] = []
+    private(set) var deleted: [UUID] = []
+    func clearAllData(forProfileID profileID: UUID) async -> [String] {
+        cleared.append(profileID)
+        return kinds
+    }
+    func profileWasDeleted(_ profileID: UUID) { deleted.append(profileID) }
+}
+
+@MainActor
 private func makeRepository(
     suiteName: String = "cmux.browserprofiles.test.\(UUID().uuidString)",
     history: FakeHistoryProvider = FakeHistoryProvider(),
@@ -215,6 +228,38 @@ struct BrowserProfileRepositoryTests {
         #expect(outcome?.clearedWebsiteDataTypes == ["WKAlpha", "WKZeta"]) // sorted
         #expect(history.made.first?.clearedWithoutLoading == true)
         #expect(data.removedFromStores.count == 1)
+    }
+
+    @Test func clearProfileDataWithoutEngineStoreKeepsSocketPayloadShape() async {
+        let (repo, _) = makeRepository()
+        let p = repo.createProfile(named: "P")!
+        let outcome = await repo.clearProfileData(id: p.id)
+        #expect(outcome?.clearedEngineDataKinds == [])
+        #expect(outcome?.socketPayload["cleared_engine_data"] == nil)
+    }
+
+    @Test func clearProfileDataAlsoClearsEngineStoreAndReportsPrefixedKinds() async {
+        let (repo, _) = makeRepository()
+        let engine = FakeEngineStore()
+        repo.addEngineStore(engine)
+        repo.addEngineStore(engine)
+        let p = repo.createProfile(named: "P")!
+        let outcome = await repo.clearProfileData(id: p.id)
+        #expect(engine.cleared == [p.id])
+        #expect(outcome?.clearedEngineDataKinds == ["chromium.cache", "chromium.cookies"])
+        #expect(outcome?.socketPayload["cleared_engine_data"] as? [String] == ["chromium.cache", "chromium.cookies"])
+    }
+
+    @Test func deleteProfileTellsEngineStoreButDefaultAndUnknownDoNot() {
+        let (repo, _) = makeRepository()
+        let engine = FakeEngineStore()
+        repo.addEngineStore(engine)
+        let p = repo.createProfile(named: "P")!
+        _ = repo.deleteProfile(id: repo.builtInDefaultProfileID)
+        _ = repo.deleteProfile(id: UUID())
+        #expect(engine.deleted.isEmpty)
+        _ = repo.deleteProfile(id: p.id)
+        #expect(engine.deleted == [p.id])
     }
 
     @Test func clearProfileDataUnknownReturnsNil() async {
