@@ -3,7 +3,7 @@
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
+import { CATALOG, CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
@@ -138,6 +138,17 @@ export default agentPaneEntry({
         if (!options[options.length - 1]?.classList.contains("acpmux-mp-add-harness"))
           throw new Error("the model picker's list does not end on Add harness…");
       },
+    },
+    // Reasoning is its own chip beside the model chip, with its own menu (P0 #8): acpmux starts
+    // Claude Code on Medium, so the chip names it before any chat exists.
+    "reasoning-chip": {
+      note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
+      ready: newTab(),
+      snapshot: noChat([], {
+        catalog: CATALOG.map((entry) =>
+          entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
+        ),
+      }),
     },
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
