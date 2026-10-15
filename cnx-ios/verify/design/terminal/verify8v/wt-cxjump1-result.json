@@ -1,0 +1,26 @@
+{
+ "tag": "wt-cxjump1",
+ "trips": 10,
+ "taps_v": [
+  150.58,
+  169.05,
+  200.79,
+  220.02,
+  297.21,
+  325.66,
+  374.89,
+  401.71,
+  441.41,
+  463.68
+ ],
+ "fling_bottom": 2,
+ "video_black_runs": [],
+ "video_black_over_1_frame": [],
+ "framelog_blank_runs_over_1": [],
+ "frac_gaps_over_34ms": 0.1263,
+ "load": [
+  14.57,
+  15.07,
+  22.9
+ ]
+}

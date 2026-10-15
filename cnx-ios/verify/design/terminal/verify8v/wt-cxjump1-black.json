@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/wt-cxjump1.mp4",
+ "source_frames": 22031,
+ "duration": 460.05,
+ "lit_median": 0.1107,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.1263,
+ "max_gap_ms": 348.3
+}
