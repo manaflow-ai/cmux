@@ -220,6 +220,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         timeouts.removeValue(forKey: tab.id)?.cancel()
+        finishedBursts.read(tab: tab.id)
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver
