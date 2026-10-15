@@ -103,32 +103,42 @@ struct CEFSwitches: Equatable, Sendable {
         "enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy",
     ]
 
-    /// Switches for this process. `CMUX_CEF_LOAD_EXTENSIONS` is a
-    /// colon-separated list of unpacked extension directories.
-    /// `CMUX_CEF_EXTRA_SWITCHES` is a colon-separated list of switches
-    /// (leading dashes optional). Debug builds of development bundles only;
-    /// see cmux Next plans/cmux-next/browser.md ("Chromium diagnostics").
+    /// Whether the development environment variables below are read at all:
+    /// Debug builds only. A Release build never takes extensions, switches or
+    /// a mock keychain from its environment (they would bypass the extension
+    /// consent sheet and the keychain).
+    #if DEBUG
+    static let allowsDevelopmentOverrides = true
+    #else
+    static let allowsDevelopmentOverrides = false
+    #endif
+
+    /// Switches for this process. In Debug builds of development bundles
+    /// (`.debug` / `.dev` bundle ids) only: `CMUX_CEF_LOAD_EXTENSIONS` is a
+    /// colon-separated list of unpacked extension directories,
+    /// `CMUX_CEF_EXTRA_SWITCHES` a colon-separated list of switches (leading
+    /// dashes optional), and `CMUX_MOCK_KEYCHAIN=1` forces the mock keychain.
+    /// Development bundles always use the mock keychain (one ad hoc identity
+    /// per tag; the real keychain would prompt on every rebuild).
     static func current(
         forkAPIVersion: Int32,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        keepsUnpackedEnabled: Bool = false,
+        allowsDevelopmentOverrides: Bool = CEFSwitches.allowsDevelopmentOverrides
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
-        let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
-        let extensions = (environment["CMUX_CEF_LOAD_EXTENSIONS"] ?? "")
-            .split(separator: ":")
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        #if DEBUG
-        let extra = dev ? Self.extraSwitches(environment["CMUX_CEF_EXTRA_SWITCHES"]) : []
-        #else
-        let extra: [String] = []
-        #endif
+        let devBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
+        let overrides = allowsDevelopmentOverrides && devBundle
+        let mockKeychain = devBundle || (allowsDevelopmentOverrides && environment["CMUX_MOCK_KEYCHAIN"] == "1")
+        let extensions = overrides
+            ? (environment["CMUX_CEF_LOAD_EXTENSIONS"] ?? "").split(separator: ":").map(String.init).filter { !$0.isEmpty }
+            : []
+        let extra = overrides ? Self.extraSwitches(environment["CMUX_CEF_EXTRA_SWITCHES"]) : []
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
-            useMockKeychain: dev,
+            useMockKeychain: mockKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
