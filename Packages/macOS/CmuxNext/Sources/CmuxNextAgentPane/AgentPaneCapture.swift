@@ -26,6 +26,7 @@ enum AgentPaneCapture {
         // The screen goes to the agent: only a click in the pane starts a capture.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: file) }
         switch await capture(window: mode == "window", to: file) {
         case .failed:
             return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
@@ -34,7 +35,6 @@ enum AgentPaneCapture {
         }
         let taken = Date()
         let value = await Task.detached { () -> [String: any Sendable] in
-            defer { try? FileManager.default.removeItem(at: file) }
             return Self.answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
         }.value
         return AgentPaneReply.success(value)

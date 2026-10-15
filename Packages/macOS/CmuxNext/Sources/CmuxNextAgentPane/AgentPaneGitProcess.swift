@@ -118,6 +118,7 @@ nonisolated enum AgentPaneGitProcess {
         DispatchQueue.global(qos: .userInitiated).async {
             var waitStatus: Int32 = 0
             var result: pid_t
+            // wakeup-allow: the detached command's reaper waits for the child and retries only on EINTR.
             repeat { result = waitpid(processID, &waitStatus, 0) } while result == -1 && errno == EINTR
             if result == processID { exitStatus.withLock { $0 = Self.exitCode(waitStatus) } }
             exited.signal()

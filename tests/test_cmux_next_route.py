@@ -114,7 +114,8 @@ class PullRequestTiers(unittest.TestCase):
         # a bundle, and the app that embeds them, are selected with it, and nothing else.
         result = tiers(["schemas/settings/settings-schema.json"])
         self.assertEqual(result["swift_targets"].split(), sorted([
-            "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
+            "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextErrorHandlingTests",
+            "CmuxNextPagesTests", "CmuxNextPaletteTests",
         ]))
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
