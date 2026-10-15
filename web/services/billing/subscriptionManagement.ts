@@ -5,71 +5,16 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
-import { getStackServerApp } from "../../app/lib/stack";
 import { stripeSubscriptions } from "../../db/schema";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,
-  isFounderSubscriptionRow,
-  reconcileProPlanMetadata,
   TEAM_PLAN_ID,
 } from "./pro";
 import { stripe } from "./stripe";
 
 export type SubscriptionAction = "cancel" | "resume";
 export type SubscriptionScope = "user" | "team";
-
-/**
- * Revokes a lifetime Founder entitlement recorded by the one-time payment
- * flow. Founder rows are intentionally excluded from the recurring Stripe
- * cancellation path because their provider subscription is often synthetic
- * or already canceled. Marking the local row revoked makes the entitlement
- * stop participating in plan resolution, then the normal metadata
- * reconciliation clears the stale Pro mirror (or restores another active
- * plan).
- */
-export async function revokeFounderEntitlementForStackUser(
-  stackUserId: string,
-): Promise<boolean> {
-  const db = cloudDb();
-  const rows = await db
-    .select({
-      id: stripeSubscriptions.id,
-      status: stripeSubscriptions.status,
-      plan: stripeSubscriptions.plan,
-      raw: stripeSubscriptions.raw,
-    })
-    .from(stripeSubscriptions)
-    .where(
-      and(
-        eq(stripeSubscriptions.stackUserId, stackUserId),
-        eq(stripeSubscriptions.scope, "user"),
-        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
-      ),
-    )
-    .orderBy(desc(stripeSubscriptions.updatedAt))
-    .limit(100);
-  const founderRows = rows.filter((row) => isFounderSubscriptionRow(row));
-  const founderIds = founderRows
-    .filter((row) => (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status))
-    .map((row) => row.id);
-  if (founderRows.length === 0) return false;
-
-  if (founderIds.length > 0) {
-    await db
-      .update(stripeSubscriptions)
-      .set({
-        status: "revoked",
-        cancelAtPeriodEnd: false,
-        updatedAt: sql`now()`,
-      })
-      .where(inArray(stripeSubscriptions.id, founderIds));
-  }
-
-  const user = await getStackServerApp().getUser(stackUserId);
-  if (user) await reconcileProPlanMetadata(user);
-  return true;
-}
 
 export type SubscriptionUpdater = (
   subscriptionId: string,

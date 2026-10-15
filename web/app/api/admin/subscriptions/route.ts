@@ -1,16 +1,18 @@
 import { NextRequest } from "next/server";
 
-import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
+import { auditRequestId, recordAdminAudit, withAdminAudit } from "../../../../services/admin/auditLog";
 import {
   adminJsonResponse,
   readJsonBody,
   requireAdmin,
 } from "../../../../services/admin/routeAuth";
 import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
+import { applySubscriptionAction } from "../../../../services/billing/subscriptionManagement";
 import {
-  applySubscriptionAction,
-  revokeFounderEntitlementForStackUser,
-} from "../../../../services/billing/subscriptionManagement";
+  AdminGrantConflictError,
+  AdminUserNotFoundError,
+  revokeFounderPurchaseAccess,
+} from "../../../../services/admin/proGrants";
 import { captureBillingError } from "../../../../services/errors";
 import { enforceBrowserMutationProtection } from "../../../../services/vms/routeHelpers";
 
@@ -48,7 +50,9 @@ export async function POST(request: NextRequest) {
       if (parsed.action !== "revoke-founder" && !isStripeBillingConfigured()) {
         return adminJsonResponse({ error: "billing_unavailable" }, 503);
       }
-      if (parsed.action === "revoke-founder") return revokeFounderAccess(parsed);
+      if (parsed.action === "revoke-founder") {
+        return revokeFounderAccess(parsed, gate.admin, auditRequestId(request));
+      }
       return applySubscription(
         { scope: parsed.scope, ownerId: parsed.ownerId, action: parsed.action },
         gate.admin.id,
@@ -79,14 +83,44 @@ function parseSubscriptionBody(body: unknown): SubscriptionBody | null {
   return { scope, ownerId: ownerId.trim(), action };
 }
 
+/**
+ * Revokes the user's Founder's Edition purchase access (see
+ * revokeFounderPurchaseAccess). The revoked row ids are recorded in a
+ * `founders_revoke` audit row as soon as they commit; the surrounding
+ * `founder_access_revoke` row records the request outcome.
+ */
 async function revokeFounderAccess(
   { ownerId }: SubscriptionBody,
+  admin: { id: string; primaryEmail: string | null },
+  requestId: string | null,
 ): Promise<Response> {
   try {
-    const applied = await revokeFounderEntitlementForStackUser(ownerId);
-    if (!applied) return adminJsonResponse({ error: "no_founder_entitlement" }, 404);
+    const { revokedFounderPurchaseIds } = await revokeFounderPurchaseAccess({
+      targetUserId: ownerId,
+      admin,
+      // recordAdminAudit never throws.
+      onFounderPurchasesRevoked: (rowIds) =>
+        recordAdminAudit({
+          actor: admin,
+          action: "founders_revoke",
+          targetKind: "user",
+          targetId: ownerId,
+          details: { subscriptionIds: [...rowIds] },
+          outcome: "ok",
+          requestId,
+        }),
+    });
+    if (revokedFounderPurchaseIds.length === 0) {
+      return adminJsonResponse({ error: "no_founder_entitlement" }, 404);
+    }
     return adminJsonResponse({ ok: true, action: "revoke-founder" });
   } catch (error) {
+    if (error instanceof AdminUserNotFoundError) {
+      return adminJsonResponse({ error: "user_not_found" }, 404);
+    }
+    if (error instanceof AdminGrantConflictError) {
+      return adminJsonResponse({ error: "mutation_in_progress" }, 409);
+    }
     captureBillingError(error, {
       route: "/api/admin/subscriptions",
       action: "revoke-founder",

@@ -39,6 +39,10 @@ import {
   type ProMetadataJson,
   type StripeBillingStatus,
 } from "../billing/pro";
+import {
+  makeFounderPurchaseStore,
+  type FounderPurchaseStore,
+} from "../billing/founderRevocation";
 
 export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
@@ -364,6 +368,96 @@ export async function setManualPlanGrant(
   });
   const reloaded = (await app.getUser(input.targetUserId)) ?? fresh;
   return adminUserRow(reloaded, await billing(reloaded.id));
+}
+
+export type RevokeFounderPurchaseAccessInput = {
+  readonly targetUserId: string;
+  readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
+  /**
+   * Runs as soon as the Founder rows are revoked and committed, before the
+   * plan mirror is reconciled, so an audit record survives a later failure.
+   * Must not throw.
+   */
+  readonly onFounderPurchasesRevoked?: (rowIds: readonly string[]) => Promise<void>;
+  readonly founderPurchases?: FounderPurchaseStore;
+  readonly now?: () => Date;
+  readonly app?: AdminStackApp;
+  readonly withFreshUser?: FreshAdminUserMutation;
+  readonly stripeBillingStatus?: (userId: string) => Promise<StripeBillingStatus>;
+};
+
+export type RevokeFounderPurchaseAccessResult = {
+  /** Founder rows this call revoked; empty when none was active. */
+  readonly revokedFounderPurchaseIds: readonly string[];
+  /** The reconciled account, or null when nothing was revoked. */
+  readonly user: AdminUserRow | null;
+};
+
+/**
+ * Admin "Revoke Founder access". Cancels every active Founder's Edition row
+ * for the user and writes the durable revocation marker, under the
+ * account-mutation lease and the account advisory lock the checkout
+ * recorders take, then reconciles `cmuxPlan` so access drops at once. The
+ * marker stops every recorder replay from re-activating the purchase.
+ *
+ * It does not refund, does not cancel a recurring Stripe or App Store
+ * subscription, does not clear a manual grant, and does not remove the
+ * TestFlight tester. An admin grant of pro or founders restores access.
+ */
+export async function revokeFounderPurchaseAccess(
+  input: RevokeFounderPurchaseAccessInput,
+): Promise<RevokeFounderPurchaseAccessResult> {
+  const app = input.app ?? defaultAdminStackApp();
+  const withFreshUser = input.withFreshUser ?? defaultWithFreshUser(app);
+  const now = input.now ?? (() => new Date());
+  const store = input.founderPurchases ?? makeFounderPurchaseStore();
+
+  let revokedFounderPurchaseIds: string[];
+  try {
+    revokedFounderPurchaseIds = await withFreshUser(input.targetUserId, async (user, lease) => {
+      if (user.isAnonymous) throw new AdminUserNotFoundError(input.targetUserId);
+      await lease.refresh();
+      const ids = await store.revokeActiveFounderPurchases(user.id, {
+        byUserId: input.admin.id,
+        byEmail: input.admin.primaryEmail ?? null,
+        at: now().toISOString(),
+      });
+      if (ids.length > 0) await input.onFounderPurchasesRevoked?.(ids);
+      return ids;
+    });
+  } catch (error) {
+    throw adminMutationError(error, input.targetUserId);
+  }
+  if (revokedFounderPurchaseIds.length === 0) {
+    return { revokedFounderPurchaseIds, user: null };
+  }
+
+  // Outside the lease: the resolver takes its own lease to drop `cmuxPlan`
+  // now that the Founder row no longer grants Pro.
+  const billing = input.stripeBillingStatus ?? stripeBillingStatusForUser;
+  const fresh = await app.getUser(input.targetUserId);
+  if (!fresh) return { revokedFounderPurchaseIds, user: null };
+  await resolveProPlanStatus(fresh, {
+    stripeBillingStatus: billing,
+    withFreshMetadataUser: (userId, operation) =>
+      withFreshUser(userId, (user, lease) => operation(user, lease)),
+  });
+  const reloaded = (await app.getUser(input.targetUserId)) ?? fresh;
+  return {
+    revokedFounderPurchaseIds,
+    user: adminUserRow(reloaded, await billing(reloaded.id)),
+  };
+}
+
+function adminMutationError(error: unknown, userId: string): unknown {
+  if (error instanceof AccountMetadataUserUnavailableError) return new AdminUserNotFoundError(userId);
+  if (
+    error instanceof AccountDeletionMutationBlockedError ||
+    error instanceof AccountDeletionUserMutationInProgressError
+  ) {
+    return new AdminGrantConflictError(userId);
+  }
+  return error;
 }
 
 export function grantRecordFromServerMetadata(raw: unknown): AdminPlanGrantRecord | null {
