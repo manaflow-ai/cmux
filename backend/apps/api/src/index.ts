@@ -36,6 +36,8 @@ import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
+export { HandDO } from "./hand-do.ts"
+import { HAND_PATH, handleHands } from "./hand-routes.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
@@ -178,6 +180,8 @@ export default {
     // A chief's wake queue (mux:<agent>): the chief's agent token or its owner; install_kind is resolved.
     const mux = url.pathname.match(/^\/v1\/wire\/mux\/(agent_[A-Za-z0-9_.-]{1,64})$/)
     if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
+    // Chief hands (hand-routes.ts): the installer, pairing, the hand socket, and the person's hand management.
+    if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
