@@ -59,6 +59,12 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
+    /// The page made now when Chromium already runs (its chrome shows in the
+    /// turn that asked for it), nil while Chromium has not started.
+    public func makeTabIfRunning(_ configuration: BrowserTabConfiguration) -> (any BrowserTab)? {
+        isRunning ? makeReadyTab(configuration) : nil
+    }
+
     /// Maps the Chromium framework on a background thread without starting
     /// CEF, so the first Chromium tab opens sooner. Idempotent and cheap to
     /// call when a Chromium tab becomes likely (the "+" menu or the palette
