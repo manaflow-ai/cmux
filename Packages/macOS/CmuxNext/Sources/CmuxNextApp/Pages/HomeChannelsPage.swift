@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextHomeEngine
@@ -19,6 +20,7 @@ extension PageDescriptor {
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, HomeSwitchPageRoute.prefix],
+        nativeOps: [PageNativeOp.edit],
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]))
 }
 
@@ -27,12 +29,48 @@ extension PageFactory {
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
+        weak var shown: PageWebView?
+        // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
+        let edit = Self.homeChannelsEditRoute { command in
+            if let view = shown?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
+        }
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
-                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief))]
+                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)), edit]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
         guard let page = PageWebView(descriptor: .homeChannels, routes: routes, surface: .home) else { return nil }
+        shown = page
         services.home.homeDidOpen(asked: true)
         return page
+    }
+}
+
+extension PageFactory {
+    /// `cmux.app.edit {command}` on the Channels page: `run` gets the composer menu's command, only
+    /// on the person's click or key in the page (a paste puts their pasteboard into the page).
+    static func homeChannelsEditRoute(run: @escaping @MainActor (AgentPaneEditCommand) -> Void) -> PageRoute {
+        PageRoute(prefix: PageNativeOp.edit, provider: PageEditProvider(run: run))
+    }
+}
+
+/// Serves ``PageNativeOp/edit`` for a page with its own text-field menu.
+@MainActor
+final class PageEditProvider: PageProvider {
+    private let run: @MainActor (AgentPaneEditCommand) -> Void
+
+    init(run: @escaping @MainActor (AgentPaneEditCommand) -> Void) {
+        self.run = run
+    }
+
+    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+        guard op == PageNativeOp.edit else { throw PageError.unknownOp(op) }
+        guard let command = params["command"]?.stringValue.flatMap(AgentPaneEditCommand.init(rawValue:)) else {
+            throw PageError.invalidParams("command must be cut, copy, paste or pasteAsPlainText")
+        }
+        guard context.userGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        run(command)
+        return .null
     }
 }
 

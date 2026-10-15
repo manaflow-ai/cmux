@@ -60,6 +60,13 @@ strip_executable() {
   strip_if_macho "$1" full
 }
 
+# cmux NEXT links its executable with -no_exported_symbols, so the strip below
+# removes every function name. Keep them in Resources/cmux-symbols.bin first:
+# hang records and exception traces name app frames through it.
+if [ -f "$APP_PATH/Contents/MacOS/cmux" ]; then
+  python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
+    "$APP_PATH/Contents/MacOS/cmux" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
+fi
 strip_executable "$APP_PATH/Contents/MacOS/cmux"
 # bin/cmux is the Rust cmux-tui binary, which ships no dSYM: keep its global
 # symbols (-S -x) so its crash reports still name functions.

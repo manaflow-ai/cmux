@@ -112,10 +112,11 @@ path. No default shortcut.
 
 ## Known gaps
 
-- Chromium pages are child windows above the window content: a Chromium page in a strip pane that
-  scrolls under an overlay or docked column draws above it, and the scrollbar draws under
-  a Chromium page at the bottom of the strip. At rest neither overlaps (S4).
-- In overlay mode the focus reveal (column-scroll.md F1) still treats the full width as visible, so a
-  focused column scrolled under the overlay is not moved out automatically.
-- `SplitRoom` sizes docked strip columns against the whole viewport, so a split near the minimum
-  pane width may be refused or allowed a little early.
+- `SplitRoom` checks a column's own frame (a docked column's cap, a strip column's share), but its
+  new-column fallback still measures the whole viewport width, not the strip's. Docked side docks
+  leave the strip at least `minimumStripWidth` (or half a narrow viewport), so only a very narrow
+  window can allow a new column a little early.
+
+Fixed: focus reveal measures the uncovered window under an overlay (layout-model.md F6); a
+Chromium page follows the strip's clip under a dock (`CEFClipShape`); the shown scrollbar thumb is
+an occluder of the window's overlay host, so a Chromium page leaves it showing (cx-6so.44).
