@@ -154,7 +154,7 @@ public final class WebKitBrowserPage: BrowserPage {
         case .page:
             return try await webView.evaluateJavaScript(script)
         case .isolated(let name):
-            return try await webView.evaluateJavaScript(script, in: nil, contentWorld: WKContentWorld.world(name: name))
+            return try await webView.evaluateJavaScript(script, in: nil, contentWorld: WebKitBrowserPage.contentWorld(for: .isolated(name)))
         }
     }
 
@@ -311,10 +311,21 @@ public final class WebKitBrowserPage: BrowserPage {
 
     // MARK: Private
 
+    /// Named worlds, kept for the life of the process. A `WKContentWorld`
+    /// that is released after one call can take its web-process world and
+    /// the globals scripts left there with it (observed on macOS 15), so
+    /// every world is held here, as the panel holds its own named worlds.
+    private static var namedWorlds: [String: WKContentWorld] = [:]
+
     private static func contentWorld(for world: BrowserPageScriptWorld) -> WKContentWorld {
         switch world {
-        case .page: .page
-        case .isolated(let name): .world(name: name)
+        case .page:
+            return .page
+        case .isolated(let name):
+            if let existing = namedWorlds[name] { return existing }
+            let created = WKContentWorld.world(name: name)
+            namedWorlds[name] = created
+            return created
         }
     }
 
