@@ -18,6 +18,13 @@ click in source control.
 The corpus is CMUX Next-first. Classic may be used as a comparison artifact, but a Classic
 result never satisfies a Next journey.
 
+This plan composes with [`computer-use.md`](computer-use.md), which already defines the CUA host
+activity store, event timeline, thumbnails, redaction, session attribution, and agent activity
+pane. CUA events remain the authoritative record for computer-use tool calls. This corpus adds
+the outer product journey: native app and webview state, user-visible receipts, lifecycle
+transitions, and bounded media-tour artifacts. A run that includes CUA links its `cuaSessionId`
+and event sequence range instead of creating a second CUA event format.
+
 ## Priority journeys
 
 The first corpus should cover the paths that combine the most state transitions with the
