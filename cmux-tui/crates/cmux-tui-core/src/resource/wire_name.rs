@@ -54,6 +54,7 @@ impl ResourceOperation {
             Self::ChiefProfileList => "chief.profile.list",
             Self::ChiefProfileGet => "chief.profile.get",
             Self::ChiefProfileCreate => "chief.profile.create",
+            Self::ChiefProfileAdopt => "chief.profile.adopt",
             Self::ChiefProfileUpdate => "chief.profile.update",
             Self::ChiefProfileDelete => "chief.profile.delete",
             Self::ChiefProfileAvatarSet => "chief.profile.avatar.set",

@@ -360,6 +360,9 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefProfileDelete
         | Op::ChiefProfileAvatarSet
         | Op::ChiefProfileAvatarGet
+        // Adopting an agent as a Chief: no page route at all (owner only,
+        // from a terminal; chief_registry_resource.rs refuses any page).
+        | Op::ChiefProfileAdopt
         // Avatars: a page reads them only through its allow list
         // (page-router.json: home-channels reads participant.avatar.get).
         | Op::ParticipantAvatarSet
