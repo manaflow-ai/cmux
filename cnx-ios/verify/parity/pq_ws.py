@@ -373,6 +373,119 @@ def flow_trust_steps(j):
     return f"in {secs:.1f} s: {toast[:160]}"
 
 
+def acp(method, params):
+    """One acpmux call on the rig Mac's own acpmux socket (reads and the trust answer)."""
+    sock = rsh("ls -d ~/.acpmux/tags/*/acpmux.sock | grep \"$(cd %s && python3 -c 'import sys; sys.path[:0]=[\"e2e\",\".\"]; import rmac; print(rmac.mac().tag)')\" | head -1" % pq.RBASE).stdout.strip()
+    check(sock, "no acpmux socket for the rig")
+    r = rsh(f"python3 {pq.RBASE}/acpcall.py {shlex.quote(sock)} {shlex.quote(method)} {shlex.quote(json.dumps(params))}", timeout=60)
+    out = (r.stdout or "").strip().splitlines()
+    return json.loads(out[-1]) if out else {}
+
+
+def flow_icon_clear_name(j):
+    """Appearance › Set Icon… (hammer), Remove Icon; Options › Clear Workspace Name."""
+    name, shown = f"{PREFIX}a", f"{PREFIX}a-shown"
+    make_workspaces([name])
+    w = mac_workspace(name)
+    # Setup on the Mac (own workspace): a display name over the workspace's own name.
+    daemon({"cmd": "set-workspace-metadata", "id": "p2ws", "key": w["key"], "title": shown})
+    wait_mac(lambda: mac_workspace(shown), f"display name {shown}")
+    row_action(j, shown, "Appearance", "Set Icon…", "hammer")
+    wait_mac(lambda: (_ws_raw(w["key"]) or {}).get("icon") == "hammer", "icon hammer")
+    check(j.sim.wait(ident="workspace.icon", timeout=8), "no icon on the row")
+    row_action(j, shown, "Appearance", "Remove Icon")
+    wait_mac(lambda: not (_ws_raw(w["key"]) or {}).get("icon"), "icon removed")
+    row_action(j, shown, "Options", "Clear Workspace Name")
+    wait_mac(lambda: not (_ws_raw(w["key"]) or {}).get("title"), "display name cleared")
+    check(row(j, name), f"the row is not {name} again")
+    return "icon hammer then removed; display name cleared, own name back"
+
+
+def _ws_raw(key):
+    data = daemon({"cmd": "list-workspaces", "id": "p2ws"}).get("data") or {}
+    return next((w for w in data.get("workspaces", []) if w.get("key") == key), None)
+
+
+def flow_agent_chat_workspace(j):
+    """New Workspace (hold) › New Agent Chat › a folder: a workspace whose only tab is the chat."""
+    anchor = f"{PREFIX}a"
+    make_workspaces([anchor])  # its folder becomes a Recent Directory
+    folder = rsh("cd ~/cnx-ios-e2e/p2ws-proj && pwd").stdout.strip()
+    acp("acp.trust.set", {"cwd": folder, "level": "trusted"})
+    before = {w["key"] for w in mac_workspaces()}
+    j.back_to_list()
+    btn = j.sim.wait(ident="workspaces.new", timeout=10)
+    check(btn, "no New Workspace button")
+    for _ in range(2):
+        j.sim.long_press(*btn.center, 1.2)
+        time.sleep(1.2)
+        if j.sim.wait(ident="workspaces.newAgentChat.p2ws-proj", timeout=4):
+            break
+    e = j.sim.wait(ident="workspaces.newAgentChat.p2ws-proj", timeout=4)
+    check(e, "no New Agent Chat › p2ws-proj")
+    t = time.time()
+    j.sim.tap_el(e)
+    def created():
+        for w in mac_workspaces():
+            if w["key"] not in before and (w["title"] or "").startswith("p2ws-proj"):
+                return _ws_raw(w["key"])
+        return None
+    ws = wait_mac(created, "a new chat workspace", timeout=90)
+    tabs = [t for sc in ws.get("screens", []) for p in sc.get("panes", []) for t in p.get("tabs", [])]
+    kinds = [t.get("kind") for t in tabs]
+    close_on_mac([ws.get("title") or ws.get("name")])
+    check(kinds == ["conversation"], f"tabs {kinds}, wanted only the chat")
+    return f"workspace {ws.get('title') or ws.get('name')} with only the chat in {time.time() - t:.1f} s"
+
+
+def flow_queue_edit(j):
+    """Queued prompts: Edit queued prompt, then Send now; the agent answers the edited text."""
+    anchor = f"{PREFIX}a"
+    make_workspaces([anchor])
+    folder = rsh("cd ~/cnx-ios-e2e/p2ws-proj && pwd").stdout.strip()
+    acp("acp.trust.set", {"cwd": folder, "level": "trusted"})
+    e = row(j, anchor)
+    j.sim.tap_el(e)
+    time.sleep(2.5)
+    pq.plus_menu(j, "New Agent Chat")
+    secs, toast = pq.wait_opened(j, 90)
+    check(not toast, f"chat did not open: {toast}")
+    s = j.sim
+    def type_send(text):
+        f = s.wait(kind="TextView", timeout=10) or s.wait(kind="TextField", timeout=5)
+        check(f, "no chat composer")
+        s.tap_el(f); time.sleep(0.6)
+        pq.type_text(text); time.sleep(0.5)
+        x, y, w, h = f.frame
+        s.tap(363, y + h + 25 if h < 60 else y + h - 10)
+        time.sleep(1.5)
+    type_send("Count from 1 to 40, one number per line, slowly, then say DONE-COUNT.")
+    type_send("Reply with exactly QUEUED-ALPHA")
+    q = s.wait(contains="QUEUED-ALPHA", timeout=15)
+    check(q, "no queued prompt on the phone")
+    s.long_press(*q.center, 1.2); time.sleep(1.2)
+    menu_item(j, "Edit queued prompt")
+    field = s.wait(kind="TextField", timeout=5) or s.wait(kind="TextView", timeout=3)
+    check(field, "no edit field")
+    s.tap_el(field); time.sleep(0.4)
+    # The field holds the old text: back out "ALPHA" (HID backspace) and type the new word.
+    for _ in range(len("ALPHA")):
+        pq.subprocess.run(["axe", "key", "42", "--udid", load()["udid"]], capture_output=True, timeout=20)
+    pq.type_text("BRAVO")
+    menu_item(j, "Save")
+    check(s.wait(contains="QUEUED-BRAVO", timeout=15), "the queued prompt did not change on the phone")
+    q = s.wait(contains="QUEUED-BRAVO", timeout=5)
+    s.long_press(*q.center, 1.2); time.sleep(1.2)
+    menu_item(j, "Send now")
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        hits = [e for e in s.find(contains="QUEUED-BRAVO") if "Reply with" not in (e.label or "")]
+        if hits:
+            return "edited queued prompt sent now; the agent answered QUEUED-BRAVO"
+        time.sleep(2)
+    raise Fail("no QUEUED-BRAVO answer")
+
+
 FLOWS = {
     "pin_color_order": flow_pin_color_order,
     "mark_unread": flow_mark_unread,
@@ -380,6 +493,9 @@ FLOWS = {
     "open_folder": flow_open_folder,
     "feed_clear_all": flow_feed_clear_all,
     "trust_steps": flow_trust_steps,
+    "icon_clear_name": flow_icon_clear_name,
+    "agent_chat_workspace": flow_agent_chat_workspace,
+    "queue_edit": flow_queue_edit,
 }
 
 
