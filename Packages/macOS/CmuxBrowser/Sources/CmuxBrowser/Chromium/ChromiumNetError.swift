@@ -5,11 +5,14 @@ public import Foundation
 /// Chromium shows its own error page for these at once ("This site can't be
 /// reached", "Your connection is not private" with Advanced and Proceed), so a
 /// Chromium panel never covers it with cmux's WebKit error page. cmux shows a
-/// page of its own only when Chromium's page is empty, with a sentence a
-/// person can act on and Chromium's error name, as Chrome's page does.
+/// view of its own only when Chromium's page is empty: a title shared with
+/// WebKit panels' error page, a sentence a person can act on, and Chromium's
+/// error name on its own line, as Chrome's page does. The view owns the copy;
+/// this type only classifies the failure.
 ///
 /// Reference: cmux Next `CmuxNextBrowser/CEF/ChromiumNetError.swift` and the
-/// `chromium-error-pages-first` / `chromium-error-page-new-tab` release notes.
+/// `chromium-error-pages-first` / `chromium-error-page-new-tab` release notes;
+/// Classic `BrowserErrorPageContent` for the titles.
 public struct ChromiumNetError: Equatable, Sendable {
     /// `net::ERR_ABORTED`: the load was stopped (Stop, a new navigation, a
     /// download). Not a failure a person needs to see.
@@ -33,15 +36,42 @@ public struct ChromiumNetError: Equatable, Sendable {
         case nothing
         /// Chromium's own error page, already in the page.
         case chromiumPage
-        /// cmux's error view with `message`: Chromium's page is empty.
-        case cmuxPage(message: String)
+        /// cmux's error view (`title`, `detail`, `name`): Chromium's page is empty.
+        case cmuxPage
+    }
+
+    /// The title of cmux's error view, the same titles WebKit panels use.
+    public enum Title: Equatable, Sendable {
+        /// "Can't reach this page".
+        case cantReach
+        /// "No internet connection".
+        case noInternet
+        /// "Connection isn't secure".
+        case insecure
+        /// "Can't open this page".
+        case cantOpen
+    }
+
+    /// The sentence under the title.
+    public enum Detail: Equatable, Sendable {
+        /// The host name does not resolve.
+        case addressNotFound
+        /// The server refused the connection.
+        case refused
+        /// The server did not answer in time.
+        case timedOut
+        /// The Mac is offline.
+        case offline
+        /// The site's certificate is invalid.
+        case certificate
+        /// Anything else.
+        case generic
     }
 
     /// The presentation, given whether Chromium rendered its own error page.
     public func presentation(chromiumShowsPage: Bool) -> Presentation {
         if code == Self.abortedCode { return .nothing }
-        if chromiumShowsPage { return .chromiumPage }
-        return .cmuxPage(message: message)
+        return chromiumShowsPage ? .chromiumPage : .cmuxPage
     }
 
     /// Chromium's error name without the `net::` prefix, "ERR_NAME_NOT_RESOLVED".
@@ -53,32 +83,23 @@ public struct ChromiumNetError: Equatable, Sendable {
     /// Whether the failure is a certificate error.
     public var isCertificateError: Bool { Self.certificateCodes.contains(code) }
 
-    /// The sentence and the error name, for cmux's error view.
-    public var message: String {
-        isCertificateError ? "\(sentence) (\(name))" : "\(sentence)\n\(name)"
+    public var detail: Detail {
+        switch code {
+        case -105, -137: .addressNotFound
+        case -102: .refused
+        case -7, -118: .timedOut
+        case -106: .offline
+        case Self.certificateCodes: .certificate
+        default: .generic
+        }
     }
 
-    /// A sentence a person can act on.
-    public var sentence: String {
-        switch code {
-        case -105, -137:
-            String(localized: "browser.chromium.netError.notFound",
-                   defaultValue: "The server\u{2019}s address could not be found.", bundle: .module)
-        case -102:
-            String(localized: "browser.chromium.netError.refused",
-                   defaultValue: "The server refused the connection.", bundle: .module)
-        case -7, -118:
-            String(localized: "browser.chromium.netError.timedOut",
-                   defaultValue: "The server took too long to respond.", bundle: .module)
-        case -106:
-            String(localized: "browser.chromium.netError.offline",
-                   defaultValue: "You\u{2019}re not connected to the internet.", bundle: .module)
-        case Self.certificateCodes:
-            String(localized: "browser.chromium.netError.certificate",
-                   defaultValue: "Its certificate is not valid.", bundle: .module)
-        default:
-            String(localized: "browser.chromium.netError.generic",
-                   defaultValue: "The page could not be loaded.", bundle: .module)
+    public var title: Title {
+        switch detail {
+        case .addressNotFound, .refused, .timedOut: .cantReach
+        case .offline: .noInternet
+        case .certificate: .insecure
+        case .generic: .cantOpen
         }
     }
 }

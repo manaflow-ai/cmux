@@ -63,7 +63,7 @@ extension AppDelegate {
 #endif
         // A key Chromium page window (`CefNSWindow`, a child of the cmux
         // window) acts for the cmux window it sits in.
-        return ChromiumPageWindow.actingWindow(for: NSApp.keyWindow, fallback: NSApp.mainWindow)
+        return NSApp.keyWindow?.chromiumActingWindow(fallback: NSApp.mainWindow)
     }
 
     var shortcutRoutingActiveWindow: NSWindow? {
