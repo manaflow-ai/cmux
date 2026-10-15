@@ -162,6 +162,9 @@ impl Hub {
             },
             git_branch: git.branch,
             git_head: git.head,
+            // The fork's own spend; Claude Code restores the parent's running cost into it.
+            totals: None,
+            harness_cost_usd: parent_meta.harness_cost_usd,
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {
