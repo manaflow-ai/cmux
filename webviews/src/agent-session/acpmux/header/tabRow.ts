@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
 
 /// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow, the
 /// `chrome.tabs.rowTools` Debug setting; Leo 2026-10-14, "why is there even a top bar"). The App
@@ -50,29 +50,49 @@ export function tabRowStyle(row: TabRow): CSSProperties | undefined {
 
 /// While `active`, reports the width of the tools the returned ref names (plus ``TAB_ROW_GAP``) each
 /// time it changes, so the App narrows the tabs by that much; reports 0 once it ends or the tools
-/// leave (a New Tab page, a replay), so the tabs take the row back. `report` should be stable.
+/// leave (a New Tab page, a replay), so the tabs take the row back. `report` should be stable. The
+/// ref keeps the element without state: a render it caused on mount raced the chat's first
+/// snapshot (a relaunched new chat lost its kept draft).
 export function useTabRowTools(
   active: boolean,
   report: (width: number) => void,
 ): (element: HTMLElement | null) => void {
-  const [tools, setTools] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!active || !tools || typeof ResizeObserver === "undefined") return;
+  const tools = useRef<HTMLElement | null>(null);
+  const stop = useRef<(() => void) | undefined>(undefined);
+  const follow = useCallback(() => {
+    stop.current?.();
+    stop.current = undefined;
+    const element = tools.current;
+    if (!active || !element || typeof ResizeObserver === "undefined") return;
     let last = 0;
     const measure = () => {
-      const box = Math.round(tools.getBoundingClientRect().width);
+      const box = Math.round(element.getBoundingClientRect().width);
       const width = box > 0 ? box + TAB_ROW_GAP : 0;
       if (width === last) return;
       last = width;
       report(width);
     };
     const observer = new ResizeObserver(measure);
-    observer.observe(tools);
+    observer.observe(element);
     measure();
-    return () => {
+    stop.current = () => {
       observer.disconnect();
       if (last > 0) report(0);
     };
-  }, [active, tools, report]);
-  return setTools;
+  }, [active, report]);
+  useEffect(() => {
+    follow();
+    return () => {
+      stop.current?.();
+      stop.current = undefined;
+    };
+  }, [follow]);
+  return useCallback(
+    (element: HTMLElement | null) => {
+      if (tools.current === element) return;
+      tools.current = element;
+      follow();
+    },
+    [follow],
+  );
 }
