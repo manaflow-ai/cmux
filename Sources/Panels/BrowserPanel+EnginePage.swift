@@ -143,6 +143,8 @@ extension BrowserPanel {
         enginePageDelegate.panel = self
         enginePage.uiDelegate = enginePageDelegate
         attachEnginePageFeatures()
+        // Notifications answer "denied" as in WebKit tabs (Chromium runs with them off).
+        enginePage.addUserScript(BrowserNotificationDenialScript.userScript)
         applyEnginePageState(enginePage.state)
         let events = enginePage.events
         enginePageEventsTask = Task { @MainActor [weak self] in
