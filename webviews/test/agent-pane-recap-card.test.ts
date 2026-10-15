@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -109,21 +110,8 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
-    // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
-    // again if it stalls, so the tests time only the card.
-    for (let attempt = 1; ; attempt++) {
-      const warm = await browser.newPage();
-      try {
-        await warm.goto(url());
-        await warm.getByText(QUESTION).first().waitFor({ timeout: 25_000 });
-        await warm.close();
-        break;
-      } catch (error) {
-        await warm.close();
-        if (attempt === 3) throw error;
-      }
-    }
   });
   afterAll(async () => {
     await browser?.close();
@@ -132,9 +120,9 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   });
 
   /// The chat, its turn ended on the question; Labs on unless `labs` is false (the app's push).
-  async function openChat(labs = true, height = 760): Promise<Page> {
+  async function openChat(labs = true): Promise<Page> {
     prompts.length = 0;
-    const page = await browser!.newPage({ viewport: { width: 900, height } });
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
     await page.locator(".acpmux-composer-prompt").waitFor();
     await page.getByText(QUESTION).first().waitFor();
@@ -193,25 +181,31 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   });
 
   test("the card leaves the turn's footer in view above it", async () => {
-    // A pane where the chat fits until the card takes its height: the transcript then overflows,
-    // and its end, the turn's footer (its time, Copy and Retry), stays in view.
-    const page = await openChat(false, 560);
+    // A pane where the chat just fits until the card takes its height: the transcript then
+    // overflows, and its end, the turn's footer (its time, Copy and Retry), stays in view.
+    const page = await openChat(false);
     const view = () =>
       page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
         const last = Math.max(...rows.map((row) => row.getBoundingClientRect().bottom));
+        const box = scroller.getBoundingClientRect();
         return {
           overflows: scroller.scrollHeight > scroller.clientHeight,
-          below: Math.max(0, Math.round(last - scroller.getBoundingClientRect().bottom)),
+          below: Math.max(0, Math.round(last - box.bottom)),
+          spare: Math.floor(box.bottom - last),
         };
       });
     await page.waitForTimeout(300);
-    expect(await view()).toEqual({ overflows: false, below: 0 });
+    // Font metrics differ between hosts: the pane is sized from the chat as drawn, 4px to spare.
+    const { spare } = await view();
+    await page.setViewportSize({ width: 900, height: 760 - spare + 4 });
+    await page.waitForTimeout(300);
+    expect(await view()).toMatchObject({ overflows: false, below: 0 });
     await setLabs(page);
     await card(page).waitFor();
     await page.waitForTimeout(300);
-    expect(await view()).toEqual({ overflows: true, below: 0 });
+    expect(await view()).toMatchObject({ overflows: true, below: 0 });
     await page.close();
   });
 
