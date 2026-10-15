@@ -42,13 +42,32 @@ final class CloudSecretsService: ObservableObject {
     }
 
     static let shared = CloudSecretsService(
-        vault: CloudSecretVault(
-            storage: KeychainCloudSecretVaultStorage(
-                service: KeychainCloudSecretVaultStorage.serviceName(bundleIdentifier: Bundle.main.bundleIdentifier)
-            )
-        ),
+        vault: CloudSecretVault(storage: sharedStorage),
         transport: .live
     )
+
+    /// The app's Keychain vault item.
+    static let keychainStorage = KeychainCloudSecretVaultStorage(
+        service: KeychainCloudSecretVaultStorage.serviceName(bundleIdentifier: Bundle.main.bundleIdentifier)
+    )
+
+    /// The Keychain item plus a non-secret marker in this bundle's support directory
+    /// saying whether a vault exists (see `activateForApp`).
+    static let sharedStorage = PresenceMarkedCloudSecretVaultStorage(
+        base: keychainStorage,
+        markerURL: supportDirectory(bundleIdentifier: Bundle.main.bundleIdentifier)
+            .appendingPathComponent("cloud-secrets.present")
+    )
+
+    /// `Application Support/cmux/<bundle id>`, the directory the app's other
+    /// per-bundle files use.
+    nonisolated static func supportDirectory(bundleIdentifier: String?) -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return support
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier ?? "cmux", isDirectory: true)
+    }
 
     /// Posted on the main queue after any vault or delivery change. No user info.
     static let didChangeNotification = Notification.Name("cmux.cloudSecrets.didChange")

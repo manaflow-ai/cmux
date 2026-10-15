@@ -40,6 +40,19 @@ public struct KeychainCloudSecretVaultStorage: CloudSecretVaultStorage {
         return "\(defaultService).\(bundleIdentifier)"
     }
 
+    /// Whether this process may use the data protection keychain (the signed app has a
+    /// Keychain access group). That keychain never asks for a password, so a read
+    /// there is always quiet; without it the vault is in the login keychain, whose
+    /// item an ad-hoc signed build can only read after a password prompt. The probe
+    /// asks for attributes only, never data.
+    public func isDataProtectionKeychainAvailable() -> Bool {
+        var query = lookupQuery(dataProtection: true)
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &result) != errSecMissingEntitlement
+    }
+
     public func load() throws -> Data? {
         for dataProtection in [true, false] {
             var query = lookupQuery(dataProtection: dataProtection)
