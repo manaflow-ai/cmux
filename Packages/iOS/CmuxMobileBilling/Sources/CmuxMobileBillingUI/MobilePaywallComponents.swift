@@ -491,6 +491,16 @@ struct MobilePaywallPurchaseBar: View {
             .buttonStyle(MobilePaywallPrimaryButtonStyle())
             .disabled(isCurrent || isBusy || isPreview)
             .accessibilityIdentifier("BillingPaywallCTA")
+            if trial == nil, !isCurrent, let monthly = offer.product.monthlyEquivalentDisplayPrice {
+                Text(String(
+                    format: L10n.string("mobile.billing.monthlyEquivalent", defaultValue: "%@ / month, billed yearly"),
+                    monthly
+                ))
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .accessibilityIdentifier("BillingPaywallMonthlyEquivalent")
+            }
             Text(renewal)
                 .font(.caption)
                 .foregroundStyle(.secondary)

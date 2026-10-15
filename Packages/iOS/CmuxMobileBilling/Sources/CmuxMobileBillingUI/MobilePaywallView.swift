@@ -260,12 +260,14 @@ public struct MobilePaywallView: View {
                     }
                 }
             case .comparison:
-                MobilePaywallComparison(plans: comparisonPlans, highlighted: highlightedPlan, accessibilityLayout: dynamicTypeSize.isAccessibilitySize)
+                // The plans and prices first, so they sit above the fold;
+                // the table explains them below.
                 VStack(spacing: 8) {
                     ForEach(visibleOffers) { offer in
                         planCard(offer, config: config, style: .compact)
                     }
                 }
+                MobilePaywallComparison(plans: comparisonPlans, highlighted: highlightedPlan, accessibilityLayout: dynamicTypeSize.isAccessibilitySize)
             case .focus:
                 let focus = focusOffer
                 if let focus {
@@ -414,7 +416,13 @@ public struct MobilePaywallView: View {
                 byPlan[grant.planID] = trialOffer
             }
         }
-        return byPlan.values.sorted { $0.planID < $1.planID }
+        // The recommended plan leads, then the rest from the largest down,
+        // so the plans worth buying are above the fold.
+        let lead = context?.config.highlightedPlanID
+        return byPlan.values.sorted { lhs, rhs in
+            if (lhs.planID == lead) != (rhs.planID == lead) { return lhs.planID == lead }
+            return rhs.planID < lhs.planID
+        }
     }
 
     /// The configured recommended plan, when it is on sale.
@@ -447,8 +455,15 @@ public struct MobilePaywallView: View {
     }
 
     private var comparisonPlans: [BillingPlanID] {
+        // Paid plans first, the recommended one leading; Free last, for
+        // contrast.
         let sold = Set(offers.map(\.planID))
-        return [.free] + [BillingPlanID.pro, .max].filter { sold.contains($0) }
+        var paid = [BillingPlanID.pro, .max].filter { sold.contains($0) }
+        if let lead = highlightedPlan, let index = paid.firstIndex(of: lead) {
+            paid.remove(at: index)
+            paid.insert(lead, at: 0)
+        }
+        return paid + [.free]
     }
 
     private var statusMessage: String? {
