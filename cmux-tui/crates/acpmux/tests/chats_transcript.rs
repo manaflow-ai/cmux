@@ -2,6 +2,11 @@
 //! person's prompts and the assistant's answers from the harness's own store, on the local
 //! socket only (`chats.rs` websocket_origins_never_get_chats). Synthetic temp homes only.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
