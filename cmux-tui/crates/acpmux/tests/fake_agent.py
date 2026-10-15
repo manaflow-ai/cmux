@@ -16,6 +16,7 @@ Behaviour per prompt text:
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
 advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
+Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -160,6 +161,19 @@ def codex_prompt(rid, params):
             return
         codex_turns[sid] = [rid]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "turn: " + text}})
+    # "slow-stop": the turn runs until session/cancel (bounded), then takes 5 s
+    # to stop; a prompt in that time joins it and is answered for it.
+    if text == "slow-stop":
+        for _ in range(600):
+            if sid in cancelled:
+                break
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        time.sleep(5)
+        with lock:
+            ids = codex_turns.pop(sid)
+        send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "cancelled"}})
+        return
     # The turn runs until a joined prompt arrives (bounded), then a moment.
     for _ in range(300):
         with lock:
