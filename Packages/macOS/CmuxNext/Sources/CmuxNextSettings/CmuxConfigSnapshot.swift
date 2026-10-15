@@ -34,6 +34,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `browser.builtInAdBlocker`; on when unset.
+    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting.fallback
     /// `home.attachments.keepLocation`; off (strip location) when unset.
     public var homeKeepLocation = false
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
@@ -62,6 +64,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
     public var sidebarSections = SidebarSectionsPreferences.defaults
+    /// `sidebar.hoverCards.*`: hover cards on, and their delay.
+    public var hoverCards = HoverCardSettings()
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
@@ -218,6 +222,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
+        snapshot.take(BuiltInAdBlockerSetting.parse(root), \.browserBuiltInAdBlocker)
         snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
@@ -244,6 +249,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.hoverCards = HoverCardSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
                                                             diagnostics: &snapshot.diagnostics)

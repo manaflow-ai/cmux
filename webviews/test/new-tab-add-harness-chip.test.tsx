@@ -131,8 +131,8 @@ test("with no harness installed, the page has no No agent row and the chip says 
   expect(host.textContent).not.toContain("No agent to ask");
   expect(named("Integrate a harness")).toBeUndefined();
 
-  const field = host.querySelector<HTMLInputElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
   await act(async () => {
     setValue.call(field, "fix the flaky upload test");
     field.dispatchEvent(new window.Event("input", { bubbles: true }));

@@ -242,8 +242,9 @@ pub fn brain_environment(
 }
 
 /// The home directory of this process's account in the user database
-/// (getpwuid_r); None where there is none (or off Unix).
-fn account_home() -> Option<String> {
+/// (getpwuid_r); None where there is none (or off Unix). A brain gets it as
+/// HOME, whoever starts it (the daemon, or `cmux chief`).
+pub fn account_home() -> Option<String> {
     #[cfg(unix)]
     {
         let mut buffer = vec![0 as libc::c_char; 4096];

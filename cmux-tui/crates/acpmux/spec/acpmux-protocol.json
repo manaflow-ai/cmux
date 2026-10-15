@@ -288,6 +288,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/btw",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tag",
       "params": true,
       "result": true
@@ -331,6 +337,12 @@
     {
       "kind": "request",
       "name": "_acpmux/prewarm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/start_mode",
       "params": true,
       "result": true
     },
@@ -644,6 +656,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/update",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sessions/restart_harness",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/registry",
       "params": true,
       "result": true
@@ -802,6 +826,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/harnesses_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/start_mode_changed",
       "params": true
     },
     {

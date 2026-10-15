@@ -6,8 +6,9 @@ import os
 
 /// Home as a workspace with a left dock (hq-6d Home workspace, cx-ebm.59.5; Lawrence 2026-10-14:
 /// "we can use docked left column to be the home but right side should be a workspace"). The
-/// store's home workspace holds ONE page tab, hq-ec's `home-channels` page (the conversation list
-/// and the open conversation; the dock passes it no conversation data), in a LEFT dock column with
+/// store's home workspace holds ONE page tab, the app's `home-dock` page (a "Messages | Channels"
+/// switch over the native Messages view, the default, and hq-ec's `home-channels` page; Lawrence
+/// 2026-10-14: "bring imessage chief back by default instead of slack"), in a LEFT dock column with
 /// the agent chat role: the same daemon dock Cmd-I opens (cx-ihyx2), never a second one.
 /// Everything right of it is a normal workspace.
 ///
@@ -15,13 +16,16 @@ import os
 /// home has none, then one `move-tab-to-column` with `dock` when its column is not that dock. Both
 /// read the tree first, so two windows or a reconnect never duplicate the tab or the dock. A home
 /// from before (the Chief conversation tab, no dock) migrates on its first connect: its Chief tab
-/// closes (the page shows the Chief conversation) and the page moves into the dock. When nothing
+/// closes (the page shows the Chief conversation) and the page moves into the dock; the docked
+/// `home-channels` tab of the home before the switch closes the same way. When nothing
 /// else would stay on the right, the move leaves a terminal there in the same daemon commit: the
 /// daemon undocks a screen without a scrolling column.
 @MainActor
 public final class HomeDock {
-    /// The page the dock shows (hq-ec's page contract, COORD.md; a rename is announced there first).
-    public static let page = "home-channels"
+    /// The page tab the dock holds: the app's switch over the Messages and Channels views.
+    public static let page = "home-dock"
+    /// The page tab the dock held before the switch (hq-ec's `home-channels` page alone).
+    static let legacyPage = "home-channels"
     /// Classic Home for one release (`labs.classicHome`): the top page, with the Chief tab in the
     /// hidden home workspace. `CMUX_NEXT_CLASSIC_HOME=1` at launch selects it too (GUI tests of the
     /// native Home). Both are read once, at the first read after launch (the settings file is applied
@@ -100,7 +104,9 @@ public final class HomeDock {
         }
         // The tree reports a just-created tab after its event.
         guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }
-        let chiefs = Set((workspace()?.screens ?? []).flatMap(\.panes).flatMap(\.tabs).filter(Self.isChiefTab).map(\.surface))
+        let chiefs = Set((workspace()?.screens ?? []).flatMap { screen in
+            screen.panes.flatMap { pane in pane.tabs.filter { Self.isChiefTab($0) || Self.isLegacyDockTab($0, in: pane, on: screen) } }
+        }.map(\.surface))
         let docked = Self.isDocked(placed.pane, on: placed.screen)
         // What stays on the dock's screen once the page and the Chief tabs leave it: the daemon
         // undocks a screen without a scrolling column, so with nothing the move leaves a terminal.
@@ -123,6 +129,12 @@ public final class HomeDock {
     /// an agent session). In the home workspace only Home makes them (`new-conversation-tab`).
     static func isChiefTab(_ tab: TabModel) -> Bool {
         tab.kind == .conversation && tab.page == nil && tab.agentSession == nil && tab.snapshot.conversation?.conversation != nil
+    }
+
+    /// The old dock's `home-channels` page tab (before the switch): only one in the left chat dock,
+    /// so a Channels tab the person opened on the right stays.
+    static func isLegacyDockTab(_ tab: TabModel, in pane: PaneModel, on screen: ScreenModel) -> Bool {
+        tab.page == legacyPage && isDocked(pane, on: screen)
     }
 
     /// The first non-nil value of `read`, observed; nil when cancelled first.

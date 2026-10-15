@@ -118,6 +118,7 @@ for tool in spctl smoke metadata licenses; do
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$CMUX_TEST_CALL_LOG"
+[ "${CMUX_TEST_FAIL_TOOL:-}" != "$(basename "$0")" ]
 EOF
 done
 
@@ -464,6 +465,24 @@ if CMUX_TEST_NOTARY_STATUS=Invalid run_continue >/dev/null 2>"$TMP_DIR/continue-
 fi
 if grep -Fq 'xcrun stapler staple' "$LOG" || [ -e "$CONTINUE_IMMUTABLE" ]; then
   echo "FAIL: an Invalid saved submission must not be stapled" >&2
+  exit 1
+fi
+if ! grep -Fxq "notary_status=Invalid" "$CONTINUE_GITHUB_OUTPUT"; then
+  echo "FAIL: a continued submission must report Apple's verdict (Invalid) to the recovery step" >&2
+  exit 1
+fi
+
+# Run 38677509707: Apple accepted five continued submissions, but the bundle
+# notice check failed afterwards. The recovery step must be told Apple accepted
+# so it does not report a local failure as Apple's.
+reset_continue
+if CMUX_TEST_FAIL_TOOL=licenses run_continue >/dev/null 2>"$TMP_DIR/continue-licenses.err"; then
+  echo "FAIL: a failed check after acceptance must fail the continuation" >&2
+  exit 1
+fi
+if [ -e "$CONTINUE_IMMUTABLE" ] || ! grep -Fxq "notary_status=Accepted" "$CONTINUE_GITHUB_OUTPUT"; then
+  echo "FAIL: a continued submission Apple accepted must report Accepted even when a later check fails" >&2
+  cat "$LOG" "$TMP_DIR/continue-licenses.err" >&2
   exit 1
 fi
 

@@ -138,6 +138,7 @@ impl Hub {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
+                        m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.

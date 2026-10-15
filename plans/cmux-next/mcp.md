@@ -75,14 +75,36 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
   - `agents_doctor`: the checks of `cmux agents doctor` (`cli/agents_doctor.rs`, one
     code path), as `{schema_version, findings}`. A finding is `{id, status, reason,
     summary, fix}`: `status` is `ok` (CLI ok or not applicable), `warn` (only inside
-    cmux chats, unknown) or `fail` (missing), and `fix` is null or `{text, command,
-    palette, url}`, where `text` is the CLI's fix, `command` a command it names as
-    written (`cmux agents doctor`, `open '<url>'`), `palette` the command palette entry
-    it names (Computer Use Setup) and `url` the System Settings pane. `checks` (ids)
+    cmux chats, unknown, or a missing harness while another is installed) or `fail`
+    (missing), and `fix` is null or `{text, command, palette, url}`, where `text` is the
+    CLI's fix, `command` a command it names as written (`cmux agents doctor`,
+    `open '<url>'`; never an install), `palette` the command palette entry it names
+    (Computer Use Setup) and `url` the System Settings pane. `checks` (distinct ids)
     narrows the report; the app is asked for grants only when a grant row is wanted.
     Read-only (`readOnlyHint`): it runs no fix and changes no setting. Like the CLI it
-    prints paths under HOME as `~/...` and a config parse error as its line and message,
-    never the file's text;
+    prints paths under HOME (as set or resolved) as `~/...`, under `CODEX_HOME` and
+    `CLAUDE_CONFIG_DIR` by those names, and a config parse error as its line and
+    message, never the file's text;
+  - `agents_wait` (`cmux agents wait`, same code path, `cli/agents/wait.rs`): waits
+    `until` `idle` (the agent of a `term_`, `tab_` or `agent_` id or an agent chat's
+    session stops working: idle, done or blocked on a dialog), `dialog` (a permission or
+    question dialog is pending, a target's when given) or `text` (literal text, or a
+    regex with `regex: true`, on a terminal's screen), for `timeout_seconds` (default
+    30, at most 120). It answers `{until, matched, waited_seconds, match, state}` with a
+    fresh snapshot; a timeout is `matched: false`, not an error, and a condition that
+    already holds answers at once. `text` is the daemon's `terminal.wait` (it wakes on
+    output); `idle` and `dialog` hold `session.events` open and check on each event, and
+    every second for what only the app knows (chat agent state, dialogs), which has no
+    event. A call with `_meta.progressToken` gets `notifications/progress` every 5 s
+    (`progress` seconds waited, `total` the timeout). An invalid regex, and a `term_`,
+    `tab_` or `agent_` target no owner knows (for every `until`), are refused as
+    `not_run`; a dialog target of another kind (a request id) may name a dialog that
+    has not appeared yet, so it waits. A `text` target that closes mid-wait reports
+    `match.state: "closed"`, as `idle` does. The server answers one call at a time,
+    so a wait holds later calls for up to its timeout (120 s), as `terminal_wait`
+    does. `cmux agents wait` exits 1 when it times out, as `screen wait` does.
+    Read-only: it reads what
+    `agents_snapshot`, `agents_dialog_list` and `terminal_wait` already read;
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
     the receipt (`rendered`, `bytes`, `title`);

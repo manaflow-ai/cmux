@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
@@ -26,12 +26,58 @@ struct Fake {
     /// The app's transport drops after a `feed.*` request is sent, as
     /// `transport::app_method` reports it.
     lose_app_transport: bool,
+    /// Owner state that changes while a call waits (`agents_wait`).
+    live: RefCell<Live>,
+    /// This daemon operation answers `selector.not_found` after the delay,
+    /// as a wait on a terminal that closes.
+    fail_after: Option<(&'static str, Duration)>,
     sent: RefCell<Vec<Value>>,
+}
+
+/// The daemon's snapshot and the app's pending dialogs at set times after
+/// the test starts, as when an agent finishes or asks while a wait runs.
+#[derive(Default)]
+struct Live {
+    daemon: Option<Value>,
+    feed: Option<Value>,
+    changes: Vec<(Instant, Change)>,
+}
+
+enum Change {
+    Daemon(Value),
+    Feed(Value),
+}
+
+impl Live {
+    /// Applies the changes that are due.
+    fn settle(&mut self) {
+        let now = Instant::now();
+        let (due, later) = std::mem::take(&mut self.changes)
+            .into_iter()
+            .partition::<Vec<_>, _>(|(at, _)| *at <= now);
+        self.changes = later;
+        for (_, change) in due {
+            match change {
+                Change::Daemon(value) => self.daemon = Some(value),
+                Change::Feed(value) => self.feed = Some(value),
+            }
+        }
+    }
 }
 
 impl Fake {
     fn with_actions() -> Self {
         Self { actions: fixture_actions(), ..Self::default() }
+    }
+
+    /// A daemon snapshot and pending dialogs that `then` changes later.
+    fn live(daemon: Option<Value>, feed: Option<Value>) -> Self {
+        Self { live: RefCell::new(Live { daemon, feed, changes: Vec::new() }), ..Self::default() }
+    }
+
+    fn then(self, after: Duration, change: Change) -> Self {
+        self.live.borrow_mut().changes.push((Instant::now() + after, change));
+        self
     }
 
     fn last(&self, kind: &str) -> Value {
@@ -68,10 +114,25 @@ impl Backend for Fake {
                 idempotency_key: key,
             });
         }
+        if let Some((operation, delay)) = self.fail_after
+            && request["operation"] == operation
+        {
+            std::thread::sleep(delay);
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "selector.not_found", "message": "the terminal closed"}),
+                idempotency_key: None,
+            });
+        }
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
             return Ok(result.clone());
+        }
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        if let Some(daemon) = &live.daemon {
+            return Ok(daemon.clone());
         }
         Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
@@ -110,7 +171,47 @@ impl Backend for Fake {
         match method {
             "action.list" => Ok(self.actions.clone()),
             "snapshot.get" => Ok(json!({"topology": {"windows": [{"id": "win_a"}]}})),
+            "feed.list" => {
+                let mut live = self.live.borrow_mut();
+                live.settle();
+                Ok(live.feed.clone().unwrap_or_else(|| json!({"ran": true})))
+            }
             _ => Ok(json!({"ran": true})),
+        }
+    }
+
+    /// The daemon's stream: its snapshot, then a delta when a daemon change
+    /// is due (a dialog is the app's and has none), and a tick without one.
+    fn session_events(
+        &self,
+        _session: Option<&str>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        if on_wake(Some(&json!({"kind": "snapshot"}))) {
+            return Ok(());
+        }
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let next_change = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Daemon(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = next_change.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            let delta = next_change.is_some_and(|at| at <= wake);
+            let item = json!({"kind": "delta"});
+            if on_wake(delta.then_some(&item)) {
+                return Ok(());
+            }
         }
     }
 
@@ -1140,3 +1241,5 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
         assert_eq!(refused["structuredContent"]["state"], "not_run");
     }
 }
+
+mod agent_wait;

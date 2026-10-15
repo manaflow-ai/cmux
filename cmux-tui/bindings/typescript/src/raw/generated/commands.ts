@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297. */
 
 
 import type * as T from "./types.js";
@@ -80,6 +80,8 @@ export interface BindConversationTabSessionRequest extends CmuxRequestBase {
   cmd: "bind-conversation-tab-session";
   /** The tab's current session, or null for a tab without one; the bind applies only when it matches. */
   "expected_session": (string) | null;
+  /** The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone. */
+  "harness"?: (string) | null;
   "session": string;
   "surface": T.Id;
 }
@@ -1212,6 +1214,15 @@ export interface HistorySearchRequest extends CmuxRequestBase {
 export type HistorySearchResult = {
   "hits": Array<T.HistorySearchHit>;
   "took_us": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface HomeInboxRequest extends CmuxRequestBase {
+  cmd: "home-inbox";
+}
+export type HomeInboxResult = {
+  "me": string;
+  "rows": Array<T.HomeInboxRow>;
 };
 
 /** Protocol v5; authority: control. */
@@ -2840,6 +2851,7 @@ export type CmuxRequest =
   | GetFrontendProjectionRequest
   | GetSizeStateRequest
   | HistorySearchRequest
+  | HomeInboxRequest
   | IdentifyRequest
   | IdsRequest
   | ImportBookmarksRequest
@@ -3894,6 +3906,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "history-search-v1";
+    stream: null;
+  };
+  "home-inbox": {
+    request: HomeInboxRequest;
+    result: HomeInboxResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "home-inbox-v1";
     stream: null;
   };
   "identify": {
