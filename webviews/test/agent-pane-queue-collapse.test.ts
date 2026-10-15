@@ -393,6 +393,37 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    test("opening the queue lands at its top: the header and row 1 in sight, nothing blanked (capture, 2026-10-15)", async () => {
+      // The capture at f1a737b: the first frame after ↑ then Return showed rows 2-5, the header and
+      // row 1 scrolled away, and a blank band where rows were not drawn.
+      const long = "words that wrap across the row ".repeat(12);
+      const names = ["fruits", "vegetables", "rivers", "birds", "trees", "planets", "colors"];
+      const page = await openChat([long, ...names.map((name) => `then name three ${name}.`)]);
+      await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
+      // Past any snap or scroll that settles after the first frames.
+      await page.waitForTimeout(400);
+      const top = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const box = list.getBoundingClientRect();
+        const inSight = (el: Element | null) => {
+          const r = el?.getBoundingClientRect();
+          return !!r && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+        };
+        return {
+          scrollTop: list.scrollTop,
+          header: inSight(list.querySelector(".acpmux-queue-header")),
+          row1: inSight(list.querySelector('[data-prompt-id="q-1"]')),
+          blanked: [...list.querySelectorAll("li")].filter((li) => getComputedStyle(li).opacity === "0").length,
+        };
+      });
+      expect(top).toEqual({ scrollTop: 0, header: true, row1: true, blanked: 0 });
+      await page.close();
+    });
+
     test("a folded queue with a long row opened shows only whole rows above the fold (capture, 2026-10-15)", async () => {
       // The capture at 436917b: the first row opened whole, and row 2 showed as a sliver above the fold.
       // Lengths from three lines to six, so row 2 meets the list's edge at some of them.
