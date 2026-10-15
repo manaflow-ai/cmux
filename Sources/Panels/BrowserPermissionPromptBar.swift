@@ -1,3 +1,4 @@
+import AppKit
 import CmuxBrowser
 import SwiftUI
 
@@ -50,7 +51,23 @@ struct BrowserPermissionPromptBar: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: queue.current?.id)
+            // VoiceOver hears each question as it appears (spec §0.7a); the
+            // strip never takes focus, so nothing else would say it.
+            .onAppear { announce(queue.current) }
+            .onChange(of: queue.current?.id) { _, _ in announce(queue.current) }
         }
+    }
+
+    private func announce(_ prompt: BrowserPermissionPrompt?) {
+        guard let prompt else { return }
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: BrowserPermissionPromptText.announcement(for: prompt),
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
     }
 
     /// Opacity only: a slide over a live page reads as jank (spec §4).
@@ -244,6 +261,19 @@ enum BrowserPermissionPromptText {
         // "**frame.site** (embedded in **page.site**) wants to …"
         let sites = String(localized: "browser.permission.prompt.embeddedSites", defaultValue: "%1$@ (embedded in %2$@)")
         return filling(format, with: bolding([origin, embedding], in: sites))
+    }
+
+    /// What VoiceOver announces when the strip shows a question: the message
+    /// as plain text, then the choices.
+    static func announcement(for prompt: BrowserPermissionPrompt) -> String {
+        let text = String(message(for: prompt).characters)
+        let choices: [String] = switch prompt.style {
+        case .captureDevices: [neverAllow, allowThisTime, allowWhileVisiting]
+        case .blockOrAllow: [block, allow]
+        case .systemBlocked: [notNow, openSystemSettings]
+        case .systemManaged: [notNow]
+        }
+        return ([text] + choices).joined(separator: ", ")
     }
 
     /// The system strips' text (spec §4 v1.4), or `nil` for the site's question.
