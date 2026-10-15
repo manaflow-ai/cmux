@@ -174,6 +174,23 @@ while True:
         send({"type": "stream_event", "parent_tool_use_id": "toolu_lateag", "event": {"type": "content_block_delta",
               "index": 0, "delta": {"type": "text_delta", "text": "late " + behavior}}})
         continue
+    # The answer to "answer-shape" (below), checked like Claude Code's permission reply schema:
+    # an allow must carry updatedInput (Claude Code runs the tool with it), a deny a message.
+    if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "shape-1":
+        answer = msg["response"].get("response") or {}
+        sent = ask("shape-1", "toolu_shape1")["request"]["input"]
+        if answer.get("behavior") == "allow":
+            said = "allow input ok" if answer.get("updatedInput") == sent else "allow input bad " + json.dumps(answer)
+        elif answer.get("behavior") == "deny":
+            ok = isinstance(answer.get("message"), str) and answer["message"] != ""
+            said = "deny message ok" if ok else "deny message bad " + json.dumps(answer)
+        else:
+            said = "invalid " + json.dumps(answer)
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": said}}})
+        send({"type": "result", "subtype": "success", "result": said, "num_turns": 1, "duration_api_ms": 1,
+              "usage": {"input_tokens": 1, "output_tokens": 1}})
+        continue
     # The answers to "always-ask" (below): like Claude Code, an allow's updatedPermissions with
     # destination "session" become rules this process keeps, and a covered call is not asked again.
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") in ("ask-1", "ask-2"):
@@ -295,6 +312,10 @@ while True:
         # session rule covers it. The turn ends at the last answer (above).
         if said.strip() == "always-ask":
             send(ask("ask-1", "toolu_ask1"))
+            continue
+        # "answer-shape": one permission ask; the answer is checked (above).
+        if said.strip() == "answer-shape":
+            send(ask("shape-1", "toolu_shape1"))
             continue
         if said.strip() == "slow-stop":
             slow_stop()
