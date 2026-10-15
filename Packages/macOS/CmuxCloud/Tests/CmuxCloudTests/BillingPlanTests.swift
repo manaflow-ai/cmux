@@ -36,6 +36,7 @@ struct BillingPlanTests {
         #expect(state.applyingFailure(for: "account-a", teamID: "team-a") == state)
         #expect(state.applyingFailure(for: "account-a") == state)
         #expect(state.applyingFailure(for: "account-a", teamID: "team-b") == .unknown)
+        #expect(state.applyingFailure(for: "account-a", teamID: nil) == .unknown)
     }
 
     @Test("different-account failure clears the answer")
