@@ -133,7 +133,7 @@ __cmux_ghost_draw() {
   local line=$READLINE_LINE ghost=$1
   # Control characters draw differently from their length; leave those
   # lines to readline alone.
-  [[ $line == *[[:cntrl:]]* ]] && return 0
+  [[ $line == *[[:cntrl:]]* || $ghost == *[[:cntrl:]]* ]] && return 0
   __cmux_ghost_measure_prompt
   local columns=${COLUMNS:-80} end row column room up out
   end=$((__cmux_ghost_prompt_width + ${#line}))

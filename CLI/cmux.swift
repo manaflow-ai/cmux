@@ -34352,7 +34352,18 @@ struct CMUXCLI {
     }
 
     private func codexMonitorOwnerState(workspaceId: String, surfaceId: String?, client: SocketClient) -> CodexMonitorOwnerState {
-        guard client.connectionAppearsOpen() else { return client.isRelayBacked ? .unknown : .gone }
+        if !client.connectionAppearsOpen() {
+            // A failed request closes the client, so a closed connection is
+            // not proof the pane is gone. Reconnect and ask; only an app that
+            // refuses the connection ends the monitor.
+            client.close()
+            guard !client.isRelayBacked else { return .unknown }
+            do {
+                try client.connect()
+            } catch {
+                return .gone
+            }
+        }
         guard let payload = try? client.sendV2(
             method: "surface.list",
             params: ["workspace_id": workspaceId],
@@ -38261,6 +38272,10 @@ export default {
         ) else {
             return
         }
+        // The monitor held this connection for the whole turn. Replay the
+        // Stop on a fresh one so a connection the app dropped or stalled
+        // cannot delay the Idle projection by a response timeout per call.
+        client.close()
         try runGenericAgentHookEvent(
             def: def,
             commandArgs: replay.commandArguments,
