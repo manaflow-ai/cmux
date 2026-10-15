@@ -821,6 +821,11 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextSidebarTests",
+            dependencies: ["CmuxNextSidebar", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextPalette",
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
