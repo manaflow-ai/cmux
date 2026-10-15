@@ -29,9 +29,13 @@ final class RemoteVNCSession {
         if host == RemoteViewPageSession.mockHost { demo = VNCDemoServer() }
     }
 
-    isolated deinit {
-        demoStart?.cancel()
-        demo?.stop()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            demoStart?.cancel()
+            demo?.stop()
+        }
     }
 
     /// Connects with the saved sign-in (or none; the host may not need one).
@@ -95,8 +99,10 @@ final class RemoteVNCSession {
         alert.addButton(withTitle: RemoteVNCStrings.cancel)
         let user = NSTextField(string: saved?.username ?? "")
         user.placeholderString = RemoteVNCStrings.userPlaceholder
+        user.focusRingType = .none
         let password = NSSecureTextField(string: "")
         password.placeholderString = RemoteVNCStrings.passwordPlaceholder
+        password.focusRingType = .none
         let stack = NSStackView(views: [user, password])
         stack.orientation = .vertical
         stack.spacing = 8

@@ -3,7 +3,7 @@ import { useCallback, useDeferredValue, useState } from "react";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
-import { homes } from "../categories";
+import { homes, shownSection } from "../categories";
 import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { filterRows } from "../search";
@@ -71,8 +71,16 @@ export function SettingsApp() {
     },
     [router, store, reveal],
   );
+  // A DEV-only category (Development) is never shown outside DEV builds, however it was reached.
+  const section = shownSection(location.section, state.host?.dev_build === true);
   const submit = () => {
-    const first = filterRows({ query, changedOnly, valueOf: (key) => valueOf(state, key), isChanged })[0]?.rows[0];
+    const first = filterRows({
+      query,
+      changedOnly,
+      valueOf: (key) => valueOf(state, key),
+      isChanged,
+      devBuild: state.host?.dev_build === true,
+    })[0]?.rows[0];
     if (first) reveal(first.key);
   };
 
@@ -87,7 +95,7 @@ export function SettingsApp() {
           changedCount={changedCount}
           onChangedOnly={setChangedOnly}
         />
-        <SectionList current={searching ? null : location.section} onSelect={(section) => go(section)} />
+        <SectionList current={searching ? null : section} onSelect={(next) => go(next)} />
       </aside>
       <main className="content">
         <div className="column">
@@ -101,9 +109,9 @@ export function SettingsApp() {
             <SearchResults query={shownQuery} changedOnly={shownChangedOnly} />
           ) : (
             <SectionView
-              key={location.section}
-              section={location.section}
-              focus={location.focus}
+              key={section}
+              section={section}
+              focus={section === location.section ? location.focus : null}
               workspace={location.workspace}
             />
           )}

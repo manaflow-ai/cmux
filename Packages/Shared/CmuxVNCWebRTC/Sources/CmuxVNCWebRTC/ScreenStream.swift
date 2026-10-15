@@ -124,11 +124,32 @@ public final class ScreenStreamHost: @unchecked Sendable {
         }
     }
 
+    /// What an app shows about the host: whether the room is open and
+    /// whether a viewer is watching. Optional; the CLI host only logs.
+    public enum Event: Sendable, Equatable {
+        /// The room is open and waiting for a viewer.
+        case waiting
+        /// The room connection dropped; the host retries on its own.
+        case roomLost(String)
+        /// A viewer's data channel opened: it sees the screen and controls it.
+        case viewerConnected
+        /// The viewer's session ended (it left, dropped, or `disconnectViewer()`).
+        case viewerEnded
+        /// The screen source could not start (for ScreenCaptureKit: Screen Recording is not granted).
+        case sourceFailed(String)
+    }
+
     public let pairing: VNCPairing
     private let makeBackend: @Sendable () -> any ScreenBackend
     private let log: @Sendable (String) -> Void
     private let lock = NSLock()
     private var session: Session?
+    /// Called from the host's tasks with each `Event` (any thread).
+    public var onEvent: (@Sendable (Event) -> Void)? {
+        get { lock.withLock { eventSink } }
+        set { lock.withLock { eventSink = newValue } }
+    }
+    private var eventSink: (@Sendable (Event) -> Void)?
 
     public init(pairing: VNCPairing, backend: @escaping @Sendable () -> any ScreenBackend,
                 log: @escaping @Sendable (String) -> Void = { print($0) }) {
@@ -151,10 +172,21 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 delay = 1
             } catch {
                 log("room connection lost: \(error); retrying in \(Int(delay)) s")
+                emit(.roomLost("\(error)"))
             }
             try? await Task.sleep(for: .seconds(delay)) // reconnect backoff
             delay = min(delay * 2, 30)
         }
+        endSession()
+    }
+
+    /// Ends the current viewer's session (it may connect again with the link).
+    public func disconnectViewer() {
+        endSession()
+    }
+
+    private func emit(_ event: Event) {
+        lock.withLock { eventSink }?(event)
     }
 
     private func serveRoom() async throws {
@@ -162,7 +194,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
         defer { socket.close() }
         for try await message in socket.messages() {
             switch message.type {
-            case "hello": log("waiting for a viewer in room \(pairing.room.prefix(8))…")
+            case "hello":
+                log("waiting for a viewer in room \(pairing.room.prefix(8))…")
+                emit(.waiting)
             case "offer":
                 guard let sdp = message.sdp else { continue }
                 try await accept(offer: sdp, socket: socket)
@@ -208,6 +242,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
     private func start(_ session: Session) {
         session.lock.withLock { session.opened = true }
         log("channel open; starting \(type(of: session.backend))")
+        emit(.viewerConnected)
         session.tasks.append(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
@@ -222,6 +257,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 })
             } catch {
                 self?.log("screen source failed: \(error)")
+                self?.emit(.sourceFailed("\(error)"))
             }
         })
         // Every 3 s: what the encoder is doing (codec, hardware, fps, limits).
@@ -296,6 +332,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         ended.backend.stop()
         ended.link.close()
         log("session ended")
+        if ended.lock.withLock({ ended.opened }) { emit(.viewerEnded) }
     }
 }
 
@@ -440,9 +477,12 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     private var lastButtons: UInt8 = 0
     private var offered = false
     private var isOpen = false
+    /// TURN relay only (ICE transport policy `relay`): for checking the relay path. Off by default.
+    private let relayOnly: Bool
 
-    public init(pairing: VNCPairing) {
+    public init(pairing: VNCPairing, relayOnly: Bool = false) {
         self.pairing = pairing
+        self.relayOnly = relayOnly
     }
 
     /// Connects; returns when the input channel is open (video follows).
@@ -451,7 +491,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// coming back does not touch the running stream.
     public func connect() async throws {
         let ice = try await SignalSocket.iceServers(pairing)
-        let link = try VNCPeerLink(iceServers: ice, preferStreamRelays: false)
+        let link = try VNCPeerLink(iceServers: ice, relayOnly: relayOnly, preferStreamRelays: false)
         lock.withLock { self.link = link }
         let opened = OpenSignal()
         let peerTask = Task { [weak self] in
@@ -469,7 +509,9 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 case let .path(local, remote): self?.onPath?(local == "relay" || remote == "relay" ? "Relay" : "Direct")
                 case .closed:
                     opened.fire(RFBError.connectionClosed)
-                    self?.onState?("The connection closed.")
+                    // Before open, connect() reports the failure (it throws); reporting it here
+                    // too would count one failed attempt as two drops.
+                    if self?.lock.withLock({ self?.isOpen }) == true { self?.onState?("The connection closed.") }
                 }
             }
         }
@@ -495,7 +537,15 @@ public final class ScreenStreamViewer: @unchecked Sendable {
             }
         }
         lock.withLock { tasks = [peerTask, signalTask] }
-        try await opened.wait(timeout: 30)
+        do {
+            try await opened.wait(timeout: 30)
+        } catch {
+            // A connect that failed leaves nothing behind: its room socket would
+            // otherwise offer to the host when it next joins and open a session
+            // nobody sees (the host shows a viewer that is not there).
+            close()
+            throw error
+        }
     }
 
     private func handleSignal(_ message: SignalMessage, link: VNCPeerLink, opened: OpenSignal) async throws {

@@ -99,7 +99,8 @@ for UIKit. Drive everything else from `ScreenSession`:
 
 - state: `phase` (`.connecting`, `.connected`, `.failed(message:needsSignIn:)`, `.ended`), `isReconnecting`, `stats`, `streamPath`, `frameSize`;
 - input: `tap(_:modifiers:)`, `type(_:modifiers:)`, `key(_:down:)`, `click(_:)`, `movePointer(to:)`, `press(_:down:)`, `scroll(dx:dy:)`;
-- control: `selectDisplay(_:)`, `preferences.quality` + `applyQuality()`, `refresh()`, `resumeIfNeeded()`, `connect()`, `close()`.
+- `relayOnly`: connect only through the relay server (for testing that path).
+- control: `selectDisplay(_:)`, `preferences.quality` + `applyQuality()`, `refresh()`, `resumeIfNeeded()`, `connect()`, `reconnect()` (connect again with retries), `close()`.
 
 `MacShortcutsBar(session:shortcuts:)` and `PairingScanner { link in … }`
 (VisionKit, QR; check `PairingScanner.isSupported`) also work on their own.

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
@@ -6,6 +7,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextMacScreen
 import CmuxNextRemoteView
 import Foundation
 import os
@@ -116,8 +118,19 @@ extension TabContentCache {
         }
         entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
             // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
-            guard let url = ChromiumPageRouter.routed(typed, services: services) else {
+            // cmux://mac-screen opens the Mac Screen tab beside this one (nil: nothing loads here).
+            guard let url = ChromiumPageRouter.routed(typed, services: services, in: services.paneController(listing: key)) else {
                 chrome?.addressBar.showPageURL()
+                return true
+            }
+            // A Mac Screen pairing link a person typed or pasted in the address bar pairs that
+            // Mac and shows it in a Mac Screen tab; this page stays. Automation (CLI bookmarks,
+            // scripts) never saves a Mac this way. The link never loads or searches.
+            if url.scheme?.lowercased() == "cmux-vnc" {
+                chrome?.addressBar.showPageURL()
+                guard RemoteViewPageService.isPersonInput(ActionRunScope.current), let record = services.macScreenPages.pair(link: url),
+                      let pane = services.paneController(listing: key) else { return true }
+                services.macScreenTabs.open(record, in: pane, focus: true, byPerson: true)
                 return true
             }
             guard Self.isAppPage(url) else { return false }

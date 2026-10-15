@@ -12,7 +12,8 @@ public import Foundation
 ///    `chrome-extension://` pages and `about:` aliases of WebUI pages, in
 ///    Chromium's canonical form (ChromiumInternalURL: `chrome://extensions`
 ///    is `chrome://extensions/`); every tab also takes the `chrome://` pages
-///    cmux shows itself (ChromiumPageRoute). Every other scheme (`javascript:`,
+///    cmux shows itself (ChromiumPageRoute), and Mac Screen addresses
+///    (`cmux-vnc://pair?…` pairing links, `cmux://mac-screen`). Every other scheme (`javascript:`,
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
@@ -119,8 +120,22 @@ public nonisolated struct BrowserURLResolver: Sendable {
             return chromiumPage(text, scheme: scheme)
         case "chrome", "chrome-extension":
             return chromiumPage(text, scheme: scheme)
+        case "cmux-vnc", "cmux":
+            return macScreenAddress(text, scheme: scheme)
         default:
             return nil
+        }
+    }
+
+    /// A Mac Screen address the host shows itself, never searched: a pairing
+    /// link (`cmux-vnc://pair?…`, which carries a room secret that must not
+    /// reach a search engine or its suggestions) or a Mac Screen tab record
+    /// (`cmux://mac-screen`). The host routes both; no engine loads them.
+    private func macScreenAddress(_ text: String, scheme: String) -> URL? {
+        guard let url = URL(string: text), let host = url.host?.lowercased() else { return nil }
+        switch (scheme, host) {
+        case ("cmux-vnc", "pair"), ("cmux", "mac-screen"): return url
+        default: return nil
         }
     }
 

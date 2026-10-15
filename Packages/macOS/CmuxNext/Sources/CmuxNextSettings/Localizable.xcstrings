@@ -1,6 +1,1185 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.macScreenKeyboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Screen"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شاشة Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Maca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pantalla del Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Écran Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schermo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macの画面"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អេក្រង់ Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tela do Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Экран Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าจอ Mac"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac Ekranı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Екран Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màn hình Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 螢幕"
+          }
+        }
+      }
+    },
+    "settings.macScreen.systemShortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send System Shortcuts to the Remote Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرسال اختصارات النظام إلى الـMac البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šalji sistemske prečice na udaljeni Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send systemgenveje til den eksterne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemkurzbefehle an den entfernten Mac senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar atajos del sistema al Mac remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyer les raccourcis système au Mac distant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia le abbreviazioni di sistema al Mac remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システムショートカットをリモートのMacに送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ញើផ្លូវកាត់ប្រព័ន្ធទៅ Mac ពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 단축키를 원격 Mac으로 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send systemsnarveier til den eksterne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysyłaj skróty systemowe do zdalnego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar atalhos do sistema para o Mac remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправлять системные сочетания клавиш на удалённый Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งปุ่มลัดของระบบไปยัง Mac ระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem kısayollarını uzak Mac’e gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надсилати системні сполучення клавіш на віддалений Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi phím tắt hệ thống đến máy Mac từ xa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将系统快捷键发送到远程 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將系統快速鍵傳送到遠端 Mac"
+          }
+        }
+      }
+    },
+    "settings.macScreen.systemShortcuts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما تكون لوحة المفاتيح لعلامة تبويب شاشة Mac، تنتقل اختصارات مثل ⌘Tab و⌘مسافة وMission Control و⌘Q إلى الـMac الآخر. يتطلب تسهيلات الاستخدام."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dok kartica Ekran Maca ima tastaturu, prečice poput ⌘Tab, ⌘Razmak, Mission Control i ⌘Q idu na drugi Mac. Potrebna je pristupačnost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en Mac-skærm-fane har tastaturet, går genveje som ⌘Tab, ⌘Mellemrum, Mission Control og ⌘Q til den anden Mac. Kræver tilgængelighed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solange ein Mac-Bildschirm-Tab die Tastatur hat, gehen Kurzbefehle wie ⌘Tab, ⌘Leertaste, Mission Control und ⌘Q an den anderen Mac. Erfordert Bedienungshilfen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mientras una pestaña de Pantalla del Mac tiene el teclado, atajos como ⌘Tab, ⌘Espacio, Mission Control y ⌘Q van al otro Mac. Requiere accesibilidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tant qu’un onglet Écran Mac a le clavier, les raccourcis comme ⌘Tab, ⌘Espace, Mission Control et ⌘Q vont à l’autre Mac. Nécessite l’accessibilité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mentre una scheda Schermo Mac ha la tastiera, abbreviazioni come ⌘Tab, ⌘Spazio, Mission Control e ⌘Q vanno all’altro Mac. Richiede l’accessibilità."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macの画面タブがキーボードを使用している間、⌘Tab、⌘スペース、Mission Control、⌘Qなどのショートカットはもう一方のMacに送られます。アクセシビリティが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលផ្ទាំងអេក្រង់ Mac មានក្ដារចុច ផ្លូវកាត់ដូចជា ⌘Tab, ⌘ដកឃ្លា, Mission Control និង ⌘Q ទៅ Mac ផ្សេងទៀត។ ត្រូវការភាពងាយស្រួល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 화면 탭이 키보드를 사용하는 동안 ⌘Tab, ⌘스페이스, Mission Control, ⌘Q 같은 단축키가 다른 Mac으로 갑니다. 손쉬운 사용이 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en Mac-skjerm-fane har tastaturet, går snarveier som ⌘Tab, ⌘Mellomrom, Mission Control og ⌘Q til den andre Macen. Krever tilgjengelighet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy karta Ekran Maca ma klawiaturę, skróty takie jak ⌘Tab, ⌘Spacja, Mission Control i ⌘Q trafiają do drugiego Maca. Wymaga dostępności."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enquanto uma aba Tela do Mac tem o teclado, atalhos como ⌘Tab, ⌘Espaço, Mission Control e ⌘Q vão para o outro Mac. Requer acessibilidade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока вкладка «Экран Mac» владеет клавиатурой, сочетания вроде ⌘Tab, ⌘Пробел, Mission Control и ⌘Q уходят на другой Mac. Нужен универсальный доступ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขณะที่แท็บหน้าจอ Mac ใช้แป้นพิมพ์อยู่ ปุ่มลัดอย่าง ⌘Tab, ⌘แป้นเว้นวรรค, Mission Control และ ⌘Q จะไปที่ Mac อีกเครื่อง ต้องใช้การช่วยการเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir Mac Ekranı sekmesi klavyeye sahipken ⌘Tab, ⌘Boşluk, Mission Control ve ⌘Q gibi kısayollar diğer Mac’e gider. Erişilebilirlik gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки вкладка «Екран Mac» має клавіатуру, сполучення на кшталт ⌘Tab, ⌘Пробіл, Mission Control і ⌘Q ідуть на інший Mac. Потрібна доступність."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi một tab Màn hình Mac đang giữ bàn phím, các phím tắt như ⌘Tab, ⌘Phím cách, Mission Control và ⌘Q sẽ đến máy Mac kia. Cần Trợ năng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当 Mac 屏幕标签页占用键盘时，⌘Tab、⌘空格、调度中心和 ⌘Q 等快捷键会发送到另一台 Mac。需要辅助功能权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當 Mac 螢幕標籤頁佔用鍵盤時，⌘Tab、⌘空白鍵、指揮中心和 ⌘Q 等快速鍵會傳送到另一台 Mac。需要輔助使用權限。"
+          }
+        }
+      }
+    },
+    "settings.macScreen.systemShortcuts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System shortcuts go to the remote Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنتقل اختصارات النظام إلى الـMac البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistemske prečice idu na udaljeni Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemgenveje går til den eksterne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemkurzbefehle gehen an den entfernten Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los atajos del sistema van al Mac remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les raccourcis système vont au Mac distant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le abbreviazioni di sistema vanno al Mac remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システムショートカットはリモートのMacに送られます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លូវកាត់ប្រព័ន្ធទៅ Mac ពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 단축키가 원격 Mac으로 갑니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemsnarveier går til den eksterne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skróty systemowe trafiają do zdalnego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os atalhos do sistema vão para o Mac remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системные сочетания уходят на удалённый Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มลัดของระบบไปที่ Mac ระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem kısayolları uzak Mac’e gider"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Системні сполучення йдуть на віддалений Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím tắt hệ thống đến máy Mac từ xa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系统快捷键发送到远程 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "系統快速鍵傳送到遠端 Mac"
+          }
+        }
+      }
+    },
+    "settings.section.development": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Development"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التطوير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razvoj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udvikling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entwicklung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desarrollo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Développement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sviluppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開発"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការអភិវឌ្ឍ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "개발"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utvikling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Programowanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desenvolvimento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разработка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การพัฒนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geliştirme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розробка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phát triển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开发"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開發"
+          }
+        }
+      }
+    },
+    "settings.group.macScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Screen"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شاشة Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Maca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pantalla del Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Écran Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schermo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macの画面"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អេក្រង់ Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tela do Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Экран Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าจอ Mac"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac Ekranı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Екран Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màn hình Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 螢幕"
+          }
+        }
+      }
+    },
+    "settings.macScreen.debug.relayOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Only"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الترحيل فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo relej"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun relæ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur Relay"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo relé"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Relais uniquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リレーのみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែការបញ្ជូនបន្តប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "릴레이 전용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare relé"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko przekaźnik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente Relay"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только ретранслятор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีเลย์เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca Röle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише ретранслятор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ chuyển tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅中继"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅中繼"
+          }
+        }
+      }
+    },
+    "settings.macScreen.debug.relayOnly.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتصل علامات تبويب شاشة Mac عبر خادم ترحيل TURN فقط، وليس مباشرةً أبدًا، للتحقق من مسار الترحيل. تُعيد علامات التبويب المتصلة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice Ekrana Maca povezuju se samo preko TURN releja, nikada direktno, radi provjere puta preko releja. Povezane kartice se ponovo povezuju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skærm-faner forbinder kun via TURN-relæet, aldrig direkte, så relæstien kan kontrolleres. Forbundne faner genopretter forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-Bildschirm-Tabs verbinden sich nur über das TURN-Relay, nie direkt, um den Relay-Pfad zu prüfen. Verbundene Tabs verbinden sich neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las pestañas de Pantalla del Mac se conectan solo a través del relé TURN, nunca directamente, para comprobar la ruta del relé. Las pestañas conectadas se vuelven a conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les onglets Écran Mac se connectent uniquement via le relais TURN, jamais directement, pour vérifier le chemin du relais. Les onglets connectés se reconnectent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I pannelli Schermo Mac si connettono solo tramite il relay TURN, mai direttamente, per verificare il percorso del relay. I pannelli connessi si riconnettono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リレー経路を確認するため、Macの画面タブはTURNリレー経由でのみ接続し、直接は接続しません。接続中のタブは再接続します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងអេក្រង់ Mac ភ្ជាប់តាមរយៈការបញ្ជូនបន្ត TURN ប៉ុណ្ណោះ មិនដែលភ្ជាប់ដោយផ្ទាល់ទេ ដើម្បីពិនិត្យផ្លូវបញ្ជូនបន្ត។ ផ្ទាំងដែលបានភ្ជាប់នឹងភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "릴레이 경로를 확인하기 위해 Mac 화면 탭이 직접 연결하지 않고 TURN 릴레이를 통해서만 연결됩니다. 연결된 탭은 다시 연결됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skjerm-faner kobler til bare via TURN-reléet, aldri direkte, for å sjekke reléstien. Tilkoblede faner kobler til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty ekranu Maca łączą się tylko przez przekaźnik TURN, nigdy bezpośrednio, aby sprawdzić ścieżkę przekaźnika. Połączone karty łączą się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As abas de Tela do Mac se conectam somente pelo relay TURN, nunca diretamente, para verificar o caminho do relay. As abas conectadas se reconectam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки «Экран Mac» подключаются только через ретранслятор TURN, а не напрямую, чтобы проверить путь через ретранслятор. Подключенные вкладки переподключаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบหน้าจอ Mac จะเชื่อมต่อผ่านรีเลย์ TURN เท่านั้น ไม่เชื่อมต่อโดยตรง เพื่อตรวจสอบเส้นทางรีเลย์ แถบที่เชื่อมต่ออยู่จะเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac Ekranı sekmeleri röle yolunu denetlemek için doğrudan değil, yalnızca TURN rölesi üzerinden bağlanır. Bağlı sekmeler yeniden bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки «Екран Mac» підключаються лише через ретранслятор TURN, ніколи напряму, щоб перевірити шлях через ретранслятор. Підключені вкладки перепідключаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các tab Màn hình Mac chỉ kết nối qua máy chủ chuyển tiếp TURN, không bao giờ kết nối trực tiếp, để kiểm tra đường chuyển tiếp. Các tab đang kết nối sẽ kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 屏幕标签页仅通过 TURN 中继连接，从不直接连接，以检查中继路径。已连接的标签页会重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 螢幕標籤頁僅透過 TURN 中繼連線，絕不直接連線，以檢查中繼路徑。已連線的標籤頁會重新連線。"
+          }
+        }
+      }
+    },
+    "settings.macScreen.debug.relayOnly.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Screen streams use the relay only"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تستخدم بثوث شاشة Mac الترحيل فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijenosi Ekrana Maca koriste samo relej"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skærm-streams bruger kun relæet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-Bildschirm-Streams nutzen nur das Relay"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las transmisiones de Pantalla del Mac usan solo el relé"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les flux Écran Mac utilisent uniquement le relais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli stream di Schermo Mac usano solo il relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macの画面のストリームはリレーのみを使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ទ្រីមអេក្រង់ Mac ប្រើតែការបញ្ជូនបន្តប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 화면 스트림이 릴레이만 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac-skjerm-strømmer bruker bare reléet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strumienie ekranu Maca używają tylko przekaźnika"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As transmissões de Tela do Mac usam somente o relay"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Потоки «Экран Mac» идут только через ретранслятор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สตรีมหน้าจอ Mac ใช้รีเลย์เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac Ekranı akışları yalnızca röleyi kullanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Потоки «Екран Mac» йдуть лише через ретранслятор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luồng Màn hình Mac chỉ dùng máy chủ chuyển tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 屏幕流仅使用中继"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 螢幕串流僅使用中繼"
+          }
+        }
+      }
+    },
     "settings.group.passwords": {
       "extractionState": "manual",
       "localizations": {

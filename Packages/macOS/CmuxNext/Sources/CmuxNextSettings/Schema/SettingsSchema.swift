@@ -18,6 +18,7 @@ public nonisolated enum SettingsSchema {
             + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
+            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()
@@ -65,6 +66,7 @@ public nonisolated enum SettingsSchema {
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
         case .advanced: ["reloadConfiguration"]
+        case .development: []
         }
     }
 

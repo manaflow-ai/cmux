@@ -68,6 +68,8 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
+//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, CmuxScreenKit (Mac Screen tabs: another Mac's screen as a
+//     WebRTC stream, pairing home page, Share This Mac host; CmuxScreenKit links WebRTC.framework)
 //   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; the App adapts it to the pane
 //     as a RemoteViewFrameSource for `via=vnc` records; remote-desktop.md 12)
 //   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
@@ -144,6 +146,7 @@ let package = Package(
         .package(path: "../../Shared/CmuxIrxTransport"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
+        .package(path: "../../Shared/CmuxScreenKit"),
         // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
         // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
         .package(path: "../../Shared/CmuxSentryTelemetry"),
@@ -210,6 +213,7 @@ let package = Package(
                 // The loopback VNC test desktop behind `cmux://remote-view?host=mock&via=vnc` (DEBUG).
                 .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
                 "CmuxNextRemoteBrowser",
+                "CmuxNextMacScreen",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -486,6 +490,17 @@ let package = Package(
             name: "CmuxNextRemoteView",
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", "CCmuxAppFFI"],
             exclude: ["README.md"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Mac Screen tabs: another Mac's screen over a CmuxScreenKit stream
+        // (WebRTC video, input on data channels), the pairing home page and
+        // Share This Mac. Input capture comes from CmuxNextRemoteView.
+        .target(
+            name: "CmuxNextMacScreen",
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
             resources: [
                 .process("Resources"),
             ],
@@ -828,7 +843,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode", "CmuxNextMacScreen",
                            "CmuxNextDaemon", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

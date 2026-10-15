@@ -168,7 +168,8 @@ final class RemoteVNCInputSink: RemoteViewInputSink {
         }
     }
 
-    deinit {
+    // cx-t7hu: nonisolated; the queue and the drain task are Sendable.
+    nonisolated deinit {
         queue.finish()
         drain.cancel()
     }

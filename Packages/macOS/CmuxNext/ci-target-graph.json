@@ -16,6 +16,7 @@
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
+    "CmuxScreenKit": "Packages/Shared/CmuxScreenKit",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
     "CmuxUpdater": "Packages/macOS/CmuxUpdater",
@@ -162,6 +163,7 @@
         "CmuxNextHomeEngine",
         "CmuxNextIcons",
         "CmuxNextLayout",
+        "CmuxNextMacScreen",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
         "CmuxNextOnboarding",
@@ -219,6 +221,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextLayout",
+        "CmuxNextMacScreen",
         "CmuxNextProcessEnvironment",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -517,6 +520,22 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextMacScreen": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDesign",
+        "CmuxNextRemoteView",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxScreenKit"
+      ]
     },
     "CmuxNextMallocZone": {
       "kind": "regular",
