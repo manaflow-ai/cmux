@@ -19,6 +19,8 @@ import Foundation
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     private let runtime: CEFRuntime
     private let devToolsLayoutStore: BrowserDevToolsLayoutStore
+    /// Shared by this provider's pages for Memory Saver's process accounting.
+    private let rendererProcesses: CEFRendererProcessResolver
 
     /// Creates the provider.
     /// - Parameters:
@@ -27,6 +29,7 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     public init(runtime: CEFRuntime, devToolsLayoutStore: BrowserDevToolsLayoutStore) {
         self.runtime = runtime
         self.devToolsLayoutStore = devToolsLayoutStore
+        rendererProcesses = CEFRendererProcessResolver()
     }
 
     /// Always ``BrowserEngineKind/chromium``.
@@ -68,10 +71,12 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
                 restoreState: restore
             )
         )
-        return CEFBrowserPage(
+        let page = CEFBrowserPage(
             browser: browser,
             shim: { [runtime] in runtime.shim },
             devToolsLayoutStore: devToolsLayoutStore
         )
+        page.rendererProcesses = rendererProcesses
+        return page
     }
 }

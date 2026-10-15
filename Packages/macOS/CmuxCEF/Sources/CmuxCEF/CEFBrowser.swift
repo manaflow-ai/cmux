@@ -90,7 +90,7 @@ public final class CEFBrowser {
     public let hostView = CEFHostView()
     /// Chromium's browser id, nil until created and after it closed.
     public private(set) var browserID: Int32?
-    public private(set) var state = CEFBrowserState()
+    public internal(set) var state = CEFBrowserState()
     public private(set) var isClosed = false
     /// Receives this page's events.
     public var onEvent: (@MainActor (CEFBrowserEvent) -> Void)?
@@ -99,21 +99,23 @@ public final class CEFBrowser {
 
     unowned let runtime: CEFRuntime
     private var pendingURL: URL?
-    private var pendingRestore: String?
+    var pendingRestore: String?
     private var pendingFocus = false
-    private var isCreationPending = false
+    var isCreationPending = false
     var isGrantingFocus = false
     private var nextFindID: Int32 = 1
     /// A popup Chromium created in its opener's window, not moved yet.
-    private var awaitsWindowMove = false
+    var awaitsWindowMove = false
     /// The about:blank page that created this popup's own window.
-    private var placeholder: CEFBrowser?
-    private weak var placeholderOwner: CEFBrowser?
+    var placeholder: CEFBrowser?
+    weak var placeholderOwner: CEFBrowser?
     /// This page only creates a popup's window (never shown as a page).
-    private var isPlaceholder = false
+    var isPlaceholder = false
     /// `.closed` was sent (once per page).
     private var sentClosed = false
     private weak var opener: CEFBrowser?
+    /// Memory Saver state (CEFBrowser+ContentRelease).
+    var contentRelease = CEFContentRelease()
 
     public convenience init(configuration: CEFBrowserConfiguration) {
         self.init(configuration: configuration, runtime: .shared)
@@ -163,6 +165,9 @@ public final class CEFBrowser {
         guard !isClosed, hostView.isPresented else { return }
         if awaitsWindowMove {
             ensureOwnWindow()
+        } else if contentRelease.isReleasing || contentRelease.isReleased {
+            // The owner restores released content (it may wait for the person to ask).
+            return
         } else if browserID == nil {
             createNow()
         } else {
@@ -259,7 +264,9 @@ public final class CEFBrowser {
         if let restore = pendingRestore {
             pendingRestore = nil
             let restored = restore.withCString { shim.tabRestoreNavigation(id, $0) }
-            if restored != 1, let url = configuration.initialURL { shim.loadURL(id, url.absoluteString) }
+            let fallback = contentRelease.releasedURL ?? configuration.initialURL
+            if restored != 1, let url = fallback { shim.loadURL(id, url.absoluteString) }
+            if let url = contentRelease.takeLoadAfterRestore() { shim.loadURL(id, url.absoluteString) }
         } else if let url = pendingURL {
             pendingURL = nil
             shim.loadURL(id, url.absoluteString)
@@ -308,6 +315,8 @@ public final class CEFBrowser {
 
     func browserDidClose() {
         browserID = nil
+        if contentRelease.isReleasing, !isClosed { return finishContentRelease() }
+        contentRelease = CEFContentRelease()
         isClosed = true
         if !isPlaceholder { emitClosedOnce() }
     }
@@ -335,7 +344,9 @@ public final class CEFBrowser {
 
     public func load(_ url: URL) {
         state.rendererExit = nil
-        if let id = browserID, !isClosed {
+        if contentRelease.isReleasing || contentRelease.isReleased, !isClosed {
+            loadAfterRestoring(url)
+        } else if let id = browserID, !isClosed {
             runtime.shim?.loadURL(id, url.absoluteString)
         } else {
             pendingURL = url
@@ -346,7 +357,12 @@ public final class CEFBrowser {
 
     public func goBack() { browserID.map { runtime.shim?.goBack($0) } }
     public func goForward() { browserID.map { runtime.shim?.goForward($0) } }
-    public func reload() { browserID.map { runtime.shim?.reload($0) } }
+    /// Reloads; a page whose content was released restores it instead
+    /// (restoring loads the current entry).
+    public func reload() {
+        if contentRelease.isReleased { return restoreContent() }
+        browserID.map { runtime.shim?.reload($0) }
+    }
     public func stop() { browserID.map { runtime.shim?.stop($0) } }
 
     /// Chromium's navigation state for `CEFBrowserConfiguration.restoreState`.

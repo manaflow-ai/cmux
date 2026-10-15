@@ -27,6 +27,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var muted = false
     private var lastFaviconURL: URL?
     private var isClosed = false
+    /// Finds the helper process of a renderer; set by the provider, shared by its pages.
+    var rendererProcesses: CEFRendererProcessResolver?
     /// Kept to give popups this page opens the same feature wiring.
     private let shimProvider: @MainActor () -> CEFShimLibrary?
     private let devToolsLayoutStore: BrowserDevToolsLayoutStore
@@ -368,7 +370,9 @@ public final class CEFBrowserPage: BrowserPage {
                 if cefState.faviconURL == nil { emit(.faviconChanged(nil)) }
             }
         case .loadStarted(let url, _):
+            // CEF's OnLoadStart runs once the navigation has committed.
             emit(.navigationStarted(url))
+            emit(.navigationCommitted(url))
         case .loadFinished:
             emit(.navigationFinished(browser.state.url))
         case .loadFailed(let code, let message, let url, let chromiumInterstitial):
@@ -513,6 +517,7 @@ public final class CEFBrowserPage: BrowserPage {
         switch uiDelegate.page(self, openNewPage: request) {
         case .allowPopup:
             let popupPage = CEFBrowserPage(browser: popup, shim: shimProvider, devToolsLayoutStore: devToolsLayoutStore)
+            popupPage.rendererProcesses = rendererProcesses
             uiDelegate.page(self, didCreatePopup: popupPage, for: request)
         case .handled, .block:
             popup.close()

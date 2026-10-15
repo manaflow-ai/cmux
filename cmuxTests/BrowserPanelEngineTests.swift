@@ -14,7 +14,8 @@ import Testing
 @MainActor
 @Suite(.serialized) struct BrowserPanelEngineTests {
     @MainActor
-    final class FakeChromiumPage: BrowserPage {
+    final class FakeChromiumPage: BrowserPage, BrowserPagePlaceholderColoring {
+        var placeholderColor: NSColor = .clear
         var engineKind: BrowserEngineKind { .chromium }
         var capabilities: BrowserEngineCapabilities { [.devToolsProtocol] }
         var presentation: BrowserPagePresentation { .childWindow }
@@ -223,6 +224,72 @@ import Testing
         panel.handleEnginePageEvent(.navigationFailed(URL(string: "https://nope.invalid/"), code: -105, message: "NAME_NOT_RESOLVED", showsEngineErrorPage: true))
         #expect(panel.engineKind == .chromium)
         #expect(panel.engineFallbackNotice == nil)
+    }
+
+    @Test func chromiumPageOpensOnTheThemeColor() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let page = try #require(provider.pages.first)
+        #expect(page.placeholderColor == GhosttyBackgroundTheme.currentColor())
+    }
+
+    @Test func automationHistoryStepsExactlyOneChromiumEntry() throws {
+        let history = Data("""
+        {"currentIndex": 3, "entries": [{"id": 10}, {"id": 11}, {"id": 12}, {"id": 13}, {"id": 14}]}
+        """.utf8)
+        #expect(BrowserPanel.historyEntryID(in: history, offset: -1) == 12)
+        #expect(BrowserPanel.historyEntryID(in: history, offset: 1) == 14)
+        #expect(BrowserPanel.historyEntryID(in: history, offset: 2) == nil)
+        #expect(BrowserPanel.historyEntryID(in: Data("{}".utf8), offset: -1) == nil)
+    }
+
+    @Test func personBackUsesTheEnginesOwnBack() throws {
+        let provider = FakeChromiumProvider()
+        provider.initialState = BrowserPageState(url: URL(string: "https://example.com/"), canGoBack: true)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        panel.goBack(dialogOwner: .user)
+        #expect(try #require(provider.pages.first).backCount == 1)
+    }
+
+    @Test func automationNavigationCompletesWhenTheChromiumLoadCommits() async throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let url = URL(string: "https://example.com/next")!
+        let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
+        #expect(try #require(provider.pages.first).loadedURLs.last == url)
+        panel.handleEnginePageEvent(.navigationCommitted(url))
+        let outcome = await panel.automationNavigationCoordinator.wait(for: ticket)
+        #expect(outcome == .committed)
+    }
+
+    @Test func automationNavigationReportsAChromiumLoadFailure() async throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let url = URL(string: "https://nope.invalid/")!
+        let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
+        panel.handleEnginePageEvent(.navigationFailed(url, code: -105, message: "NAME_NOT_RESOLVED", showsEngineErrorPage: true))
+        let outcome = await panel.automationNavigationCoordinator.wait(for: ticket)
+        #expect(outcome == .failed("navigation failed"))
     }
 
     @Test func closingTheChromiumPanelClosesItsPage() {
