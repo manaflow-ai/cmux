@@ -368,7 +368,9 @@ public final class CEFBrowserPage: BrowserPage {
                 if cefState.faviconURL == nil { emit(.faviconChanged(nil)) }
             }
         case .loadStarted(let url, _):
+            // CEF's OnLoadStart runs once the navigation has committed.
             emit(.navigationStarted(url))
+            emit(.navigationCommitted(url))
         case .loadFinished:
             emit(.navigationFinished(browser.state.url))
         case .loadFailed(let code, let message, let url, let chromiumInterstitial):

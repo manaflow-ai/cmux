@@ -152,7 +152,10 @@ extension BrowserPanel {
             applyEnginePageState(state)
         case .faviconChanged(let data):
             applyEnginePageFavicon(data)
+        case .navigationCommitted:
+            finishEngineNavigation(failure: nil)
         case .navigationFinished(let url):
+            finishEngineNavigation(failure: nil)
             historyStore.recordVisit(url: url, title: pageTitle)
         case .closeRequested:
             webViewDidRequestClose?()
@@ -165,6 +168,7 @@ extension BrowserPanel {
                 fallBackToWebKit(reason: reason)
                 return
             }
+            finishEngineNavigation(failure: "navigation failed")
             applyEnginePageNavigationFailure(url: url)
         default:
             break
@@ -186,7 +190,9 @@ extension BrowserPanel {
             }
         }
         enginePage.load(request)
-        onNavigationStarted?(nil)
+        // A WKNavigation-shaped callback cannot carry an engine load; tie the
+        // load to automation's pending wait instead, and finish it from page events.
+        associateEngineNavigation(targetURL: request.url)
     }
 
     /// Steps a non-WebKit page's history.
@@ -222,6 +228,40 @@ extension BrowserPanel {
         let target = current + offset
         guard entries.indices.contains(target) else { return nil }
         return entries[target]["id"] as? Int
+    }
+
+    /// A load the engine page started, as automation's navigation identity.
+    private final class EngineNavigationToken {}
+
+    /// Associates the engine page's newest load with automation's waiting
+    /// navigation ticket, if one is pending.
+    func associateEngineNavigation(targetURL: URL?) {
+        let token = EngineNavigationToken()
+        activeEngineNavigationToken = token
+        automationNavigationCoordinator.didAssociate(
+            instanceID: webViewInstanceID,
+            navigationID: ObjectIdentifier(token),
+            targetURL: targetURL
+        )
+    }
+
+    /// Finishes automation's wait for the engine page's newest load.
+    func finishEngineNavigation(failure: String?) {
+        guard let token = activeEngineNavigationToken else { return }
+        activeEngineNavigationToken = nil
+        if let failure {
+            automationNavigationCoordinator.didFail(
+                instanceID: webViewInstanceID, navigationID: ObjectIdentifier(token), message: failure
+            )
+        } else {
+            automationNavigationCoordinator.didCommit(instanceID: webViewInstanceID, navigationID: ObjectIdentifier(token))
+        }
+    }
+
+    /// Reloads the non-WebKit page for automation and ties the reload to its ticket.
+    func beginEngineReloadForAutomation(_ page: any BrowserPage, targetURL: URL) {
+        page.reload()
+        associateEngineNavigation(targetURL: targetURL)
     }
 
     /// Closes the non-WebKit page and stops mirroring it. Idempotent.

@@ -2143,6 +2143,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
     @Published var isEngineDevToolsOpen = false
     var enginePageEventsTask: Task<Void, Never>?
+    /// Identity of the latest load handed to the non-WebKit page, so browser
+    /// automation can wait for that load to commit (`automationNavigationCoordinator`).
+    var activeEngineNavigationToken: AnyObject?
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
     let pageOverlays = BrowserPageOverlayCoordinator()

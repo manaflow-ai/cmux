@@ -261,6 +261,37 @@ import Testing
         #expect(try #require(provider.pages.first).backCount == 1)
     }
 
+    @Test func automationNavigationCompletesWhenTheChromiumLoadCommits() async throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let url = URL(string: "https://example.com/next")!
+        let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
+        #expect(try #require(provider.pages.first).loadedURLs.last == url)
+        panel.handleEnginePageEvent(.navigationCommitted(url))
+        let outcome = await panel.automationNavigationCoordinator.wait(for: ticket)
+        #expect(outcome == .committed)
+    }
+
+    @Test func automationNavigationReportsAChromiumLoadFailure() async throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let url = URL(string: "https://nope.invalid/")!
+        let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
+        panel.handleEnginePageEvent(.navigationFailed(url, code: -105, message: "NAME_NOT_RESOLVED", showsEngineErrorPage: true))
+        let outcome = await panel.automationNavigationCoordinator.wait(for: ticket)
+        #expect(outcome == .failed("navigation failed"))
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(
