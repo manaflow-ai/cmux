@@ -30,6 +30,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       - scripts/cmux-next/state-roots-baseline.tsv
@@ -176,6 +177,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       # Local packages CmuxNext depends on and files its tests read
@@ -1048,6 +1050,7 @@ jobs:
           python3 tests/test_ci_launch_budget_gate.py
           python3 tests/test_strings_output_encoding.py
           bash tests/test_strip_release_bundle.sh
+          python3 tests/test_app_symbol_map.py
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh

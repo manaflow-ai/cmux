@@ -741,3 +741,7 @@ body,
 .hc-gate-error {
   color: var(--hc-danger);
 }
+/* The field's right-click menu host adds no box of its own. */
+.hc-composer-field-menu {
+  display: contents;
+}
