@@ -529,8 +529,7 @@
 .acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
 /* The speed toggle (FastToggle.tsx, Leo 2026-10-15): a round 28 px bolt left of the mic, drawn as
    the mic is (no bezel, muted ink, a 16 px glyph, the row's hover wash and focus ring). On, its ink
-   is the accent; Ultrafast fills the bolt. Its slot adds no box, so the cluster's gap is the row's. */
-.acpmux-speed-slot { display: contents; }
+   is the accent; Ultrafast fills the bolt. */
 .acpmux-fast {
   flex: none;
   display: grid;

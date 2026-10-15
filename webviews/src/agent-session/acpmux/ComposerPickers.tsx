@@ -11,7 +11,7 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
-import { FastToggle, type SpeedTiers } from "./FastToggle";
+import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -277,6 +277,7 @@ export function ComposerPickers({
           onPick: fastMode.onPick,
         }
       : undefined;
+  useSpeedToggle(speedTiers);
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -617,12 +618,7 @@ export function ComposerPickers({
       )}
     </div>
   );
-  return (
-    <>
-      {chips}
-      {speedTiers && <FastToggle speed={speedTiers} />}
-    </>
-  );
+  return chips;
 }
 
 /// A control the session has not reported yet, as this harness's chats last showed it: the real

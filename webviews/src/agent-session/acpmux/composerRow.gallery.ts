@@ -83,7 +83,12 @@ export default agentPaneEntry({
   height: 300,
   widths: { narrow: 420, normal: 720, wide: 1100 },
   anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-box" }],
-  covers: ["agent-session/acpmux/Composer.tsx#Composer", "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
+  covers: [
+    "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
+    "agent-session/acpmux/FastToggle.tsx#FastToggle",
+    "agent-session/acpmux/FastToggle.tsx#SpeedToggleHost",
+  ],
   variants: {
     "claude-auto": {
       note: "Claude Opus 5.5, Medium and Auto in one evenly spaced left cluster; mic and Send on the right.",
