@@ -9,8 +9,8 @@ use std::sync::Arc;
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 
-use crate::Actor;
 use crate::mux::*;
+use crate::{Actor, PaneId, SurfaceId};
 
 /// Where closing pane `pane_id` sits in the split tree of `screen_id`:
 /// `neighbor` (the pane next to it in its split), `direction` (the side
