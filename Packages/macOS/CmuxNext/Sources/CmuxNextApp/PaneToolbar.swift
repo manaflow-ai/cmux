@@ -87,7 +87,11 @@ final class PaneToolbar {
     private static func state(_ pane: PaneController) -> State {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         guard let key = pane.stripModel.selectedID?.rawValue else { return State(pinned: pinned) }
-        guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else { return State(pinned: pinned, behind: true) }
+        guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
+            // A window's own page or browser tab is never in the store: no "…", not a stale bar.
+            let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
+            return State(pinned: pinned, behind: !local)
+        }
         // The pane's own workspace, not a store scan: this runs for every pane.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
         return State(target: key, kind: kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)), zoomed: zoomed, pinned: pinned)
