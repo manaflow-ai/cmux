@@ -39,6 +39,7 @@ extension BrowserPanel {
             isVisible: isWebViewVisibleInUI,
             hiddenAt: hiddenWebViewIdleSince,
             isEvictable: hiddenWebViewDiscardManager.isEligibleForMemoryBudgetDiscard(now: now)
+                && enginePageAllowsBudgetDiscard(now: now)
         )
     }
 

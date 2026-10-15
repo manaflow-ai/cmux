@@ -43,6 +43,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var downloads: [Int32: BrowserPageDownload] = [:]
     /// Hidden-page captures in flight and whether the pane shows the page (CEFBrowserPage+HiddenCapture).
     var hiddenCapture = CEFBrowserPageCaptureState()
+    /// Memory Saver's busy-probe bookkeeping (CEFBrowserPage+MemoryReclaiming).
+    var reclaimProbeState = BrowserPageReclaimProbe()
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
