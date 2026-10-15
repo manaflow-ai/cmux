@@ -16,6 +16,8 @@ import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
+import { useStashedCount } from "./stashed";
+import { StashedLink } from "./StashedLink";
 import {
   canonicalAddress,
   defaultSelection,
@@ -50,7 +52,7 @@ export type NewTabScreenActions = {
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
-  onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
+  onJump(target: "tab" | "workspace" | "here" | "closed" | "stashed", id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
@@ -178,6 +180,7 @@ export function NewTabScreen(props: Props) {
   const chrome = useComposerChrome();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
+  const stashed = useStashedCount();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
@@ -677,6 +680,7 @@ export function NewTabScreen(props: Props) {
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
+      {sections.stashed && <StashedLink count={stashed} onOpen={() => props.onJump("stashed", "all")} />}
       {sections.chats !== "none" && !allChats && (
         <ChatCards
           cards={cards}

@@ -111,6 +111,9 @@ impl WorkspaceRegistry {
         };
         if before_patch.is_some() {
             crate::state::closed_history_store::flush_pending_group(&tx)?;
+            // A stash's mark ends with its patch, whether or not the
+            // closed-history capture read it.
+            crate::state::stash_store::clear_capture_mark(&tx)?;
         }
         // After the patch: its closed-history capture reads the groups the
         // close takes (Close Group) before this write drops them.
