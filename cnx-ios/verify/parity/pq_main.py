@@ -45,3 +45,42 @@ def acpmux_sessions():
     """The rig Mac's acpmux sessions (harness, mode, policy, cwd), newest last."""
     r = pq.rsh("cd ~/cnx-ios-e2e && ls >/dev/null; true")
     return r.stdout
+
+
+def restart_shell():
+    """Restart Shell Here, live (SECURITY.md rule 4): a terminal the Mac keeps after its
+    shell ends (`set-terminal-keep`, the Mac's Keep Running), the shell exits, the phone
+    shows the ended shell and restarts it; the Mac lists a NEW shell process for the same
+    tab, on the Mac (its pid on the rig Mac, a new incarnation)."""
+    import pq_tabs as t
+    ws = t.seed("restart", terminals=1)
+    name = ws.get("name") or ws.get("title")
+    surface = t.ws_tabs(ws)[0][1]["surface"]
+    t.mac_raw({"cmd": "set-terminal-keep", "surface": surface, "keep": True})
+    s, m, j = pq.ctx()
+    pq.rec_start("restart-shell")
+    try:
+        t.open_ws(j, name)
+        t.open_tab(j, "p2tabs-t1")
+        before = t.mac_raw({"cmd": "process-info", "surface": surface})
+        # The shell exits (typed on the phone, as the person would).
+        pq.type_text("exit\n")
+        dead, took = t.until(lambda: next((tab for _, tab in t.ws_tabs(t.mac_workspace(name=name))
+                                           if tab["surface"] == surface and tab.get("dead")), None),
+                             timeout=30, what="the shell to end on the Mac")
+        btn = s.wait(label="Restart Shell Here", kind="Button", timeout=20)
+        check(btn, "no Restart Shell Here on the phone")
+        pq.shot("restart-overlay")
+        s.tap_el(btn)
+        live, took2 = t.until(lambda: next((tab for _, tab in t.ws_tabs(t.mac_workspace(name=name))
+                                            if tab["surface"] == surface and not tab.get("dead")), None),
+                              timeout=30, what="the Mac to restart the shell")
+        after = t.mac_raw({"cmd": "process-info", "surface": surface})
+        time.sleep(2)
+        pq.type_text("echo restarted-$((6*7)) $$\n")
+        time.sleep(3)
+        pq.shot("restart-after")
+        return {"ended_s": round(took, 1), "restarted_s": round(took2, 1),
+                "before": json.dumps(before)[:300], "after": json.dumps(after)[:300]}
+    finally:
+        pq.rec_stop()
