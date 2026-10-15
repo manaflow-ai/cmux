@@ -247,6 +247,14 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
             ),
+            // Labs (`labs.sidebarStatusGrouping`): unavailable, with the reason, until the flag is on.
+            ActionDescriptor(
+                id: "sidebar.groupBy.status", title: t("action.sidebar.groupBy.status", "Group by Status"),
+                keywords: ["sidebar", "projects", "group", "status", "agents", "needs you", "working", "done"], category: .sidebar,
+                symbol: "circle.lefthalf.filled",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 112, folder: .group)])
+            ),
             // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
             // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar's
             // Options offers the ones that do not apply now.

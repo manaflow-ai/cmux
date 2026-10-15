@@ -3,17 +3,25 @@ import CmuxNextDesign
 import CmuxNextSettings
 import os
 
-/// Group ▸ Group by None / Group by Folder in the sidebar's menu (Leo
-/// 2026-10-06). Each writes `sidebar.groupBy`, so the choice follows cmux.json;
-/// the current one is unavailable.
+/// Group ▸ Group by None / Group by Folder / Group by Status in the sidebar's
+/// menu (Leo 2026-10-06; Status behind `labs.sidebarStatusGrouping`). Each
+/// writes `sidebar.groupBy`, so the choice follows cmux.json; the current one
+/// is unavailable.
 enum SidebarGroupByActions {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let current = { context.services.settings?.snapshot.sidebarSections.groupBy ?? .none }
-        let choices: [(ActionID, SidebarGroupBy)] = [("sidebar.groupBy.none", .none), ("sidebar.groupBy.folder", .folder)]
+        // Group by Status is a Labs look: until `labs.sidebarStatusGrouping` is on it says so
+        // instead of saving a value the sidebar reads as no grouping.
+        let labsOff = { context.services.settings?.snapshot.lab(.sidebarStatusGrouping) != true }
+        let choices: [(ActionID, SidebarGroupBy)] = [("sidebar.groupBy.none", .none), ("sidebar.groupBy.folder", .folder),
+                                                    ("sidebar.groupBy.status", .status)]
         for (id, value) in choices {
-            registry.bind(id, unavailable: { current() == value ? SidebarSectionStrings.alreadyGrouped : nil }) { invocation in
+            registry.bind(id, unavailable: {
+                if value == .status, labsOff() { return SidebarSectionStrings.statusGroupingOff }
+                return current() == value ? SidebarSectionStrings.alreadyGrouped : nil
+            }) { invocation in
                 try write(value, invocation, context)
             }
         }

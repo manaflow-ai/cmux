@@ -40,6 +40,10 @@ enum SidebarSectionStrings {
     static var alreadyGrouped: String {
         String(localized: "sidebarSections.alreadyGrouped", defaultValue: "the list is already grouped this way", table: "SidebarSections", bundle: .module)
     }
+    static var statusGroupingOff: String {
+        String(localized: "sidebarSections.statusGroupingOff", defaultValue: "Group by Status is a Labs feature: turn on Group Sidebar by Status in Settings > Labs",
+               table: "SidebarSections", bundle: .module)
+    }
     static var noBottomArea: String {
         String(localized: "sidebarSections.noBottomArea", defaultValue: "the sidebar has no bottom area; sections go above the workspaces",
                table: "SidebarSections", bundle: .module)
