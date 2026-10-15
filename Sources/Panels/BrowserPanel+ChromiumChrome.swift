@@ -61,8 +61,8 @@ extension BrowserPanel {
     /// hands it over (`allowPopup`, then `didCreatePopup`) and the panel hosts
     /// it as a Chromium tab next to itself in its pane, like a WebKit panel's
     /// new-tab links (`adoptChromiumPopup`). A background tab (Cmd-click) does
-    /// not take focus. A sized popup opens as a tab too: Classic's popup
-    /// window hosts WebKit popups only.
+    /// not take focus. A sized popup (`window.open` with features) opens in
+    /// Classic's popup window, as on WebKit (`ChromiumPopupWindowController`).
     ///
     /// References: design spec §2 (Classic's pane tab bar is the tab strip),
     /// cmux Next `CEF/CEFPaneHost+Popups.swift`, `CEF/CEFWindowPolicy.swift`,
@@ -76,7 +76,13 @@ extension BrowserPanel {
     func adoptChromiumPopup(_ popup: any BrowserPage, for request: BrowserPageOpenRequest) {
         let focus: Bool
         switch request.placement {
-        case .foregroundTab, .popup: focus = true
+        case .popup(let width, let height):
+            // Sized popups (sign-in, payment) open in the same popup window
+            // WebKit panels use (design review #21050, spec §0.1).
+            ChromiumPopupWindowController.present(popup, width: width, height: height,
+                                                  opener: enginePage?.contentView.window)
+            return
+        case .foregroundTab: focus = true
         case .backgroundTab: focus = false
         }
         guard let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: id, preferredWorkspaceId: workspaceId)?.workspace,
