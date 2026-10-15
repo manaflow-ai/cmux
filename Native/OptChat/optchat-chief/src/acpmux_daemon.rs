@@ -408,10 +408,10 @@ pub fn take_started() -> Option<Started> {
 /// every agent host of its home (`acpmux daemon shutdown`). Whether it
 /// stopped one.
 pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
-    match take_started() {
-        Some(mut started) if !started.gone() => started.shutdown(log),
-        _ => false,
-    }
+    let Some(mut started) = take_started() else {
+        return false;
+    };
+    !started.gone() && started.shutdown(log)
 }
 
 /// Stops the daemon this host's `ACPMUX_HOME`/`ACPMUX_SOCKET` name with
