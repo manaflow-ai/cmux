@@ -33,6 +33,11 @@ final class SSHService {
     @ObservationIgnored private var forgotten: Set<String> = []
     /// Saved hosts on the home daemon's current connection (`SSHService+SavedHosts`).
     @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
+    /// Machines with an install (and its handoffs) running from this app: one at a time (cx-3r9mt).
+    @ObservationIgnored private var installing: Set<String> = []
+    /// `machine|bundled commit` pairs whose automatic update already ran in this app run, so a
+    /// failed one is not tried on every reconnect.
+    @ObservationIgnored private var autoUpdated: Set<String> = []
 
     init(machines: MachineRegistry, bundleID: String?) {
         self.machines = machines
@@ -305,7 +310,30 @@ final class SSHService {
             session.offersInstall = false
             offerInstall?(session)
         }
-        if status == .connected { session.lastError = nil }
+        if status == .connected {
+            session.lastError = nil
+            // task-owner: one update check per connect; it installs only an older remote build
+            Task { await updateIfOlder(session) }
+        }
+    }
+
+    /// cx-3r9mt (hq-6d 2026-10-15): on connect, the app's bundled cmux-tui says whether the
+    /// machine's build is older (`cmux-tui remote update-need`, capabilities first, then build
+    /// time); only then the app installs its build and hands the session daemon and the agent
+    /// daemon over (terminals and hosted agents kept). A newer, equal or unordered remote build is
+    /// left alone; a failed update leaves the machine as it was (the app's own tolerance stays).
+    func updateIfOlder(_ session: SSHMachineSession) async {
+        guard !policyDisabled, let binary, case .installed(let probe)? = await session.link.lastReport?.binary,
+              !probe.json.isEmpty, let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
+        let tried = session.machineID + "|" + commit
+        guard !autoUpdated.contains(tried), !installing.contains(session.machineID) else { return }
+        guard let answer = await RemoteUpdateNeed.ask(binary: binary, probe: probe) else { return }
+        logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
+        guard answer.need == "older" else { return }
+        autoUpdated.insert(tried)
+        do { try await install(session) } catch {
+            logger.error("automatic update of \(session.host.destination.description, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: Install
@@ -322,6 +350,11 @@ final class SSHService {
         guard let platform = report?.platform else { throw ActionFailure(message: RemoteStrings.unsupportedPlatform(host.label)) }
         // The running daemon of this session, restarted onto the new build.
         let daemonPID = session.daemon.connection != nil ? session.daemon.identity?.pid : nil
+        // One install and handoff per machine at a time (cx-3r9mt): this app's own, then the
+        // machine's lock for every Mac (taken by the install script, given back below).
+        guard installing.insert(session.machineID).inserted else { throw ActionFailure(message: RemoteStrings.installFailure(RemoteInstallError.remote(status: RemoteInstallError.busyStatus, message: "another install runs"))) }
+        defer { installing.remove(session.machineID) }
+        var lockedPlan: RemoteInstallPlan?
         await link.handle(.installStarted)
         session.lastError = nil
         do {
@@ -330,6 +363,7 @@ final class SSHService {
                                                 remoteBinary: host.remoteBinary)
             // Turned off while planning: refuse before the remote work starts (never mid-install).
             if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
+            lockedPlan = plan
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment) { phase in
                 // task-owner: one main-actor hop per install step
                 Task { @MainActor in session.installPhase = phase }
@@ -340,8 +374,10 @@ final class SSHService {
             // The machine's agent daemon still runs the replaced binary (cx-brq9m): hand it over to
             // the new one, keeping its agents, before the next chat needs it.
             await handOffAgentDaemonAfterInstall(session)
+            await installer.releaseLock(plan, on: host, environment: environment)
             reconnect(session)
         } catch {
+            if let lockedPlan { await installer.releaseLock(lockedPlan, on: host, environment: environment) }
             session.installPhase = nil
             let message = RemoteStrings.installFailure(error)
             session.lastError = message
