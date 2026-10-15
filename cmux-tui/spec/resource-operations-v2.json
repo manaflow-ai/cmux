@@ -14805,7 +14805,7 @@
               "min_length": 3,
               "max_length": 16
             },
-            "description": "Fit a desktop layout instead of a device: an aspect ratio W:H such as 16:9 (whole numbers of 1 to 64, at most 4:1 either way), or a fixed layout width in CSS px such as 1280 (640 to 3840). Give it alone."
+            "description": "Fit a desktop layout instead of a device: an aspect ratio W:H such as 16:9 (whole numbers of 1 to 64, at most 4:1 either way), or a fixed layout width in CSS px such as 1280 (640 to 3840), or off to end the emulation (as browser.tab.emulate.clear). Give it alone."
           },
           "expected_revision": {
             "required": false,
