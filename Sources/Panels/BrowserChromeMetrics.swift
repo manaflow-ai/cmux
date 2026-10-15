@@ -124,5 +124,20 @@ struct BrowserChromeMetrics: Equatable {
     /// Horizontal padding inside the engine fallback strip. Base `8`.
     var noticeStripHorizontalPadding: CGFloat { scaled(8) }
 
+    /// Edge of a Chromium extension action icon inside its accessory button. Base 16.
+    var extensionActionIconSize: CGFloat { scaled(16) }
+
+    /// Row height of the Extensions popover (matches the profile popover rows). Base 24.
+    var extensionsMenuRowHeight: CGFloat { scaled(24) }
+
+    /// Minimum width of the Extensions popover. Base 280.
+    var extensionsMenuMinimumWidth: CGFloat { scaled(280) }
+
+    /// Edge of an extension icon in the Extensions popover rows. Base 16.
+    var extensionsMenuIconSize: CGFloat { scaled(16) }
+
+    /// Most pinned extension actions shown in the toolbar row (design spec section 3a).
+    static let maximumPinnedExtensionActions = 6
+
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }

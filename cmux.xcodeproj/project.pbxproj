@@ -481,6 +481,12 @@
 		279D03070EB4EF6D9A2759C5 /* BrowserEngineSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCB9513322321D01C4B712B9 /* BrowserEngineSocketTests.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
+		CEFE0E000000000000000066 /* BrowserExtensionActionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */; };
+		CEFE0E000000000000000002 /* BrowserExtensionDialogPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000001 /* BrowserExtensionDialogPresenter.swift */; };
+		CEFE0E000000000000000004 /* BrowserExtensionPromptSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000003 /* BrowserExtensionPromptSheetView.swift */; };
+		CEFE0E00000000000000006A /* BrowserExtensionsMenuRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000069 /* BrowserExtensionsMenuRow.swift */; };
+		CEFE0E000000000000000068 /* BrowserExtensionsMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000067 /* BrowserExtensionsMenuView.swift */; };
+		CEFE0E00000000000000006C /* BrowserExtensionToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E00000000000000006B /* BrowserExtensionToolbar.swift */; };
 		BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */; };
 		129980000000000000000001 /* BrowserFailedNavigationReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129980000000000000000002 /* BrowserFailedNavigationReloadTests.swift */; };
 		D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */; };
@@ -5246,6 +5252,12 @@
 		FCB9513322321D01C4B712B9 /* BrowserEngineSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserEngineSocketTests.swift"; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
+		CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionActionButton.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000001 /* BrowserExtensionDialogPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionDialogPresenter.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000003 /* BrowserExtensionPromptSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionPromptSheetView.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000069 /* BrowserExtensionsMenuRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionsMenuRow.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000067 /* BrowserExtensionsMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionsMenuView.swift"; sourceTree = "<group>"; };
+		CEFE0E00000000000000006B /* BrowserExtensionToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionToolbar.swift"; sourceTree = "<group>"; };
 		BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationHandler.swift; sourceTree = "<group>"; };
 		129980000000000000000002 /* BrowserFailedNavigationReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFailedNavigationReloadTests.swift; sourceTree = "<group>"; };
 		D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFileDropNavigationGuard.swift; sourceTree = "<group>"; };
@@ -11598,6 +11610,13 @@
 				B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */,
 				B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */,
 				C0DE47010000000000000002 /* BrowserPanel+WebContentTermination.swift */,
+				CEFE0E00000000000000006B /* BrowserExtensionToolbar.swift */,
+				CEFE0E000000000000000069 /* BrowserExtensionsMenuRow.swift */,
+				CEFE0E000000000000000067 /* BrowserExtensionsMenuView.swift */,
+				CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */,
+				CEFE0E000000000000000005 /* BrowserPanel+Extensions.swift */,
+				CEFE0E000000000000000003 /* BrowserExtensionPromptSheetView.swift */,
+				CEFE0E000000000000000001 /* BrowserExtensionDialogPresenter.swift */,
 				B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */,
 				B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */,
 				AC7B24C10000000000000002 /* BrowserAuthCallbackNavigationPolicy.swift */,
@@ -15185,6 +15204,12 @@
 				E8D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift in Sources */,
 				E8346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
+				CEFE0E000000000000000066 /* BrowserExtensionActionButton.swift in Sources */,
+				CEFE0E000000000000000002 /* BrowserExtensionDialogPresenter.swift in Sources */,
+				CEFE0E000000000000000004 /* BrowserExtensionPromptSheetView.swift in Sources */,
+				CEFE0E00000000000000006A /* BrowserExtensionsMenuRow.swift in Sources */,
+				CEFE0E000000000000000068 /* BrowserExtensionsMenuView.swift in Sources */,
+				CEFE0E00000000000000006C /* BrowserExtensionToolbar.swift in Sources */,
 				BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */,
 				D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,

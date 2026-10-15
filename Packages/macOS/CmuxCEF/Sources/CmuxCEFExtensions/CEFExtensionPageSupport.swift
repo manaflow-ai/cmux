@@ -1,3 +1,4 @@
+import AppKit
 public import CmuxBrowser
 public import CoreGraphics
 public import Foundation
@@ -65,6 +66,16 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
     public var extensionStore: BrowserExtensionStore { stores.store(for: profileID) }
     public var extensionTab: any BrowserExtensionTab { self }
     public var extensionActions: [BrowserExtensionAction] { actions }
+    public var openExtensionPopup: String? { openPopup }
+
+    @discardableResult
+    public func runExtensionAction(_ id: String, anchor: CGRect) -> Bool { run(id, anchor: anchor) }
+    public func hideExtensionPopup() { hidePopup() }
+    public func refreshExtensionActions() { refreshActions() }
+
+    public func showExtensionActionMenu(_ id: String, atScreenPoint point: CGPoint) {
+        showActionMenu(id, atScreenPoint: point, primaryScreenHeight: NSScreen.screens.first?.frame.height ?? 0)
+    }
 
     // MARK: Actions
 
