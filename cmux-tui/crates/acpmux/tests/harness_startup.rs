@@ -8,6 +8,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
@@ -140,7 +142,7 @@ async fn a_harness_on_the_login_path_reaches_clients_that_asked_during_startup()
         dir.join("loginsh"),
         format!(
             "#!/bin/sh\nsleep 2\nPATH={}:/usr/bin:/bin\nexport PATH\nexec /bin/sh -c \"$4\"\n",
-            dir.join("bin").display()
+            daemon_env::sh_quote(dir.join("bin").display())
         ),
     );
 
