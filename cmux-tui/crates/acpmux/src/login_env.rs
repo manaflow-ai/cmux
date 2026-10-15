@@ -127,7 +127,7 @@ pub fn outcome() -> Outcome {
 pub struct Plan {
     /// Run the login shell (in the background or awaited, see `wait`).
     pub run_shell: bool,
-    /// Agent spawns wait for that run (bounded by `TIMEOUT`) only when
+    /// Agent spawns wait for that run (bounded by `MAX_ROUNDS` x `TIMEOUT`) only when
     /// Claude has no sign-in without it (the daemon's environment, settings
     /// files, credentials file, keychain) and there is no matching cache or
     /// the cache names a secret whose value this process lacks.
@@ -183,17 +183,19 @@ fn now_secs() -> u64 {
 /// One login shell read at a time: the startup read and a refresh never
 /// overlap, so the last cache written is the newest read.
 static IMPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-/// Reads in a row when the startup files keep changing during a read.
-const MAX_ROUNDS: usize = 4;
+/// Reads in a row when the startup files change during a read: one more
+/// read catches an edit made during the first.
+const MAX_ROUNDS: usize = 2;
 
-/// Run the login shell (each run bounded by `TIMEOUT`) and remember its
-/// environment, one read at a time. A startup file edited during a read
-/// is read again, so the result never lags an edit. Returns true when the
-/// children's environment changed.
+/// Run the login shell (each run bounded by `TIMEOUT`, so at most
+/// `MAX_ROUNDS` x `TIMEOUT` in all) and remember its environment, one read
+/// at a time. A startup file edited during a read is read again, so the
+/// result never lags an edit. Returns true when the children's environment
+/// changed.
 pub async fn import() -> bool {
     let _one = IMPORT.lock().await;
     let mut changed = false;
-    for _ in 0..MAX_ROUNDS {
+    for round in 1..=MAX_ROUNDS {
         // The fingerprint of the files this read sees, taken before it.
         let read = fingerprint();
         STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(read.clone());
@@ -201,7 +203,17 @@ pub async fn import() -> bool {
         if outcome() == Outcome::Failed || fingerprint() == read {
             break;
         }
-        tracing::info!("shell startup files changed during the read; reading them again");
+        if round == MAX_ROUNDS {
+            // The shell itself rewrites a startup file (a tool appending to
+            // ~/.zshrc): take the files as they are now, so only a later
+            // edit reads them again, never a loop of login shells.
+            tracing::info!(
+                "shell startup files change on every read; reading them on the next edit"
+            );
+            STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(fingerprint());
+        } else {
+            tracing::info!("shell startup files changed during the read; reading them again");
+        }
     }
     changed
 }
