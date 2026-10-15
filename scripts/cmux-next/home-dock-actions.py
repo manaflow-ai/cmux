@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tagged-app check of the docked Home's actions (cx-ebm.59.5, classic Home off).
 
-Home is the home workspace with hq-ec's `home-channels` page in a left dock. Through the app's
+Home is the home workspace with the `home-dock` tab in a left dock (Messages by default; this check switches it
+to Channels first with home.switchView, home-dock-switch.py checks Messages). Through the app's
 control socket only (`action.run`, no system input) it checks:
 - home.show shows Home and the sidebar's Home item is the selected item;
 - home.openConversation {conversation} is not refused: the docked page goes to
@@ -121,6 +122,8 @@ try:
     poll(lambda: os.path.exists(SOCK) and (rpc("debug.windows") or {}).get("windows"), 240)
     shown = poll(lambda: (lambda r: None if refused(r) else r)(run("home.show")), 120)
     check("home.show is not refused", bool(shown), run("home.show"))
+    switched = poll(lambda: (lambda r: None if refused(r) else r)(run("home.switchView", {"view": "channels"})), 60)
+    check("home.switchView {view: channels} is not refused", bool(switched), run("home.switchView", {"view": "channels"}))
     painted = poll(lambda: page().get("painted"), 120)
     check("the docked home-channels page paints", bool(painted), page())
     items = lambda: [i for w in (rpc("debug.sidebar_rows") or {}).get("windows") or [] for i in w.get("items") or []]
@@ -171,7 +174,7 @@ finally:
     rpc("action.run", {"id": "endAgents"}, timeout=10)
     for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):
         if os.path.isdir(acp):
-            subprocess.run([ACPMUX, "daemon", "shutdown"], env=dict(env, ACPMUX_HOME=acp), capture_output=True, timeout=30)
+            subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=dict(env, ACPMUX_HOME=acp), capture_output=True, timeout=30)
     if STOP:
         subprocess.run([STOP], capture_output=True, timeout=180)
     shutil.rmtree(SCRATCH, ignore_errors=True)

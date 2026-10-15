@@ -13,7 +13,8 @@ import type { Api, Context, Model, ProviderStreams, TranscriptContext } from "@e
  * pi-ai's faux core streams the answer and estimates usage, including prompt-cache reads by
  * session id, so the cache accounting path runs too.
  *
- * Turn calls: "zoom(id, n)" or "date(id)" in the newest user text makes it call that tool, then
+ * Turn calls: "zoom(id, n)" or "date(id)" in the newest user text makes it call that tool (and
+ * "tool:<name> {json}" calls any tool with those arguments), then
  * it answers with the tool result; anything else gets "[model] reply to: <text>". A text with
  * "THINK" also streams a thought first. Compactor calls (system starts "You write the memory of")
  * answer a one-line summary; a step containing "OVERSHOOT" first answers 600 bytes so the size
@@ -128,24 +129,38 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   if (zoom) return fauxAssistantMessage([fauxToolCall("zoom", { id: Number(zoom[1]), n: Number(zoom[2]) })], { stopReason: "toolUse" });
   const date = /date\((\d+)\)/.exec(text);
   if (date) return fauxAssistantMessage([fauxToolCall("date", { id: Number(date[1]) })], { stopReason: "toolUse" });
+  // "tool:<name> <json args>" calls any registered tool (the hands e2e drives `hands` and `agent` this way).
+  const anyTool = /tool:([a-z_]+)\s+(\{[\s\S]*\})\s*$/.exec(text);
+  if (anyTool) {
+    try {
+      return fauxAssistantMessage([fauxToolCall(anyTool[1]!, JSON.parse(anyTool[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" });
+    } catch {
+      // Not JSON: answer as text below.
+    }
+  }
   const reply = fauxText(`[${model.id}] reply to: ${text.slice(0, 200)}`);
   return fauxAssistantMessage(text.includes("THINK") ? [fauxThinking("pondering the request"), reply] : [reply]);
 };
 
 let core: ReturnType<typeof createFauxCore> | undefined;
+let slowCore: ReturnType<typeof createFauxCore> | undefined;
+
+/** A turn whose newest user text holds "SLOW" streams in small tokens over a few seconds (live-frame tests). */
+const isSlow = (context: TranscriptContext | Context): boolean => {
+  const users = (context as { messages: Array<{ role: string; content: unknown }> }).messages.filter((m) => m.role === "user");
+  return (blocksOf(users[users.length - 1]?.content).at(-1) ?? "").includes("SLOW");
+};
 
 export function fakeStreams(): ProviderStreams {
   core ??= createFauxCore({ api: "fake", provider: "fake", tokenSize: { min: 64, max: 64 } });
-  const c = core;
-  const next = () => c.appendResponses([respond]);
+  slowCore ??= createFauxCore({ api: "fake", provider: "fake", tokenSize: { min: 3, max: 3 }, tokensPerSecond: 40 });
+  const pick = (context: TranscriptContext | Context) => {
+    const c = isSlow(context) ? slowCore! : core!;
+    c.appendResponses([respond]);
+    return c;
+  };
   return {
-    stream: (model: Model<Api>, context, options) => {
-      next();
-      return c.stream(model, context, options);
-    },
-    streamSimple: (model: Model<Api>, context, options) => {
-      next();
-      return c.streamSimple(model, context, options);
-    },
+    stream: (model: Model<Api>, context, options) => pick(context).stream(model, context, options),
+    streamSimple: (model: Model<Api>, context, options) => pick(context).streamSimple(model, context, options),
   };
 }

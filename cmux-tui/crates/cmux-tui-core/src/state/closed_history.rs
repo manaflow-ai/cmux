@@ -429,12 +429,7 @@ impl Mux {
                 return Ok(());
             }
             if live {
-                self.tab_group_add(
-                    StripRequest::local(actor, "closed.reopen"),
-                    &id,
-                    move |_| Ok(members),
-                    None,
-                )?;
+                self.rejoin_closed_tab_group(actor, &id, members)?;
             } else {
                 self.tab_group_create(
                     StripRequest::local(actor, "closed.reopen"),
@@ -444,6 +439,9 @@ impl Mux {
                     id.clone(),
                     archive["icon"].as_str().map(str::to_string),
                 )?;
+                if let Some(saved) = archive["saved_id"].as_str() {
+                    self.relink_saved_tab_group(actor, &id, saved)?;
+                }
             }
         }
         let outcome = self.tab_group_outcome(&id);
@@ -684,8 +682,19 @@ impl Mux {
                 })
                 .or_else(|| state.active_pane())
         });
+        // Back in its own pane, the tab is created at its recorded index in
+        // one change (one `tab-added` there; cx-d1xb8), not at the end and
+        // then moved, which a client animates across the strip. A pinned tab
+        // takes the place its pin gives it.
+        let index = recorded_index(record)
+            .filter(|_| pane.is_some() && pane == home && tab["pinned"].as_bool() != Some(true));
         let surface = match pane {
-            Some(pane) => self.reopen_tab_record(actor, pane, tab, true)?,
+            Some(pane) => match index {
+                Some(index) => tab_strip::tab_slot::scoped(pane, index, || {
+                    self.reopen_tab_record(actor, pane, tab, true)
+                })?,
+                None => self.reopen_tab_record(actor, pane, tab, true)?,
+            },
             // No workspace at all: the tab gets a workspace of its own.
             None => {
                 let first = self.new_workspace_as(actor, None, None)?.id;
@@ -719,12 +728,14 @@ impl Mux {
         Ok(())
     }
 
-    /// Put a tab that reopened in its own pane (`home`) back at its
-    /// recorded index (clamped). A pinned tab keeps the place its pin gave
-    /// it. A reopened tab is always the LAST tab of its pane (new tabs and
-    /// reattached views append), so `move_tab`'s insertion index equals the
-    /// recorded index (it only subtracts one for an index past the old
-    /// position).
+    /// Put a tab that reopened in its own pane (`home`) back at its recorded
+    /// index (clamped) when its creation did not already place it there. A
+    /// creation in `home` takes the scoped index, so this is a no-op (no move,
+    /// no event) unless the tab was created elsewhere: split off its neighbor
+    /// again (cx-gzh.32), or by a creation path that ignores the scope. Such
+    /// a tab is the LAST tab of its pane, so `move_tab`'s insertion index
+    /// equals the recorded index (it only subtracts one for an index past
+    /// the old position). A pinned tab keeps the place its pin gave it.
     fn restore_tab_index(
         self: &Arc<Self>,
         actor: &Actor,
@@ -736,8 +747,7 @@ impl Mux {
         if tab["pinned"].as_bool() == Some(true) {
             return;
         }
-        let Some(index) = record["index"].as_u64().and_then(|index| usize::try_from(index).ok())
-        else {
+        let Some(index) = recorded_index(record) else {
             return;
         };
         let original =
@@ -879,4 +889,9 @@ impl Mux {
         }
         Ok(())
     }
+}
+
+/// The strip index a closed tab member recorded in its pane.
+fn recorded_index(record: &Value) -> Option<usize> {
+    record["index"].as_u64().and_then(|index| usize::try_from(index).ok())
 }

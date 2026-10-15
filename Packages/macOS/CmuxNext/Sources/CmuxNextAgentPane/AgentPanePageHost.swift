@@ -10,6 +10,7 @@ enum AgentPanePageHost {
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
         let page = PageWebView(descriptor: .agent, root: root,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
+                               documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in
@@ -26,6 +27,7 @@ enum AgentPanePageHost {
         if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(.recentlyClosed(view.recentlyClosed))
         events.append(.editedFiles(view.editedFiles))

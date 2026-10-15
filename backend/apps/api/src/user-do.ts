@@ -127,13 +127,11 @@ export class UserDO extends OwnerDO<UserState> {
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     if (principal.agent === undefined) return super.submit(entity, principal, frame)
     const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
-    return {
-      frames: [
-        { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
-        { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }
-      ]
-    }
+    return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
+      { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }] }
   }
+  /** A Chief's own chief.create / chief.update from its Cloud brain (brain-chiefs.ts; DO RPC, no route reaches it): user-chief.ts `viaChief`. */
+  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> { return super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame) }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 

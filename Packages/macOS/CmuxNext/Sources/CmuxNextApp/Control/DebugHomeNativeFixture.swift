@@ -48,17 +48,21 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry | link | texts | typing | rows | resize | nudge, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | menu | geometry | link | texts | typing | rows | resize | nudge | list, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
         let view: HomeNativeTranscriptView?
         if let tab = params["tab"]?.stringValue {
             view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host
                 .flatMap(HomePageTab.transcript(in:))
         } else {
-            view = HomeNativeTranscriptView.shown(in: services.windows.active?.window)
+            // `window`: the Home view shown in that window (default: the active window's).
+            let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }
+            if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
+            view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
         guard let view else {
             return .object(["error": .string("no Home conversation is shown")])
@@ -132,7 +136,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // What the transcript view itself holds (its MessagesLab store), oldest first, to compare
             // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden).
             let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50)
-            return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) })])
+            return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
+                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }

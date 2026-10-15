@@ -33,9 +33,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
 | `tabs.cmdWClosesPinnedTabs` | boolean | `false` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
-| `tabs.tabBar.terminal` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Terminal Panes. Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette. |
-| `tabs.tabBar.browser` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Browser Panes. Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette. |
-| `tabs.tabBar.agent` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Agent Chats. Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette. |
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
 | `app.quitBehavior` | string | `"ask"` | `ask`, `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
@@ -96,6 +93,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.density` | string | `"compact"` | `compact`, `comfortable` | Density |
 | `app.uiScale` | real | `1` | 0.85 to 1.5 | Interface Scale |
 | `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
+| `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
 | `appearance.metrics.columnGap` | real |  | 0 to 24 | Column Gap |
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
@@ -191,6 +189,19 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.cmd9` | string | `"last"` | `last`, `ninth` | Command-9. Goes to the last item, as in browsers, or to the ninth. |
 | `sidebar.stepping` | string | `"allItems"` | `allItems`, `workspacesOnly` | Next and Previous Item. What Command-Control-] and Command-Control-[ step through. |
 | `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
+| `sidebar.hoverCards.enabled` | boolean | `true` |  | Show Hover Cards. A card with details opens when the pointer rests on a workspace or a tab. |
+| `sidebar.hoverCards.delay` | real | `1300` | 0 to 5000 | Hover Card Delay. How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once. |
+| `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |
+| `appearance.colorTransition.duration` | real | `200` | 0 to 2000 | Color Change Duration. How long a color change takes. 0 changes colors at once. |
+| `appearance.colorTransition.curve` | string | `"easeOut"` | `easeOut`, `easeInOut`, `linear`, `spring`, `cubicBezier` | Color Change Curve. How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values. |
+| `appearance.colorTransition.springResponse` | real | `0.3` | 0.05 to 2 | Spring Response. Seconds a spring color change takes to reach its new colors. |
+| `appearance.colorTransition.springDamping` | real | `1` | 0.1 to 2 | Spring Damping. 1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner. |
+| `appearance.colorTransition.bezierX1` | real | `0.42` | 0 to 1 | Bezier X1. A control point of the Custom (Bezier) curve, as in CSS cubic-bezier(). |
+| `appearance.colorTransition.bezierY1` | real | `0` | -1 to 2 | Bezier Y1. A control point of the Custom (Bezier) curve, as in CSS cubic-bezier(). |
+| `appearance.colorTransition.bezierX2` | real | `0.58` | 0 to 1 | Bezier X2. A control point of the Custom (Bezier) curve, as in CSS cubic-bezier(). |
+| `appearance.colorTransition.bezierY2` | real | `1` | -1 to 2 | Bezier Y2. A control point of the Custom (Bezier) curve, as in CSS cubic-bezier(). |
+| `appearance.colorTransition.colorSpace` | string | `"oklab"` | `oklab`, `srgb` | Color Blend Space. OKLab blends with even lightness. sRGB mixes the red, green and blue channels. |
+| `appearance.colorTransition.reduceMotion` | string | `"crossfade"` | `crossfade`, `instant`, `full` | With Reduce Motion. What color changes do while Reduce Motion is on in macOS. |
 | `sidebar.workspaceRow.icon` | boolean | `true` |  | Icon. The icon or emoji you chose for a workspace. |
 | `sidebar.workspaceRow.directory` | boolean | `false` |  | Folder |
 | `sidebar.workspaceRow.branch` | boolean | `false` |  | Git Branch |
@@ -265,6 +276,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
+| `browser.builtInAdBlocker` | boolean | `true` |  | Built-in uBlock Origin. The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts. |
 | `browser.hibernation` | string | `"moderate"` | `moderate`, `aggressive`, `off` | Hibernate Hidden Tabs. Frees memory; history and position are kept. Also accepts a number from 1 to 1440 in a raw profile. |
 | `browser.hibernationExclusions` | array | `[]` |  | Never Hibernate. Hosts such as mail.google.com or *.example.com. |
 | `browser.hibernatePinnedTabs` | boolean | `false` |  | Hibernate Pinned Tabs |
@@ -276,11 +288,12 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.omnibar.inlineAutocomplete` | boolean | `true` |  | Complete Addresses Inline. Completes a site you typed before or visit often. |
 | `browser.omnibar.maxRows` | real | `8` | 3 to 15 | Suggestions Shown |
 | `browser.omnibar.calculator` | boolean | `true` |  | Calculator Answers. Shows the answer to arithmetic you type. Return copies it. |
-| `browser.omnibar.glass` | string | `"transparent"` | `transparent`, `regular`, `clear`, `off` | Address Bar Glass. The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color. |
+| `browser.omnibar.glass` | string | `"off"` | `transparent`, `regular`, `clear`, `off` | Address Bar Glass. The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color. |
 | `browser.omnibar.glassTint` | string | `"background"` | `background`, `accent`, `none` | Glass Tint. The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none. |
 | `browser.omnibar.glassTintStrength` | real | `0.35` | 0 to 1 | Tint Strength |
 | `browser.omnibar.cornerRadius` | string | `"theme"` | `theme`, `capsule` | Address Bar Corners. Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile. |
 | `browser.omnibar.shadow` | boolean | `false` |  | Address Bar Shadow. A soft shadow under the glass address bar. |
+| `browser.omnibar.backgroundOpacity` | real | `0` | 0 to 1 | Address Bar Opacity. How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable. |
 | `browser.links.cmdClick` | string | `"backgroundTab"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Command-Click. In Chromium tabs, Download keeps Chrome's default. |
 | `browser.links.cmdShiftClick` | string | `"foregroundTab"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Command-Click. Shift-middle-click does the same. |
 | `browser.links.shiftClick` | string | `"newWindow"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Click. In Chromium tabs, Download keeps Chrome's default. |
