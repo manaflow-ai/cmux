@@ -242,8 +242,9 @@ pub fn brain_environment(
 }
 
 /// The home directory of this process's account in the user database
-/// (getpwuid_r); None where there is none (or off Unix).
-fn account_home() -> Option<String> {
+/// (getpwuid_r); None where there is none (or off Unix). A brain gets it as
+/// HOME, whoever starts it (the daemon, or `cmux chief`).
+pub fn account_home() -> Option<String> {
     #[cfg(unix)]
     {
         let mut buffer = vec![0 as libc::c_char; 4096];
@@ -728,6 +729,18 @@ impl Supervisor {
             return;
         };
         if is_default(&record) {
+            return;
+        }
+        // cx-tgf4h: no brain while agents are off in this build session (its
+        // turns could not start an agent; it would only hold the message).
+        if crate::agent_launch::disabled() {
+            let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
+            if !std::mem::replace(&mut brain.lock_noted, true) {
+                eprintln!(
+                    "cmux-tui: Chief brain {chief} does not start: {}",
+                    crate::agent_launch::MESSAGE
+                );
+            }
             return;
         }
         let mux_home = brain_home(&self.config.home, chief);
