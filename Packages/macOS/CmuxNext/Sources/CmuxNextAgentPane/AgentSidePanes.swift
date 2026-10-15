@@ -57,9 +57,20 @@ public final class AgentSidePanes {
         let created: @MainActor (String) -> Void = { [weak self] key in self?.record(key) }
         let finished: @MainActor () -> Void = { [weak self] in self?.next() }
         let opened: Bool
-        opened = hooks.split(session, created, finished)
+        if let anchor = sidePaneTab(chat: chat, pane: hooks.pane) {
+            opened = hooks.addTab(anchor, session, created, finished)
+        } else {
+            opened = hooks.split(session, created, finished)
+        }
         if !opened { next() }
         return opened
+    }
+
+    /// The newest side tab still open in a pane other than the chat's, nil for none.
+    private func sidePaneTab(chat: String, pane: (String) -> String?) -> String? {
+        tabs.removeAll { pane($0) == nil }
+        let chatPane = pane(chat)
+        return tabs.last { pane($0) != chatPane }
     }
 
     private func record(_ key: String) {

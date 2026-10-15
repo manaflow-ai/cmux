@@ -53,6 +53,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
+        // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
+        "_acpmux/btw": (["sessionId", "question", "model"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
