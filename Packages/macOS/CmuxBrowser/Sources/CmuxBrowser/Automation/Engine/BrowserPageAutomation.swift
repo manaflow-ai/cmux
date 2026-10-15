@@ -49,9 +49,9 @@ public struct BrowserPageAutomation {
         do {
             switch form {
             case .expression:
-                return try await page.evaluateJavaScript(script, in: world)
+                return try await leased { try await page.evaluateJavaScript(script, in: world) }
             case .asyncFunctionBody:
-                return try await page.callAsyncJavaScript(script, arguments: [:], in: world)
+                return try await leased { try await page.callAsyncJavaScript(script, arguments: [:], in: world) }
             }
         } catch {
             throw automationError(error)
@@ -260,11 +260,18 @@ public struct BrowserPageAutomation {
         }
         let reply: Data
         do {
-            reply = try await page.sendDevToolsProtocolMessage(method: method, params: body)
+            reply = try await leased { try await page.sendDevToolsProtocolMessage(method: method, params: body) }
         } catch {
             throw automationError(error)
         }
         return String(decoding: reply, as: UTF8.self)
+    }
+
+    /// Test-only wiring of the automation lease (perf dogfood build).
+    private func leased<T>(_ body: () async throws -> T) async rethrows -> T {
+        guard ProcessInfo.processInfo.environment["CMUX_PERF_NO_AUTOMATION_LEASE"] != "1",
+              let lease = page as? any BrowserPageHiddenCapturing else { return try await body() }
+        return try await lease.withRendererActiveForAutomation(body)
     }
 
     // MARK: - Errors
