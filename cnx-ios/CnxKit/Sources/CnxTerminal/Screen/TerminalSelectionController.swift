@@ -33,7 +33,10 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         didSet { if selection != oldValue { redraw() } }
     }
 
-    private weak var scrollView: UIScrollView?
+    /// The view the selection lives in: the scroll view (shell), or the TUI
+    /// host (alternate screen: no scrollback, so no edge autoscroll).
+    private weak var host: UIView?
+    private var scrollView: UIScrollView? { host as? UIScrollView }
     private let highlight = SelectionHighlightView()
     private let startHandle = SelectionHandleView(isStart: true)
     private let endHandle = SelectionHandleView(isStart: false)
@@ -48,33 +51,33 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     private var autoscrollLink: CADisplayLink?
     private var autoscrollLastTime: CFTimeInterval = 0
 
-    func install(in scrollView: UIScrollView) {
-        self.scrollView = scrollView
+    func install(in host: UIView) {
+        self.host = host
         highlight.isUserInteractionEnabled = false
         highlight.isHidden = true
-        scrollView.addSubview(highlight)
+        host.addSubview(highlight)
         for handle in [startHandle, endHandle] {
             handle.isHidden = true
             let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanned(_:)))
             handle.addGestureRecognizer(pan)
             // A drag that starts on a handle moves the handle, not the page.
-            scrollView.panGestureRecognizer.require(toFail: pan)
-            scrollView.addSubview(handle)
+            (host as? UIScrollView)?.panGestureRecognizer.require(toFail: pan)
+            host.addSubview(handle)
         }
         let press = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
         press.minimumPressDuration = 0.45
         press.delegate = self
-        scrollView.addGestureRecognizer(press)
+        host.addGestureRecognizer(press)
         longPress = press
         let menu = UIEditMenuInteraction(delegate: self)
-        scrollView.addInteraction(menu)
+        host.addInteraction(menu)
         self.menu = menu
     }
 
     /// The overlay stays above the surface as the screen re-adds views.
     func bringToFront() {
-        guard let scrollView else { return }
-        for view in [highlight, startHandle, endHandle] { scrollView.bringSubviewToFront(view) }
+        guard let host else { return }
+        for view in [highlight, startHandle, endHandle] { host.bringSubviewToFront(view) }
     }
 
     func clear() {
@@ -123,8 +126,8 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     // MARK: Gestures
 
     @objc private func longPressed(_ press: UILongPressGestureRecognizer) {
-        guard let scrollView, isEnabled() else { return }
-        let point = press.location(in: scrollView)
+        guard let host, isEnabled() else { return }
+        let point = press.location(in: host)
         switch press.state {
         case .began:
             guard let cell = cellAt(point) else { return }
@@ -147,7 +150,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     }
 
     @objc private func handlePanned(_ pan: UIPanGestureRecognizer) {
-        guard let scrollView, var current = selection else { return }
+        guard let host, var current = selection else { return }
         if pan.state == .began {
             menu?.dismissMenu()
             dragging = pan.view === startHandle ? .start : .end
@@ -156,7 +159,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         // quick drag can arrive as a begin and an end only).
         if [.began, .changed, .ended].contains(pan.state), let handle = dragging {
             // The finger sits on the handle's knob: aim at the row beside it.
-            var point = pan.location(in: scrollView)
+            var point = pan.location(in: host)
             point.y += handle == .start ? 10 : -10
             if let cell = cellAt(point) {
                 current.move(handle, to: cell)
