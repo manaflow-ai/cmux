@@ -43,12 +43,6 @@ extension BrowserDeviceMenu {
         }
     }
 
-    /// Whether a tab record's `extra.emulation` (JSON) is a fit (Fit as 16:9 Desktop).
-    public static func isFit(record json: Data?) -> Bool {
-        guard let json, let fields = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { return false }
-        return fields["mode"] as? String == "fit"
-    }
-
     /// A tab record's `extra.emulation` (JSON), as the menu shows it.
     public static func current(record json: Data?) -> Current? {
         guard let json, let fields = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],

@@ -43,15 +43,17 @@ public struct BrowserDeviceMenu {
     public var current: Current?
     /// A row's choice: the device title (nil: No Device) and the orientation (nil: the device's first).
     public var choose: @MainActor (String?, String?) -> Void
-    /// Whether the tab fits a 16:9 desktop layout, and the row that toggles it (nil hides the row).
+    /// Whether the tab fits a 16:9 desktop layout, whether the row that toggles it shows, and its action.
     public var isFitting: Bool
-    public var toggleFit: (@MainActor () -> Void)?
+    public var showsFit: Bool
+    public var toggleFit: @MainActor () -> Void
 
-    public init(devices: [Device], current: Current?, isFitting: Bool = false, toggleFit: (@MainActor () -> Void)? = nil,
-                choose: @escaping @MainActor (String?, String?) -> Void) {
+    public init(devices: [Device], current: Current?, isFitting: Bool = false, showsFit: Bool = false,
+                toggleFit: @escaping @MainActor () -> Void = {}, choose: @escaping @MainActor (String?, String?) -> Void) {
         self.devices = devices
         self.current = current
         self.isFitting = isFitting
+        self.showsFit = showsFit
         self.toggleFit = toggleFit
         self.choose = choose
     }
@@ -61,7 +63,7 @@ public struct BrowserDeviceMenu {
     public func menu() -> NSMenu {
         let menu = NSMenu()
         add(Strings.noDevice, to: menu, checked: current == nil && !isFitting) { choose(nil, nil) }
-        if let toggleFit { add(Strings.fitDesktop, to: menu, checked: isFitting, toggleFit) }
+        if showsFit { add(Strings.fitDesktop, to: menu, checked: isFitting, toggleFit) }
         if let current, current.orientations.count > 1 {
             menu.addItem(.separator())
             for name in current.orientations {
