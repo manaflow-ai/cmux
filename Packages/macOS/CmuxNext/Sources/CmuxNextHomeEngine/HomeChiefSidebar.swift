@@ -222,7 +222,7 @@ public final class HomeChiefSidebar: NSView {
 
     /// Sets (nil: clears) one engine field on the brain, then shows the result.
     @discardableResult
-    func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
+    public func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
         let source = source
         // task-owner: one write off the main actor; ends when its result is shown
         return Task { [weak self] in

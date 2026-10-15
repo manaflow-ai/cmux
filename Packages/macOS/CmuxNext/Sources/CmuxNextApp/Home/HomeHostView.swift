@@ -288,6 +288,11 @@ final class HomeHostView: NSView {
         }
     }
 
+    #if DEBUG
+    /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
+    func debugPickEngine(_ key: String, _ value: String?) { sidebar.pick(key, value) }
+    #endif
+
     /// The view that takes the keyboard when the tab's pane is focused.
     /// Home's primary input: the message box itself. Focusing the transcript
     /// view would leave it the responder after it forwards to the box.
