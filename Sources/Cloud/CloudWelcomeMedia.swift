@@ -744,7 +744,7 @@ struct CloudWelcomeMediaCarousel: View {
 
     /// Plays a clip muted and looping. Movies decode in hardware through
     /// ``AVPlayerLayer``; GIF is a fallback for quick drafts only.
-    private struct Player: NSViewRepresentable {
+    struct Player: NSViewRepresentable {
         let url: URL
         let playback: Playback
         let reduceMotion: Bool
@@ -776,6 +776,9 @@ struct CloudWelcomeMediaCarousel: View {
             private var statusObservation: NSKeyValueObservation?
             private var loopObservation: NSKeyValueObservation?
             private weak var playback: Playback?
+
+            /// The configured presentation mode, exposed for construction-path tests.
+            var videoGravity: AVLayerVideoGravity { playerLayer.videoGravity }
 
             init(url: URL, playback: Playback) {
                 self.playback = playback
