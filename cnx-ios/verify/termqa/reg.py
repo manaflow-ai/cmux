@@ -120,7 +120,8 @@ def open_tab(sim, prefix):
 
 def stage_fixtures():
     src = os.path.join(HERE, "fixtures")
-    subprocess.run(["rsync", "-a", src + "/", f"{tq.HOST}:tqf/"], check=True)
+    dest = os.path.expanduser("~/tqf/") if tq.HOST == "local" else f"{tq.HOST}:tqf/"
+    subprocess.run(["rsync", "-a", src + "/", dest], check=True)
 
 
 def start_agent(j, agent, args):
@@ -276,31 +277,59 @@ def s1350(sim, mac, j, agent, name):
     # + -> New Claude Chat (refused by the Mac's cwd policy).
     # The grid bar's (+) is a pop-up "New": "New Claude Chat" (old builds) or
     # "New Agent Chat With…" -> Claude (newer builds).
-    plus = sim.find(label="New", kind="PopUpButton")
-    labels, menu = [], None
-    if plus:
-        sim.tap_el(plus[0]); touch("tap")
-        i, _ = sim.wait_any([dict(label="New Claude Chat"), dict(label="New Agent Chat With…")], timeout=4)
-        if i == 0:
-            menu = sim.find(label="New Claude Chat")[0]
-        elif i == 1:
-            sim.tap_el(sim.find(label="New Agent Chat With…")[0]); touch("tap")
-            menu = sim.wait(contains="Claude", timeout=4)
+    labels, menu, menu_labels = [], None, []
+    menu = open_claude_item(sim, menu_labels)
     if menu:
         sim.tap_el(menu); touch("tap")
         t_end = time.time() + 4
         while time.time() < t_end:
             labels.append((round(time.time() - t0, 2), sorted(e.label for e in sim.find(kind="Button")
                                                                if e.frame[1] > 60 and e.frame[3] > 100)))
+    else:
+        log(f"1350-b: no Claude item; labels seen: {menu_labels[:40]}")
     tq.rec_stop()
     phantom = [l for l in labels if len(l[1]) > len(cards0)]
     rows = {
         "T-REG-1350-a": {"red": not prompt, "evidence": {"shot": shot, "prompt_in_card": prompt, "history_rows": rows_seen[:5]}},
         "T-REG-1350-b": {"red": (bool(phantom) if menu else None),
-                         "evidence": {"cards": cards0, "menu": bool(menu), "phantom": phantom[:5], "samples": len(labels)}},
+                         "evidence": {"cards": cards0, "menu": bool(menu), "menu_labels": menu_labels[:40],
+                                      "phantom": phantom[:5], "samples": len(labels)}},
         "T-REG-1350-c": {"red": None, "note": "toast placement: read the recording (not automated)"},
     }
     return rows, video
+
+
+def open_claude_item(sim, seen):
+    """The grid bar's (+) -> the Claude item. Old builds: a pop-up "New" with "New
+    Claude Chat"; newer: "New Agent Chat With…" -> Claude. The (+) is found by
+    label "New" (any kind) or "Add"/"plus", and the menu's items by substring,
+    since UIMenu items reach the AX tree as buttons or cells. Every label seen is
+    kept in `seen` for the verdict's evidence."""
+    def labels():
+        out = sorted({(e.label or "") for e in sim.find() if e.label})
+        seen[:] = out
+        return out
+    plus = (sim.find(label="New", kind="PopUpButton") or sim.find(label="New", kind="Button") or sim.find(label="New")
+            or sim.find(label="Add", kind="Button") or sim.find(contains="plus"))
+    if not plus:
+        labels()
+        return None
+    for attempt in range(2):
+        sim.tap_el(plus[0]); touch("tap")
+        t_end = time.time() + 5
+        while time.time() < t_end:
+            ls = labels()
+            claude = [l for l in ls if "Claude" in l and "Codex" not in l]
+            agent = [l for l in ls if "Agent Chat" in l]
+            if claude:
+                return sim.find(label=claude[0])[0]
+            if agent:
+                sim.tap_el(sim.find(label=agent[0])[0]); touch("tap")
+                el = sim.wait(contains="Claude", timeout=4)
+                labels()
+                return el
+            time.sleep(0.3)
+    return None
 
 
 SCENARIOS = {"1259": s1259, "1337": s1337, "1350": s1350}
