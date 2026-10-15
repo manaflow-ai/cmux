@@ -1278,8 +1278,13 @@ struct BrowserScreen: View {
             guard !creatingTab, !chrome.swiping, tabs.activeKey != nil || showsStartPage else { return }
             zoomTabId = tabs.activeKey
             prepareOverview(revealing: tabs.activeIndex ?? 0, count: tabs.items.count)
-            zoomDriver.beginInteraction()
+            // Safari's page follows its swipe-up curve in time (by finger travel
+            // alone it dropped 98 pt in the first frame, re-audit 3 D7).
+            zoomDriver.startSwipeUp()
+            return
         }
+        // The finger turned back down: the swipe takes over interactively.
+        if zoomState.playingSwipeUp, velocity < -50 { zoomDriver.beginInteraction() }
         guard zoomState.phase == .interactive else { return }
         zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
     }
@@ -1290,6 +1295,7 @@ struct BrowserScreen: View {
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
         // Safari goes on to the grid along its own curve from where the
         // finger left the page; a swipe back down (or barely up) returns.
+        if zoomState.playingSwipeUp { return }
         if up > 24 && velocity >= 0 {
             zoomDriver.releaseOnSwipeUpCurve()
         } else {
