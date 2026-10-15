@@ -106,18 +106,12 @@ async function frameMessage(theme: typeof LIGHT, html: string): Promise<{ html: 
 }
 
 /// The frame's page, as AgentPaneRenderFrame.swift builds it: the HTML, then the card's styles first in its head.
-/// `browser` stands in for the browser's own stylesheet, under the card's (happy-dom has none).
-function framePage(message: { html: string; css: string }, browser = "") {
+function framePage(message: { html: string; css: string }) {
   const page = new Window();
   page.document.write(message.html);
   const theme = page.document.createElement("style");
   theme.textContent = message.css;
   page.document.head.insertBefore(theme, page.document.head.firstChild);
-  if (browser) {
-    const defaults = page.document.createElement("style");
-    defaults.textContent = browser;
-    page.document.head.insertBefore(defaults, theme);
-  }
   const style = (selector: string) => page.getComputedStyle(page.document.querySelector(selector)!);
   return { page, style, root: page.getComputedStyle(page.document.documentElement) };
 }
@@ -148,7 +142,7 @@ test("a rendered page sees the theme's --cmux-* variables and cmux's plain defau
   expect(style("th").color).toBe(LIGHT.mutedText);
   expect(style("td").borderBottomStyle).toBe("solid");
   expect(style("code").fontFamily).toContain("monospace");
-  expect(style("button").height).toBe("26px");
+  expect(style("button").minHeight).toBe("26px");
 });
 
 test("a page's own styles win over the base stylesheet", async () => {
@@ -181,10 +175,17 @@ test("a full-bleed page fills the frame, and a plain page starts inset", async (
   const body = style("body");
   // An unset padding reads "" here; the page's default is none.
   const px = (value: string) => parseFloat(value || "0");
-  const inset = (box: CSSStyleDeclaration) =>
-    ["marginTop", "marginRight", "marginBottom", "marginLeft", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].map(
-      (side) => px(box[side as keyof CSSStyleDeclaration] as string),
-    );
+  const inset = (box: ReturnType<typeof style>) =>
+    [
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft",
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+    ].map((side) => px(box.getPropertyValue(side.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`))));
   expect(page.innerWidth - px(body.paddingLeft) - px(body.paddingRight)).toBe(page.innerWidth);
   expect(inset(body)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
   // A page with no CSS of its own starts inset from the card's edges, by margin, not padding.
@@ -205,23 +206,30 @@ test("the base never changes the layout or colors a page set itself", async () =
       boxSizing: box.boxSizing,
       width: box.width,
       height: box.height,
-      minHeight: box.minHeight,
       display: box.display,
       padding: box.padding,
       color: box.color,
       opacity: box.opacity,
     };
   };
+  // Controls get only a minimum height (26px), under a padded button's own.
   for (const selector of [".card", ".card button", ".card small", ".card b"])
     expect([selector, read(based, selector)]).toEqual([selector, read(plain, selector)]);
 });
 
 test("a page without a doctype keeps its tables at the body's text size", async () => {
-  // Quirks mode resets a table's font to the browser default (16px); the base inherits the body's.
-  const quirks = "table{font-size:medium;line-height:normal}";
-  const { style } = framePage(await frameMessage(LIGHT, PAGE), quirks);
-  expect(style("td").fontSize).toBe(style("body").fontSize);
-  expect(style("td").lineHeight).toBe(style("body").lineHeight);
+  // Quirks mode resets a table's font size and line height to the browser's (16px, normal); the
+  // base has the table inherit the body's. happy-dom lets no `inherit` override an earlier value,
+  // so this reads the base's own table rule.
+  const { page } = framePage(await frameMessage(LIGHT, PAGE));
+  const base = page.document.head.querySelector("style")!.sheet!;
+  const table = [...base.cssRules].find(
+    (rule) => (rule as unknown as { selectorText: string }).selectorText === ":where(table)",
+  ) as unknown as { style: { getPropertyValue(name: string): string } };
+  expect([table.style.getPropertyValue("font-size"), table.style.getPropertyValue("line-height")]).toEqual([
+    "inherit",
+    "inherit",
+  ]);
 });
 
 test("a dark theme changes the variables a page sees", async () => {
