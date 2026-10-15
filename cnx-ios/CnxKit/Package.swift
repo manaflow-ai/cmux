@@ -106,6 +106,7 @@ let package = Package(
             "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat", "CnxArtifacts", "CnxFeed", "CnxChief", "CnxTerminal",
             "CnxBrowserStream",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
         ]),
         .target(
             name: "CnxTerminal",

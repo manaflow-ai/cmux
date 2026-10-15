@@ -37,6 +37,9 @@ public struct WorkspaceScreen: View {
     @State private var holder = SourceHolder()
     private let makeSource: @MainActor () -> WorkspaceTabsSource
     @State private var showsGrid: Bool
+    @State private var renameText = ""
+    @State private var renameID: String?
+    @State private var renamePlaceholder = "Name"
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
@@ -84,6 +87,31 @@ public struct WorkspaceScreen: View {
             .onChange(of: director.serial) { run(director.command) }
             #endif
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
+            // New Agent Chat With…: the Mac's agents and models.
+            .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
+                AgentChooser(load: { [source] in try await source.agentCatalog() },
+                             start: { [source] start in source.startAgentChat(start) })
+                    .presentationDetents([.medium, .large])
+            }
+            // Rename Tab… (page and card menus), as the Mac's.
+            .onChange(of: source.renamingTab?.id) { _, id in
+                guard let id else { return }
+                renameID = id
+                // Typing replaces the name, as the Mac's inline rename starts with it
+                // selected; the current name is the field's placeholder.
+                renamePlaceholder = source.renamingTab?.title ?? "Name"
+                renameText = ""
+            }
+            .alert("Rename Tab", isPresented: Binding(
+                get: { source.renamingTab != nil },
+                set: { shown in if !shown { source.renamingTab = nil } }
+            )) {
+                TextField(renamePlaceholder, text: $renameText)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") {
+                    if let id = renameID { Task { await source.rename(id, to: renameText) } }
+                }
+            }
             // Closing a tab with a running program asks first (Codex QA F9).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
                 get: { source.pendingClose != nil },
@@ -148,6 +176,9 @@ public struct WorkspaceScreen: View {
     static func openingText(_ optionTitle: String) -> String {
         var name = optionTitle
         if name.hasPrefix("New ") { name.removeFirst(4) }
+        if name.hasSuffix("…") { name.removeLast() }
+        if name.hasPrefix("Agent Chat") { return "Opening an agent chat…" }
+        if name == "Duplicate Tab" { return "Opening a copy…" }
         return name.hasSuffix(" Chat") ? "Opening a \(name.dropLast(5)) chat…" : "Opening a \(name.lowercased())…"
     }
 

@@ -150,6 +150,11 @@ public final class AcpmuxHub {
         return try await connection.request(method, params)
     }
 
+    public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
+        guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        return try await connection.request(method, params, timeout: timeout)
+    }
+
     public func notify(_ method: String, _ params: JSONValue) async throws {
         guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
         try await connection.notify(method, params)

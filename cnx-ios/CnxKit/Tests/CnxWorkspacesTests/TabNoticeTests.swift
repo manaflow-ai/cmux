@@ -8,7 +8,7 @@ import Testing
     @Test func aRefusedFolderIsPlainLanguage() {
         let notice = TabNotice(action: .open(optionTitle: "New Claude Chat"), macName: mac,
                                reason: "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder")
-        #expect(notice.text == "Can't start Claude in this folder from your iPhone yet.")
+        #expect(notice.text == "Aziz's MacBook Pro doesn't allow agent chats in this folder from your iPhone yet.")
         #expect(notice.detail.contains("webRoots"))
         let terminal = TabNotice(action: .open(optionTitle: "New Terminal"), macName: mac, reason: "cwd is refused")
         #expect(terminal.text == "Can't open a terminal in this folder from your iPhone yet.")
@@ -24,10 +24,20 @@ import Testing
         #expect(TabNotice(action: .open(optionTitle: "New Browser"), macName: mac, reason: "workspace not found").text
             == "This workspace is no longer on Aziz's MacBook Pro.")
         #expect(TabNotice(action: .open(optionTitle: "New Claude Chat"), macName: mac, reason: "not_admitted").text
-            == "Aziz's MacBook Pro didn't allow a Claude chat from your iPhone.")
+            == "Aziz's MacBook Pro didn't allow an agent chat from your iPhone.")
+        #expect(TabNotice(action: .open(optionTitle: "New Agent Chat"), macName: mac, reason: "no pane").text
+            == "Couldn't open an agent chat on Aziz's MacBook Pro.")
         #expect(TabNotice(action: .open(optionTitle: "New Terminal"), macName: mac, reason: "no pane").text
             == "Couldn't open a terminal on Aziz's MacBook Pro.")
         #expect(TabNotice(action: .close(title: "zsh"), macName: mac, reason: "tab is busy").text == "Couldn't close zsh.")
+    }
+
+    /// The model-agnostic entry (the Mac's New Agent Chat) reads as "an agent chat".
+    @Test func theAgentEntryReadsPlainly() {
+        let notice = TabNotice(action: .open(optionTitle: "New Agent Chat"), macName: mac, reason: "cwd is refused: webRoots")
+        #expect(notice.text == "Aziz's MacBook Pro doesn't allow agent chats in this folder from your iPhone yet.")
+        #expect(TabNotice(action: .open(optionTitle: "New Agent Chat"), macName: mac, reason: "forbidden").text
+            == "Aziz's MacBook Pro didn't allow an agent chat from your iPhone.")
     }
 
     @Test func noToastCarriesTheRawReason() {
