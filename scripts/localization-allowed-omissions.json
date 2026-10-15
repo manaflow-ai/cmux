@@ -5287,5 +5287,11 @@
     "identityLocales": {
       "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
+  },
+  "chief.firstRun.suggestions": {
+    "source": "Suggestions",
+    "identityLocales": {
+      "fr": "Suggestions is the standard French noun for this label and shares the English spelling."
+    }
   }
 }

@@ -12,7 +12,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "لم يتم التسليم"
           }
         },
@@ -30,19 +30,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nicht zugestellt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "No entregado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Non distribué"
           }
         },
@@ -66,8 +66,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "전송되지 않음"
+            "state": "translated",
+            "value": "전송 안 됨"
           }
         },
         "nb": {
@@ -120,13 +120,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "未送达"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "未送達"
           }
         }
@@ -144,7 +144,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ربما لم يتم التسليم"
           }
         },
@@ -162,19 +162,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Möglicherweise nicht zugestellt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Puede que no se haya entregado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Peut-être non distribué"
           }
         },
@@ -198,7 +198,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "전송되지 않았을 수 있음"
           }
         },
@@ -252,13 +252,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "可能未送达"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "可能未送達"
           }
         }
@@ -277,7 +277,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إلغاء التحميل"
           }
         },
@@ -295,19 +295,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Upload abbrechen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cancelar carga"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Annuler l’envoi"
           }
         },
@@ -319,7 +319,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "アップロードをキャンセル"
           }
         },
@@ -331,7 +331,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "업로드 취소"
           }
         },
@@ -385,13 +385,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "取消上传"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "取消上傳"
           }
         }
@@ -409,7 +409,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تشغيل الفيديو"
           }
         },
@@ -427,19 +427,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Video abspielen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Reproducir vídeo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Lire la vidéo"
           }
         },
@@ -451,7 +451,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ビデオを再生"
           }
         },
@@ -463,7 +463,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "비디오 재생"
           }
         },
@@ -517,13 +517,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "播放视频"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "播放影片"
           }
         }
@@ -541,7 +541,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إيقاف الفيديو مؤقتًا"
           }
         },
@@ -559,19 +559,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Video pausieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pausar vídeo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mettre la vidéo en pause"
           }
         },
@@ -583,7 +583,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ビデオを一時停止"
           }
         },
@@ -595,7 +595,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "비디오 일시 정지"
           }
         },
@@ -649,13 +649,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "暂停视频"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "暫停影片"
           }
         }
@@ -804,7 +804,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "في انتظار اتصال Chief…"
           }
         },
@@ -822,19 +822,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Warten, bis Chief verbunden ist …"
+            "state": "translated",
+            "value": "Warten auf die Verbindung mit Chief …"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Esperando a que Chief se conecte…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "En attente de la connexion de Chief…"
           }
         },
@@ -846,7 +846,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief の接続を待っています…"
           }
         },
@@ -858,7 +858,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 연결을 기다리는 중…"
           }
         },
@@ -912,13 +912,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在等待 Chief 连接…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在等待 Chief 連線…"
           }
         }
@@ -935,7 +935,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "في انتظار الاتصال…"
           }
         },
@@ -953,19 +953,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Warten auf Verbindung …"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Esperando la conexión…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "En attente de connexion…"
           }
         },
@@ -977,7 +977,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "接続を待っています…"
           }
         },
@@ -989,7 +989,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "연결을 기다리는 중…"
           }
         },
@@ -1043,13 +1043,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在等待连接…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在等待連線…"
           }
         }
@@ -1066,7 +1066,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "أُعيد تشغيل Chief. اضغط على مفتاح الإدخال للإرسال."
           }
         },
@@ -1084,19 +1084,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief wurde neu gestartet. Drücke den Zeilenschalter, um zu senden."
+            "state": "translated",
+            "value": "Chief wurde neu gestartet. Drücke den Zeilenschalter zum Senden."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief se reinició. Pulsa Retorno para enviar."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief a redémarré. Appuyez sur Retour pour envoyer."
           }
         },
@@ -1108,7 +1108,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief が再起動しました。return キーを押すと送信します。"
           }
         },
@@ -1120,7 +1120,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief가 다시 시작되었습니다. Return 키를 눌러 보내세요."
           }
         },
@@ -1174,13 +1174,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 已重新启动。按 Return 键发送。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chief 已重新啟動。按 Return 鍵傳送。"
           }
         }
@@ -1197,7 +1197,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يمكنك الرد في هذه السلسلة بعد تسليم رسالتها الأولى."
           }
         },
@@ -1215,19 +1215,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Du kannst in diesem Thread antworten, sobald seine erste Nachricht zugestellt ist."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Podrás responder en este hilo cuando se entregue su primer mensaje."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Vous pourrez répondre dans ce fil une fois son premier message distribué."
           }
         },
@@ -1239,7 +1239,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "このスレッドには、最初のメッセージが配信されると返信できます。"
           }
         },
@@ -1251,7 +1251,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "첫 메시지가 전달되면 이 스레드에 답장할 수 있습니다."
           }
         },
@@ -1305,13 +1305,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此线程的第一条消息送达后，你即可在其中回复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此討論串的第一則訊息送達後，你即可在其中回覆。"
           }
         }
@@ -1328,7 +1328,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "جارٍ تشغيل %@"
           }
         },
@@ -1346,19 +1346,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Führt %@ aus"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ejecutando %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Exécution de %@"
           }
         },
@@ -1370,7 +1370,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ を実行中"
           }
         },
@@ -1382,7 +1382,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 실행 중"
           }
         },
@@ -1436,13 +1436,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在运行 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在執行 %@"
           }
         }
@@ -1459,7 +1459,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تم تشغيل %@"
           }
         },
@@ -1477,19 +1477,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Hat %@ ausgeführt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ejecutó %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "A exécuté %@"
           }
         },
@@ -1501,7 +1501,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ を実行しました"
           }
         },
@@ -1513,7 +1513,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 실행함"
           }
         },
@@ -1567,13 +1567,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已运行 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已執行 %@"
           }
         }
@@ -1605,37 +1605,37 @@
             "plural": {
               "zero": {
                 "stringUnit": {
-                  "state": "needs_review",
-                  "value": "تم تشغيل %lld أمر"
+                  "state": "translated",
+                  "value": "لم يتم تشغيل أي أمر"
                 }
               },
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم تشغيل أمر واحد"
                 }
               },
               "two": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم تشغيل أمرين"
                 }
               },
               "few": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم تشغيل %lld أوامر"
                 }
               },
               "many": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم تشغيل %lld أمرًا"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم تشغيل %lld أمر"
                 }
               }
@@ -1689,13 +1689,13 @@
             "plural": {
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld Befehl ausgeführt"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld Befehle ausgeführt"
                 }
               }
@@ -1707,13 +1707,13 @@
             "plural": {
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "Ejecutó %lld comando"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "Ejecutó %lld comandos"
                 }
               }
@@ -1725,13 +1725,13 @@
             "plural": {
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld commande exécutée"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld commandes exécutées"
                 }
               }
@@ -1761,7 +1761,7 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld 件のコマンドを実行しました"
                 }
               }
@@ -1785,7 +1785,7 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "명령 %lld개 실행함"
                 }
               }
@@ -1965,7 +1965,7 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "已运行 %lld 条命令"
                 }
               }
@@ -1977,8 +1977,8 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
-                  "value": "已執行 %lld 個命令"
+                  "state": "translated",
+                  "value": "已執行 %lld 個指令"
                 }
               }
             }
@@ -2012,37 +2012,37 @@
             "plural": {
               "zero": {
                 "stringUnit": {
-                  "state": "needs_review",
-                  "value": "تم استخدام %lld أداة"
+                  "state": "translated",
+                  "value": "لم يتم استخدام أي أداة"
                 }
               },
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم استخدام أداة واحدة"
                 }
               },
               "two": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم استخدام أداتين"
                 }
               },
               "few": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم استخدام %lld أدوات"
                 }
               },
               "many": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم استخدام %lld أداة"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "تم استخدام %lld أداة"
                 }
               }
@@ -2096,13 +2096,13 @@
             "plural": {
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld Werkzeug verwendet"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld Werkzeuge verwendet"
                 }
               }
@@ -2114,13 +2114,13 @@
             "plural": {
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "Usó %lld herramienta"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "Usó %lld herramientas"
                 }
               }
@@ -2132,13 +2132,13 @@
             "plural": {
               "one": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld outil utilisé"
                 }
               },
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld outils utilisés"
                 }
               }
@@ -2168,7 +2168,7 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "%lld 個のツールを使用しました"
                 }
               }
@@ -2192,7 +2192,7 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "도구 %lld개 사용함"
                 }
               }
@@ -2372,7 +2372,7 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "已使用 %lld 个工具"
                 }
               }
@@ -2384,7 +2384,7 @@
             "plural": {
               "other": {
                 "stringUnit": {
-                  "state": "needs_review",
+                  "state": "translated",
                   "value": "已使用 %lld 個工具"
                 }
               }
@@ -2404,7 +2404,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "قيد التشغيل"
           }
         },
@@ -2422,19 +2422,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Läuft"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "En curso"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "En cours"
           }
         },
@@ -2446,7 +2446,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "実行中"
           }
         },
@@ -2458,7 +2458,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "실행 중"
           }
         },
@@ -2512,13 +2512,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在运行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "執行中"
           }
         }
@@ -2535,7 +2535,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تم"
           }
         },
@@ -2553,19 +2553,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Fertig"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Listo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Terminé"
           }
         },
@@ -2577,7 +2577,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "完了"
           }
         },
@@ -2589,7 +2589,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "완료"
           }
         },
@@ -2643,13 +2643,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "完成"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "完成"
           }
         }
@@ -2666,7 +2666,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "فشل"
           }
         },
@@ -2684,19 +2684,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Fehlgeschlagen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Falló"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Échec"
           }
         },
@@ -2708,7 +2708,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "失敗"
           }
         },
@@ -2720,7 +2720,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "실패"
           }
         },
@@ -2774,13 +2774,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "失败"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "失敗"
           }
         }
@@ -2797,7 +2797,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إظهار الكل"
           }
         },
@@ -2815,19 +2815,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Alle anzeigen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mostrar todo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Tout afficher"
           }
         },
@@ -2839,7 +2839,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "すべて表示"
           }
         },
@@ -2851,7 +2851,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "모두 보기"
           }
         },
@@ -2905,13 +2905,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "全部显示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "全部顯示"
           }
         }
@@ -2928,7 +2928,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إخفاء"
           }
         },
@@ -2946,19 +2946,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ausblenden"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ocultar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Masquer"
           }
         },
@@ -2970,7 +2970,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "隠す"
           }
         },
@@ -2982,7 +2982,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "숨기기"
           }
         },
@@ -3036,13 +3036,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "隐藏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "隱藏"
           }
         }
@@ -3059,7 +3059,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "سماح"
           }
         },
@@ -3077,19 +3077,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Erlauben"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permitir"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autoriser"
           }
         },
@@ -3101,7 +3101,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可"
           }
         },
@@ -3113,7 +3113,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "허용"
           }
         },
@@ -3167,13 +3167,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允许"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允許"
           }
         }
@@ -3190,7 +3190,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "رفض"
           }
         },
@@ -3208,19 +3208,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ablehnen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Denegar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Refuser"
           }
         },
@@ -3232,7 +3232,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒否"
           }
         },
@@ -3244,7 +3244,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "거부"
           }
         },
@@ -3298,13 +3298,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒绝"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒絕"
           }
         }
@@ -3321,7 +3321,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تم السماح"
           }
         },
@@ -3339,19 +3339,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Erlaubt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permitido"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autorisé"
           }
         },
@@ -3363,7 +3363,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可しました"
           }
         },
@@ -3375,7 +3375,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "허용됨"
           }
         },
@@ -3429,13 +3429,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已允许"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已允許"
           }
         }
@@ -3452,7 +3452,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تم الرفض"
           }
         },
@@ -3470,19 +3470,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Abgelehnt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Denegado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Refusé"
           }
         },
@@ -3494,7 +3494,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒否しました"
           }
         },
@@ -3506,7 +3506,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "거부됨"
           }
         },
@@ -3560,13 +3560,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已拒绝"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已拒絕"
           }
         }
@@ -3583,8 +3583,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تم اختيار ”%@“"
+            "state": "translated",
+            "value": "تم اختيار «%@»"
           }
         },
         "bs": {
@@ -3601,19 +3601,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "„%@“ gewählt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Eligió “%@”"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Choix : « %@ »"
           }
         },
@@ -3625,7 +3625,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "「%@」を選択しました"
           }
         },
@@ -3637,7 +3637,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "“%@” 선택함"
           }
         },
@@ -3691,13 +3691,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已选择“%@”"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已選擇「%@」"
           }
         }
@@ -3714,7 +3714,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تم السماح: %@"
           }
         },
@@ -3732,19 +3732,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Erlaubt: %@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permitido: %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autorisé : %@"
           }
         },
@@ -3756,7 +3756,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "許可しました: %@"
           }
         },
@@ -3768,7 +3768,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "허용됨: %@"
           }
         },
@@ -3822,13 +3822,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已允许：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已允許：%@"
           }
         }
@@ -3845,7 +3845,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يريد %@ تشغيل"
           }
         },
@@ -3863,19 +3863,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ möchte ausführen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ quiere ejecutar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ veut exécuter"
           }
         },
@@ -3887,7 +3887,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ が実行しようとしています"
           }
         },
@@ -3899,7 +3899,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@이(가) 실행하려고 합니다"
           }
         },
@@ -3953,13 +3953,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 想要运行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 想要執行"
           }
         }
@@ -3976,7 +3976,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يطلب %@"
           }
         },
@@ -3994,19 +3994,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ fragt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ pregunta"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ demande"
           }
         },
@@ -4018,7 +4018,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ からの確認"
           }
         },
@@ -4030,7 +4030,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@의 요청"
           }
         },
@@ -4084,13 +4084,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 在询问"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 在詢問"
           }
         }
@@ -4107,8 +4107,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "السماح دائمًا بـ ”%@ …“"
+            "state": "translated",
+            "value": "السماح دائمًا بـ «%@ …»"
           }
         },
         "bs": {
@@ -4125,19 +4125,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "„%@ …“ immer erlauben"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permitir siempre “%@ …”"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Toujours autoriser « %@ … »"
           }
         },
@@ -4149,7 +4149,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "「%@ …」を常に許可"
           }
         },
@@ -4161,7 +4161,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "“%@ …” 항상 허용"
           }
         },
@@ -4215,13 +4215,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "始终允许“%@ …”"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "永遠允許「%@ …」"
           }
         }
@@ -4238,7 +4238,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "مزيد من الخيارات"
           }
         },
@@ -4256,19 +4256,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Weitere Optionen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Más opciones"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Plus d’options"
           }
         },
@@ -4280,7 +4280,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "その他のオプション"
           }
         },
@@ -4292,7 +4292,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "추가 옵션"
           }
         },
@@ -4346,13 +4346,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "更多选项"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "更多選項"
           }
         }
@@ -4369,7 +4369,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "السماح بتشغيل %@"
           }
         },
@@ -4387,19 +4387,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ausführen von %@ erlauben"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permitir ejecutar %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autoriser l’exécution de %@"
           }
         },
@@ -4411,7 +4411,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ の実行を許可"
           }
         },
@@ -4423,7 +4423,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 실행 허용"
           }
         },
@@ -4477,13 +4477,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允许运行 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "允許執行 %@"
           }
         }
@@ -4500,7 +4500,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "رفض تشغيل %@"
           }
         },
@@ -4518,19 +4518,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ausführen von %@ ablehnen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Denegar ejecutar %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Refuser l’exécution de %@"
           }
         },
@@ -4542,7 +4542,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ の実行を拒否"
           }
         },
@@ -4554,7 +4554,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ 실행 거부"
           }
         },
@@ -4608,13 +4608,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒绝运行 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拒絕執行 %@"
           }
         }
@@ -4631,7 +4631,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "اسمح أو ارفض في الأعلى للمتابعة"
           }
         },
@@ -4649,19 +4649,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Oben erlauben oder ablehnen, um fortzufahren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Permite o deniega arriba para continuar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Autorisez ou refusez ci-dessus pour continuer"
           }
         },
@@ -4673,7 +4673,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "続けるには上で許可または拒否してください"
           }
         },
@@ -4685,7 +4685,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "계속하려면 위에서 허용 또는 거부하세요"
           }
         },
@@ -4739,13 +4739,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "请在上方允许或拒绝以继续"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "請在上方允許或拒絕以繼續"
           }
         }
@@ -4762,7 +4762,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "بانتظارك"
           }
         },
@@ -4780,19 +4780,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Wartet auf dich"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Esperándote"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "En attente de vous"
           }
         },
@@ -4804,7 +4804,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "あなたの応答待ち"
           }
         },
@@ -4816,7 +4816,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "응답 대기 중"
           }
         },
@@ -4870,13 +4870,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "等待你的回应"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "等待你的回應"
           }
         }
@@ -4893,8 +4893,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Return"
+            "state": "translated",
+            "value": "مفتاح الإدخال"
           }
         },
         "bs": {
@@ -4911,19 +4911,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Zeilenschalter"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Retorno"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Retour"
           }
         },
@@ -4935,8 +4935,8 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Return"
+            "state": "translated",
+            "value": "return キー"
           }
         },
         "km": {
@@ -4947,8 +4947,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Return"
+            "state": "translated",
+            "value": "Return 키"
           }
         },
         "nb": {
@@ -5001,14 +5001,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Return"
+            "state": "translated",
+            "value": "Return 键"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Return"
+            "state": "translated",
+            "value": "Return 鍵"
           }
         }
       }
@@ -5024,8 +5024,8 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "مفتاح الخروج"
           }
         },
         "bs": {
@@ -5042,20 +5042,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "Esc-Taste"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "Tecla Esc"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "Touche Échap"
           }
         },
         "it": {
@@ -5066,8 +5066,8 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "esc キー"
           }
         },
         "km": {
@@ -5078,8 +5078,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "Esc 키"
           }
         },
         "nb": {
@@ -5132,14 +5132,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "Esc 键"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esc"
+            "state": "translated",
+            "value": "Esc 鍵"
           }
         }
       }
@@ -5155,7 +5155,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "طلب موافقة"
           }
         },
@@ -5173,19 +5173,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Freigabeanfrage"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "solicitud de aprobación"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "demande d’approbation"
           }
         },
@@ -5197,7 +5197,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "承認リクエスト"
           }
         },
@@ -5209,7 +5209,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "승인 요청"
           }
         },
@@ -5263,13 +5263,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "批准请求"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "核准請求"
           }
         }
