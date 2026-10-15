@@ -312,6 +312,8 @@ public struct DaemonCapabilities: Sendable {
     public let browserDevices = "browser-devices-v1"
     /// `browser.tab.emulate {fit}`: Fit as 16:9 Desktop (cx-va1wd).
     public let browserFit = "browser-fit-v1"
+    /// `browser.tab.emulate {fit: "1280"}`: Fit as Desktop (1280) (cx-2ftlq).
+    public let browserFitWidth = "browser-fit-width-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     public let keybindings = "keybindings-v1"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
@@ -374,7 +376,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, browserFit, projectList, splitClientKeys, terminalInputWhileCreating,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, stash] }
 

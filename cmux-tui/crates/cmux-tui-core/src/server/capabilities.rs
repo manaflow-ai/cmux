@@ -221,6 +221,7 @@ pub(super) fn advertised_capabilities(
         crate::state::stash_store::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
+        crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,

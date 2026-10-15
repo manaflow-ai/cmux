@@ -13,6 +13,7 @@
     "bookmarks-v1",
     "browser-devices-v1",
     "browser-fit-v1",
+    "browser-fit-width-v1",
     "browser-host-provider-v1",
     "browser-profiles-v1",
     "browser-runtime-v1",
