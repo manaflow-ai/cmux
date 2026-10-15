@@ -171,6 +171,33 @@ await requireBrowserLane("agent-pane-summary-panel.test.ts", async () => {
     await context.close();
   });
 
+  test("a card too tall for its pane scrolls, and a faded edge says more is past it", async () => {
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 360 } });
+    const page = await context.newPage();
+    await open(page);
+    await panel(page).waitFor({ timeout: 5_000 });
+    const edges = (top: boolean, bottom: boolean) =>
+      page.waitForFunction(
+        ([top, bottom]) => {
+          const node = document.querySelector<HTMLElement>(".acpmux-summary-card__body");
+          return (
+            !!node &&
+            node.scrollHeight > node.clientHeight + 1 &&
+            node.hasAttribute("data-fade-top") === top &&
+            node.hasAttribute("data-fade-bottom") === bottom
+          );
+        },
+        [top, bottom],
+        { timeout: 5_000 },
+      );
+    // The last rows are below the card's capped height: its bottom edge fades.
+    await edges(false, true);
+    // Scrolled to its end, the fade moves to the top edge.
+    await page.locator(".acpmux-summary-card__body").evaluate((node) => node.scrollTo({ top: node.scrollHeight }));
+    await edges(true, false);
+    await context.close();
+  });
+
   test("the chat menu offers New terminal and New browser beside New side chat", async () => {
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
