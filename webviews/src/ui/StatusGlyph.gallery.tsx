@@ -67,13 +67,7 @@ function Pixels({ row, pixels, zoom }: { row: Row; pixels: 10 | 20; zoom: number
   );
 }
 
-function StatusGlyphSheet({
-  onWallpaper = false,
-  set = "static",
-}: {
-  onWallpaper?: boolean;
-  set?: SetName;
-}) {
+function StatusGlyphSheet({ onWallpaper = false, set = "static" }: { onWallpaper?: boolean; set?: SetName }) {
   return (
     <div className="status-glyphs-stage" style={onWallpaper ? { backgroundImage: wallpaper } : undefined}>
       <table className="status-glyphs-sheet" data-set={set}>
