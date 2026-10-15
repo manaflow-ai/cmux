@@ -208,7 +208,9 @@ class Launch:
 
 def seed(tag, args):
     """Workspaces whose terminals print seed-mb MiB of output in total, through the daemon socket."""
-    _, status, _ = tag.tui_json("server", "status")
+    code, status, error = tag.tui_json("server", "status")
+    if not status.get("socket"):
+        raise SystemExit(f"server status gave no socket (exit {code}): {error[-300:]}")
     daemon = Client(status["socket"], timeout=30)
     per = max(1, args.seed_mb // args.seed_workspaces)
     for index in range(args.seed_workspaces):
@@ -231,10 +233,11 @@ def report(name, launch, still):
     marks = launch.marks
     shown = marks.get("connecting_view_shown")
     left = marks.get("connecting_view_left")
-    connecting_ms = None if shown is None else (left if left is not None else float("nan")) - shown
+    connecting_ms = None if shown is None or left is None else left - shown
     usable = next((marks[m] for m in USABLE if m in marks), None)
     row = {"launch": name, "marks": {m: round(marks[m], 1) for m in MARKS if m in marks},
            "connecting_screen_ms": None if connecting_ms is None else round(connecting_ms, 1),
+           "connecting_screen_never_left": shown is not None and left is None,
            "connecting_status_shown": "connecting_status_shown" in marks,
            "launch_snapshot_shown": "launch_snapshot_shown" in marks,
            "usable_ms": None if usable is None else round(usable, 1), "still": still}
@@ -301,11 +304,13 @@ def main():
         if row["usable_ms"] is None or row["usable_ms"] > args.usable_ms:
             failures.append(f"{row['launch']}: workspace content at {row['usable_ms']} ms (limit {args.usable_ms:.0f})")
         if row["launch"] == "first" and row["connecting_status_shown"]:
-            failures.append("first: the Connecting to cmux-tui line became visible")
+            failures.append("first: the Connecting to cmux-tui line (or the failure screen) became visible")
         if row["launch"] != "first":
             if not row["launch_snapshot_shown"]:
                 failures.append(f"{row['launch']}: the last layout was not drawn at launch")
-            if row["connecting_screen_ms"] is not None:
+            if row["connecting_screen_never_left"]:
+                failures.append(f"{row['launch']}: the connecting screen never went away")
+            elif row["connecting_screen_ms"] is not None:
                 failures.append(f"{row['launch']}: the connecting screen showed for {row['connecting_screen_ms']} ms")
     print("\nFAIL\n  " + "\n  ".join(failures) if failures else "\nPASS")
     sys.exit(1 if failures else 0)
