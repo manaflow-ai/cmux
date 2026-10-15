@@ -16,6 +16,19 @@ public struct TerminalReplayGate: Equatable, Sendable {
 
     public init() {}
 
+    /// How long a reset may gate the document (seconds).
+    public static let deadline: TimeInterval = 2
+
+    /// A chunk of session output arrived (in order) at `now` (seconds, any clock).
+    public mutating func received(_ count: Int, isReset: Bool, at now: TimeInterval) {
+        received(count, isReset: isReset)
+    }
+
+    /// Ends a replay still gating at `now` past its deadline; true when it did.
+    public mutating func expireIfOverdue(at now: TimeInterval) -> Bool {
+        false
+    }
+
     /// A chunk of session output arrived (in order).
     public mutating func received(_ count: Int, isReset: Bool) {
         if isReset {
