@@ -32,6 +32,7 @@ parser.add_argument("--notches", type=int, default=4, help="line notches per whe
 parser.add_argument("--profile-runs", type=int, default=2, help="per mode: export the Time Profiler of this many runs")
 parser.add_argument("--b-fleet-job", help="A/B in one job: the fleet build job of the second app (installed here)")
 parser.add_argument("--b-tag", help="the second app's tag")
+parser.add_argument("--b-app", help="A/B: the second app's installed bundle (instead of --b-fleet-job)")
 parser.add_argument("--b-label", default="b")
 parser.add_argument("--clean", action="store_true",
                     help="one app at a time in the same frame: each run launches the app, records, and quits it (the others are"
@@ -738,7 +739,10 @@ A = {"label": opts.label, "app": APP, "tag": TAG, "socket": SOCKET, "cli": CLI,
      "frame": "10,40,740,820" if opts.b_fleet_job else "40,40,1100,820"}
 apps = [A]
 try:
-    if opts.b_fleet_job:
+    if opts.b_app:
+        apps.append({"label": opts.b_label, "app": opts.b_app, "tag": opts.b_tag, "socket": f"/tmp/cmux-debug-{opts.b_tag}.sock",
+                     "cli": os.path.join(opts.b_app, "Contents/Resources/bin/cmux"), "frame": opts.frame})
+    elif opts.b_fleet_job:
         apps.append(install_b())
     if opts.clean:
         A["frame"] = opts.frame
