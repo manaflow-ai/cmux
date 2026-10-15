@@ -154,8 +154,7 @@ final class AgentChatSplitToggles {
         }
         var state = AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
                                          sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
-                                         floatingChat: QuickComposerTunables.floatingChat.value,
-                                         sessionRail: AgentPaneTunables.sessionRail.value)
+                                         floatingChat: QuickComposerTunables.floatingChat.value, sessionRail: AgentPaneTunables.sessionRail.value)
         state.pullRequest = pullRequest?.badge(cwd: store.tab(id: chat)?.cwd)
         return state
     }

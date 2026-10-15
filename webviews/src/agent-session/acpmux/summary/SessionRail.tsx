@@ -231,7 +231,7 @@ function Environment({ summary, machineName }: { summary?: Summary; machineName?
   const folderRow = (path: string, icon: string) => {
     const { name, parent } = splitFolder(path);
     return (
-      <li className="acpmux-rail-row" title={path}>
+      <li className="acpmux-rail-row">
         <Icon name={icon} size={ROW_ICON} row />
         <span className="acpmux-rail-row__name">{name}</span>
         {parent && (
@@ -272,7 +272,6 @@ function OutputRow({ file, onOpen }: { file: TurnFile; onOpen?: (path: string) =
     <button
       type="button"
       className="acpmux-rail-row acpmux-rail-output"
-      title={file.path}
       disabled={!onOpen}
       onClick={() => onOpen?.(file.path)}
     >
