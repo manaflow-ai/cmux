@@ -44,14 +44,14 @@ public final class BrowserFitFrameView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         for field in [label, note] {
-            field.font = .systemFont(ofSize: 11)
+            field.font = .systemFont(ofSize: TypeScale.caption)
             field.lineBreakMode = .byTruncatingTail
         }
         label.toolTip = Strings.explain
         for button in [choose, off] {
             button.isBordered = false
             button.target = self
-            button.font = .systemFont(ofSize: 11, weight: .medium)
+            button.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         }
         choose.action = #selector(showChoices)
         choose.imagePosition = .imageTrailing
@@ -107,7 +107,8 @@ public final class BrowserFitFrameView: NSView {
             for button in [choose, off] {
                 button.contentTintColor = Palette.textSecondary
                 button.attributedTitle = NSAttributedString(string: button.title, attributes: [
-                    .foregroundColor: Palette.textSecondary, .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                    .foregroundColor: Palette.textSecondary,
+                    .font: NSFont.systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis),
                 ])
             }
         }
