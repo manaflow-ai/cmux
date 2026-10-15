@@ -5142,54 +5142,54 @@
     }
   },
   "cloud.gettingStarted.progress": {
-    "source": "%1$d/%2$d",
+    "source": "%1$ld/%2$ld",
     "identityLocales": {
       "de": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       },
       "fr": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       },
       "ar": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       },
       "es": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       },
       "zh-Hant": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       },
       "zh-Hans": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       },
       "ko": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       },
       "ja": {
         "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
         "values": [
-          "%1$d/%2$d"
+          "%1$ld/%2$ld"
         ]
       }
     }
@@ -5531,6 +5531,98 @@
         "reason": "signal is the standard French word for a POSIX process signal; the translated entry is still required.",
         "values": [
           "signal %d"
+        ]
+      }
+    }
+  },
+  "cloudTree.port.previewTabTitle": {
+    "source": ":%1$@ · %2$@",
+    "identityLocales": {
+      "de": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      },
+      "fr": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      },
+      "ar": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      },
+      "es": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      },
+      "ko": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      },
+      "ja": {
+        "reason": "A port-number prefix and a machine name joined by a separator, with no words; the translated entry is still required.",
+        "values": [
+          ":%1$@ · %2$@"
+        ]
+      }
+    }
+  },
+  "cloudPort.share.done.ok": {
+    "source": "OK",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "ja": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cli.vm.ports.column.port": {
+    "source": "PORT",
+    "identityLocales": {
+      "de": "Port is the same word in this locale, written in uppercase as a CLI table header; a translated entry is still required.",
+      "fr": "Port is the same word in this locale, written in uppercase as a CLI table header; a translated entry is still required."
+    }
+  },
+  "cli.vm.ports.column.privateURL": {
+    "source": "PRIVATE URL",
+    "identityLocales": {
+      "de": "“private URL” is the correct German phrase, written in uppercase as a CLI table header; a translated entry is still required."
+    }
+  },
+  "cli.vm.ports.shared.public": {
+    "source": "PUBLIC",
+    "identityLocales": {
+      "fr": "“public” is the same word in French, written in uppercase for emphasis in the CLI SHARED column; a translated entry is still required."
+    }
+  },
+  "cli.vm.clone.setup.timedOut": {
+    "source": "setup step %1$ld/%2$ld `%3$@` was still running after %4$ld minutes (not stopped)",
+    "identityLocales": {
+      "fr": {
+        "reason": "“minute” and “minutes” have the same spelling in French; the surrounding sentence is translated.",
+        "values": [
+          "%ld minute",
+          "%ld minutes"
         ]
       }
     }

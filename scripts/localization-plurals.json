@@ -847,5 +847,17 @@
     "arguments": [
       1
     ]
+  },
+  "cli.vm.clone.setup.doneDetail": {
+    "source": "%ld step(s) in terminal %@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.setup.timedOut": {
+    "source": "setup step %1$ld/%2$ld `%3$@` was still running after %4$ld minutes (not stopped)",
+    "arguments": [
+      4
+    ]
   }
 }
