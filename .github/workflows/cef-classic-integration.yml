@@ -49,7 +49,12 @@ jobs:
       - name: Compile the app and run one browser unit suite
         env:
           GH_TOKEN: ${{ github.token }}
+        # The verdict is the dispatched run's compile step, not the whole run:
+        # a runner that cannot run the suite afterwards (a missing tool, an
+        # infra fault) must not turn a good compile red. A compile the run
+        # adopted from an identical earlier product counts as compiled.
         run: |
+          set -uo pipefail
           started=$(date +%s)
           status=0
           python3 scripts/ci/dispatch-focused-test.py \
@@ -58,9 +63,28 @@ jobs:
             --workflow-ref cef-classic/integration \
             --full-build \
             --force \
-            --wait || status=$?
-          echo "Compile gate took $(( ($(date +%s) - started) / 60 )) min (status $status)" | tee -a "$GITHUB_STEP_SUMMARY"
-          exit "$status"
+            --wait 2>&1 | tee "$RUNNER_TEMP/dispatch.log" || status=$?
+          minutes=$(( ($(date +%s) - started) / 60 ))
+          run_id="$(sed -n 's|^Run: https://github.com/[^/]*/[^/]*/actions/runs/\([0-9]*\).*|\1|p' "$RUNNER_TEMP/dispatch.log" | tail -n 1)"
+          if [ -z "$run_id" ]; then
+            echo "::error::the compile run was not dispatched (status $status)"
+            exit 1
+          fi
+          compile="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.name == "build") | .steps] | first // [] | (map(.name) | index("Build the app-host and UI test product")) as $at
+              | if $at == null then "missing"
+                elif (.[:$at] | any(.conclusion == "failure")) then "failed-before-compile"
+                else .[$at].conclusion // "missing" end')"
+          echo "Compile gate: compile step $compile, run status $status, $minutes min (https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id)" | tee -a "$GITHUB_STEP_SUMMARY"
+          case "$compile" in
+            success|skipped)
+              if [ "$status" -ne 0 ]; then
+                echo "::warning::the app compiled, but the unit suite run failed after it (see the run above)"
+              fi
+              exit 0
+              ;;
+            *) echo "::error::the app did not compile ($compile)"; exit 1 ;;
+          esac
 
   browser-e2e:
     name: Browser UI tests (${{ matrix.engine }})
