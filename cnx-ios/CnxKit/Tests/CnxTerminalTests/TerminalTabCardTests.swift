@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CnxTerminal
 
@@ -36,9 +37,44 @@ import Testing
 
     @Test func blankScreenTextIsNotContent() {
         #expect(TerminalCardContent.choose(sessionStarted: false, connecting: false, hasSnapshot: true,
-                                           screenText: "\n  \n") == .snapshot)
+                                           screenText: "\n  \n") == .savedFrame)
         #expect(TerminalCardContent.choose(sessionStarted: false, connecting: false, hasSnapshot: false,
                                            screenText: nil) == .placeholder)
+    }
+}
+
+/// VERIFY-round8 Claim 8 / T-TABS-01: at the first grid open after a launch an
+/// inactive card showed a saved frame from an earlier session (old Codex
+/// output) as current while the Mac had moved on. A saved frame of a tab not
+/// opened in this launch is only a stand-in until the Mac's screen arrives,
+/// and the grid's opening asks the Mac again.
+@Suite struct TerminalCardStaleFrameTests {
+    @Test func aSavedFrameIsNotShownAsCurrent() {
+        // The Mac has not answered yet: the saved frame is marked as not current.
+        #expect(TerminalCardContent.choose(sessionStarted: false, connecting: false, hasSnapshot: true,
+                                           screenText: nil) == .savedFrame)
+        #expect(TerminalCardContent.savedFrame.isCurrent == false)
+        #expect(TerminalCardContent.snapshot.isCurrent && TerminalCardContent.screenText.isCurrent)
+    }
+
+    @Test func theGridOpeningAsksTheMacAgain() {
+        var refresh = TerminalCardScreenRefresh()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(refresh.begin("s1", now: t0))
+        // A card rebuilt within 3 s does not ask again ...
+        #expect(!refresh.begin("s1", now: t0.addingTimeInterval(1)))
+        // ... but the grid opening does.
+        #expect(refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true))
+    }
+
+    @Test func aFailedReadIsAskedAgainAtTheNextBuild() {
+        var refresh = TerminalCardScreenRefresh()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(refresh.begin("s1", now: t0))
+        // The link was not up yet: no answer. The next card build asks again
+        // instead of keeping the saved frame for the throttle's sake.
+        refresh.failed("s1")
+        #expect(refresh.begin("s1", now: t0.addingTimeInterval(0.5)))
     }
 }
 
