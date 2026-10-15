@@ -195,6 +195,7 @@ def engine_snapshot(app_pid: int, app_path: str) -> dict[str, Any]:
     groups = process_tree(app_pid, app_path)
     return {
         "app_footprint_bytes": app_footprint_median(app_pid),
+        "app_resident_bytes": int(getattr(rusage(app_pid), "ri_resident_size", 0)),
         "webkit_processes": len(groups["webkit"]),
         "webkit_footprint_bytes": sum(p["footprint_bytes"] for p in groups["webkit"]),
         "chromium_processes": len(groups["chromium"]),
