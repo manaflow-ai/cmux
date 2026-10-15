@@ -615,9 +615,9 @@ pub struct Mux {
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    /// Each terminal agent's last prompt (at most 200 characters), memory only: never
-    /// journaled, persisted or logged (`agent_prompts.rs`).
-    agent_prompts: Mutex<HashMap<TerminalPublicId, Arc<str>>>,
+    /// Each terminal agent's last prompt and last reply (at most 200 characters each), memory
+    /// only: never journaled, persisted or logged (`agent_prompts.rs`).
+    agent_prompts: Mutex<agent_prompts::AgentTexts>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
