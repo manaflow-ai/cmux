@@ -88,6 +88,8 @@ final class CEFRuntime {
     }
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
+    /// Bundled extensions to load at start (`browser.builtInAdBlocker`).
+    var builtInExtensions = CEFBuiltInExtensions(adBlockerEnabled: true)
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
@@ -302,8 +304,10 @@ final class CEFRuntime {
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment
+            environment: environment,
+            builtInExtensions: builtInExtensions.folders(resources: Bundle.main.resourceURL)
         )
+        logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         // Pages use the theme color, never white or Chromium's #292929

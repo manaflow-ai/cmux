@@ -81,6 +81,13 @@ public struct ExtensionsMenu {
             item.view = row
             menu.addItem(item)
         }
+        if list.contains(where: { $0.id == CEFBuiltInExtensions.adBlockerID }) {
+            // The Web Store lists only uBlock Origin Lite; the full one ships inside cmux.
+            let note = NSMenuItem(title: Strings.builtInAdBlocker, action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            note.identifier = NSUserInterfaceItemIdentifier("\(ExtensionsMenu.menuIdentifier).builtInAdBlocker")
+            menu.addItem(note)
+        }
         menu.addItem(.separator())
         var footer: [ExtensionMenuOperation] = [.manage, .webStore]
         if store.supportsManagement { footer.append(.loadUnpacked) }

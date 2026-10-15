@@ -9,6 +9,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
+    /// Extensions the app bundle ships (`CEFBuiltInExtensions`); they do not
+    /// turn on the extensions developer mode.
+    var builtInExtensions: [String] = []
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
@@ -37,8 +40,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
-        if !loadExtensions.isEmpty {
-            result.append("load-extension=" + loadExtensions.joined(separator: ","))
+        let loaded = builtInExtensions + loadExtensions
+        if !loaded.isEmpty {
+            result.append("load-extension=" + loaded.joined(separator: ","))
         }
         result.append(contentsOf: extraSwitches)
         return result
@@ -95,7 +99,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     static func current(
         forkAPIVersion: Int32,
         bundleIdentifier: String?,
-        environment: [String: String]
+        environment: [String: String],
+        builtInExtensions: [String] = []
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -112,6 +117,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             forkAPIVersion: forkAPIVersion,
             useMockKeychain: dev,
             loadExtensions: extensions,
+            builtInExtensions: builtInExtensions,
             extraSwitches: extra
         )
     }

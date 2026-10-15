@@ -21,7 +21,8 @@ extension BrowserLinkClickMapping {
     }
 }
 
-/// Both engines follow every loaded snapshot's `browser.links.*`.
+/// Both engines follow every loaded snapshot's `browser.links.*`; Chromium
+/// also follows `browser.builtInAdBlocker`.
 @MainActor
 enum BrowserLinkClickPreference {
     static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
@@ -32,6 +33,11 @@ enum BrowserLinkClickPreference {
                 webKit?.linkClicks = mapping
                 cef?.linkClicks = mapping
             }
+        }
+        // `browser.builtInAdBlocker`: read by Chromium at its start.
+        Task { [weak settings, weak cef] in
+            guard let settings else { return }
+            for await enabled in ObservationStream({ settings.snapshot.browserBuiltInAdBlocker }) { cef?.builtInAdBlocker = enabled }
         }
     }
 }

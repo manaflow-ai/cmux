@@ -487,7 +487,8 @@ def phase_baseline(_args):
 
 def phase_ublock(args):
     server, url = serve()
-    job = Job("ublock", extensions=[args.ubo])
+    # Without --ubo the app's built-in copy (browser.builtInAdBlocker, on by default) is checked.
+    job = Job("ublock" if args.ubo else "builtin", extensions=[args.ubo] if args.ubo else [])
     ctx = {}
 
     def loaded():
@@ -499,6 +500,8 @@ def phase_ublock(args):
         job.row("ublock: loaded and enabled", bool(ubo and ubo.get("enabled")), ubo or "not listed")
         if not ubo:
             return "stop"
+        if not args.ubo:
+            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == "cjpalhdlnbpafiamejdnhcphjbkeiagm", ubo)
         ctx["id"] = ubo["id"]
         ctx["prefix"] = f"chrome-extension://{ubo['id']}/"
 
@@ -673,6 +676,20 @@ def phase_ublock(args):
                 before == "loaded" and outcomes["jQuery"] == "blocked" and bool(ctx.get("rule")),
                 {"before": before, "rule": ctx.get("rule"), "after": outcomes["jQuery"], "page": state})
 
+    def menu_note():
+        """The Extensions menu says the full uBlock Origin is built in (the Web Store
+        lists only uBlock Origin Lite)."""
+        job.call("debug.extensions.click", {"button": "extensions"})
+        state = {}
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not state.get("open"):
+            state = job.call("debug.extensions.menu").get("result") or {}
+            time.sleep(0.25)
+        shot = job.window_shot("builtin-extensions-menu", popups=True)
+        job.call("debug.extensions.menu", {"dismiss": True})
+        note = [i for i in state.get("items", []) if isinstance(i, dict) and str(i.get("identifier", "")).endswith(".builtInAdBlocker")]
+        job.row("builtin: Extensions menu says uBlock Origin (full) is built in", bool(note), {"note": note, "shot": shot, "open": state.get("open")})
+
     def dashboard():
         """Automation may not open extension pages as tabs; a person's tab is
         navigated there through DevTools, as typing the address would."""
@@ -696,6 +713,7 @@ def phase_ublock(args):
                            ("ublock: ready", ready), ("ublock: network", network),
                            ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
+                           *([] if args.ubo else [("builtin: menu note", menu_note)]),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
 
@@ -712,12 +730,14 @@ def ads_check_jq(job, url):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("phase", choices=["store", "baseline", "ublock"])
+    parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
     args = parser.parse_args()
     if args.phase == "ublock" and not args.ubo:
         parser.error("--ubo is required")
-    return {"store": phase_store, "baseline": phase_baseline, "ublock": phase_ublock}[args.phase](args)
+    if args.phase == "builtin":
+        args.ubo = None
+    return {"store": phase_store, "baseline": phase_baseline, "ublock": phase_ublock, "builtin": phase_ublock}[args.phase](args)
 
 
 if __name__ == "__main__":
