@@ -25,8 +25,9 @@ extension BrowserPanel {
         choice: BrowserEngineChoice?,
         panelID: UUID,
         profileID: UUID,
-        runtime: BrowserEngineRuntime = .shared
+        runtime: BrowserEngineRuntime? = nil
     ) -> EnginePageSetup {
+        let runtime = runtime ?? .shared
         let resolved: BrowserEngineChoice
         if let choice {
             resolved = choice
@@ -65,9 +66,9 @@ extension BrowserPanel {
     /// reports `engine_unavailable` before it gets here).
     static func resolvedEngineChoice(
         requested: BrowserEngineKind?,
-        runtime: BrowserEngineRuntime = .shared
+        runtime: BrowserEngineRuntime? = nil
     ) -> BrowserEngineChoice? {
-        switch runtime.resolve(requested: requested) {
+        switch (runtime ?? .shared).resolve(requested: requested) {
         case .open(let choice):
             return choice
         case .refuse:

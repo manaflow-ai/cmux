@@ -492202,55 +492202,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Default Browser Engine"
+            "value": "Browser Engine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルトブラウザエンジン"
+            "value": "ブラウザエンジン"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Standard-Browser-Engine"
+            "value": "Browser-Engine"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moteur de navigateur par défaut"
+            "value": "Moteur du navigateur"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "محرك المتصفح الافتراضي"
+            "value": "محرك المتصفح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Motor de navegador predeterminado"
+            "value": "Motor del navegador"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "預設瀏覽器引擎"
+            "value": "瀏覽器引擎"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "默认浏览器引擎"
+            "value": "浏览器引擎"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기본 브라우저 엔진"
+            "value": "브라우저 엔진"
           }
         }
       }
