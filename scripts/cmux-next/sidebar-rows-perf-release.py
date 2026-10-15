@@ -382,6 +382,9 @@ GENERIC = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNe
 def main_thread_profile(trace):
     """Main-thread Time Profiler samples of the trace: top inclusive and leaf frames."""
     inclusive, leaf, total = {}, {}, 0
+    # Below -[NSViewBackingLayer display] (AppKit's drawRect/updateLayer) and CA's layer display: what draws.
+    under = {"-[NSViewBackingLayer display]": {}, "CA::Layer::display_if_needed(CA::Transaction*)": {}}
+    under_total = dict.fromkeys(under, 0)
     try:
         for cells, ids in export_table(trace, "time-profile"):
             thread = next((n for t, n in cells if t == "thread"), None)
@@ -396,6 +399,11 @@ def main_thread_profile(trace):
                 leaf[frames[0]] = leaf.get(frames[0], 0) + 1
             for name in set(frames):
                 inclusive[name] = inclusive.get(name, 0) + 1
+            for root, counter in under.items():
+                if root in frames:
+                    under_total[root] += 1
+                    for name in set(frames[:frames.index(root)]):
+                        counter[name] = counter.get(name, 0) + 1
     except Exception as error:  # noqa: BLE001
         return {"error": f"export: {error}"}
 
@@ -403,7 +411,27 @@ def main_thread_profile(trace):
         return [{"frame": n[:200], "samples": c, "pct": round(100.0 * c / total, 1) if total else 0}
                 for n, c in sorted(counter.items(), key=lambda kv: -kv[1]) if not n.startswith(GENERIC)][:limit]
 
-    return {"main_samples": total, "top_inclusive": top(inclusive, 60), "top_leaf": top(leaf, 30)}
+    return {"main_samples": total, "top_inclusive": top(inclusive, 60), "top_leaf": top(leaf, 30),
+            "under": {root: {"samples": under_total[root],
+                             "top": [{"frame": n[:200], "samples": c} for n, c in sorted(counter.items(), key=lambda kv: -kv[1])][:50]}
+                      for root, counter in under.items()}}
+
+
+def hitch_details(trace, pid, limit=12):
+    """The trace's table schemas and every column of the longest hitches of `pid` (what kind of frame was late)."""
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], capture_output=True, text=True).stdout
+    schemas = sorted(set(re.findall(r'schema="([^"]+)"', toc)))
+    rows = []
+    try:
+        for cells, _ in export_table(trace, "hitches"):
+            process = next((n for t, n in cells if t == "process"), None)
+            if process is None or f"({pid})" not in (process.get("fmt") or ""):
+                continue
+            rows.append({t: (n.get("fmt") or n.text or "")[:120] for t, n in cells})
+    except Exception as error:  # noqa: BLE001
+        return {"schemas": schemas, "error": f"export: {error}"}
+    rows.sort(key=lambda r: -float(re.sub(r"[^0-9.]", "", r.get("duration", "0")) or 0))
+    return {"schemas": schemas, "longest": rows[:limit]}
 
 
 def record(name, ticks, terms, profile):
@@ -447,6 +475,7 @@ def record(name, ticks, terms, profile):
     result.update(hitches(path, Target.pid))
     if profile:
         result["profile"] = main_thread_profile(path)
+        result["hitch_details"] = hitch_details(path, Target.pid)
     # Remove this recording's own ktrace intermediates (attributed above by the recorder's open files), once closed.
     removed = 0
     for path_k in mine:
