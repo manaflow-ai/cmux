@@ -11,11 +11,11 @@
 
 import { iosPaywallV1FlagDefinition, IOS_PAYWALL_V1_SEED, IOS_PAYWALL_EXPERIMENT } from "../../services/billing/paywall/iosPaywallV1";
 import { POSTHOG_PROJECT_ID_DEFAULT } from "../../services/billing/paywall/runAll";
-import { validateIosPaywallPayload } from "../../services/billing/paywall/validator";
+import { IOS_PAYWALL_V1 } from "../../services/billing/paywall/experiments";
 
 const definition = iosPaywallV1FlagDefinition();
 const errors = IOS_PAYWALL_V1_SEED.flatMap((variant) => {
-  const result = validateIosPaywallPayload(variant.payload, IOS_PAYWALL_EXPERIMENT, variant.key);
+  const result = IOS_PAYWALL_V1.validatePayload(variant.payload, variant.key);
   return result.ok ? [] : result.errors.map((error) => `${variant.key}: ${error}`);
 });
 if (errors.length > 0) {
