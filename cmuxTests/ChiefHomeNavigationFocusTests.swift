@@ -60,9 +60,11 @@ import Testing
         let f = Fixture()
         let editor = NSTextView()
         editor.isFieldEditor = true
-        editor.delegate = f.panelField
+        // A field editor's delegate is its text field; the Xcode 26.6 SDK does not
+        // declare NSTextField as an NSTextViewDelegate in Swift, so set it as AppKit does.
+        editor.setValue(f.panelField, forKey: "delegate")
         #expect(f.mustTake(editor))
-        editor.delegate = f.homeField
+        editor.setValue(f.homeField, forKey: "delegate")
         #expect(!f.mustTake(editor))
     }
 
