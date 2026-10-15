@@ -21,7 +21,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use super::super::mcp::{self, Backend};
+use super::super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::super::{UsageError, app};
 use super::{AgentFailure, compose_snapshot, snapshot_plan};
 
@@ -45,6 +45,8 @@ const TITLE_CHARS: usize = 80;
 const BODY_CHARS: usize = 160;
 const CURSOR_PREFIX: &str = "evc1_";
 const MAX_CURSOR_BYTES: usize = 64 << 10;
+/// The largest event number a cursor carries (exact in a JSON double).
+const MAX_SEQ: u64 = (1 << 53) - 1;
 /// The fields of a dialog an event names (ids; no tool input). Its own
 /// `kind` (permissionRequest, question) is the event's `dialog_kind`.
 const DIALOG_FIELDS: [&str; 7] = [
@@ -116,7 +118,9 @@ impl Cursor {
         if body.len() > MAX_CURSOR_BYTES {
             return None;
         }
-        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(body).ok()?).ok()
+        let cursor: Self = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(body).ok()?).ok()?;
+        // A client may edit it: an event number this high is not one we gave.
+        (cursor.seq <= MAX_SEQ).then_some(cursor)
     }
 
     fn daemon_param(&self) -> Option<Value> {
@@ -222,24 +226,28 @@ pub(in crate::cli) fn run<B: Backend>(
     match &request.after {
         Some(after) => {
             poll.cursor = after.clone();
+            // A call that never reached the daemon: what changed since is
+            // unknown, so its first snapshot says so.
+            poll.unanchored = after.daemon.is_none();
             poll.flush_reset();
-            poll.check_app(backend, session);
+            poll.check_app(backend, session, None);
         }
         // From now: the daemon's journal position and agents, and the app's
         // dialogs and chats, with no event for what is already there.
         None => {
+            // One daemon read is the baseline and scopes the app's, so a
+            // daemon that answered is known before the app is diffed.
             let daemon = backend.resource(session, snapshot_plan(), &[]);
-            let app_answered = poll.check_app(backend, session);
-            match &daemon {
-                Ok(snapshot) => {
-                    poll.cursor.daemon = daemon_cursor(&snapshot["cursor"], 0);
-                    poll.cursor.agents = agent_states(snapshot);
-                    poll.daemon_seen = true;
-                }
-                Err(failure) if !app_answered => {
-                    return Err(AgentFailure::Owner(failure.clone()));
-                }
-                Err(_) => {}
+            if let Ok(snapshot) = &daemon {
+                poll.cursor.daemon = daemon_cursor(&snapshot["cursor"], 0);
+                poll.cursor.agents = agent_states(snapshot);
+                poll.daemon_seen = true;
+            }
+            let app_answered = poll.check_app(backend, session, Some(&daemon));
+            if let Err(failure) = daemon
+                && !app_answered
+            {
+                return Err(AgentFailure::Owner(failure));
             }
         }
     }
@@ -264,6 +272,8 @@ struct Poll<'a> {
     app_seen: bool,
     /// When the call's reads must end.
     bound: Instant,
+    /// The cursor had no daemon position: the first snapshot is a reset.
+    unanchored: bool,
 }
 
 impl<'a> Poll<'a> {
@@ -277,6 +287,7 @@ impl<'a> Poll<'a> {
             daemon_seen: false,
             app_seen: false,
             bound,
+            unanchored: false,
         }
     }
 
@@ -341,7 +352,7 @@ impl<'a> Poll<'a> {
         while !self.answered(true, deadline) {
             let left = deadline.saturating_duration_since(Instant::now());
             std::thread::sleep(left.min(RECHECK));
-            self.check_app(backend, session);
+            self.check_app(backend, session, None);
         }
     }
 
@@ -361,7 +372,7 @@ impl<'a> Poll<'a> {
             return true;
         }
         if self.last_app.elapsed() >= RECHECK {
-            self.check_app(backend, session);
+            self.check_app(backend, session, None);
         }
         self.answered(item.is_none(), deadline)
     }
@@ -385,7 +396,7 @@ impl<'a> Poll<'a> {
         if self.full() {
             return false;
         }
-        self.cursor.seq += 1;
+        self.cursor.seq = self.cursor.seq.saturating_add(1).min(MAX_SEQ);
         let mut event = Map::new();
         event.insert("seq".into(), json!(self.cursor.seq));
         event.insert("kind".into(), json!(kind));
@@ -407,6 +418,8 @@ impl<'a> Poll<'a> {
                 let reason = item["reset_reason"].as_str().unwrap_or("initial");
                 if self.cursor.daemon.is_some() && reason != "initial" {
                     self.cursor.reset.get_or_insert_with(|| reason.to_owned());
+                } else if std::mem::take(&mut self.unanchored) {
+                    self.cursor.reset.get_or_insert_with(|| "daemon_unavailable".to_owned());
                 }
                 self.cursor.agents = agent_states(&item["snapshot"]);
                 self.cursor.daemon =
@@ -534,7 +547,13 @@ impl<'a> Poll<'a> {
     /// Reads the app's pending dialogs and its agent chats' states, in this
     /// session's scope, and adds an event for each change since the
     /// cursor's. Answers whether the app answered.
-    fn check_app<B: Backend>(&mut self, backend: &B, session: Option<&str>) -> bool {
+    /// `known` is a daemon snapshot this call just read, to scope with.
+    fn check_app<B: Backend>(
+        &mut self,
+        backend: &B,
+        session: Option<&str>,
+        known: Option<&Result<Value, CallFailure>>,
+    ) -> bool {
         self.last_app = Instant::now();
         let feed = self.app_read(backend, "feed.list", json!({"pending_only": true}));
         let topology = self.app_read(backend, "snapshot.get", json!({}));
@@ -545,7 +564,18 @@ impl<'a> Poll<'a> {
         // The daemon's view of this session scopes what the app shows. When
         // a daemon there was does not answer, nothing is diffed this time:
         // an unscoped read would show other sessions' chats and dialogs.
-        let daemon = backend.resource(session, snapshot_plan(), &[]);
+        let daemon = match known {
+            Some(known) => known.clone(),
+            // A read that may not finish in time is not started.
+            None if self.bound.saturating_duration_since(Instant::now()) < MIN_APP_READ => {
+                Err(CallFailure {
+                    kind: FailureKind::NotRun,
+                    error: json!({"code": "timeout", "message": "no time left"}),
+                    idempotency_key: None,
+                })
+            }
+            None => backend.resource(session, snapshot_plan(), &[]),
+        };
         if daemon.is_err()
             && (session.is_some() || self.daemon_seen || self.cursor.daemon.is_some())
         {

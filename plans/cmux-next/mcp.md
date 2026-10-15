@@ -109,7 +109,8 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     long-poll on what changes, `{events: [{seq, kind, at, change, id, ...}], next_after,
     timed_out}`. Kinds are `dialog` (opened, closed), `notification` (created, read,
     cleared), `tab` and `workspace` (changed, closed) and `agent` (a terminal agent's or
-    agent chat's `state`); `reset` says the daemon's journal restarted (read
+    agent chat's `state`); `reset` says the daemon's journal restarted, the cursor
+    expired or is unknown, or an earlier call never reached the daemon (read
     `agents_snapshot` again) and comes whatever `kinds` asks for. Without `after` it
     starts from now and returns nothing old; `next_after` continues with no gaps or
     duplicates. It answers at once when events are pending (a burst for up to 200 ms),
@@ -119,15 +120,17 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     resumes there. Tabs, workspaces, notifications and terminal agents come from the
     daemon's `session.events` journal, resumed from the cursor's revision; dialogs (the
     `agents_dialog_list` feed) and agent chat states (the app's tabs) have no event and
-    are read every second (each read bounded by the call's time left) and diffed against
-    the state the cursor carries (opaque: `evc1_` and base64url JSON, at most 64 KiB).
+    are read every second (each app read bounded by the call's time left; the daemon
+    read that scopes them is skipped under 50 ms left but else has the transport's own
+    timeout) and diffed against the state the cursor carries (opaque: `evc1_` and base64url JSON, at most 64 KiB).
     So a dialog that opens and resolves between two reads is missed, and the baseline is
     the first app read that answers. A cursor that would pass 64 KiB drops that state and
     gives a `reset` (`cursor_too_large`); a reset that finds an answer full waits in the
     cursor for the next call. Scoped like `agents_snapshot`: chat tabs and dialogs of
     terminals or tabs outside the session are left out, and when a daemon there was does
-    not answer, the app is not diffed that time (nothing from other sessions leaks). Events carry ids, states and
-    short titles; no terminal text, chat text or tool input, and notification title and
+    not answer, the app is not diffed that time (nothing from other sessions leaks).
+    A cursor whose event number is past 2^53 is refused as not a cursor. Events carry
+    ids, states and short titles; no terminal text, chat text or tool input, and notification title and
     body are cut to 80 and 160 characters (`truncated: true`). Kinds not asked for are
     skipped, not kept. Read-only;
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
