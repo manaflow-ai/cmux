@@ -324,13 +324,21 @@ final class SSHService {
     /// daemon over (terminals and hosted agents kept). A newer, equal or unordered remote build is
     /// left alone; a failed update leaves the machine as it was (the app's own tolerance stays).
     func updateIfOlder(_ session: SSHMachineSession) async {
-        guard !policyDisabled, let binary, case .installed(let probe)? = await session.link.lastReport?.binary,
-              !probe.json.isEmpty, let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
+        guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
+              let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
         if let entry = autoUpdated[tried] {
             guard let retry = entry, ContinuousClock.now >= retry else { return }
         }
         guard !installing.contains(session.machineID) else { return }
+        // The machine's build facts (`remote-probe --json --build-facts`; an older cmux-tui ignores
+        // the flag and answers its plain probe, which the rule counts as older).
+        guard let facts = try? await SSHProcessRunner.run(
+            SSHCommandLine().command(session.host, "\(session.host.remoteBinary) remote-probe --json --build-facts </dev/null"),
+            environment: await Self.environment(), deadline: .seconds(20), label: "remote-probe \(session.host.destination)"),
+            facts.status == 0,
+            let line = facts.stdout.split(separator: "\n").last(where: { $0.hasPrefix("{") }),
+            let probe = try? RemoteProbe.decode(String(line)) else { return }
         guard let answer = await RemoteUpdateNeed.ask(binary: binary, probe: probe) else { return }
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
         guard answer.need == "older" else { return }
