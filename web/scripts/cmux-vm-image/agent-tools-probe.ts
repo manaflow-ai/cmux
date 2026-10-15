@@ -195,7 +195,7 @@ export function staticCheckCommand(): string {
   ].join("; ");
 }
 
-const kv = (text: string) => Object.fromEntries(text.split("\n").filter((l) => /^[a-zA-Z0-9_.-]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+const kv = (text: string) => Object.fromEntries(text.split("\n").filter((l) => /^[a-zA-Z0-9_.@-]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 
 export type Check = { ok: boolean; detail: string; status?: "UNVERIFIED" };
 export type ProbeResult = { checks: Record<string, Check>; timings: Record<string, number>; files: string[] };
