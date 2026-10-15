@@ -291,6 +291,24 @@ pub(crate) fn newest_for_window(
         .optional()?)
 }
 
+/// The public upserts of `closed_ids` (groups whose archive lost its
+/// screen), so a client that follows the change stream shows the note. A
+/// group already gone is skipped.
+pub(crate) fn closed_upserts(
+    connection: &Connection,
+    closed_ids: &[String],
+) -> anyhow::Result<Vec<Value>> {
+    let evicted = crate::workspace_registry::terminal_archive_store::evicted_terminals(connection)?;
+    let mut upserts = Vec::new();
+    for closed_id in closed_ids {
+        if let Some(record) = closed_record(connection, closed_id)? {
+            let item = public_item_in(&record, &evicted);
+            upserts.push(crate::state::store::state_upsert("closed", closed_id, item));
+        }
+    }
+    Ok(upserts)
+}
+
 /// The full stored group (including the terminal ids reopen uses).
 pub(crate) fn closed_record(
     connection: &Connection,
