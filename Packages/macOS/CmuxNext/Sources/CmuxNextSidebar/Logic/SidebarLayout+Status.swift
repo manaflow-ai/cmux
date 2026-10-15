@@ -5,7 +5,7 @@ import Foundation
 /// dissolved, under Needs you, Working, Done and No agent (`SidebarStatusBucket`), in list order
 /// inside each. A header names its bucket and count; folded buckets keep the count (Needs you
 /// never folds). Rows move as their status changes, except the active row (`SidebarGrouping.held`).
-extension SidebarLayout {
+nonisolated extension SidebarLayout {
     /// The rows of `sections`' computers (the pinned area lays out as before), from `y`.
     static func statusRows(
         _ sections: [SidebarSection], options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
