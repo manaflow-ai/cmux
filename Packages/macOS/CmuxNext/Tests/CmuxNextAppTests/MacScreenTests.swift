@@ -207,6 +207,20 @@ struct MacScreenDevelopmentSettingsRouteTests {
 struct MacScreenInputGateTests {
     private func pairing() -> VNCPairing { VNCPairing.generate(name: "Gate Test", kind: "stream") }
 
+    /// Connect opens the screen but leaves the keyboard here until a click on
+    /// the picture, as after the release chord (the next keystrokes never
+    /// reach the remote Mac unasked).
+    @Test func connectWaitsForAClickBeforeTakingTheKeyboard() {
+        let pane = MacScreenPane(name: "Gate Test", pairing: pairing(), preferences: ScreenPreferences(), confirmed: false)
+        pane.connectSession = { _ in }
+        pane.debugConfirm()
+        #expect(pane.model.gate == .open)
+        #expect(pane.view.input.isReleased)
+        #expect(!pane.view.input.hasKeyboard)
+        #expect(!pane.model.capturesKeyboard)
+        pane.close()
+    }
+
     @Test func noInputBehindTheConfirmCardUntilConnect() {
         let pane = MacScreenPane(name: "Gate Test", pairing: pairing(), preferences: ScreenPreferences(), confirmed: false)
         #expect(pane.model.gate == .confirm)

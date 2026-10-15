@@ -27,6 +27,10 @@ public final class RemoteInputSurface {
         }
     }
 
+    /// Leaves the keyboard here until a click on the surface (as the release
+    /// chord does): for a screen that just opened.
+    public func waitForClick() { release() }
+
     private func release() {
         isReleased = true
         capture.controlMode = false
