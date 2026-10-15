@@ -66,7 +66,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "Steadier Cloud",
         description:
           "Cloud recovers frozen machines and wedged terminal links, shows a new split's terminal sooner, and explains a full resource pool instead of reporting a missing plan. Shared team members can enable Cloud, and the upgrade offer shows your next plan tier.",
-        tryIt: "Run `cmux vm new` to start a Cloud machine.",
+        tryIt: "Open Settings > Cloud.",
       },
       {
         title: "Calmer Sign-In",
