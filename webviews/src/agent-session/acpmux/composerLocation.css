@@ -282,7 +282,12 @@
 .acpmux-composer-bar .acpmux-chips > .acpmux-mode:not(:first-child) {
   padding-inline-start: calc(var(--acpmux-row-group-gap) - var(--acpmux-row-gap));
 }
-.acpmux-composer-bar .acpmux-composer-actions { gap: var(--acpmux-row-gap); }
+/* The trailing cluster takes the row's free space on its leading side, in either direction. */
+.acpmux-composer-bar .acpmux-composer-actions {
+  gap: var(--acpmux-row-gap);
+  margin-left: 0;
+  margin-inline-start: auto;
+}
 /* Send's inset sits inside the actions cluster's box, which the row's fit measures whole. */
 .acpmux-composer-bar .acpmux-send { margin-inline-start: var(--acpmux-row-inset); }
 /* + and the mic draw a 16 px glyph, as Send does, so a 28 px button keeps the row's inset. */

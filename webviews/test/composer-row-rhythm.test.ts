@@ -4,7 +4,9 @@
 //
 // The row is four groups: [+] [model · effort] [permission mode · Plan] ……… [Interrupt · mic · Send].
 // What a person sees between two controls is the space between what each draws (its text, its
-// icons, or Send's disc), not between their transparent hit boxes, so this measures drawn content:
+// icons' boxes, or Send's disc), not between their transparent hit boxes, so this measures that.
+// An icon counts as its box, not its strokes: icons share one grid, so equal box gaps read as equal.
+// The effort chip and the mic may be absent (a short row, or effort folded into the model chip):
 //   - inside a group, every control is the same distance from the next (within 1 px);
 //   - between the leading groups, every gap is the same, and larger than the in-group gap;
 //   - inside the chips (model, effort, permission mode, Interrupt), the text sits the same distance
@@ -106,6 +108,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
       parts.sort((a, b) => a.left - b.left);
       return [{ name, box: { left: rect.left, right: rect.right }, parts }];
     });
+    controls.sort((a, b) => a.box.left - b.box.left);
     return {
       bar: { left: barRect.left, right: barRect.right },
       content: {
