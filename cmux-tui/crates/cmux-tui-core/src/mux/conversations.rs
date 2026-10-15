@@ -59,6 +59,20 @@ impl Mux {
         let _order = self.conversations.publish.lock().unwrap();
         let value = self.with_conversations(write)?;
         for event in publish(&value) {
+            // A participant's posted message ends its typing (every client
+            // drops it on the message; the owner's state follows, so the Home
+            // rows never show a Chief working after it answered).
+            if let MuxEvent::Conversation(change) = &event
+                && let crate::conversation_store::ConversationEvent::Changed {
+                    conversation,
+                    change,
+                    ..
+                } = change.as_ref()
+                && change["kind"] == "message"
+                && let Some(author) = change["message"]["author"].as_str()
+            {
+                self.set_conversation_typing(conversation, author, false);
+            }
             self.emit(event);
         }
         Ok(value)
@@ -148,6 +162,15 @@ impl Mux {
                 typing.remove(conversation);
             }
         }
+    }
+
+    /// Everyone typing now, by conversation (one lock for the Home rows).
+    pub(crate) fn conversation_typing_all(&self) -> HashMap<String, Vec<String>> {
+        let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        typing
+            .iter()
+            .map(|(conversation, set)| (conversation.clone(), set.iter().cloned().collect()))
+            .collect()
     }
 
     /// The participants typing in `conversation` now, sorted.

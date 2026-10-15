@@ -20,11 +20,13 @@ test("the pages' hover timing matches the native app's", () => {
   const native = {
     tooltipDelay: ms("tooltipDelay"),
     tooltipWarm: ms("tooltipWarm"),
-    cardDwell: ms("cardDwell"),
     cardGrace: ms("cardGrace"),
     cardAim: ms("cardAim"),
   };
-  expect(native).toEqual({ ...HOVER_INTENT });
+  // cardDwell is the pages' own: the native workspace and tab cards wait Chrome's delay or the
+  // user's sidebar.hoverCards.delay (HoverCardTiming.swift).
+  const { cardDwell: _pagesOnly, ...shared } = HOVER_INTENT;
+  expect(native).toEqual(shared);
 
   // The tunables default to the same values (seconds).
   const tunables = read("Motion/MotionTunables.swift");
@@ -36,8 +38,7 @@ test("the pages' hover timing matches the native app's", () => {
   expect({
     tooltipDelay: seconds("motion.tooltip.delay"),
     tooltipWarm: seconds("motion.tooltip.warm"),
-    cardDwell: seconds("motion.hoverCard.dwell"),
     cardGrace: seconds("motion.hoverCard.grace"),
     cardAim: seconds("motion.hoverCard.aim"),
-  }).toEqual({ ...HOVER_INTENT });
+  }).toEqual(shared);
 });
