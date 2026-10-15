@@ -1074,6 +1074,18 @@
         {
           "keys" : [
             {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
               "key" : "",
               "modifiers" : [
                 "opt",
@@ -1111,7 +1123,7 @@
       "default_shortcut" : {
         "key" : "]",
         "modifiers" : [
-          "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -1139,6 +1151,18 @@
 
       ],
       "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
         {
           "keys" : [
             {
@@ -1179,7 +1203,7 @@
       "default_shortcut" : {
         "key" : "[",
         "modifiers" : [
-          "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -7850,18 +7874,6 @@
             }
           ],
           "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "]",
-              "modifiers" : [
-                "shift",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
         }
       ],
       "default_chord" : null,
@@ -7902,18 +7914,6 @@
               "modifiers" : [
                 "ctrl",
                 "shift"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "[",
-              "modifiers" : [
-                "shift",
-                "cmd"
               ]
             }
           ],
@@ -14229,34 +14229,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "offered",
-      "cli_name" : "browser fit-desktop-1280",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "browserPage"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "browserFitDesktop1280",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Fit as Desktop (1280)",
-      "title_key" : "action.browserFitDesktop1280",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "guiOnly",
       "cli_name" : "browser stop-vs-code-inline-server",
       "context_menu" : "noTargetSurface",
@@ -19937,6 +19909,34 @@
       "palette_suggested" : null,
       "title" : "Copy Agent Identifier",
       "title_key" : "action.agentChat.copyIdentifier",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-side-question",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.sideQuestion",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Ask a Side Question…",
+      "title_key" : "action.agentPane.sideQuestion",
       "title_table" : "ActionCatalog"
     },
     {
@@ -29969,21 +29969,8 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "browserFitDesktop1280",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-                  "browserFocused"
-                ]
-              }
-            },
-            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 5
             },
             {
               "children" : [
@@ -30145,7 +30132,7 @@
               ],
               "id" : "browser.pageInfo",
               "kind" : "submenu",
-              "order" : 7,
+              "order" : 6,
               "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
@@ -30159,7 +30146,7 @@
               "enabled_when" : "can_perform",
               "id" : "showBrowserJavaScriptConsole",
               "kind" : "action",
-              "order" : 8,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30172,7 +30159,7 @@
               "enabled_when" : "can_perform",
               "id" : "inspectBrowserElement",
               "kind" : "action",
-              "order" : 9,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30183,13 +30170,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 10
+              "order" : 9
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.menu",
               "kind" : "action",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30202,7 +30189,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.manage",
               "kind" : "action",
-              "order" : 12,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30215,7 +30202,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.webStore",
               "kind" : "action",
-              "order" : 13,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30228,7 +30215,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.loadUnpacked",
               "kind" : "action",
-              "order" : 14,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
