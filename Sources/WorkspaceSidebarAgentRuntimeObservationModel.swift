@@ -84,17 +84,16 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
 
     /// Records or removes the session that owns one panel lifecycle key.
     func setAgentLifecycleSessionID(_ sessionID: String?, key: String, panelId: UUID) {
-        var next = agentLifecycleSessionIDsByPanelId
         if let sessionID, !sessionID.isEmpty {
-            next[panelId, default: [:]][key] = sessionID
+            guard agentLifecycleSessionIDsByPanelId[panelId]?[key] != sessionID else { return }
+            agentLifecycleSessionIDsByPanelId[panelId, default: [:]][key] = sessionID
         } else {
-            next[panelId]?.removeValue(forKey: key)
-            if next[panelId]?.isEmpty == true {
-                next.removeValue(forKey: panelId)
+            guard agentLifecycleSessionIDsByPanelId[panelId]?[key] != nil else { return }
+            agentLifecycleSessionIDsByPanelId[panelId]?.removeValue(forKey: key)
+            if agentLifecycleSessionIDsByPanelId[panelId]?.isEmpty == true {
+                agentLifecycleSessionIDsByPanelId.removeValue(forKey: panelId)
             }
         }
-        guard next != agentLifecycleSessionIDsByPanelId else { return }
-        agentLifecycleSessionIDsByPanelId = next
         notifyChanged()
     }
 

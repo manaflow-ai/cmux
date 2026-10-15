@@ -190,4 +190,21 @@ struct CustomSidebarAgentLifecycleTests {
         #expect(runtime.agentLifecycleStates["claude_code"] == .backgroundWorkPending)
         #expect(runtime.agentLifecycleSessionIDs["claude_code"] == "session")
     }
+
+    @Test("Dock PID cleanup removes lifecycle ownership")
+    func dockPIDCleanupRemovesLifecycleOwnership() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = CustomSidebarDockTestPanel()
+        dock.panels[panel.id] = panel
+        dock.recordAgentPID(key: "claude_code", pid: 1, panelId: panel.id)
+        dock.setAgentLifecycle(
+            key: "claude_code",
+            panelId: panel.id,
+            lifecycle: .backgroundWorkPending,
+            sessionID: "session"
+        )
+
+        #expect(dock.clearAgentPID(key: "claude_code", panelId: panel.id, clearStatus: false))
+        #expect(dock.agentRuntimeByPanelId[panel.id] == nil)
+    }
 }

@@ -430,6 +430,9 @@ extension DockSplitStore {
         if runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
             didChange = true
         }
+        if runtime.agentLifecycleSessionIDs.removeValue(forKey: statusKey) != nil {
+            didChange = true
+        }
         if clearStatus,
            !runtime.agentPIDKeys.contains(where: {
                agentStatusKey(forAgentPIDKey: $0, runtime: runtime) == statusKey
