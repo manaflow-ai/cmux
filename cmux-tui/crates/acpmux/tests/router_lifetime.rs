@@ -106,8 +106,8 @@ fn router_socket(home: &Path) -> PathBuf {
 /// every platform's Unix socket limit (104 bytes with the NUL on macOS, 108 on
 /// Linux), with the stand-in agent config.
 fn long_home(dir: &Path) -> PathBuf {
-    let base = dir.join("long-home-").as_os_str().len();
-    let home = dir.join(format!("long-home-{}", "h".repeat(140 - "/router/router.sock".len() - base)));
+    let pad = 140 - "/router/router.sock".len() - dir.join("long-home-").as_os_str().len();
+    let home = dir.join(format!("long-home-{}", "h".repeat(pad)));
     std::fs::create_dir_all(&home).unwrap();
     std::fs::copy(dir.join("config.json"), home.join("config.json")).unwrap();
     assert_eq!(home.join("router").join("router.sock").as_os_str().len(), 140);
@@ -294,12 +294,16 @@ fn a_long_home_gets_a_router_that_the_daemon_and_clients_reach() {
         if let Some(status) = by_hand.0.try_wait().unwrap() {
             let mut stderr = String::new();
             by_hand.0.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-            panic!("the router exited ({status}) and never answered at {}: {stderr}", socket.display());
+            panic!(
+                "the router exited ({status}) and never answered at {}: {stderr}",
+                socket.display()
+            );
         }
         std::thread::sleep(Duration::from_millis(50));
     };
     drop(first);
-    let first_pid = ask_router(&home, json!({"op": "status"}))["pid"].as_u64().expect("status names the pid");
+    let first_pid =
+        ask_router(&home, json!({"op": "status"}))["pid"].as_u64().expect("status names the pid");
     assert_eq!(first_pid, u64::from(by_hand.0.id()));
 
     let mut daemon = start_daemon_at(&dir, &home);

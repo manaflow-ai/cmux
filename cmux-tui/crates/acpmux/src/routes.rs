@@ -744,7 +744,7 @@ pub fn local_router_with(
     use crate::router_socket::UnixStream;
     use std::io::{BufRead, BufReader, Write};
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
-    let socket = home.join("router").join("router.sock");
+    let socket = cmux_coderouter::admin_socket_path(home);
     let unavailable = |what: String| {
         RouteError::Unavailable(format!(
             "the local CodeRouter is not running ({what}); start it with `acpmux router serve`"
