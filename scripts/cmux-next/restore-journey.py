@@ -1042,7 +1042,9 @@ def snapshot(label):
         if isinstance(displays, int) and displays >= 2:
             items[f"{p}.display"] = shown.get("display")
         raw[f"{p}.snapshot"] = rpc("debug.window_snapshot", {"window": window.get("key"), "path": os.path.join(opts.out, f"{label}-window{index}.png")}, timeout=60)
-    if not (isinstance(displays, int) and displays >= 2):
+    if not isinstance(displays, int):
+        RESULTS.append((f"{label}: debug.windows reports a displays count", False, f"displays is {displays!r}", "windows"))
+    elif displays < 2:
         RESULTS.append((f"{label}: window[*].display", NA, f"n/a: {displays} display(s), the row needs two", "windows"))
     focus = topo.get("focus", {})
     items["focus.workspace"] = ws_by_id.get(focus.get("workspace"), {}).get("name")
