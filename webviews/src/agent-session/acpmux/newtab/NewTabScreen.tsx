@@ -38,6 +38,7 @@ import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
+import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -176,6 +177,8 @@ export function NewTabScreen(props: Props) {
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
   const chrome = useComposerChrome();
+  // A press outside an open chip menu only closes it (menuPressGuard.ts).
+  useMenuPressGuard();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.

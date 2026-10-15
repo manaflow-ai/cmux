@@ -31,6 +31,7 @@ import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
+import { focusAfterEscape } from "../../ui/escapeFocus";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -1012,10 +1013,12 @@ export function Picker({
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
     const blur = () => setOpen(false);
-    document.addEventListener("pointerdown", away);
+    // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
+    // nothing under it sees the press (menuPressGuard.ts).
+    document.addEventListener("pointerdown", away, true);
     window.addEventListener("blur", blur);
     return () => {
-      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
   }, [open]);
@@ -1064,7 +1067,11 @@ export function Picker({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      setOpen(false);
+      // Back on the button with its ring, though a press opened the menu without one: the button
+      // already has the focus, so it takes it again (escapeFocus.ts).
+      trigger.current?.blur();
+      focusAfterEscape(trigger.current);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
