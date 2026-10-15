@@ -236,6 +236,49 @@ private struct CloudSecretsRow: View {
     @State private var isHovered = false
 
     var body: some View {
+        interactiveRow
+            .disabled(!isEnabled)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityText)
+            .accessibilityAddTraits(selectionTraits)
+            .accessibilityAction(named: String(localized: "cloudSecrets.row.replace", defaultValue: "Replace…"), onReplace)
+            .accessibilityAction(named: String(localized: "cloudSecrets.row.remove", defaultValue: "Remove…"), onRemove)
+            .accessibilityIdentifier("CloudSecretsSheet.row.\(name)")
+    }
+
+    // The row is split into stages so the type checker never sees one long
+    // modifier chain with ternaries in it (it timed out on the combined form).
+    private var interactiveRow: some View {
+        rowContent
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .contentShape(Rectangle())
+            .background(rowBackground)
+            .onHover { isHovered = $0 }
+            .onTapGesture { onSelect() }
+            .help(helpText)
+            .contextMenu {
+                Button(String(localized: "cloudSecrets.row.replace", defaultValue: "Replace…"), action: onReplace)
+                Button(String(localized: "cloudSecrets.row.remove", defaultValue: "Remove…"), action: onRemove)
+                Divider()
+                Button(String(localized: "cloudSecrets.row.copyName", defaultValue: "Copy Name")) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(name, forType: .string)
+                }
+            }
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return Color.accentColor.opacity(0.14) }
+        if isHovered { return Color.primary.opacity(0.04) }
+        return Color.clear
+    }
+
+    private var helpText: String { "\(fingerprint)\n\(updated)" }
+
+    private var selectionTraits: AccessibilityTraits { isSelected ? .isSelected : [] }
+
+    private var rowContent: some View {
         HStack(spacing: 8) {
             Text(name)
                 .cmuxFont(size: 12, weight: .medium, design: .monospaced)
@@ -255,29 +298,6 @@ private struct CloudSecretsRow: View {
                 metadata
             }
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 36)
-        .contentShape(Rectangle())
-        .background(isSelected ? Color.accentColor.opacity(0.14) : (isHovered ? Color.primary.opacity(0.04) : Color.clear))
-        .onHover { isHovered = $0 }
-        .onTapGesture { onSelect() }
-        .help(fingerprint + "\n" + updated)
-        .contextMenu {
-            Button(String(localized: "cloudSecrets.row.replace", defaultValue: "Replace…"), action: onReplace)
-            Button(String(localized: "cloudSecrets.row.remove", defaultValue: "Remove…"), action: onRemove)
-            Divider()
-            Button(String(localized: "cloudSecrets.row.copyName", defaultValue: "Copy Name")) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(name, forType: .string)
-            }
-        }
-        .disabled(!isEnabled)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityAction(named: String(localized: "cloudSecrets.row.replace", defaultValue: "Replace…"), onReplace)
-        .accessibilityAction(named: String(localized: "cloudSecrets.row.remove", defaultValue: "Remove…"), onRemove)
-        .accessibilityIdentifier("CloudSecretsSheet.row.\(name)")
     }
 
     private var showsActions: Bool { isEnabled && (isHovered || isSelected) }
