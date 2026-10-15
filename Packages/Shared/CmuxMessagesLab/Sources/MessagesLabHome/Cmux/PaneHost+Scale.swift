@@ -12,7 +12,15 @@ extension ChatController {
     /// already): its own guard is the view's renderScale. The host's layer trees, the picker and the video layers
     /// follow only when this view's scale changed.
     func followWindowScale() {
-        guard let demo, let s = host.window?.backingScaleFactor, s > 0 else { return }
+        // The video layers follow the rows' new snap (82ccac1) after the scale's display change has installed them.
+        if applyWindowScale() { intents?.rowsPlaced() }
+    }
+
+    /// followWindowScale without the video placement: true when this view's scale changed. Inside an outer
+    /// `MessagesWindowView.displayChange` (followDisplay) the rows snap at the end of that pass, so the caller places
+    /// the video layers after it.
+    @discardableResult private func applyWindowScale() -> Bool {
+        guard let demo, let s = host.window?.backingScaleFactor, s > 0 else { return false }
         let changed = s != demo.renderScale
         if changed {
             DisplayScale.current = s  // the process fallback (code with no view), as Host.swift
@@ -23,10 +31,10 @@ extension ChatController {
             ScaleKeeper.shared.setNeedsApply()
         }
         demo.setRenderScale(s)
-        guard changed else { return }
+        guard changed else { return false }
         demo.moveToWindowRecursively()
         picker?.rescale()
-        intents?.rowsPlaced()  // the video layers follow the rows' new snap (82ccac1)
+        return true
     }
 }
 
@@ -43,10 +51,13 @@ extension ChatController {
     func followDisplay(backingChanged: Bool = false) {
         if backingChanged, let demo, host.window?.backingScaleFactor == demo.renderScale,
            window?.screen?.colorSpace?.cgColorSpace.map({ $0 == DisplayScale.colorSpace }) ?? true { return }
+        var scaled = false
         MessagesWindowView.displayChange {
             followColorSpace()
-            followWindowScale()
+            scaled = applyWindowScale()
         }
+        // After the pass: the visible rows have their new snap now (a deferred refresh runs at the pass's end).
+        if scaled { intents?.rowsPlaced() }
     }
 
     /// Another display: new bitmaps draw in its colour space (no conversion at commit). One process-wide colour space
