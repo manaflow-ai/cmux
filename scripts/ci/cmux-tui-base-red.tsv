@@ -5,5 +5,3 @@
 #   EXPIRES  YYYY-MM-DD, UTC, the last day the skip applies; after it the step fails
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
-protocol::tests::protocol_registry_names_every_served_method	cx-js8uc	2026-10-17	any	acpmux --lib: _acpmux/harness/update and _acpmux/sessions/restart_harness not in protocol::registry() (tip red since #20718)
-the_allowlist_is_what_the_page_sends	cx-js8uc	2026-10-17	any	cmux-agent-pane-policy --test typescript: page requests differ from policy.json (tip red since #20718)
