@@ -36,6 +36,27 @@ import Testing
                                                 requestedTop: 15000, rows: 150) == nil)
     }
 
+    /// VERIFY-round8 claim 1b (T-FOLLOW-04): following at the cap, Ghostty
+    /// pruned 886 rows (17739 -> 16853 + new rows) with its viewport on the
+    /// active area before and after. No prune was counted, so the frame on
+    /// screen kept its top in the old numbering while the document shrank
+    /// under it: the page showed rows the frame did not cover, one black frame.
+    /// The rows the frame on screen moves up by are the total's shrink.
+    @Test func aPruneUnderTheFollowedBottomIsCounted() {
+        let rows = 151
+        // 886 rows pruned, 12 appended meanwhile; the request is stale (following).
+        let total = 17739 - 886 + 12
+        #expect(TerminalHistoryPrune.prunedRows(previousTotal: 17739, previousOffset: 17739 - rows,
+                                                total: total, offset: total - rows,
+                                                requestedTop: 17500, rows: rows) == 874)
+        // Following, output only: the total grew.
+        #expect(TerminalHistoryPrune.prunedRows(previousTotal: 17739, previousOffset: 17739 - rows,
+                                                total: 17750, offset: 17750 - rows, requestedTop: 17500, rows: rows) == nil)
+        // Following, `clear`: the history is gone, nothing to keep.
+        #expect(TerminalHistoryPrune.prunedRows(previousTotal: 17739, previousOffset: 17739 - rows,
+                                                total: rows, offset: 0, requestedTop: 17500, rows: rows) == nil)
+    }
+
     @Test func theReadingAnchorMovesWithThePrune() {
         var model = TerminalScrollModel()
         model.restoreReading(.init(row: 15047, delta: 3))
