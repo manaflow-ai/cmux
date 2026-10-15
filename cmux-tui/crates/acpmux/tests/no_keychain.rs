@@ -369,13 +369,16 @@ struct Rpc {
     lines: tokio::io::Lines<tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>>,
     wr: tokio::net::unix::OwnedWriteHalf,
     next: i64,
+    /// The daemon's log, shown when a call fails.
+    log: PathBuf,
 }
 
 impl Rpc {
-    async fn connect(socket: &Path) -> Self {
-        let s = tokio::net::UnixStream::connect(socket).await.unwrap();
+    async fn connect(dir: &Path) -> Self {
+        let s = tokio::net::UnixStream::connect(dir.join("s.sock")).await.unwrap();
         let (rd, wr) = s.into_split();
-        Self { lines: tokio::io::BufReader::new(rd).lines(), wr, next: 0 }
+        let log = dir.join("daemon.out");
+        Self { lines: tokio::io::BufReader::new(rd).lines(), wr, next: 0, log }
     }
 
     async fn call(&mut self, method: &str, params: Value) -> Value {
@@ -391,7 +394,12 @@ impl Rpc {
                 .expect("the daemon closed the socket");
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
-                assert!(v.get("error").is_none(), "{method} failed: {v}");
+                if v.get("error").is_some() {
+                    let log = std::fs::read_to_string(&self.log).unwrap_or_default();
+                    let tail: Vec<&str> = log.lines().rev().take(40).collect();
+                    let tail: Vec<&str> = tail.into_iter().rev().collect();
+                    panic!("{method} failed: {v}\ndaemon log:\n{}", tail.join("\n"));
+                }
                 return v["result"].clone();
             }
         }
@@ -402,7 +410,7 @@ impl Rpc {
 /// shell read), with the interposer; returns after its readiness line.
 fn start_daemon(dir: &Path, dylib: &Path, log: &Path) -> Kill {
     let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
-        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
         .env("SHELL", dir.join("loginsh"))
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
@@ -421,13 +429,25 @@ fn start_daemon(dir: &Path, dylib: &Path, log: &Path) -> Kill {
         .unwrap();
     let stdout = child.stdout.take().unwrap();
     let mut daemon = Kill(Some(child));
+    // The readiness line, then the daemon's log (also on stdout) into daemon.out.
+    let mut lines = BufReader::new(stdout).lines();
     let deadline = Instant::now() + Duration::from_secs(60);
-    for line in BufReader::new(stdout).lines() {
+    let mut ready = false;
+    for line in lines.by_ref() {
         assert!(Instant::now() < deadline, "the daemon never became ready");
-        let line = line.unwrap();
-        if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true) {
-            return daemon;
+        if serde_json::from_str::<Value>(&line.unwrap()).is_ok_and(|v| v["ready"] == true) {
+            ready = true;
+            break;
         }
+    }
+    if ready {
+        let mut out = std::fs::File::create(dir.join("daemon.out")).unwrap();
+        std::thread::spawn(move || {
+            for line in lines.map_while(Result::ok) {
+                let _ = writeln!(out, "{line}");
+            }
+        });
+        return daemon;
     }
     let _ = daemon.0.take().map(|mut c| c.wait());
     panic!(
@@ -493,7 +513,9 @@ async fn the_daemon_start_and_a_chat_start_make_no_keychain_call() {
         dir.join("config.json"),
         json!({
             "harnesses": {
-                "fake": {"argv": ["python3", FAKE]},
+                // By path: the login PATH (system folders first) may hold
+                // an older python3 than the one the stand-in needs.
+                "fake": {"argv": [daemon_env::tool_dir(&[]).join("python3"), FAKE]},
                 "cl": {"argv": [dir.join("bin").join("claude")]},
                 "cx": {"argv": [dir.join("bin").join("codex")], "env": {"CODEX_HOME": codex_home}},
             },
@@ -505,7 +527,7 @@ async fn the_daemon_start_and_a_chat_start_make_no_keychain_call() {
     .unwrap();
 
     let daemon = start_daemon(&dir, &dylib, &log);
-    let mut rpc = Rpc::connect(&dir.join("s.sock")).await;
+    let mut rpc = Rpc::connect(&dir).await;
     // The daemon's own health check (it shares the first one).
     let health = rpc.call("_acpmux/harness/health", json!({})).await;
     let row = |id: &str| {
@@ -552,7 +574,7 @@ async fn the_daemon_start_and_a_chat_start_make_no_keychain_call() {
     // The second start finds the cache naming a secret this daemon lacks.
     std::fs::remove_file(&log).unwrap();
     let daemon = start_daemon(&dir, &dylib, &log);
-    let mut rpc = Rpc::connect(&dir.join("s.sock")).await;
+    let mut rpc = Rpc::connect(&dir).await;
     rpc.call("_acpmux/status", json!({})).await;
     drop(rpc);
     shutdown(&dir, daemon);
