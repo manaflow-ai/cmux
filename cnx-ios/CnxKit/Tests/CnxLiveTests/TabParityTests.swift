@@ -8,7 +8,7 @@ import Testing
 @Suite struct TabParityTests {
     static let reply = Data(#"""
     {"ok":true,"data":{"workspaces":[
-      {"id":7,"key":"ws_a","name":"a","screens":[{"active":true,"active_pane":3,"panes":[{"id":3,"active_tab":0,
+      {"id":7,"key":"ws_a","name":"a","kind":"home","screens":[{"active":true,"active_pane":3,"panes":[{"id":3,"active_tab":0,
         "tab_groups":[{"id":"tgrp_1","name":"Review","color":"green","collapsed":false,"saved_id":"sav_1","start":1,"count":1,"surfaces":[12]}],
         "tabs":[{"surface":11,"kind":"pty","title":"zsh","pinned":true,"group":null,"cwd":"/Users/x/p"},
                 {"surface":12,"kind":"browser","title":"Docs","url":"https://example.com","pinned":false,"group":"tgrp_1"}]}]}]},
@@ -26,6 +26,8 @@ import Testing
         #expect(tree.workspaces[1].tabs[0].pinned == nil)
         #expect(tree.workspaceNumbers == ["ws_a": 7, "ws_b": 9])
         #expect(tree.groupPanes == ["tgrp_1": 3])
+        // Home (`kind: "home"`) keeps its tabs.
+        #expect(tree.workspaces[0].isHome && !tree.workspaces[1].isHome)
     }
 
     @Test func groupNamesReadAsTheMacShowsThem() {
