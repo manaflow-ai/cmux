@@ -268,7 +268,7 @@ fn agent_update_apply_is_busy_while_another_runs() {
     stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
     let mut first = BufReader::new(stream);
     writeln!(first.get_mut(), "{apply}").unwrap();
-    assert_eq!(fs::read_to_string(&started).unwrap().trim(), "started");
+    assert_eq!(read_fifo(&started, Duration::from_secs(60)).trim(), "started");
 
     let second = machine.rpc(json!({"id": 2, "cmd": "agent-update-apply", "ids": ["fake"]}));
     assert_eq!(second["error_code"], "agent_update.busy", "{second}");
@@ -291,6 +291,18 @@ fn agent_update_apply_is_busy_while_another_runs() {
     assert_eq!(again["ok"], true, "{again}");
     let runs = fs::read_to_string(machine.dir.join("update-runs")).unwrap();
     assert_eq!(runs.lines().count(), 1, "one update run");
+}
+
+/// What a writer puts in the FIFO at `path`, failing the test when none opens
+/// it within `limit` (the read would otherwise block for good).
+fn read_fifo(path: &Path, limit: Duration) -> String {
+    let (sent, got) = std::sync::mpsc::channel();
+    let path = path.to_owned();
+    std::thread::spawn(move || sent.send(fs::read_to_string(path)));
+    match got.recv_timeout(limit) {
+        Ok(read) => read.unwrap(),
+        Err(_) => panic!("no updater started within {limit:?}"),
+    }
 }
 
 /// Opens the daemon's WebSocket as an app page, presents `token` and sends
