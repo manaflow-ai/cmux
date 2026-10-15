@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -141,6 +142,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await webkit.launch({ headless: true });
     // A cold dev server's first load can stall in CI: load it once here so the tests time only /btw.
     for (let attempt = 1; ; attempt++) {
