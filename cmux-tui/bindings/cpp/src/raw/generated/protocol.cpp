@@ -3814,9 +3814,15 @@ Result<Json> Codec<HomeInboxRow>::encode(const HomeInboxRow& value) {
     auto encoded_marked_unread = encode_value(value.marked_unread);
     if (!encoded_marked_unread) return std::move(encoded_marked_unread).error();
     object.emplace("marked_unread", std::move(encoded_marked_unread).value());
+    auto encoded_muted = encode_value(value.muted);
+    if (!encoded_muted) return std::move(encoded_muted).error();
+    object.emplace("muted", std::move(encoded_muted).value());
     auto encoded_name = encode_value(value.name);
     if (!encoded_name) return std::move(encoded_name).error();
     object.emplace("name", std::move(encoded_name).value());
+    auto encoded_owner = encode_value(value.owner);
+    if (!encoded_owner) return std::move(encoded_owner).error();
+    object.emplace("owner", std::move(encoded_owner).value());
     if (value.pin_position) {
         auto encoded = encode_value(*value.pin_position);
         if (!encoded) return std::move(encoded).error();
@@ -3894,6 +3900,15 @@ Result<HomeInboxRow> Codec<HomeInboxRow>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.marked_unread = std::move(decoded).value();
     }
+    const Json* field_muted = value.find("muted");
+    if (!field_muted) {
+        return make_error(ErrorCode::decode, "missing required field 'muted'");
+    }
+    if (field_muted) {
+        auto decoded = decode_value<bool>(*field_muted);
+        if (!decoded) return std::move(decoded).error();
+        result.muted = std::move(decoded).value();
+    }
     const Json* field_name = value.find("name");
     if (!field_name) {
         return make_error(ErrorCode::decode, "missing required field 'name'");
@@ -3902,6 +3917,15 @@ Result<HomeInboxRow> Codec<HomeInboxRow>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_name);
         if (!decoded) return std::move(decoded).error();
         result.name = std::move(decoded).value();
+    }
+    const Json* field_owner = value.find("owner");
+    if (!field_owner) {
+        return make_error(ErrorCode::decode, "missing required field 'owner'");
+    }
+    if (field_owner) {
+        auto decoded = decode_value<std::string>(*field_owner);
+        if (!decoded) return std::move(decoded).error();
+        result.owner = std::move(decoded).value();
     }
     const Json* field_pin_position = value.find("pin_position");
     if (field_pin_position) {
@@ -21573,6 +21597,11 @@ Result<HistorySearchResult> Codec<HistorySearchResult>::decode(const Json& value
 Result<Json> Codec<HomeInboxRequest>::encode(const HomeInboxRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.owners.is_absent()) {
+        auto encoded = encode_value(value.owners);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("owners", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -21580,12 +21609,25 @@ Result<HomeInboxRequest> Codec<HomeInboxRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     HomeInboxRequest result{};
+    const Json* field_owners = value.find("owners");
+    if (field_owners) {
+        if (field_owners->is_null()) {
+            result.owners = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_owners);
+            if (!decoded) return std::move(decoded).error();
+            result.owners = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
     return result;
 }
 
 Result<Json> Codec<HomeInboxResult>::encode(const HomeInboxResult& value) {
     (void)value;
     Json::Object object;
+    auto encoded_cloud = encode_value(value.cloud);
+    if (!encoded_cloud) return std::move(encoded_cloud).error();
+    object.emplace("cloud", std::move(encoded_cloud).value());
     auto encoded_me = encode_value(value.me);
     if (!encoded_me) return std::move(encoded_me).error();
     object.emplace("me", std::move(encoded_me).value());
@@ -21599,6 +21641,15 @@ Result<HomeInboxResult> Codec<HomeInboxResult>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     HomeInboxResult result{};
+    const Json* field_cloud = value.find("cloud");
+    if (!field_cloud) {
+        return make_error(ErrorCode::decode, "missing required field 'cloud'");
+    }
+    if (field_cloud) {
+        auto decoded = decode_value<std::string>(*field_cloud);
+        if (!decoded) return std::move(decoded).error();
+        result.cloud = std::move(decoded).value();
+    }
     const Json* field_me = value.find("me");
     if (!field_me) {
         return make_error(ErrorCode::decode, "missing required field 'me'");

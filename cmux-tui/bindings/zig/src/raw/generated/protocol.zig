@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6854d2d91f7e368b0270551ce6575bf9d17533646214a67a6bd984e18ab9a020";
+pub const ir_sha256 = "a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -985,7 +985,9 @@ pub const HomeInboxRow = struct {
     kind: HomeInboxKind,
     last_author: ?[]const u8 = null,
     marked_unread: bool,
+    muted: bool,
     name: []const u8,
+    owner: []const u8,
     pin_position: ?u64 = null,
     pinned: bool,
     preview: ?[]const u8 = null,
@@ -5798,9 +5800,12 @@ pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decod
     );
 }
 
-pub const HomeInboxRequest = struct {};
+pub const HomeInboxRequest = struct {
+    owners: wire.Field([]const []const u8) = .absent,
+};
 
 pub const HomeInboxResult = struct {
+    cloud: []const u8,
     me: []const u8,
     rows: []const HomeInboxRow,
 };

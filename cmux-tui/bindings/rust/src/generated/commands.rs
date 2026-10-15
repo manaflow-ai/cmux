@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6854d2d91f7e368b0270551ce6575bf9d17533646214a67a6bd984e18ab9a020.
+// cmux-tui mux protocol 12, IR a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1749,11 +1749,14 @@ pub struct HistorySearchResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct HomeInboxRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owners: Optional<Vec<String>>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomeInboxResult {
+    pub cloud: String,
     pub me: String,
     pub rows: Vec<T::HomeInboxRow>,
 }

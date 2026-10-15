@@ -348,8 +348,8 @@ class GeneratedClientMixin:
     def history_search(self, query: str, *, kinds: Union[List[str], MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> HistorySearchResult:
         return self._invoke_command('history-search', HistorySearchRequest(query=query, kinds=kinds, limit=limit))
 
-    def home_inbox(self) -> HomeInboxResult:
-        return self._invoke_command('home-inbox', HomeInboxRequest())
+    def home_inbox(self, *, owners: Union[List[str], None, MissingType] = MISSING) -> HomeInboxResult:
+        return self._invoke_command('home-inbox', HomeInboxRequest(owners=owners))
 
     def identify(self) -> IdentifyResult:
         return self._invoke_command('identify', IdentifyRequest())

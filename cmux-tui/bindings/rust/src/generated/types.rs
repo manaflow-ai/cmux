@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6854d2d91f7e368b0270551ce6575bf9d17533646214a67a6bd984e18ab9a020.
+// cmux-tui mux protocol 12, IR a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -878,7 +878,9 @@ pub struct HomeInboxRow {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub last_author: Option<String>,
     pub marked_unread: bool,
+    pub muted: bool,
     pub name: String,
+    pub owner: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub pin_position: Option<u64>,
     pub pinned: bool,

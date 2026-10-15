@@ -6337,7 +6337,8 @@ Result: `object{value, replayed, transaction, stream, sequence}`.
 | status | implemented |
 | since | protocol 12 additive extension; capability `home-inbox-v1` |
 
-The Home list as the caller sees it, over the local conversations: the owner
+The Home list as the caller sees it, over the local conversations and the
+person's Cloud inbox (through this daemon's Cloud lease, as `cloud-inbox-list`): the owner
 derives each row once, so every view (the Messages view, the Channels page,
 the CLI) shows the same list. A read model: it adds facts to the
 `conversation-list` summaries and changes nothing. Trusted local connections
@@ -6364,12 +6365,30 @@ that state itself. `pinned`,
 (`conversation-inbox-state-v1`). Order: pinned rows by `pin_position` (none
 last), then by `activity_at` newest first; ties by id ascending.
 
-Params: none.
+Cloud rows come from the person's Cloud inbox entries (the Cloud owner keeps
+their counts, preview and the person's pins and marks): a removed or archived
+entry is not a row; `dm` is `direct`, a `group` is a `channel` when it has a
+title; `name` is the title, else "Chief" for a `chief` entry, else the direct
+peer's id (the view names people from the conversation); `chief` is the peer of
+a `chief` entry; `muted` is the person's Cloud mute (until `muted_until`); a
+Cloud row has no `last_author` and no `chief_state`. One page of the Cloud
+inbox comes (its newest 200 entries); a malformed entry is skipped. Local and
+Cloud rows share one order (a time's fraction counts as three digits); the two
+owners number their pins separately, so pinned rows of both owners mix by
+number. A view keys rows by `(owner, id)`.
 
-Result: `object{me, rows:[HomeInboxRow]}`. `me` is the caller's participant
-id. `HomeInboxRow`: `{id, kind:chief|direct|channel|group, name, unread,
+Params: `owners?:[local|cloud]` (default both). In the app the local
+conversations' owner and the daemon that holds the person's Cloud lease can be
+two daemons: a view asks each for its own owner.
+
+Result: `object{me, rows:[HomeInboxRow], cloud}`. `me` is the caller's participant
+id (local). `cloud` is `included`; `signed_out` when this connection is not the
+person with the app's lease (only the verified app and the person's
+authenticated page get Cloud rows), or there is no lease or no Cloud here;
+`unavailable` when the Cloud did not answer; or `not_asked`. The local rows come
+in every case. `HomeInboxRow`: `{id, owner:local|cloud, kind:chief|direct|channel|group, name, unread,
 activity_at, preview?, last_author?, chief?, chief_state?:working|waiting|idle,
-pinned, pin_position?, marked_unread}`. A view reads the conversation itself
+pinned, pin_position?, marked_unread, muted}`. A view reads the conversation itself
 (participants, title) from `conversation-list` or `conversation-snapshot`, and
 asks again (coalesced) on `conversation-changed`, `conversation-inbox-changed`,
 `conversation-typing`, `conversation-run-changed` and `chief-changed`. A pinned
@@ -7010,8 +7029,9 @@ plain `subscribe`, `conversation-list`, `conversation-create`,
 `conversation-runs`, `conversation-run`, `conversation-inbox-op` and the
 `conversation-attachment-upload`, `-read` and `-link` commands, with the
 `conversation-changed`, `conversation-typing`, `conversation-draft`,
-`conversation-run-changed` and `conversation-inbox-changed` events; for every
-other page none); any other line is
+`conversation-run-changed` and `conversation-inbox-changed` events, and
+`chief-changed` and `participant-avatar-changed` for a connection that echoes
+their capability; for every other page none); any other line is
 refused with `origin.forbidden`. It is never the person: no `cloud-*` command
 or event, like the file token. Page-bound credentials have their own bound
 (16), so they never evict the verified app's page credentials. A client checks

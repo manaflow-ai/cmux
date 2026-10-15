@@ -1267,8 +1267,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "50db7029ee44f64df16588b5cbcdf96bb8fc9d895986093f8e64af2225ff9aa8",
-      "size": 64111
+      "sha256": "db265137c96927100e85c1e9935bbecdf89fd7dcf9bfd8ef20fcd675a5092143",
+      "size": 64143
     },
     {
       "path": "GetBlobRequest.java",
@@ -1377,18 +1377,18 @@
     },
     {
       "path": "HomeInboxRequest.java",
-      "sha256": "6e354fb6415c4cdd1aa0ee3fc6c8a13752a41cc122c29f4aced793a750551257",
-      "size": 1336
+      "sha256": "a8f71b0a4c26dfa08d5b44c976e2cb6b18c7a9b08ffda8432ee8fb21abc18c7e",
+      "size": 2069
     },
     {
       "path": "HomeInboxResult.java",
-      "sha256": "6ae71cc71601e5c7ac53224597ac6ce8aebceca29ac0dffe14f8cb8d15dc25a3",
-      "size": 2544
+      "sha256": "85f67b4537e3660defe636a33c972bf09c18fe8dc585df063a4bee19fce37b43",
+      "size": 3192
     },
     {
       "path": "HomeInboxRow.java",
-      "sha256": "edfb6087270acbbec67eec03a7e01029d530f040d8db947c0ee26c7ac05e1292",
-      "size": 9135
+      "sha256": "d7b201401b9f46162021308155bb834d56a0e1955ef16dbde73944f82699ea00",
+      "size": 10404
     },
     {
       "path": "IdMapping.java",
@@ -1982,7 +1982,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "3210594710c307a2a56b63b7aaac339c0f5083007f246fe6be8473f137f10bdb",
+      "sha256": "7f609e2ca8f45c27a38988c8e54055b6f125bb3999e590d4bf73d4f6735bd115",
       "size": 6943
     },
     {
@@ -3242,7 +3242,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "6854d2d91f7e368b0270551ce6575bf9d17533646214a67a6bd984e18ab9a020",
+  "ir_sha256": "a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

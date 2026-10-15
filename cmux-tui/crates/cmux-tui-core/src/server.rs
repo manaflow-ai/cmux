@@ -1662,7 +1662,7 @@ enum Command {
     ConversationLinkResolve(conversations::LinkResolveParams),
     ConversationInboxOp(conversations::InboxOpParams),
     /// The Home list rows (`home-inbox-v1`, server/conversations.rs).
-    HomeInbox,
+    HomeInbox(conversations::HomeInboxParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),

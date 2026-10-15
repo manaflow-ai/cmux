@@ -78,7 +78,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import type { ComposerAttachment } from "./attachments";
-import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
+import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
@@ -186,6 +186,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
+import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -1118,6 +1119,8 @@ export function VirtualTranscript({
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(760);
+  // The column's cap (layout.json `chatWidth`): a new one measures every row again.
+  const chatWidth = useChatWidth();
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
@@ -1354,7 +1357,7 @@ export function VirtualTranscript({
     const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
     const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId;
     if (rowHeights.current.registry !== registry) rowHeights.current = { registry, heights: new WeakMap() };
-    const rowWidth = transcriptRowWidth(width);
+    const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth));
     const last = lastEstimate.current;
     const layout = layoutConversation(
       rows,
@@ -1366,7 +1369,7 @@ export function VirtualTranscript({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, width]);
+  }, [rows, registry, sessionId, width, chatWidth]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -2068,11 +2071,24 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
   void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
 
 /// A permission ask: a question card when the request asks a question, else its option buttons.
-function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
+function PermissionAsk({
+  permission,
+  harness,
+  focusComposer,
+}: {
+  permission: AcpmuxPermission;
+  harness?: string;
+  focusComposer?: () => void;
+}) {
   return permission.question ? (
     <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
   ) : (
-    <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />
+    <PermissionCard
+      permission={permission}
+      harness={harness}
+      focusComposer={focusComposer}
+      onAnswer={answerPermission(permission)}
+    />
   );
 }
 
@@ -2090,11 +2106,13 @@ const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 function DefaultComposerChips({
   snapshot,
   cwd,
+  permissionAccess,
   startsChat = false,
 }: {
   snapshot: AcpmuxSnapshot;
   /// The folder a chat the chips start opens in (the New Tab page's project).
   cwd?: string;
+  permissionAccess?: ComposerPermissionAccess;
   /// The chips belong to a page with no chat yet: a model, mode or effort pick starts one first.
   startsChat?: boolean;
 }) {
@@ -2130,6 +2148,7 @@ function DefaultComposerChips({
   return (
     <ComposerPickers
       snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
+      permissionAccess={permissionAccess}
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
@@ -3414,6 +3433,7 @@ function AcpmuxPane() {
       },
       applyTheme(theme) {
         applyAgentTheme(theme as never);
+        configureChatWidth(theme.chatWidth);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -4213,7 +4233,7 @@ function AcpmuxPane() {
     // the early New Tab flag, one object from a useState initializer).
   }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
-    | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
+    | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
@@ -4739,7 +4759,13 @@ function AcpmuxPane() {
               ).catch(() => undefined)
             }
           />
-          {individualPermission && <PermissionAsk permission={individualPermission} />}
+          {individualPermission && (
+            <PermissionAsk
+              permission={individualPermission}
+              harness={snapshot.summary?.harness}
+              focusComposer={() => composerHandle.current?.focus()}
+            />
+          )}
           {snapshot.secret && (
             <SecretCard
               key={snapshot.secret.secretId}
@@ -4752,6 +4778,34 @@ function AcpmuxPane() {
       )}
     </div>
   ) : null;
+  const trustLabel =
+    trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted"
+      ? isAgentHome(trustAsk.ask.cwd)
+        ? t("trust.trustedPrivate")
+        : t("trust.trusted", { folder: projectName(trustAsk.ask.cwd) ?? trustAsk.ask.cwd })
+      : undefined;
+  const permissionAccess: ComposerPermissionAccess = {
+    grants: [
+      ...(trustAsk.trusted
+        ? [
+            {
+              id: "folder-trust",
+              label: trustLabel ?? t("trust.trustedPrivate"),
+              onRemove: trustAsk.undo,
+            },
+          ]
+        : []),
+      ...(snapshot.permissionGroups?.chatAllowance
+        ? [
+            {
+              id: "chat-permission",
+              label: t("permission.allowChat"),
+              onRemove: () => void callNative("chat.permission_chat.revoke", {}),
+            },
+          ]
+        : []),
+    ],
+  };
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -4903,6 +4957,7 @@ function AcpmuxPane() {
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
+          permissionAccess={permissionAccess}
           draft={draft}
           onUnsentDraft={quick ? undefined : postUnsentDraft}
           onCmuxCommand={(command, args) => {
