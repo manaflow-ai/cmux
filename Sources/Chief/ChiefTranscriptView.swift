@@ -53,6 +53,10 @@ final class ChiefTranscriptView: NSView {
     /// Hidden views report not visible, so MessagesLab defers read receipts.
     var isActive = true { didSet { if isActive != oldValue { windowStateChanged() } } }
 
+    /// Whether the host hides the workspace list while this view shows (Home
+    /// selected): the first-run hint then names the way back, not ⌃1…9.
+    var hidesWorkspaces = false { didSet { firstRun.hidesWorkspaces = hidesWorkspaces } }
+
     /// - Parameter conversation: The conversation to show; nil shows the default Chief's.
     init(conversation: ConversationID? = nil) {
         let service = ChiefService.shared

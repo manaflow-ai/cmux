@@ -319,11 +319,12 @@ extension ChiefConversationOwner {
               case .approval(let ref) = message.parts[slot.part] else { throw HomeRejection.invalid("unknown_approval") }
         guard ref.decided == nil else { throw HomeRejection.invalid("approval_decided") }
         guard ref.options.contains(choice) else { throw HomeRejection.invalid("invalid_choice") }
-        guard var turn = running[conversation], let request = turn.approvals.removeValue(forKey: slot) else {
+        guard var turn = running[conversation], let request = turn.approvals[slot] else {
             // No running turn waits on this card (it is an earlier turn's): nobody can answer it any more.
             setApprovalDecision(slot, in: conversation, Self.approvalExpired)
             throw HomeRejection.invalid("approval_decided")
         }
+        turn.approvals[slot] = nil
         setApprovalDecision(slot, in: conversation, choice)
         running[conversation] = turn
         if turn.approvals.isEmpty { publish(.typing(conversation, turn.chief, on: true)) }

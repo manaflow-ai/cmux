@@ -97,6 +97,12 @@ enum ChiefAgentGlanceSource {
         return shortcut.modifierDisplayString + "1…9"
     }
 
+    /// The Open Chief shortcut, which toggles Home (and so shows the workspaces again); nil when unbound.
+    static func toggleHomeKeys() -> String? {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .openChief)
+        return shortcut.isUnbound ? nil : shortcut.displayString
+    }
+
     /// The New Workspace shortcut ("Open a terminal" makes a workspace); nil when unbound.
     static func newWorkspaceKeys() -> String? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .newTab)

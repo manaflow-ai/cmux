@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-public import Foundation
+import Foundation
 
 /// What Chief's memory held at one moment: person.md and instructions.md
 /// (comments stripped) and every saved fact, with a stable digest.

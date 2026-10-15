@@ -25,6 +25,11 @@ extension ChiefStrings {
     static func firstRunWorkspacesHint(_ keys: String) -> String {
         String(format: String(localized: "chief.firstRun.workspacesHint", defaultValue: "%@ switches workspaces."), keys)
     }
+    /// The keyboard hint while Home hides the workspace list; `keys` is the
+    /// configured Open Chief shortcut (it toggles Home), e.g. "⌘⇧C".
+    static func firstRunShowWorkspacesHint(_ keys: String) -> String {
+        String(format: String(localized: "chief.firstRun.showWorkspacesHint", defaultValue: "%@ shows your workspaces."), keys)
+    }
     /// VoiceOver label of the suggestion chips above the message box.
     static var firstRunSuggestions: String {
         String(localized: "chief.firstRun.suggestions", defaultValue: "Suggestions")

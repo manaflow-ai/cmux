@@ -115,6 +115,8 @@ final class ChiefHomeView: NSView {
         transcript?.removeFromSuperview()
         let view = ChiefTranscriptView(conversation: conversation)
         view.isActive = isActive
+        // Home hides the sidebar's workspace rows while it shows.
+        view.hidesWorkspaces = true
         view.onOpenConversation = { [weak self] id in self?.select(id) }
         view.frame = bounds
         view.autoresizingMask = [.width, .height]

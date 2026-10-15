@@ -35,8 +35,8 @@ extension ChiefConversationOwner {
                             now: @escaping @Sendable () -> Date = { Date() },
                             context: @escaping ChiefTurnContextProvider) async throws -> ChiefConversationOwner {
         let loaded = try await Task.detached(priority: .userInitiated) {
-            let people = participants(userDisplayName: userDisplayName)
-            return (people, try loadConversations(home: home, me: people.me, chief: people.chief, now: now))
+            let people = Self.participants(userDisplayName: userDisplayName)
+            return (people, try Self.loadConversations(home: home, me: people.me, chief: people.chief, now: now))
         }.value
         return ChiefConversationOwner(home: home, brain: brain, me: loaded.0.me, chief: loaded.0.chief, now: now,
                                       context: context, loaded: loaded.1)
