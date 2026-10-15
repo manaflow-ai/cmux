@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -124,6 +125,7 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
   afterAll(async () => {
