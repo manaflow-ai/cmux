@@ -64,6 +64,17 @@ import Testing
             switch kind {
             case .other:
                 reply(connection, lines: [])
+            case .tracked:
+                // The only tracked setup command is the session-wide
+                // pane-title watcher. Keep arbitrary tracked mutations as a
+                // fixture failure: those need their own explicit reply.
+                guard connection.paneTitleSubscriptionActive else {
+                    Issue.record(
+                        "unexpected tracked command before paneRects; FIFO: \(connection.pendingCommandKindsForTesting)"
+                    )
+                    return nil
+                }
+                reply(connection, lines: [])
             case let .paneRects(windowID, _):
                 if let expectedWindowID, expectedWindowID != windowID {
                     Issue.record(
@@ -75,7 +86,7 @@ import Testing
                 return windowID
             default:
                 Issue.record(
-                    "expected leading .other or .paneRects, got \(kind); FIFO: \(connection.pendingCommandKindsForTesting)"
+                    "expected setup command or paneRects, got \(kind); FIFO: \(connection.pendingCommandKindsForTesting)"
                 )
                 return nil
             }
