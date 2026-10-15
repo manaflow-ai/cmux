@@ -37,12 +37,34 @@ final class MacScreenPageService: InternalPageProvider {
             guard let self, let pane = services.paneController(showingTab: key) ?? services.windows.active?.focusedPane else { return }
             open(record, in: pane, focus: true, byPerson: true)
         }
-        events.closeTab = { [weak self] key in
+        events.closeTab = { [weak self] key in self?.close(key) }
+        events.replaceTab = { [weak self] record, key in self?.replace(key, with: record) ?? false }
+        events.storeTabID = { [weak self] key in
             guard let self, let pane = services.paneController(showingTab: key),
-                  let id = services.pages.stripID(showing: key, in: pane) else { return }
-            services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue)))
+                  let id = services.pages.stripID(showing: key, in: pane), id.rawValue != key else { return nil }
+            return id.rawValue
         }
         pages.events = events
+    }
+
+    /// Closes the Mac Screen tab `key` like the tab's own close.
+    private func close(_ key: String) {
+        guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return }
+        services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue)))
+    }
+
+    /// A person asked tab `key` to show `record` (the home page's Connect,
+    /// a screen's Home): `record` opens as a new tab right after `key`,
+    /// selected and confirmed, and `key` closes once the new tab exists (a
+    /// store tab once the daemon made it, so a pane whose only tab was `key`
+    /// never empties and closes). The new tab's route names `record`, so a
+    /// relaunch shows the same Mac. False when no pane lists `key`.
+    private func replace(_ key: String, with record: MacScreenRecord) -> Bool {
+        guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return false }
+        // The new tab goes after the selected one: this one.
+        if pane.stripModel.selectedID != id { pane.select(id) }
+        open(record, in: pane, focus: true, byPerson: true) { [weak self] in self?.close(key) }
+        return true
     }
 
     private var pages: MacScreenPages { services.macScreenPages }
@@ -61,19 +83,23 @@ final class MacScreenPageService: InternalPageProvider {
     /// Opens a Mac Screen tab showing `record` after `pane`'s selected tab: a
     /// store tab where the pane's daemon holds page tabs, else an app-only
     /// one. `focus` selects and focuses it; `byPerson`: a person asked for it
-    /// here, so a Mac's screen connects without asking.
+    /// here, so a Mac's screen connects without asking. `created` runs once
+    /// the tab exists (a store tab: once the daemon made it).
     @discardableResult
-    func open(_ record: MacScreenRecord, in pane: PaneController, focus: Bool, byPerson: Bool) -> String {
+    func open(_ record: MacScreenRecord, in pane: PaneController, focus: Bool, byPerson: Bool,
+              created: (@MainActor () -> Void)? = nil) -> String {
         let key = LocalPageTab.makeKey(.macScreen)
         pages.prepare(key, record: record, byPerson: byPerson)
         let window = services.windowController(showing: pane)
-        if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key) != nil {
+        if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
+                                                   created: created.map { done in { _ in done() } }) != nil {
             return key
         }
         services.pages.open(.macScreen, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                             window: window, key: key)
         pane.apply(pane.snapshot())
         if focus { services.pages.reveal(key, in: pane) }
+        created?()
         return key
     }
 

@@ -11,6 +11,15 @@ public struct MacScreenTabEvents {
     public var openInNewTab: (MacScreenRecord, String) -> Void = { _, _ in }
     /// Tab `key` asks to close.
     public var closeTab: (String) -> Void = { _ in }
+    /// A person asked tab `key` to show `record` instead (Connect on the home
+    /// page, Home on a screen): the host opens `record` as a new tab right
+    /// after `key`, selects it, then closes `key`, so the tab's route names
+    /// what it shows. False when it cannot (no pane lists `key`): the tab
+    /// shows `record` itself.
+    public var replaceTab: (MacScreenRecord, String) -> Bool = { _, _ in false }
+    /// The store tab id of tab `key` (a tab the pane's daemon keeps and
+    /// restores), nil for an app-only tab. For `debug.mac_screen`.
+    public var storeTabID: (String) -> String? = { _ in nil }
 
     public init() {}
 }
@@ -147,8 +156,19 @@ public final class MacScreenPages {
     /// The tab `key` (debug and tests).
     public func tab(_ key: String) -> MacScreenTab? { tabs[key] }
 
-    /// Shows `record` in tab `key` in place of what it shows (Connect on the
-    /// home page, Home on a screen). `byPerson`: a person asked for it.
+    /// A person asked tab `key` to show `record` (the home page's Connect or
+    /// Pair and Connect, a screen's Home): a new tab in its place
+    /// (`MacScreenTabEvents.replaceTab`), else this tab shows it.
+    func replace(_ key: String, with record: MacScreenRecord) {
+        if events.replaceTab(record, key) { return }
+        show(record, in: key, byPerson: true)
+    }
+
+    /// The home page of tab `key` opens the saved Mac `mac` (a person's click).
+    func openFromHome(_ mac: UUID, in key: String) { replace(key, with: MacScreenRecord(macID: mac)) }
+
+    /// Shows `record` in tab `key` in place of what it shows, when no host can
+    /// open a tab in its place. `byPerson`: a person asked for it.
     public func show(_ record: MacScreenRecord, in key: String, byPerson: Bool) {
         guard let tab = tabs[key] else { return }
         prepare(key, record: record, byPerson: byPerson || confirmed[key] == record)
@@ -176,7 +196,7 @@ public final class MacScreenPages {
 
     private func makeHome(key: String) -> NSView {
         var actions = MacScreenHomeActions()
-        actions.open = { [weak self] mac in self?.show(MacScreenRecord(macID: mac), in: key, byPerson: true) }
+        actions.open = { [weak self] mac in self?.openFromHome(mac, in: key) }
         actions.openInNewTab = { [weak self] mac in self?.events.openInNewTab(MacScreenRecord(macID: mac), key) }
         // In the tab's theme scope: Settings > Appearance changes show at once.
         let home = MacScreenHostingView(MacScreenHomeView(store: store, host: host, actions: actions, systemShortcuts: systemShortcuts))
@@ -200,7 +220,7 @@ public final class MacScreenPages {
             pane = MacScreenPane(missingMac: ())
         }
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
-        pane.handlers.openHome = { [weak self] in self?.show(MacScreenRecord(macID: nil), in: key, byPerson: true) }
+        pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts

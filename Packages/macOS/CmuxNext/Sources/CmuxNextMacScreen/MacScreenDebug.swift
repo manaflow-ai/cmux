@@ -10,7 +10,8 @@ import CmuxScreenKit
 /// only through files readable by this user (mode 0600), never in params,
 /// results or logs.
 /// - `state` (default): the saved Macs (names only), Share This Mac, and one
-///   row per tab: URL, gate, phase, path, stats, picture size, displays;
+///   row per tab: URL, route, store tab id (null: app-only, not restored),
+///   gate, phase, path, stats, picture size, displays;
 ///   `system_shortcuts` (the setting), `system_shortcuts_tap` (the tap is
 ///   installed) and `accessibility` (this Mac trusts cmux for Accessibility).
 /// - `pair` {link_file}: saves the Mac whose link is in `link_file` and opens it.
@@ -85,7 +86,7 @@ extension MacScreenPages {
                 "system_shortcuts": .bool(systemShortcuts.enabled),
                 "system_shortcuts_tap": .bool(systemShortcuts.tapInstalled),
                 "accessibility": .bool(systemShortcuts.accessibilityGranted),
-                "tabs": .array(tabs.map(Self.row)),
+                "tabs": .array(tabs.map(row)),
             ]
         default:
             return ["error": "unknown action"]
@@ -100,8 +101,10 @@ extension MacScreenPages {
         ]
     }
 
-    private static func row(_ tab: MacScreenTab) -> JSONValue {
-        var row: [String: JSONValue] = ["tab": .string(tab.key), "url": .string(tab.record.url.absoluteString)]
+    private func row(_ tab: MacScreenTab) -> JSONValue {
+        var row: [String: JSONValue] = ["tab": .string(tab.key), "url": .string(tab.record.url.absoluteString),
+                                        "route": route(for: tab.key).map(JSONValue.string) ?? .null,
+                                        "store_tab": events.storeTabID(tab.key).map(JSONValue.string) ?? .null]
         guard let pane = tab.pane else { return .object(row) }
         row["gate"] = .string("\(pane.model.gate)")
         row["card"] = pane.model.card.map { .string("\($0)") } ?? .null
@@ -112,7 +115,7 @@ extension MacScreenPages {
         row["current_display"] = .number(Double(pane.model.currentDisplay))
         row["video_frame"] = .string(NSStringFromRect(pane.view.debugVideoFrame))
         if let session = pane.session {
-            row["phase"] = .string(phaseName(session.phase))
+            row["phase"] = .string(Self.phaseName(session.phase))
             row["reconnecting"] = .bool(session.isReconnecting)
             row["path"] = .string(session.streamPath)
             row["fps"] = .number(session.stats.fps)
