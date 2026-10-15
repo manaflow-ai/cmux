@@ -78,3 +78,18 @@ import Testing
         #expect(model.isFollowing)
     }
 }
+
+/// VERIFY-round5 V5-1 (Jump to bottom tap): the offset moved to the live end
+/// at once, while the surface still showed the scrollback rows it had: the
+/// page was black for a frame until Ghostty presented the end. A move whose
+/// visible rows the presented frame does not cover now waits for the frame
+/// that does (like following output).
+@Suite struct TerminalFrameCoverTests {
+    @Test func aJumpOutsideThePresentedRowsWaitsForItsFrame() {
+        // Presented rows 1000..<1150; the end's visible rows 16950..<17000.
+        #expect(!TerminalFrameCover(presentedTop: 1000, surfaceRows: 150).covers(visibleTop: 16950, visibleBottom: 17000))
+        #expect(TerminalFrameCover(presentedTop: 16860, surfaceRows: 150).covers(visibleTop: 16950, visibleBottom: 17000))
+        // One row short at the bottom: not covered.
+        #expect(!TerminalFrameCover(presentedTop: 16849, surfaceRows: 150).covers(visibleTop: 16950, visibleBottom: 17000))
+    }
+}
