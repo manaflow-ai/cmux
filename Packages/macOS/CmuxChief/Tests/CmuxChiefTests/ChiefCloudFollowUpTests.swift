@@ -32,35 +32,35 @@ import Testing
     @Test func choicesNameOptionsByLabelOrIDAndUnnamedItemsKeepThePreselection() throws {
         let card = Self.question([Self.machine, Self.name])
         // By label, case-insensitive; the unnamed item keeps its first option (the card's preselection).
-        let byLabel = try ChiefQuestionAnswer.answer(for: card, choices: ["8 gb"], text: nil)
+        let byLabel = try ChiefQuestionAnswer(choices: ["8 gb"], text: nil).answer(for: card)
         #expect(byLabel.selections["machine"]?.optionIDs == ["8g"])
         #expect(byLabel.selections["name"]?.optionIDs == ["api"])
         // By id; nothing named is Submit right away.
-        #expect(try ChiefQuestionAnswer.answer(for: card, choices: ["web"], text: nil).selections["name"]?.optionIDs == ["web"])
-        let defaults = try ChiefQuestionAnswer.answer(for: card, choices: [], text: nil)
+        #expect(try ChiefQuestionAnswer(choices: ["web"], text: nil).answer(for: card).selections["name"]?.optionIDs == ["web"])
+        let defaults = try ChiefQuestionAnswer(choices: [], text: nil).answer(for: card)
         #expect(defaults.selections["machine"]?.optionIDs == ["4g"] && defaults.selections["name"]?.optionIDs == ["api"])
         #expect(throws: ChiefQuestionAnswer.Problem.unknownChoice("32 GB")) {
-            try ChiefQuestionAnswer.answer(for: card, choices: ["32 GB"], text: nil)
+            try ChiefQuestionAnswer(choices: ["32 GB"], text: nil).answer(for: card)
         }
         // Two options of one single-choice item contradict the card.
         #expect(throws: ChiefQuestionAnswer.Problem.self) {
-            try ChiefQuestionAnswer.answer(for: Self.question([Self.machine]), choices: ["4 GB", "8 GB"], text: nil)
+            try ChiefQuestionAnswer(choices: ["4 GB", "8 GB"], text: nil).answer(for: Self.question([Self.machine]))
         }
     }
 
     @Test func textFillsTheFirstItemThatTakesItAndMultiChoiceItemsNeedAChoice() throws {
         // "Machine" takes no Other text, so the text goes to "Name".
-        let typed = try ChiefQuestionAnswer.answer(for: Self.question([Self.machine, Self.name]), choices: [], text: "billing")
+        let typed = try ChiefQuestionAnswer(choices: [], text: "billing").answer(for: Self.question([Self.machine, Self.name]))
         #expect(typed.selections["name"] == AgentQuestionAnswer.Selection(optionIDs: [], other: "billing"))
         #expect(typed.selections["machine"]?.optionIDs == ["4g"])
         #expect(throws: ChiefQuestionAnswer.Problem.otherNotAllowed) {
-            try ChiefQuestionAnswer.answer(for: Self.question([Self.machine]), choices: [], text: "huge")
+            try ChiefQuestionAnswer(choices: [], text: "huge").answer(for: Self.question([Self.machine]))
         }
         // A multi-choice item has no preselection: it needs a choice.
         let multi = Self.question([Self.tools])
-        #expect(try ChiefQuestionAnswer.answer(for: multi, choices: ["Node", "rust"], text: nil).selections["tools"]?.optionIDs
+        #expect(try ChiefQuestionAnswer(choices: ["Node", "rust"], text: nil).answer(for: multi).selections["tools"]?.optionIDs
             == ["node", "rust"])
-        #expect(throws: ChiefQuestionAnswer.Problem.self) { try ChiefQuestionAnswer.answer(for: multi, choices: [], text: nil) }
+        #expect(throws: ChiefQuestionAnswer.Problem.self) { try ChiefQuestionAnswer(choices: [], text: nil).answer(for: multi) }
     }
 
     @Test func answeringAQuestionCardClosesItAndStartsTheNextTurn() async throws {

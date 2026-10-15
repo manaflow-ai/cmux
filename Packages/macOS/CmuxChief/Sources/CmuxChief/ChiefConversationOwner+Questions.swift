@@ -39,7 +39,7 @@ extension ChiefConversationOwner {
     /// - Parameters:
     ///   - card: The card (``pendingQuestion(in:message:)``).
     ///   - conversation: Its conversation.
-    ///   - choices: Option labels or ids (``ChiefQuestionAnswer/answer(for:choices:text:)``).
+    ///   - choices: Option labels or ids (``ChiefQuestionAnswer/answer(for:)``).
     ///   - text: Free text for an item's Other field.
     /// - Returns: The answer's summary lines, as the Chief reads them ("Machine: 4 GB").
     /// - Throws: ``ChiefQuestionAnswer/Problem`` when the choices do not answer the card,
@@ -47,7 +47,7 @@ extension ChiefConversationOwner {
     @discardableResult
     public func answerQuestion(_ card: PendingQuestion, in conversation: ConversationID, choices: [String],
                                text: String?) throws -> [String] {
-        let answer = try ChiefQuestionAnswer.answer(for: card.question, choices: choices, text: text)
+        let answer = try ChiefQuestionAnswer(choices: choices, text: text).answer(for: card.question)
         try submit(HomeIntent(op: .answerQuestion(message: card.message, conversation: conversation, partIndex: card.part,
                                                   answer: answer)))
         return card.question.summaryLines(answer)
@@ -61,7 +61,17 @@ extension ChiefConversationOwner {
 /// a choice (else of a multi-choice item). A single-choice item nothing names keeps the card's
 /// preselection, its first option (the Chief puts its recommendation first), exactly as pressing
 /// the card's Submit right away would. Pure: tests pin it.
-public enum ChiefQuestionAnswer {
+public struct ChiefQuestionAnswer: Sendable {
+    /// Option labels or ids, in the order given.
+    public var choices: [String]
+    /// Free text for an Other field, if any.
+    public var text: String?
+
+    public init(choices: [String], text: String? = nil) {
+        self.choices = choices
+        self.text = text
+    }
+
     /// Why words do not answer a card.
     public enum Problem: Error, Equatable, Sendable {
         /// No item of the card has an option with this label or id (or every item that has it is answered).
@@ -75,7 +85,7 @@ public enum ChiefQuestionAnswer {
     /// The card's answer for `choices` and `text`.
     ///
     /// - Throws: ``Problem``.
-    public static func answer(for question: AgentQuestion, choices: [String], text: String?) throws -> AgentQuestionAnswer {
+    public func answer(for question: AgentQuestion) throws -> AgentQuestionAnswer {
         var chosen: [String: [String]] = [:]
         for choice in choices {
             let matches = question.items.compactMap { item -> (item: AgentQuestion.Item, option: String)? in
