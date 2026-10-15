@@ -37,6 +37,21 @@ struct PhonePushConfiguration: Equatable, Sendable {
     }
 }
 
+/// Selects notifications that remain useful if they become actionable while
+/// the user is away from the Mac, and computes when their presence gate should
+/// be checked again.
+struct PhonePushAwayEscalation {
+    static func shouldSchedule(for notification: TerminalNotification) -> Bool {
+        false
+    }
+
+    static func retryDelay(
+        for presence: MacPresenceMonitor.Decision
+    ) -> TimeInterval? {
+        nil
+    }
+}
+
 /// Observable projection of the Mac-owned forwarding settings.
 @MainActor
 @Observable
