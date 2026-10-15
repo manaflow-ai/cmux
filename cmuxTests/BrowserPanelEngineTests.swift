@@ -292,6 +292,43 @@ import Testing
         #expect(outcome == .failed("navigation failed"))
     }
 
+    @Test func anAbortedEarlierLoadDoesNotFailAutomationsReload() async throws {
+        let provider = FakeChromiumProvider()
+        let url = URL(string: "https://example.com/")!
+        provider.initialState = BrowserPageState(url: url)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let reload = try #require(panel.beginAutomationReloadFromCLI())
+        panel.handleEnginePageEvent(.navigationFailed(url, code: -3, message: "ERR_ABORTED", showsEngineErrorPage: false))
+        panel.handleEnginePageEvent(.navigationCommitted(url))
+        let outcome = await panel.automationNavigationCoordinator.wait(for: reload.ticket)
+        #expect(outcome == .committed)
+    }
+
+    @Test func restoredChromiumPanelLoadsItsPage() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .inherited),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        var snapshot = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com/restored", profileID: nil, shouldRenderWebView: true,
+            pageZoom: 1, developerToolsVisible: false,
+            backHistoryURLStrings: nil, forwardHistoryURLStrings: nil
+        )
+        snapshot.engine = .chromium
+        panel.restoreSessionSnapshot(snapshot)
+        #expect(try #require(provider.pages.first).loadedURLs == [URL(string: "https://example.com/restored")!])
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(
