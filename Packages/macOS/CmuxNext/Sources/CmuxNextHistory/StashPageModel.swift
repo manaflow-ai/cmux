@@ -22,6 +22,11 @@ public protocol StashPageSource: AnyObject {
 /// to the daemon when its Undo toast ends without Undo.
 @Observable
 public final class StashPageModel {
+    /// The Stashed page's title, for its top page and tab.
+    public static var title: String { StashStrings.title }
+    /// Why a Stash action is disabled when no browser page of its run qualifies.
+    public static var noBrowserTab: String { StashStrings.noBrowserTab }
+
     private var loaded: [StashedGroup] = []
     private var hiddenGroups: Set<String> = []
     private var hiddenTabs: Set<String> = []

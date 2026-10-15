@@ -106,7 +106,7 @@ struct StashPageView: View {
                     }
                     Spacer(minLength: Metrics.panelInset)
                     Text(group.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(Font(Typography.caption)).foregroundStyle(colors.tertiary).monospacedDigit()
+                        .font(Font(Typography.caption)).foregroundStyle(colors.tertiary).monospacedDigit().fixedSize()
                 }
                 .contentShape(Rectangle())
             }

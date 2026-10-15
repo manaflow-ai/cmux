@@ -1,4 +1,5 @@
 package import CmuxNextDaemon
+package import CmuxNextHistory
 package import Foundation
 
 /// The daemon history module (`history-v1`; plans/cmux-next/react-pages.md 2.2-2.3): the owner of

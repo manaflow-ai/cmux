@@ -19,7 +19,7 @@ final class StashTopPage: InternalPageProvider {
     init(services: AppServices) { self.services = services }
 
     var page: InternalPageID { .stashed }
-    var title: String { StashStrings.title }
+    var title: String { StashPageModel.title }
     var symbol: String { "tray.full" }
     var icon: IconName? { .tabgroupSave }
 

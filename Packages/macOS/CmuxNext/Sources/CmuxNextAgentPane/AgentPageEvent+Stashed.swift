@@ -19,6 +19,6 @@ extension AgentPageEvent {
 /// so a page that loads or reloads later hears it (`AgentPanePageHost.currentEvents` and the
 /// ready handshake) without another stored property on AgentPaneView (at its size ratchet).
 @MainActor
-public enum AgentPaneStashedCount {
-    public static var current = 0
+enum AgentPaneStashedCount {
+    static var current = 0
 }

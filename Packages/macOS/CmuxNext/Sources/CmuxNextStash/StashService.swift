@@ -1,6 +1,6 @@
-public import CmuxNextActions
+import CmuxNextActions
 import CmuxNextDaemon
-public import CmuxNextDaemonService
+import CmuxNextDaemonService
 public import CmuxNextHistory
 import Foundation
 
@@ -28,7 +28,7 @@ public final class StashService: StashPageSource {
     public func dropDraft(_ key: String) { drafts[key] = nil }
 
     /// Whether `daemon` keeps stashes; without it no stash UI shows. Only this Mac's daemon.
-    public func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.shared.stash) }
+    func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.shared.stash) }
 
     /// The reason stash actions are unavailable, or nil while this Mac's daemon keeps stashes.
     func unavailableReason() -> String? {

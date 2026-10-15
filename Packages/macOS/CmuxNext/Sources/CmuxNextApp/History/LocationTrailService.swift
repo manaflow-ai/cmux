@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import CmuxNextSettings
 import Foundation
 import Observation

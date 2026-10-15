@@ -179,6 +179,7 @@
         "CmuxNextFeed",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
+        "CmuxNextHistoryDaemon",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextIcons",
@@ -542,13 +543,21 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistory",
       "targets": [
-        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons"
       ],
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextHistoryDaemon": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistoryDaemon",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextHistory"
+      ],
+      "packages": []
     },
     "CmuxNextHome": {
       "kind": "regular",
