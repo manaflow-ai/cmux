@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxSettings
 import CmuxSimulatorUI
 import CmuxTerminal
@@ -460,7 +461,8 @@ extension AppDelegate {
     func focusedBrowserPanelForAction(
         in preferredWindow: NSWindow?
     ) -> BrowserPanel? {
-        guard let window = preferredWindow ?? NSApp.keyWindow
+        guard let window = preferredWindow
+            ?? NSApp.keyWindow?.chromiumActingWindow(fallback: NSApp.mainWindow)
             ?? NSApp.mainWindow else {
             return nil
         }
@@ -598,10 +600,10 @@ extension AppDelegate {
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {
         if event.windowNumber > 0 {
             if let window = NSApp.window(withWindowNumber: event.windowNumber) {
-                return window
+                return window.chromiumActingWindow(fallback: NSApp.mainWindow)
             }
         }
-        return event.window
+        return event.window?.chromiumActingWindow(fallback: NSApp.mainWindow)
     }
 
     private func shortcutBrowserPanel(panelId: UUID, in window: NSWindow?) -> BrowserPanel? {

@@ -8,14 +8,24 @@ public import Foundation
 /// wrapped pastes.
 public struct BrowserURLResolver: Sendable {
     private let homeDirectoryURL: URL
+    /// Whether Chromium internal pages (`chrome://`, `chrome-extension://`,
+    /// `about:` aliases) load as typed. Only a Chromium panel can show them;
+    /// a WebKit panel keeps searching such text, as before the Chromium engine.
+    public var allowsChromiumSchemes: Bool
 
     /// Creates a browser URL resolver.
     ///
-    /// - Parameter homeDirectoryURL: The home directory used to expand `~` paths.
-    ///   Production callers use the current user's home directory; tests can
-    ///   provide a stable URL without consulting the process environment.
-    public init(homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    /// - Parameters:
+    ///   - homeDirectoryURL: The home directory used to expand `~` paths.
+    ///     Production callers use the current user's home directory; tests can
+    ///     provide a stable URL without consulting the process environment.
+    ///   - allowsChromiumSchemes: True for a Chromium panel (see the property).
+    public init(
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        allowsChromiumSchemes: Bool = false
+    ) {
         self.homeDirectoryURL = homeDirectoryURL
+        self.allowsChromiumSchemes = allowsChromiumSchemes
     }
 
     /// Prepares raw pasteboard text for insertion into a single-line omnibar.
@@ -91,9 +101,18 @@ public struct BrowserURLResolver: Sendable {
         case "file":
             guard url.isFileURL, url.path.hasPrefix("/") else { return nil }
             return url
+        case "chrome", "chrome-extension", "about":
+            return chromiumPageURL(from: input, scheme: scheme)
         default:
             return nil
         }
+    }
+
+    /// A Chromium internal page in canonical form, for a Chromium panel only.
+    /// `about:blank` stays unresolved here as before (the caller searches it).
+    private func chromiumPageURL(from input: String, scheme: String) -> URL? {
+        guard allowsChromiumSchemes else { return nil }
+        return ChromiumInternalURL(input, scheme: scheme)?.url
     }
 
     /// Converts a syntactically local absolute path into a file URL.
