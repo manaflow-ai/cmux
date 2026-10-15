@@ -120,12 +120,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         // Two chunks at the CLI's 512 KiB chunk size.
-        var remoteData = Data(count: 700_000)
-        remoteData.withUnsafeMutableBytes { buffer in
-            for index in buffer.indices {
-                buffer[index] = UInt8((index &* 17) & 0xFF)
+        let remoteData: Data = {
+            var data = Data(count: 700_000)
+            data.withUnsafeMutableBytes { buffer in
+                for index in buffer.indices {
+                    buffer[index] = UInt8((index &* 17) & 0xFF)
+                }
             }
-        }
+            return data
+        }()
         let remoteDigest = Self.sha256Hex(remoteData)
         let chunkBytes = 512 * 1024
 

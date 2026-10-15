@@ -462,7 +462,13 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         CGImageDestinationAddImage(destination, image, nil)
         // Some writers need sizes or depths this sample lacks: no sample then.
         guard CGImageDestinationFinalize(destination), data.length > 0 else { return nil }
-        return data as Data
+        // A few ImageIO writers advertise a type but cannot encode the minimal
+        // bitmap above (notably the Photoshop type on some CI SDKs). Treat that
+        // as an unavailable sample so this test checks the policy without
+        // mistaking an invalid fixture for a prepare regression.
+        let bytes = data as Data
+        guard CGImageSourceCreateWithData(bytes as CFData, nil) != nil else { return nil }
+        return bytes
     }
 
     /// The composer's pre-check (`accepts`) says yes exactly when prepare

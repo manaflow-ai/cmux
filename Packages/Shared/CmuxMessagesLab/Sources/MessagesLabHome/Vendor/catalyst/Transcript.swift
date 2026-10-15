@@ -306,6 +306,17 @@ final class ChatLayout: UICollectionViewLayout {
 
     var rowsBottom: CGFloat { contentHeight - bottomPad }
     var rowsTop: CGFloat { rowsBottom - model.total }
+
+    /// Change the host-owned bottom room without rebasing the transcript to a
+    /// new model total. Chief can receive a row between two status-line
+    /// updates; a forced rebase there would count that row a second time and
+    /// move the pinned offset by the row's height instead of by the inset.
+    func setBottomPadKeepingRows(_ pad: CGFloat) {
+        let delta = pad - bottomPad
+        bottomPad = pad
+        guard contentHeight != 0, delta != 0 else { return }
+        contentHeight += delta
+    }
     var slack: CGFloat { rowsTop }
 
     func contentTop(_ i: Int) -> CGFloat { rowsTop + model.contentTop(i) }

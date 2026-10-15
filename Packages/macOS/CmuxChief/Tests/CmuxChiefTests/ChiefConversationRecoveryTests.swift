@@ -199,8 +199,13 @@ import Testing
     // MARK: Localized text
 
     @Test func transcriptTextIsLocalized() throws {
-        let path = try #require(ChiefText.bundle.path(forResource: "ja", ofType: "lproj"))
-        let japanese = try #require(Bundle(path: path))
+        // SwiftPM's resource bundle is a wrapper on macOS. Resolve the
+        // localization relative to its Resources directory instead of asking
+        // NSBundle to infer the wrapper layout (that lookup is nil on the
+        // Xcode 26 SwiftPM test runner even though the .lproj is present).
+        let resources = try #require(ChiefText.bundle.resourceURL)
+        let path = resources.appendingPathComponent("ja.lproj", isDirectory: true)
+        let japanese = try #require(Bundle(path: path.path))
         let failed = japanese.localizedString(forKey: "chief.turn.failed", value: nil, table: nil)
         #expect(failed != "chief.turn.failed")
         #expect(failed.contains("%@") && !failed.contains("could not finish"))

@@ -597,8 +597,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let anchor = visibleAnchor()
         let oldOffset = collection.contentOffset.y
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset
-        _ = layout.rebaseIfNeeded(force: true)
+        layout.setBottomPadKeepingRows(bounds.height - anchorY + cmuxBottomInset)
+        _ = layout.rebaseIfNeeded()
         layout.invalidateLayout()
         restore(anchor)
         let d = collection.contentOffset.y - oldOffset
