@@ -53,6 +53,9 @@ final class CardSwipeState {
     func track(_ key: String, translation: CGFloat, reduceMotion: Bool, cardWidth: CGFloat = 0,
                onFling: @escaping (Bool) -> Void = { _ in }) {
         if !raised.contains(key) { raised.insert(key) }
+        #if DEBUG
+        MainStallTrace.mark("pan tx=\(String(format: "%.1f", translation))")
+        #endif
         // The finger's velocity (smoothed over the pan's events): the card
         // leads a leftward finger by it (`CardSwipe.leadTime`).
         let now = CACurrentMediaTime()
@@ -100,8 +103,12 @@ final class CardSwipeState {
         // the touch slop at the start (-2, -8, -15, -22 pt in its first
         // frames) and carries about 4 pt past the finger when it stops
         // (re-audit 3 D3: ours jumped, then stood still, and never carried).
-        var f = followers[key] ?? Follower(position: offsets[key] ?? 0)
+        // A card that starts from its slot glides onto the finger on
+        // Safari's onset (`CardSwipe.onsetGlide`), timed on the display
+        // clock; the spring takes over from there.
+        var f = followers[key] ?? Follower(position: offsets[key] ?? 0, gliding: offsets[key] == nil)
         f.target = target
+        f.finger = fingers[key] ?? target
         followers[key] = f
         followClock.start { [weak self] now in self?.stepFollowers(now) ?? false }
     }
@@ -112,6 +119,11 @@ final class CardSwipeState {
         var velocity: CGFloat = 0
         var target: CGFloat = 0
         var last: CFTimeInterval?
+        /// In the onset glide (from the slot onto the finger), `glided` in.
+        var gliding = false
+        var glided: CFTimeInterval?
+        /// The finger (the target without its lead).
+        var finger: CGFloat = 0
     }
     private var followers: [String: Follower] = [:]
     /// Where the finger is (the card's target), per dragged card.
@@ -130,6 +142,30 @@ final class CardSwipeState {
         for (key, var f) in followers {
             let dt = min(0.05, f.last.map { now - $0 } ?? 1.0 / 60)
             f.last = now
+            if f.gliding {
+                // The first presented frame is half a frame into the glide
+                // (Safari's first frame: -2 pt of about -21). Timed by the
+                // ticks, at most a 60 Hz frame each: the first tick of a new
+                // display link carries a stale timestamp, so the second one
+                // read 30 ms later although it came 10 ms after it.
+                f.glided = f.glided.map { $0 + min(dt, 1.0 / 60) } ?? 1.0 / 120
+                let u = (f.glided ?? 0) / CardSwipe.onsetGlide
+                if u < 1 {
+                    let e = 1 - (1 - u) * (1 - u)
+                    // The lead comes in with the glide's square: it has
+                    // none at the start, all of it at the end.
+                    let p = f.finger * CGFloat(e) + (f.target - f.finger) * CGFloat(e * e)
+                    f.velocity = dt > 0 ? (p - f.position) / CGFloat(dt) : 0
+                    f.position = p
+                    followers[key] = f
+                    #if DEBUG
+                    MainStallTrace.mark("follow glide pos=\(String(format: "%.1f", f.position)) target=\(String(format: "%.1f", f.target))")
+                    #endif
+                    withTransaction(t) { offsets[key] = f.position }
+                    continue
+                }
+                f.gliding = false
+            }
             var rem = dt
             while rem > 0 {
                 let h = min(rem, 1.0 / 600)
@@ -139,6 +175,9 @@ final class CardSwipeState {
                 rem -= h
             }
             followers[key] = f
+            #if DEBUG
+            MainStallTrace.mark("follow pos=\(String(format: "%.1f", f.position)) target=\(String(format: "%.1f", f.target))")
+            #endif
             withTransaction(t) { offsets[key] = f.position }
         }
         return !followers.isEmpty

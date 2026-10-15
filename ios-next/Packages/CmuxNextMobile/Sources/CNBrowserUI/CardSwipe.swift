@@ -45,6 +45,13 @@ struct CardSwipe: Equatable, Sendable {
     /// recognised at UIKit's slop (re-audit 4 D3: ours ran 13-15 pt behind
     /// Safari's track from its onset).
     static let onsetTravel: CGFloat = 19
+    /// From there the card glides onto the finger over this long, easing out
+    /// (1 - (1 - u)^2 of the finger's offset): Safari's card is at about
+    /// 0.17 / 0.4 / 0.65 / 0.84 / 0.95 of the finger 8 / 20 / 37 / 52 / 70 ms
+    /// in (re-audit 3 D3). A spring from rest there stepped by the display
+    /// link's timestamps, and a late first tick made it jump 15-18 pt in
+    /// one frame, or ran 9-12 pt behind (re-audit 5 D3).
+    static let onsetGlide: Double = 0.1
     /// Leftward, the card runs this far ahead of the finger along its
     /// velocity (at most `leadMax`), like a predicted touch: Safari's card
     /// ends about 4 pt past a finger that stopped at 100 pt/s, and springs
