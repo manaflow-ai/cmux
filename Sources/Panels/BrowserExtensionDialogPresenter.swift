@@ -8,7 +8,7 @@ import SwiftUI
 /// Design spec §0.9 (modal): on a window without Chromium pages it is a real
 /// window sheet. A Chromium page draws in its own child window above the
 /// parent, which a sheet cannot dim or cover, so on such a window the dialog
-/// is a window-level child panel placed like a sheet (top center), above a
+/// is a window-level child panel placed like a sheet (centered), above a
 /// dimming child panel that covers the whole window, both ordered above every
 /// page window. Either way it blocks only that window, never activates the
 /// app by itself, Escape and Return decline, and a window that closes or a
@@ -106,11 +106,10 @@ struct BrowserExtensionDialogPresenter {
             dim.isReleasedWhenClosed = false
             window.addChildWindow(dim, ordered: .above)
             dimming = dim
-            // Sheet position: top center of the window's content.
-            let content = window.contentLayoutRect
+            // Where a sheet shows on this macOS: centered on the window.
             let origin = NSPoint(
-                x: window.frame.minX + content.midX - frame.width / 2,
-                y: window.frame.minY + content.maxY - frame.height - Self.topInset
+                x: (window.frame.midX - frame.width / 2).rounded(),
+                y: (window.frame.midY - frame.height / 2).rounded()
             )
             setFrameOrigin(origin)
             window.addChildWindow(self, ordered: .above)
@@ -141,7 +140,5 @@ struct BrowserExtensionDialogPresenter {
 
         /// Matches the dimming AppKit draws behind a sheet.
         private static let dimmingAlpha: CGFloat = 0.2
-        /// Gap between the window's top edge and the dialog, like a sheet's drop.
-        private static let topInset: CGFloat = 8
     }
 }
