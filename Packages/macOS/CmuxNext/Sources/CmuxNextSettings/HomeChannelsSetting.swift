@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// `home.channelsEnabled` in cmux.json (hq-6d cx-frn2y; Lawrence 2026-10-15: "u have to cmd shift p to
@@ -14,11 +15,14 @@ extension HomeChannelsSetting {
     /// Enable Channels and Disable Channels (`home.enableChannels`, `home.disableChannels`; the palette, the
     /// CLI and MCP): write `home.channelsEnabled` as the caller (an agent may: it is looks only). The
     /// sidebar's Channels entry follows the applied setting; turned off while Channels shows, the dock
-    /// selects Home (`HomeDock.followChannelsSetting`). The palette lists the one that changes something.
-    /// `unavailable` is the refusal while settings are not loaded.
+    /// selects Home (`HomeDock.followChannelsSetting`). A run that changes nothing (enable while on,
+    /// disable while off) succeeds and writes nothing (hq-6d 2026-10-15). `unavailable` is the refusal
+    /// while settings are not loaded. Also keeps the registry's `homeChannelsEnabled` fact current, so
+    /// actions that need Channels (Open Channels) show only while it is on.
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?, unavailable: String) {
         for (id, on) in [("home.enableChannels", true), ("home.disableChannels", false)] as [(ActionID, Bool)] {
-            registry.bind(id, isEnabled: { DesignSettings.shared.homeChannelsEnabled != on }, invoke: { invocation in
+            registry.bind(id, invoke: { invocation in
+                guard DesignSettings.shared.homeChannelsEnabled != on else { return } // already so
                 guard let settings = settings() else { return registry.refuse(unavailable) }
                 let writer = SettingWriter(invocation.origin)
                 registry.track(ActionWork {
@@ -28,6 +32,15 @@ extension HomeChannelsSetting {
                     return nil
                 })
             })
+        }
+        // task-owner: the registry's life (one per app); event-driven (Observation)
+        Task { [weak registry] in
+            for await on in ObservationStream({ DesignSettings.shared.homeChannelsEnabled }) {
+                guard let registry else { return }
+                var context = registry.context
+                if on { context.insert(.homeChannelsEnabled) } else { context.remove(.homeChannelsEnabled) }
+                if context != registry.context { registry.context = context }
+            }
         }
     }
 }
