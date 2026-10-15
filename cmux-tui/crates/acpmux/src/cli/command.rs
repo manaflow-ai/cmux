@@ -222,6 +222,9 @@ pub enum Command {
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
+    /// This machine as a hand of a Cloud Chief: pair, run, status.
+    #[command(subcommand)]
+    Hand(crate::hand::HandCmd),
     /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),

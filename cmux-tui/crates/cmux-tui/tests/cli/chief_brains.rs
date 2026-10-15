@@ -14,6 +14,7 @@
 use super::*;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 /// Records the start (`n`), its env, the `claude` its PATH finds, argv and
 /// pid in `$MUX_HOME`, then runs
@@ -51,11 +52,14 @@ fn v2(conn: &mut Conn, operation: &str, params: Value) -> Value {
     }
 }
 
-/// Waits (bounded) until `path` exists; its trimmed contents.
+/// Waits (bounded) until `path` exists and is not empty (a stub's `>>`
+/// creates the file before it writes); its trimmed contents.
 fn wait_file(path: &std::path::Path) -> String {
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
-        if let Ok(text) = fs::read_to_string(path) {
+        if let Ok(text) = fs::read_to_string(path)
+            && !text.trim().is_empty()
+        {
             return text.trim().to_owned();
         }
         std::thread::sleep(Duration::from_millis(25));
@@ -513,5 +517,290 @@ fn a_daemon_with_agents_off_starts_no_brain_and_says_why() {
     // SAFETY: the test's own daemon child.
     unsafe { libc::kill(daemon, libc::SIGTERM) };
     let _ = owned.child.wait();
+    let _ = fs::remove_dir_all(&files);
+}
+
+/// A fake brain tools socket at `path` (bound by the test, as the brain host
+/// binds `$MUX_HOME/optchat/tools.sock`): it records each line it gets and
+/// answers with its own `label` as the engine harness, so an answer names
+/// the brain that gave it.
+fn fake_tools_socket(path: &std::path::Path, label: &'static str) -> Arc<Mutex<Vec<Value>>> {
+    use std::os::unix::net::UnixListener;
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let listener = UnixListener::bind(path).unwrap();
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let seen = lines.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut line = String::new();
+            if BufReader::new(&stream).read_line(&mut line).is_ok()
+                && let Ok(value) = serde_json::from_str::<Value>(&line)
+            {
+                seen.lock().unwrap().push(value);
+                let answer = json!({"engine": {"harness": label}, "choice": {}, "stopped": true});
+                let _ = writeln!(&stream, "{answer}");
+            }
+        }
+    });
+    lines
+}
+
+/// `v2` with an idempotency key (chief.engine.set and chief.stop need one).
+fn v2_keyed(conn: &mut Conn, operation: &str, key: &str, params: Value) -> Value {
+    let id = format!("brains-{}", conn.next);
+    conn.next += 1;
+    let mut params = params.as_object().cloned().unwrap_or_default();
+    params.insert("machine".into(), json!("current"));
+    params.insert("session".into(), json!("current"));
+    let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                       "operation": operation, "idempotency_key": key, "params": params});
+    writeln!(conn.writer, "{frame}").unwrap();
+    loop {
+        let line = conn.line();
+        if line["id"] == json!(id) && line["type"] == "response" {
+            return line;
+        }
+    }
+}
+
+/// chief-brains-v1 (cx-ebm.60.11): `chief.engine.get`, `chief.engine.set`
+/// and `chief.stop` take `chief` and act on that Chief's brain only (its
+/// tools socket under `<home>/c/<id tail>`); without `chief`, or with the
+/// default Chief's id, they reach the default Chief's brain
+/// (`CMUX_TUI_CHIEF_TOOLS_SOCKET`) as before. An unknown Chief reaches no
+/// brain. The daemon advertises the capability in `identify`.
+#[test]
+fn chief_engine_and_stop_act_on_the_named_chief_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbn");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let default_socket = files.join("d.sock");
+    let default_lines = fake_tools_socket(&default_socket, "default");
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-named",
+        None,
+        None,
+        &[
+            ("CMUX_TUI_CHIEF_BRAINS", brains.as_str()),
+            ("CMUX_TUI_CHIEF_TOOLS_SOCKET", default_socket.to_str().unwrap()),
+        ],
+    );
+    let server = &owned;
+    let mut home = Conn::open(&server.socket);
+
+    let identity = home.request("identify", json!({}));
+    let capabilities = identity["capabilities"].as_array().cloned().unwrap_or_default();
+    assert!(capabilities.contains(&json!("chief-brains-v1")), "{identity}");
+
+    let scout = make_chief(server, "Scout", "Researcher");
+    let ops = make_chief(server, "Ops", "Release captain");
+    let scout_home = brain_dir(&chief_home, &scout);
+    let ops_home = brain_dir(&chief_home, &ops);
+    wait_file(&scout_home.join("pid.1"));
+    wait_file(&ops_home.join("pid.1"));
+    let scout_lines = fake_tools_socket(&scout_home.join("optchat/tools.sock"), "scout");
+    let ops_lines = fake_tools_socket(&ops_home.join("optchat/tools.sock"), "ops");
+    let counts =
+        || [&default_lines, &scout_lines, &ops_lines].map(|lines| lines.lock().unwrap().len());
+    let harness = |answer: &Value| answer["result"]["engine"]["harness"].clone();
+
+    // engine.get names Scout: only Scout's brain is asked.
+    let got = v2(&mut home, "chief.engine.get", json!({"chief": scout}));
+    assert_eq!(got["ok"], true, "{got}");
+    assert_eq!(harness(&got), json!("scout"), "{got}");
+    assert_eq!(counts(), [0, 1, 0]);
+    assert_eq!(scout_lines.lock().unwrap()[0], json!({"tool": "engine", "action": "show"}));
+
+    // engine.set names Ops: only Ops's brain gets the change.
+    let set = v2_keyed(
+        &mut home,
+        "chief.engine.set",
+        "named-set-1",
+        json!({"chief": ops, "harness": "codex"}),
+    );
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(counts(), [0, 1, 1]);
+    assert_eq!(
+        ops_lines.lock().unwrap()[0],
+        json!({"tool": "engine", "action": "set", "harness": "codex"})
+    );
+
+    // stop names Scout: only Scout's turn stops.
+    let stopped = v2_keyed(&mut home, "chief.stop", "named-stop-1", json!({"chief": scout}));
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    assert_eq!(stopped["result"]["value"]["stopped"], true, "{stopped}");
+    assert_eq!(counts(), [0, 2, 1]);
+    assert_eq!(scout_lines.lock().unwrap()[1], json!({"tool": "stop"}));
+
+    // No chief, or the default Chief's id: the default Chief, as today.
+    let plain = v2(&mut home, "chief.engine.get", json!({}));
+    assert_eq!(harness(&plain), json!("default"), "{plain}");
+    let named_default = v2(&mut home, "chief.engine.get", json!({"chief": "agent_mux"}));
+    assert_eq!(harness(&named_default), json!("default"), "{named_default}");
+    let default_stop = v2_keyed(&mut home, "chief.stop", "plain-stop-1", json!({}));
+    assert_eq!(default_stop["ok"], true, "{default_stop}");
+    assert_eq!(counts(), [3, 2, 1]);
+    assert_eq!(default_lines.lock().unwrap()[2], json!({"tool": "stop"}));
+
+    // A Chief that does not exist reaches no brain.
+    let missing = "agent_01ZZZZZZZZZZZZZZZZZZZZZZZZ";
+    let unknown = v2(&mut home, "chief.engine.get", json!({"chief": missing}));
+    assert_eq!(unknown["ok"], false, "{unknown}");
+    assert_eq!(unknown["error"]["details"]["reason"], "not_found", "{unknown}");
+    assert_eq!(counts(), [3, 2, 1]);
+
+    // A live Chief whose brain serves no socket: a read is unavailable and
+    // does not fall back to another Chief's brain.
+    fs::remove_file(ops_home.join("optchat/tools.sock")).unwrap();
+    let idle = v2(&mut home, "chief.engine.get", json!({"chief": ops}));
+    assert_eq!(idle["ok"], false, "{idle}");
+    assert_eq!(idle["error"]["details"]["reason"], "unavailable", "{idle}");
+    assert_eq!(counts(), [3, 2, 1]);
+
+    // A Chief whose brain stopped (its first start exits 0, as after an idle
+    // stop): reads and stop do not start it; engine.set starts it on demand
+    // and reaches it once it serves its socket.
+    fs::write(chief_home.join("exit-first"), "").unwrap();
+    let night = make_chief(server, "Night", "Night watch");
+    let night_home = brain_dir(&chief_home, &night);
+    let first: i32 = wait_file(&night_home.join("pid.1")).parse().unwrap();
+    fs::remove_file(chief_home.join("exit-first")).unwrap();
+    wait_gone(first, "the first Night brain");
+    let read = v2(&mut home, "chief.engine.get", json!({"chief": night}));
+    assert_eq!(read["error"]["details"]["reason"], "unavailable", "{read}");
+    let stop = v2_keyed(&mut home, "chief.stop", "night-stop-1", json!({"chief": night}));
+    assert_eq!(stop["error"]["details"]["reason"], "unavailable", "{stop}");
+    assert!(!night_home.join("pid.2").exists(), "a read or stop started the brain");
+    let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "night-set",
+                       "operation": "chief.engine.set", "idempotency_key": "night-set-1",
+                       "params": {"machine": "current", "session": "current",
+                                  "chief": night, "model": "m2"}});
+    writeln!(home.writer, "{frame}").unwrap();
+    wait_file(&night_home.join("pid.2"));
+    let night_lines = fake_tools_socket(&night_home.join("optchat/tools.sock"), "night");
+    let set = loop {
+        let line = home.line();
+        if line["id"] == "night-set" && line["type"] == "response" {
+            break line;
+        }
+    };
+    assert_eq!(set["ok"], true, "{set}");
+    // Started once by the set, never by the read or the stop before it.
+    assert_eq!(fs::read_to_string(night_home.join("starts")).unwrap().trim(), "2");
+    assert_eq!(
+        night_lines.lock().unwrap().clone(),
+        vec![json!({"tool": "engine", "action": "set", "model": "m2"})]
+    );
+    assert_eq!(counts(), [3, 2, 1]);
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    let _ = fs::remove_dir_all(&files);
+}
+
+/// A Chief made before the daemon's brain supervisor is installed (the
+/// control socket accepts clients first): the create waits for the
+/// supervisor's real answer instead of saying "not started". A test-only
+/// FIFO gate (debug builds) holds the install until the create is committed,
+/// so the test proves that path every run.
+#[test]
+fn a_chief_made_before_the_brain_supervisor_runs_reports_its_brain_started() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbe");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let gate = files.join("gate");
+    let gate_c = std::ffi::CString::new(gate.to_str().unwrap()).unwrap();
+    // SAFETY: a valid C path; the test's own directory.
+    assert_eq!(unsafe { libc::mkfifo(gate_c.as_ptr(), 0o600) }, 0);
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-early",
+        None,
+        None,
+        &[
+            ("CMUX_TUI_CHIEF_BRAINS", brains.as_str()),
+            ("CMUX_TUI_TEST_CHIEF_BRAINS_GATE", gate.to_str().unwrap()),
+        ],
+    );
+    let socket = owned.socket.clone();
+    let made = std::thread::spawn(move || {
+        let mut command = Command::new(bin());
+        command
+            .arg("--socket")
+            .arg(&socket)
+            .args(["chief", "new", "--name", "Scout", "--role", "Researcher", "--json"])
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET");
+        for key in [
+            "ACPMUX_ENV",
+            "ACPMUX_SESSION_ID",
+            "ACPMUX_SESSION_NAME",
+            "CMUX_CHIEF_OWNER_SOCKET",
+            "CMUX_AGENT_PRINCIPAL",
+            "CMUX_AGENT_CLASS",
+            "CMUX_AGENT_HARNESS",
+        ] {
+            command.env_remove(key);
+        }
+        command.output().unwrap()
+    });
+    // The create is committed while the supervisor is held: it now waits.
+    let mut home = Conn::open(&owned.socket);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let listed = v2(&mut home, "chief.profile.list", json!({}));
+        if listed["result"]["chiefs"]
+            .as_array()
+            .is_some_and(|c| c.iter().any(|r| r["display_name"] == "Scout"))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the create never committed: {listed}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(!made.is_finished(), "the create answered before the supervisor ran");
+    // Release the install: the supervisor handles the queued create and answers.
+    let writer = fs::OpenOptions::new().write(true).open(&gate).unwrap();
+    let output = made.join().unwrap();
+    drop(writer);
+    assert_success(&output);
+    let record: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(record["brain"], json!({"state": "started"}), "{record}");
+    let scout = record["id"].as_str().unwrap().to_owned();
+    let pid: i32 = wait_file(&brain_dir(&chief_home, &scout).join("pid.1")).parse().unwrap();
+    assert!(alive(pid));
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(pid, "the brain after daemon shutdown");
     let _ = fs::remove_dir_all(&files);
 }

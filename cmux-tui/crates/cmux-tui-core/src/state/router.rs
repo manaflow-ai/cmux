@@ -353,7 +353,12 @@ pub(crate) fn dispatch(
                         "bad request: give fit alone, without device, custom or orientation"
                     )));
                 }
-                EmulationChange::Fit(fit)
+                // `fit: "off"` ends the fit (as browser.tab.emulate.clear).
+                if fit.trim().eq_ignore_ascii_case("off") {
+                    EmulationChange::Clear
+                } else {
+                    EmulationChange::Fit(fit)
+                }
             } else {
                 EmulationChange::Set {
                     device: string(fields, "device"),

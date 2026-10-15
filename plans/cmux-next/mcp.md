@@ -72,6 +72,19 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     reach other agents' pending tool inputs: `agents_dialog_answer` only denies a
     permission (`mode: "deny"`; a person approves in cmux) or answers a question, and a
     reply whose transport drops after sending reports `in_progress`;
+  - `agents_doctor`: the checks of `cmux agents doctor` (`cli/agents_doctor.rs`, one
+    code path), as `{schema_version, findings}`. A finding is `{id, status, reason,
+    summary, fix}`: `status` is `ok` (CLI ok or not applicable), `warn` (only inside
+    cmux chats, unknown, or a missing harness while another is installed) or `fail`
+    (missing), and `fix` is null or `{text, command, palette, url}`, where `text` is the
+    CLI's fix, `command` a command it names as written (`cmux agents doctor`,
+    `open '<url>'`; never an install), `palette` the command palette entry it names
+    (Computer Use Setup) and `url` the System Settings pane. `checks` (distinct ids)
+    narrows the report; the app is asked for grants only when a grant row is wanted.
+    Read-only (`readOnlyHint`): it runs no fix and changes no setting. Like the CLI it
+    prints paths under HOME (as set or resolved) as `~/...`, under `CODEX_HOME` and
+    `CLAUDE_CONFIG_DIR` by those names, and a config parse error as its line and
+    message, never the file's text;
   - `agents_wait` (`cmux agents wait`, same code path, `cli/agents/wait.rs`): waits
     `until` `idle` (the agent of a `term_`, `tab_` or `agent_` id or an agent chat's
     session stops working: idle, done or blocked on a dialog), `dialog` (a permission or

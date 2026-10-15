@@ -46,6 +46,9 @@ impl Hub {
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut cmux {
             row.enabled = !m.tools.off.contains(&row.id);
+            // What the harness last said of it stays until its next report.
+            row.status =
+                m.tools.rows.iter().find(|r| r.id == row.id).and_then(|r| r.status.clone());
         }
         let reported = m.tools.rows.iter().filter(|r| r.source != "cmux").cloned();
         m.tools.rows = cmux.into_iter().chain(reported).collect();
@@ -69,6 +72,7 @@ impl Hub {
                 Some(own) => {
                     own.enabled = row.enabled;
                     own.can_toggle &= toggles;
+                    own.status = row.status;
                 }
                 None => rows.push(ToolRow { can_toggle: toggles, ..row }),
             }
@@ -189,7 +193,8 @@ pub(super) fn disallowed_args(tools: &ToolInventory) -> Vec<String> {
 }
 
 /// The rows of Claude Code's system/init: its MCP servers (`{name, status}`,
-/// off when `disabled`), then its plugins and skills (a name, or `{name}`).
+/// with that status, off when `disabled`), then its plugins and skills (a
+/// name, or `{name}`).
 /// None can toggle until `absorb_reported_tools` decides. cmux's own plugin
 /// is listed by its skills only. The `tools` names are not rows: an MCP
 /// tool belongs to its server, a built-in tool to Claude Code.
@@ -204,12 +209,14 @@ fn reported_rows(claude: &Value) -> Vec<ToolRow> {
         source: "claude".to_owned(),
         enabled,
         can_toggle: false,
+        status: None,
     };
     let mut rows = Vec::new();
     for server in list("mcp_servers") {
         if let Some(n) = name(server) {
-            let on = server.get("status").and_then(Value::as_str) != Some("disabled");
-            rows.push(row("mcp", n, on));
+            let status = server.get("status").and_then(Value::as_str);
+            let on = status != Some("disabled");
+            rows.push(ToolRow { status: status.map(str::to_owned), ..row("mcp", n, on) });
         }
     }
     let plugins = list("plugins").filter_map(name).filter(|n| n != crate::agent_tools::PLUGIN_NAME);

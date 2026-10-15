@@ -19,6 +19,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/sessions": (["limit", "cursor"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
+        "_acpmux/attachment": (["sessionId", "id"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),

@@ -80,6 +80,15 @@ export type LastTurn = {
   turnId?: (string | null);
 } & Record<string, unknown>;
 
+/** `failed` also for one that waits on a sign-in (Claude Code `needs-auth`). */
+export type McpServerStatus = "connected" | "failed" | "pending";
+
+/** One MCP server a harness loaded (`SessionSummary::mcp_servers`). */
+export type McpServerSummary = {
+  name: string;
+  status: McpServerStatus;
+} & Record<string, unknown>;
+
 export type MessageRole = "agent" | "user";
 
 export type PermissionBatching = {
@@ -268,6 +277,11 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
+  /**
+   * The MCP servers the harness says it loaded, from its own report (Claude
+   * Code's system/init); null when it reports none (every ACP harness).
+   */
+  mcpServers?: (McpServerSummary[] | null);
   model?: (string | null);
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;

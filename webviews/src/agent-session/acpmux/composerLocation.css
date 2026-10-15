@@ -570,6 +570,82 @@
     inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
 }
 
+/* The top strip's Debug variants (agentPane.debug.topStripStyle, DEV and NIGHTLY; the app sets
+   data-top-strip on <html>). Without the attribute nothing below applies, so the default is the
+   strip and queue above. "Top strip" is whatever stands on the card's top edge: the location strip
+   on a new chat, or the queued prompts once the chat started.
+   - bump: the strip (or the queue, with no strip) stands --acpmux-strip-gap above the card inside
+     its own closed hairline, and the card draws its whole rim (#20789).
+   - plain: no fill, no rim and no tab: muted text floating --acpmux-strip-gap above the card, its
+     ink on the card's content edge (where the prompt's text starts), as Codex and Claude Code
+     desktop show the context above their prompt. */
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+:root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+}
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+:root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
+  content: none;
+}
+:root[data-top-strip] .acpmux-composer { --acpmux-strip-gap: 4px; }
+:root[data-top-strip] .nt-composer { --acpmux-strip-gap: 4px; }
+
+/* bump */
+:root[data-top-strip="bump"] .acpmux-composer-strip {
+  margin-bottom: var(--acpmux-strip-gap);
+  border-radius: 10px 10px 5px 5px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-strip-edge);
+}
+:root[data-top-strip="bump"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  border-radius: 0 0 5px 5px;
+  box-shadow:
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge),
+    inset 0 calc(-1 * var(--cmux-hairline, .5px)) 0 var(--acpmux-strip-edge);
+}
+/* A started chat's queue is the top strip: the same gap and closed rim. */
+:root[data-top-strip="bump"] .acpmux-composer:not(:has(> .acpmux-composer-strip)) > .acpmux-composer-queue {
+  --acpmux-queue-edge: var(--acpmux-composer-edge);
+  margin-bottom: var(--acpmux-strip-gap);
+  border-radius: 12px 12px 5px 5px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
+}
+:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+  --acpmux-queue-edge: var(--acpmux-composer-edge-focus);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
+}
+
+/* plain: the content edge is where the prompt's text starts in the card (16 px in the chat's card,
+   the New Tab's 18 px); a small ghost button's icon ink sits 6 px in from its edge (ui/ghost.css). */
+:root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
+:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+:root[data-top-strip="plain"] .acpmux-composer-strip,
+:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  height: auto;
+  margin: 0 0 var(--acpmux-strip-gap);
+  padding-inline: calc(var(--acpmux-top-strip-edge) - 6px);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transition: none;
+}
+:root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+  margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue { margin-bottom: 0; }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued { padding-inline: 0; color: var(--agent-muted); }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
+/* The row's actions take their own room at its end, with no tray to fade into. */
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-actions { position: static; padding-left: 0; background: none; }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queue-paused { padding-left: 0; }
+
 /* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
    project and Choose folder…. A row is its check, its project's badge and its name, with a short
    suffix only when another project shares the name; the full path is its tooltip. */

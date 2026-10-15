@@ -7,6 +7,8 @@ export type DevHostParams = {
   token: string;
   sessionId?: string;
   newSession?: boolean;
+  /// `#newtab`: the pane opens as a New Tab page, as a tab the app opened for one does.
+  newTab?: boolean;
   cwd?: string;
   editorOrigin?: string;
 };
@@ -45,6 +47,7 @@ export function devHostParams(hash: string): DevHostParams | undefined {
     token,
     sessionId: params.get("session") ?? undefined,
     newSession: params.has("new") || undefined,
+    newTab: params.has("newtab") || undefined,
     cwd: params.get("cwd") ?? undefined,
     editorOrigin,
   };
@@ -155,6 +158,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           token: host.token,
           sessionId: host.sessionId,
           newSession: host.newSession,
+          ...(host.newTab ? { newTab: true } : {}),
           cwd: host.cwd,
           linkScheme: "cmux-dev",
         },

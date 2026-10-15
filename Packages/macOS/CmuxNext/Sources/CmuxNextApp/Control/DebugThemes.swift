@@ -16,6 +16,7 @@ enum DebugThemes {
             object["room"] = .string(controller.state.profileID.rawValue)
             object["appearance"] = .string(controller.window?.appearance?.name.rawValue ?? "")
             object["edge_fades"] = .array(controller.window?.contentView.map(Self.edgeFades) ?? [])
+            object["backdrop"] = .object((controller.window.map(ColorTransition.presentedBackdrop) ?? [:]).mapValues(JSONValue.string))
             object["workspaces"] = .array(controller.mountedContents.map { content in
                 var workspace = scope(content.themeScope)
                 workspace["workspace"] = .string(content.workspace.id)

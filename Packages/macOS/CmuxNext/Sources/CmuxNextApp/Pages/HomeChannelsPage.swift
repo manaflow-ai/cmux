@@ -29,16 +29,16 @@ extension PageFactory {
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
-        weak var shown: PageWebView?
-        // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
-        let edit = Self.homeChannelsEditRoute { command in
-            if let view = shown?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
-        }
+        let edits = PageEditProvider()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
-                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)), edit]
+                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
+                      PageRoute(prefix: PageNativeOp.edit, provider: edits)]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
         guard let page = PageWebView(descriptor: .homeChannels, routes: routes, surface: .home) else { return nil }
-        shown = page
+        // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
+        edits.run = { [weak page] command in
+            if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
+        }
         services.home.homeDidOpen(asked: true)
         return page
     }
@@ -48,28 +48,30 @@ extension PageFactory {
     /// `cmux.app.edit {command}` on the Channels page: `run` gets the composer menu's command, only
     /// on the person's click or key in the page (a paste puts their pasteboard into the page).
     static func homeChannelsEditRoute(run: @escaping @MainActor (AgentPaneEditCommand) -> Void) -> PageRoute {
-        PageRoute(prefix: PageNativeOp.edit, provider: PageEditProvider(run: run))
+        let edits = PageEditProvider()
+        edits.run = run
+        return PageRoute(prefix: PageNativeOp.edit, provider: edits)
     }
 }
 
-/// Serves ``PageNativeOp/edit`` for a page with its own text-field menu.
+/// Serves ``PageNativeOp/edit`` for a page with its own text-field menu. Each key or click backs one
+/// edit: page script inside the gesture's second cannot paste again on a click the menu already used.
 @MainActor
 final class PageEditProvider: PageProvider {
-    private let run: @MainActor (AgentPaneEditCommand) -> Void
-
-    init(run: @escaping @MainActor (AgentPaneEditCommand) -> Void) {
-        self.run = run
-    }
+    /// Runs the command on the page view, set once the view exists.
+    var run: (@MainActor (AgentPaneEditCommand) -> Void)?
+    private var spentGesture: TimeInterval?
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op == PageNativeOp.edit else { throw PageError.unknownOp(op) }
         guard let command = params["command"]?.stringValue.flatMap(AgentPaneEditCommand.init(rawValue:)) else {
             throw PageError.invalidParams("command must be cut, copy, paste or pasteAsPlainText")
         }
-        guard context.userGesture else {
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         }
-        run(command)
+        spentGesture = event
+        run?(command)
         return .null
     }
 }

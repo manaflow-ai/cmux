@@ -106,19 +106,42 @@ export function decodeText(bytes: Uint8Array): string | undefined {
   }
 }
 
-/// A `size`px square thumbnail of an image attachment, its center cropped to fill (as a data: URL),
-/// so a chip never hands a multi-megabyte image to a small <img>. Undefined when the engine cannot
-/// decode the image or has no OffscreenCanvas; the chip then draws the image itself.
-export async function thumbnail(image: { mimeType: string; data: string }, size = 112): Promise<string | undefined> {
+/// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
+/// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
+/// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
+/// multi-megabyte image to a small <img>. Undefined when the engine cannot decode the image or has
+/// no OffscreenCanvas; the chip then draws the image itself.
+export async function thumbnail(image: { mimeType: string; data: string }, height = 160): Promise<string | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   try {
     const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: image.mimeType }));
-    const side = Math.min(bitmap.width, bitmap.height);
-    const canvas = new OffscreenCanvas(size, size);
+    if (!bitmap.width || !bitmap.height) {
+      bitmap.close();
+      return undefined;
+    }
+    const ratio = Math.min(2, Math.max(0.7, bitmap.width / bitmap.height));
+    const [sourceWidth, sourceHeight] =
+      bitmap.width / bitmap.height > ratio
+        ? [bitmap.height * ratio, bitmap.height]
+        : [bitmap.width, bitmap.width / ratio];
+    const canvas = new OffscreenCanvas(Math.round(height * ratio), height);
     const context = canvas.getContext("2d");
-    if (!side || !context) return undefined;
-    context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+    if (!context) {
+      bitmap.close();
+      return undefined;
+    }
+    context.drawImage(
+      bitmap,
+      (bitmap.width - sourceWidth) / 2,
+      (bitmap.height - sourceHeight) / 2,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
     bitmap.close();
     const blob = await canvas.convertToBlob({ type: "image/png" });
     return `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`;

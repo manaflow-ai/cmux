@@ -3,6 +3,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import worker from "../src/index.ts"
 import { CreditsGate } from "../src/chief-brain/credits-gate.ts"
+import { mirrorCredits, mirrorDue, mirrorFailed } from "../src/credits-mirror.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { hmacHex } from "../src/ingress/verify.ts"
 import { inDO, post, testEnv, token } from "./setup/inference-person.ts"
@@ -57,7 +58,7 @@ const fakeCheckout = () => {
       made.push(form)
       const id = `cs_test_${made.length}abc`
       const metadata = Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith("metadata[")).map(([k, v]) => [k.slice(9, -1), v]))
-      sessions.set(id, { id, object: "checkout.session", mode: form.mode, payment_status: "paid", status: "complete", currency: form["line_items[0][price_data][currency]"], amount_subtotal: Number(form["line_items[0][price_data][unit_amount]"]), amount_total: Number(form["line_items[0][price_data][unit_amount]"]), metadata })
+      sessions.set(id, { id, object: "checkout.session", livemode: false, customer: form.customer ?? `cus_T${made.length}fake`, mode: form.mode, payment_status: "paid", status: "complete", currency: form["line_items[0][price_data][currency]"], amount_subtotal: Number(form["line_items[0][price_data][unit_amount]"]), amount_total: Number(form["line_items[0][price_data][unit_amount]"]), metadata })
       return Response.json({ id, url: `https://checkout.test/pay/${id}` })
     }
     const one = url.pathname.match(/^\/v1\/checkout\/sessions\/(cs_test_[A-Za-z0-9]+)$/)
@@ -101,6 +102,9 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     expect(go.location).toBe("https://checkout.test/pay/cs_test_1abc")
     expect(stripe.made[0]).toMatchObject({ mode: "payment", "line_items[0][price_data][unit_amount]": "2000", "line_items[0][price_data][currency]": "usd", "line_items[0][price_data][product_data][name]": "cmux Cloud credits", "metadata[team]": team, "metadata[kind]": "cmux_credits", client_reference_id: team })
     expect(stripe.made[0]!.success_url).toBe("https://api.test/v1/credits/checkout/done?session_id={CHECKOUT_SESSION_ID}")
+    // A team without a customer gets one made by its first payment.
+    expect(stripe.made[0]).toMatchObject({ customer_creation: "always" })
+    expect(stripe.made[0]!.customer).toBeUndefined()
     // A tampered or foreign link opens nothing.
     expect((await call(e, "GET", `${link.pathname.slice(0, -4)}0000`)).status).toBe(404)
 
@@ -119,6 +123,9 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     const mine = await call(e, "POST", "/v1/credits/topup", { token: t, body: JSON.stringify({ usd: 10 }) })
     expect(mine.status, mine.text).toBe(200)
     expect(mine.json.value).toMatchObject({ url: "https://checkout.test/pay/cs_test_2abc", team, usd: 10 })
+    // The team's next payment page uses the customer its first payment made (one customer per team).
+    expect(stripe.made[1]).toMatchObject({ customer: "cus_T1fake" })
+    expect(stripe.made[1]!.customer_creation).toBeUndefined()
     expect((await call(e, "POST", "/v1/credits/topup", { token: t, body: JSON.stringify({ usd: 7 }) })).status).toBe(400)
     const event2 = JSON.stringify({ type: "checkout.session.completed", livemode: false, data: { object: stripe.sessions.get("cs_test_2abc") } })
     expect((await call(e, "POST", "/v1/hooks/stripe/credits", { body: event2, headers: { "stripe-signature": await signed(event2) } })).json).toEqual({ received: true, granted: true })
@@ -219,6 +226,53 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     expect(await prod.before("task-1", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
     await prod.after("task-1", answered(0.01))
     expect((await admin(runEnv(), { action: "read", team })).json.balance_usd).toBeCloseTo(4.99, 6)
+  })
+
+  it("the mirror to the billing database sends each entry once, marks it only after the database took it, and backs off on failure", async () => {
+    const { t, team } = await person("credits-mirror")
+    const e = runEnv()
+    expect((await admin(e, { action: "grant", team, usd: 2, actor: "test", reason: "mirror test", key: "m1" })).json).toMatchObject({ added: true })
+    const gate = new CreditsGate(e, "brain-m", () => ({ team, chief: "agent_mirror", conversation: "conv_mirror" }))
+    expect(await gate.before("task-1", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
+    await gate.after("task-1", answered(0.01))
+    const sent: Array<[string, Array<unknown>]> = []
+    const ok = { query: async (q: string, v?: Array<unknown>) => void sent.push([q, v ?? []]) }
+    const down = { query: async () => { throw Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" }) } }
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
+      const storage = m.ctx.storage as DurableObjectStorage
+      expect(mirrorDue(storage.sql)).not.toBeNull()
+      // The database is down: nothing is marked, the next try waits.
+      await expect(mirrorCredits(storage, team, down)).rejects.toThrow()
+      const now = Date.now()
+      expect(mirrorFailed(storage.sql, now)).toBe(1)
+      expect(mirrorDue(storage.sql)).toBe(now + 5_000)
+      expect(mirrorFailed(storage.sql, now)).toBe(2)
+      expect(mirrorDue(storage.sql)).toBe(now + 10_000)
+      // It is back: both entries go in seq order, with the balance at the state's version.
+      const r = await mirrorCredits(storage, team, ok)
+      expect(r.entries).toBe(2)
+      expect(sent[0]![0]).toMatch(/^INSERT INTO credit_ledger .* ON DUPLICATE KEY UPDATE `entry_key` = IF\(`entry_key` = VALUES\(`entry_key`\), `entry_key`, NULL\)$/)
+      expect(sent[0]![1].filter((_, i) => i % 12 === 1)).toEqual(["grant:m1", "charge:brain-m:task-1:0"])
+      expect(sent[0]![1].filter((_, i) => i % 12 === 11)).toEqual([1, 2])
+      expect(sent[1]![0]).toMatch(/^INSERT INTO credit_balance /)
+      expect(sent[1]![1].slice(0, 3)).toEqual([team, 2_000_000 - 10_000, 0])
+      expect(mirrorDue(storage.sql)).toBeNull()
+      // Nothing new: a later run sends no ledger rows again.
+      sent.length = 0
+      await mirrorCredits(storage, team, ok)
+      expect(sent.some(([q]) => q.includes("credit_ledger"))).toBe(false)
+    })
+    // A new hold is a change the mirror carries (the balance row's held amount), with no new ledger row.
+    expect(await gate.before("task-2", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
+      const storage = m.ctx.storage as DurableObjectStorage
+      expect(mirrorDue(storage.sql)).not.toBeNull()
+      sent.length = 0
+      expect((await mirrorCredits(storage, team, ok)).entries).toBe(0)
+      expect(sent.map(([q]) => q.split(" ").slice(0, 3).join(" "))).toEqual(["INSERT INTO credit_balance"])
+      expect(Number(sent[0]![1][2])).toBeGreaterThan(0)
+    })
+    expect((await call(e, "GET", "/v1/credits", { token: t })).json.value.balance_usd).toBeCloseTo(1.99, 6)
   })
 
   it("the operator's dogfood grant gives each configured team its amount once per round", async () => {

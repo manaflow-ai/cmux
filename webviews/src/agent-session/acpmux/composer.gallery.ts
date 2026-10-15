@@ -553,11 +553,11 @@ export default agentPaneEntry({
       ),
       checks: {
         anchorMovePx: {
-          value: 80,
+          value: 100,
           reason:
-            "The attached image's 72 px thumbnail row opens above the prompt, the same growth a pasted image makes.",
+            "The attached image's 96 px thumbnail row (an 80 px thumbnail under the 16 px inset; Leo, 2026-10-14) opens above the prompt, the same growth a pasted image makes.",
         },
-        layoutShiftMax: { value: 0.05, reason: "The thumbnail row the capture adds above the prompt." },
+        layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
       },
       native: {
         "composer.capture": {

@@ -82,6 +82,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browserScreenshotPage": [p(.browserPage, .inspect, 102, folder: .tools)],
         "browserDevice": [p(.browserPage, .inspect, 104, folder: .tools)],
         "browserFitDesktop": [p(.browserPage, .inspect, 105, folder: .tools)],
+        "browserFit": [p(.browserPage, .inspect, 107, .choices, folder: .tools)],
         "browserFitDesktop1280": [p(.browserPage, .inspect, 106, folder: .tools)],
         "browserPrint": [p(.browserPage, .inspect, 99)],
         "browserScreenshotSection": [p(.browserPage, .inspect, 103, folder: .tools)],

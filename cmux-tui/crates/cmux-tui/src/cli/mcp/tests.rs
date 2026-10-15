@@ -922,6 +922,35 @@ fn agents_action_tools_are_listed_with_strict_schemas() {
 }
 
 #[test]
+fn agents_doctor_is_a_read_only_tool_that_changes_nothing() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "agents_doctor")
+        .unwrap_or_else(|| panic!("agents_doctor is not listed"));
+    assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
+    assert_eq!(tool["annotations"]["destructiveHint"], false, "{tool}");
+    assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{tool}");
+    assert_eq!(
+        tool["inputSchema"]["properties"].as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["checks"],
+        "{tool}"
+    );
+    server.backend.sent.borrow_mut().clear();
+    let result = call(&mut server, "agents_doctor", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    // At most the one read of the app's Computer Use grants; no run, no change.
+    let sent = server.backend.sent.borrow().clone();
+    assert!(
+        sent.iter().all(|sent| sent["kind"] == "app" && sent["method"] == "computer_use.status"),
+        "{sent:?}"
+    );
+}
+
+#[test]
 fn agents_workspace_select_focuses_through_the_owners_and_returns_a_receipt() {
     let mut server = Server::new(
         Fake {

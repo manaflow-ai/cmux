@@ -73,6 +73,9 @@ pub struct SessionSummary {
     pub tools: Vec<ToolSummary>,
     /// `_acpmux/set_tools` can change them.
     pub tools_mutable: bool,
+    /// The MCP servers the harness says it loaded, from its own report (Claude
+    /// Code's system/init); null when it reports none (every ACP harness).
+    pub mcp_servers: Option<Vec<McpServerSummary>>,
     /// The status dot every client draws (`status_indicator`); null for none.
     pub indicator: Option<Indicator>,
     /// What it is doing and since when (`views::lane`); null for a closed session.
@@ -119,6 +122,45 @@ impl From<&crate::store::ToolRow> for ToolSummary {
             enabled: row.enabled,
             can_toggle: row.can_toggle,
         }
+    }
+}
+
+/// One MCP server a harness loaded (`SessionSummary::mcp_servers`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(transform = require_all)]
+pub struct McpServerSummary {
+    pub name: String,
+    pub status: McpServerStatus,
+}
+
+/// `failed` also for one that waits on a sign-in (Claude Code `needs-auth`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum McpServerStatus {
+    Connected,
+    Failed,
+    Pending,
+}
+
+impl McpServerSummary {
+    /// The servers among a chat's tool rows that its harness reported
+    /// loaded; one the user's own config turned off (`disabled`) was not.
+    /// None when the harness reported no server.
+    pub fn loaded(rows: &[crate::store::ToolRow]) -> Option<Vec<Self>> {
+        let servers: Vec<Self> = rows
+            .iter()
+            .filter_map(|row| {
+                let name = row.id.strip_prefix("mcp:")?.to_owned();
+                let status = match row.status.as_deref()? {
+                    "disabled" => return None,
+                    "connected" => McpServerStatus::Connected,
+                    "pending" => McpServerStatus::Pending,
+                    _ => McpServerStatus::Failed,
+                };
+                Some(Self { name, status })
+            })
+            .collect();
+        (!servers.is_empty()).then_some(servers)
     }
 }
 

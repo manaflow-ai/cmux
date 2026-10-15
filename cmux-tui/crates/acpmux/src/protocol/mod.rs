@@ -158,6 +158,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAG, Request),
         untyped(method::MUX_INFO, Request),
         untyped(method::MUX_EVENTS, Request),
+        untyped(method::MUX_ATTACHMENT, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_WAIT, Request),
         untyped(method::MUX_ASK, Request),

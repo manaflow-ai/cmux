@@ -624,6 +624,14 @@ impl FreeTier {
                 }
                 Err(error) => return Err(error),
             };
+            // The app holds an attested key from here on: if the /attest reply is lost after the
+            // server stored the grant, the next lease asserts first and spends no second grant.
+            {
+                let mut inner = self.lock();
+                if inner.provider.as_ref().is_some_and(|p| p.generation == provider.generation) {
+                    inner.has_key = true;
+                }
+            }
             let body = json!({
                 "platform": platform,
                 "key_id": field(&reply, "key_id")?,

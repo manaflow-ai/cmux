@@ -16,6 +16,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WEB_MODES,
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
+    method::MUX_COMPLETE,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_WARM,

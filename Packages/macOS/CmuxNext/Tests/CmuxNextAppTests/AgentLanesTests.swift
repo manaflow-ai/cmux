@@ -40,6 +40,11 @@ struct AgentLanesTests {
     ]
 
     @Test func everySessionShowsItsLaneAndTheSidebarCountsTheOnesThatNeedAPerson() async throws {
+        // The fleet toggle counts the coordinator's children and the peer's lane too.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TunableCatalog.all)
+        TunableStore.shared.set(AgentActivityTunables.lanesShowFleet.key, .bool(true))
+        defer { TunableStore.shared.set(AgentActivityTunables.lanesShowFleet.key, nil) }
         let acpmux = try StandInAcpmux(sessions: Self.sessions)
         let lanes = AgentLaneStore()
         let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: AgentTurnStateStore(), lanes: lanes)
@@ -53,17 +58,17 @@ struct AgentLanesTests {
         #expect(lanes.lanes["op-idle"]?.state == .idle)
         #expect(lanes.lanes["op-idle"]?.since == Date(timeIntervalSince1970: 1_760_000_000))
         #expect(lanes.lanes["op-gone"]?.peer == "mini")
-        #expect(SidebarTransientItem.lanes(lanes).info.badge == 3, "failed, waiting and lost need a person")
+        #expect(SidebarTransientItem.lanes(lanes)?.info.badge == 3, "failed, waiting and lost need a person")
 
         // The idle lane dies on its next turn: the count follows the push, no poll.
         acpmux.push(Self.summary("op-idle", "failed", error: "Credit balance too low", parent: "chief"))
         try await until { lanes.lanes["op-idle"]?.state == .failed }
-        #expect(SidebarTransientItem.lanes(lanes).info.badge == 4)
+        #expect(SidebarTransientItem.lanes(lanes)?.info.badge == 4)
 
         // A person answered the permission; the lane works again.
         acpmux.push(Self.summary("op-asks", "working", parent: "chief"))
         try await until { lanes.lanes["op-asks"]?.state == .working }
-        #expect(SidebarTransientItem.lanes(lanes).info.badge == 3)
+        #expect(SidebarTransientItem.lanes(lanes)?.info.badge == 3)
 
         // A closed session has no lane and leaves the view.
         acpmux.push(["sessionId": "op-busy", "name": "op-busy", "status": "closed", "lane": NSNull()])
@@ -101,6 +106,32 @@ struct AgentLanesTests {
         await settings.reload()
         try await until { lanesItem() == nil }
         #expect(lanesItem() == nil)
+    }
+
+    /// Leo 2026-10-15: the Lanes item counts his own sessions on this Mac, not every acpmux peer's
+    /// fleet lane or a coordinator's child session, and hides when he has none. The fleet shows
+    /// behind the Debug Settings toggle `agentActivity.lanesShowFleet`, off by default.
+    @Test func theLanesItemCountsOnlyThisMacsOwnSessionsUnlessTheFleetToggleIsOn() {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TunableCatalog.all)
+        let key = "agentActivity.lanesShowFleet"
+        defer { TunableStore.shared.set(key, nil) }
+        func lane(_ id: String, peer: String? = nil, parent: String? = nil) -> AgentActivityLane {
+            AgentActivityLane(id: id, name: id, title: id, peer: peer, parent: parent, state: .failed, since: nil, error: nil)
+        }
+        let store = AgentLaneStore()
+        store.lanes = ["mine": lane("mine"), "op-peer": lane("op-peer", peer: "mini"), "op-child": lane("op-child", parent: "chief")]
+        let item = { () -> SidebarTransientItem? in SidebarTransientItem.lanes(store) }
+
+        #expect(item() != nil, "an own session shows the item")
+        #expect(item()?.info.badge == 1, "off by default: only the own session counts")
+
+        store.lanes["mine"] = nil
+        #expect(item() == nil, "only fleet and child lanes: no Lanes item")
+
+        store.lanes["mine"] = lane("mine")
+        #expect(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the fleet toggle exists")
+        #expect(item()?.info.badge == 3, "the fleet toggle counts peer and child lanes too")
     }
 
     /// Waits up to five seconds for `done`.
