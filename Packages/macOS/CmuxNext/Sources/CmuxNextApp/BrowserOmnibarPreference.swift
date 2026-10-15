@@ -47,7 +47,7 @@ enum BrowserOmnibarPreference {
                 }
                 reported = resolved.invalidCustomEngine ? setting : nil
                 OmnibarGlassAppearance.shared.apply(glass: setting.glass, tint: setting.glassTint, tintStrength: setting.glassTintStrength,
-                                                    cornerRadius: setting.cornerRadius, shadow: setting.shadow)
+                                                    cornerRadius: setting.cornerRadius, shadow: setting.shadow, backgroundOpacity: setting.backgroundOpacity)
                 cache.omniboxConfiguration = resolved.configuration
                 for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
             }

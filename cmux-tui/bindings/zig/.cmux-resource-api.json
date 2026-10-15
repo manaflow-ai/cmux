@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "06ce79da8648156ab119139176850fea4418d5d7ef6479b3a6317c33bf18d755",
+  "catalog_sha256": "88776bdba1390937c53ead97ed5138981f87038b8674badc55594a472e7e30cd",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -14,6 +14,9 @@
       "class": "mutation"
     },
     "agent.message.send": {
+      "class": "mutation"
+    },
+    "agent.message.unsend": {
       "class": "mutation"
     },
     "agent.report": {
@@ -62,6 +65,15 @@
       "class": "read"
     },
     "browser.navigate": {
+      "class": "mutation"
+    },
+    "browser.profile.create": {
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "class": "read"
+    },
+    "browser.profile.open": {
       "class": "mutation"
     },
     "browser.reload": {

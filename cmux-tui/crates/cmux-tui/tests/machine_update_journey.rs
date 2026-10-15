@@ -353,7 +353,7 @@ impl Drop for SupervisedVm {
             ])
             .arg(&self.socket)
             .output();
-        let _ = self.command(&program).args(["acp", "daemon", "shutdown"]).output();
+        let _ = self.command(&program).args(["acp", "daemon", "shutdown", "--end-agents"]).output();
         let Some(mut supervisor) = self.supervisor.take() else { return };
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         while std::time::Instant::now() < deadline {

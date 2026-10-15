@@ -269,7 +269,7 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder PATH=${RECORDER_DIR}:$PATH`,
     `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n recorder --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/recorder-new.txt 2>&1`,
     `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send recorder hello; echo "exit $?"; } > ${PROBE_DIR}/recorder-send.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown; echo "exit $?"; } > ${PROBE_DIR}/recorder-shutdown.txt 2>&1`,
+    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/recorder-shutdown.txt 2>&1`,
   ].join("\n");
   result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180);
   let text = "";

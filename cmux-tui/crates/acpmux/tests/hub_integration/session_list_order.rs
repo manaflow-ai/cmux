@@ -121,6 +121,58 @@ async fn the_session_list_answers_while_other_clients_keep_changing_sessions() {
     assert!(total > 0);
 }
 
+// A session an agent starts from inside its own chat (Leo 2026-10-13: lanes' child sessions,
+// titled "Coordinator: ...", listed at the top of the New Tab Chats list) is tagged with its
+// parent by the acpmux client, and the session names it, so the lists fold it under that chat.
+// A tag naming no session here names no parent.
+#[tokio::test]
+async fn a_session_started_from_another_names_it_as_its_parent() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        let s =
+            c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+        ids.push(s["sessionId"].as_str().unwrap().to_owned());
+    }
+    let (parent, child, stray) = (&ids[0], &ids[1], &ids[2]);
+    let tagged = c
+        .request(method::MUX_TAG, json!({"sessionId": child, "set": {"spawnedBy": parent}}))
+        .await
+        .unwrap();
+    assert_eq!(tagged["spawnedBy"], parent.as_str());
+    let tagged = c
+        .request(
+            method::MUX_TAG,
+            json!({"sessionId": stray, "set": {"spawnedBy": "no-such-session"}}),
+        )
+        .await
+        .unwrap();
+    assert!(tagged["spawnedBy"].is_null());
+
+    // One level only: a parent that is itself a child names none, so two sessions tagged with
+    // each other both list on their own instead of hiding each other.
+    let looped = c
+        .request(method::MUX_TAG, json!({"sessionId": parent, "set": {"spawnedBy": child}}))
+        .await
+        .unwrap();
+    assert!(looped["spawnedBy"].is_null(), "{looped}");
+    let summary = |sessions: &Value, id: &str| {
+        sessions["sessions"].as_array().unwrap().iter().find(|s| s["sessionId"] == id).cloned()
+    };
+    let sessions = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+    assert!(summary(&sessions, child).unwrap()["spawnedBy"].is_null());
+    c.request(method::MUX_TAG, json!({"sessionId": parent, "remove": ["spawnedBy"]}))
+        .await
+        .unwrap();
+
+    // An archived parent lists nowhere, so its children list on their own.
+    c.request(method::MUX_TAG, json!({"sessionId": parent, "set": {"archived": "1"}}))
+        .await
+        .unwrap();
+    let sessions = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+    assert!(summary(&sessions, child).unwrap()["spawnedBy"].is_null());
+}
+
 // The session list (`_acpmux/sessions`, `_acpmux/watch`) in pages.
 //
 // A client that sends `limit` gets that many sessions and a `nextCursor`
