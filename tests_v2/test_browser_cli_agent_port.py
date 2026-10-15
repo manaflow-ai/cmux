@@ -243,6 +243,9 @@ def main() -> int:
         _run_cli_json(cli, ["browser", surface, "cookies", "set", "cli_cookie", "cookie_val", "--url", "https://example.com"])
         cookies_get = _run_cli_json(cli, ["browser", surface, "cookies", "get", "--name", "cli_cookie"])
         _must(any(str(row.get("name")) == "cli_cookie" for row in (cookies_get.get("cookies") or [])), f"Expected cli_cookie via CLI: {cookies_get}")
+        # Text mode prints the cookies, not just OK.
+        cookies_text = _run_cli_text(cli, ["browser", surface, "cookies", "get", "--name", "cli_cookie"])
+        _must("cli_cookie=cookie_val" in cookies_text, f"Expected cookie in text output: {cookies_text!r}")
         cleared_cookie = _run_cli_json(cli, ["browser", surface, "cookies", "clear", "--name", "cli_cookie"])
         _must(int(cleared_cookie.get("cleared") or 0) == 1, f"Expected cookies clear to report one cleared cookie: {cleared_cookie}")
 
@@ -289,6 +292,8 @@ def main() -> int:
         _run_cli_json(cli, ["browser", surface, "storage", "local", "set", "alpha", "one"])
         storage_get = _run_cli_json(cli, ["browser", surface, "storage", "local", "get", "alpha"])
         _must(str(storage_get.get("value") or "") == "one", f"Expected storage value via CLI: {storage_get}")
+        storage_text = _run_cli_text(cli, ["browser", surface, "storage", "local", "get", "alpha"])
+        _must(storage_text == "one", f"Expected the stored value in text output: {storage_text!r}")
 
         _run_cli_json(cli, ["browser", surface, "fill", "#name", "--text", "weather"])
         cleared = _run_cli_json(cli, ["browser", surface, "fill", "#name", "--text", "", "--snapshot-after"])
