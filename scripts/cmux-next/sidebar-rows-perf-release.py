@@ -41,6 +41,8 @@ parser.add_argument("--floors", default="plain",
                     help="--clean: host floor variants (scripts/cmux-next/sidebar-scroll-floor.swift), comma list of plain, vib"
                          " (behind-window sidebar material), vibfade (material + edge-fade mask), fade (edge-fade mask), optout"
                          " (scrollWheel override: no responsive scrolling), optoutfade; empty = none")
+parser.add_argument("--round-offset", type=int, default=0,
+                    help="--clean: the first round's number (an odd offset starts with the reversed order, for a second job)")
 parser.add_argument("--variants", default="",
                     help="--clean: more runs of the first app with extra launch env, 'label:KEY=V,KEY2=V;label2:KEY=V'"
                          " (each variant is one more app in the rotation; it shares the tag's workspaces)")
@@ -660,7 +662,7 @@ def cmux_runs(app, i, first):
     else:
         time.sleep(3)  # harness: the relaunched app settles before the recorder attaches
     for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
-        out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs)
+        out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i - opts.round_offset < opts.profile_runs)
         time.sleep(2)  # harness: settle between runs
     stop_b(app)
     note(app_pid() is None, f"{app['label']} round {i}: the app quit")
@@ -675,12 +677,12 @@ def run_clean(apps):
     items = [("cmux", app) for app in apps] + [("floor", (v, opts.frame, f"floor-{v}")) for v in floors]
     items += [("floor", ("plain", f, "floor-at-" + f.replace(",", "_"))) for f in extra]
     runs = {}
-    for i in range(opts.repeats):
+    for i in range(opts.round_offset, opts.round_offset + opts.repeats):
         order = items if i % 2 == 0 else items[::-1]
         print(f"round {i}: {[it[1]['label'] if it[0] == 'cmux' else it[1][2] for it in order]}", flush=True)
         for kind, item in order:
             if kind == "cmux":
-                for mode, result in cmux_runs(item, i, i == 0).items():
+                for mode, result in cmux_runs(item, i, i == opts.round_offset).items():
                     runs.setdefault(item["label"], {}).setdefault(mode, []).append(result)
             else:
                 variant, frame, label = item
