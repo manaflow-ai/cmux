@@ -9,6 +9,11 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarRowHeight
     case tabStripHeight
     case tabMaxWidth
+    /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
+    /// evenly to the active minimum, then the inactive tabs to theirs; pinned tabs are always one width.
+    case tabMinActiveWidth
+    case tabMinInactiveWidth
+    case tabPinnedWidth
     case paletteRowHeight
     case columnGap
     case panelCornerRadius
@@ -196,6 +201,9 @@ public final class DesignSettings {
         case .sidebarRowHeight: 20...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
+        case .tabMinActiveWidth: 32...200
+        case .tabMinInactiveWidth: 16...120
+        case .tabPinnedWidth: 24...120
         case .paletteRowHeight: 26...48
         case .columnGap: 0...24
         case .panelCornerRadius: 0...20

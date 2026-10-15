@@ -93524,6 +93524,1054 @@
           }
         }
       }
+    },
+    "settings.tabs.tabMaxWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの最大幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحد الأقصى لعرض علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksimalna širina kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksimal fanebredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maximale Tabbreite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho máximo de pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur maximale des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza massima scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងផ្ទាំងអតិបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최대 탭 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksimal fanebredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksymalna szerokość karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura máxima da aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Максимальная ширина вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างแท็บสูงสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En büyük sekme genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Максимальна ширина вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tab tối đa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页最大宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁最大寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMaxWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widest a tab gets when the strip has room."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーに余裕があるときのタブの最大幅です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقصى عرض تصل إليه علامة التبويب عندما يتوفر مكان في الشريط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najveća širina kartice kada traka ima mjesta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den største bredde en fane får, når der er plads i bjælken."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "So breit wird ein Tab höchstens, wenn die Leiste Platz hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El ancho máximo de una pestaña cuando la barra tiene espacio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur maximale d’un onglet quand la barre a de la place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La larghezza massima di una scheda quando la barra ha spazio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងធំបំផុតរបស់ផ្ទាំង នៅពេលរបារមានកន្លែង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 바에 공간이 있을 때 탭이 넓어질 수 있는 최대 너비입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den største bredden en fane får når linjen har plass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Największa szerokość karty, gdy pasek ma miejsce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A largura máxima de uma aba quando a barra tem espaço."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наибольшая ширина вкладки, когда на панели есть место."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างสูงสุดของแท็บเมื่อแถบมีพื้นที่เหลือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şeritte yer olduğunda bir sekmenin alabileceği en büyük genişlik."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найбільша ширина вкладки, коли на панелі є місце."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng lớn nhất của một tab khi thanh còn chỗ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏有空间时标签页的最大宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列有空間時分頁的最大寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinActiveWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimum Selected Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中タブの最小幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحد الأدنى لعرض علامة التبويب المحددة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna širina odabrane kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimal bredde for valgt fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale Breite des ausgewählten Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho mínimo de la pestaña seleccionada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur minimale de l’onglet sélectionné"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza minima della scheda selezionata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងអប្បបរមានៃផ្ទាំងដែលបានជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택한 탭의 최소 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minste bredde for valgt fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna szerokość wybranej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura mínima da aba selecionada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Минимальная ширина выбранной вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างต่ำสุดของแท็บที่เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seçili sekmenin en küçük genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінімальна ширина вибраної вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tối thiểu của tab đang chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所选标签页最小宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所選分頁最小寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinActiveWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーが混み合うと、すべてのタブがこの幅まで均等に縮み、選択中のタブは少なくともこの幅を保ちます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يزدحم الشريط، تتقلص كل علامات التبويب بالتساوي إلى هذا العرض، وتبقى علامة التبويب المحددة بهذا العرض على الأقل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je traka pretrpana, sve kartice se ravnomjerno sužavaju do ove širine, a odabrana kartica ostaje najmanje ovoliko široka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når bjælken er fuld, krymper alle faner ligeligt til denne bredde, og den valgte fane forbliver mindst så bred."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn die Leiste voll ist, schrumpfen alle Tabs gleichmäßig auf diese Breite, und der ausgewählte Tab bleibt mindestens so breit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando la barra está llena, todas las pestañas se reducen por igual hasta este ancho, y la pestaña seleccionada mantiene al menos este ancho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand la barre est pleine, tous les onglets rétrécissent de façon égale jusqu’à cette largeur, et l’onglet sélectionné garde au moins cette largeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando la barra è piena, tutte le schede si restringono in modo uniforme fino a questa larghezza e la scheda selezionata resta larga almeno così."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលរបារពេញ ផ្ទាំងទាំងអស់រួមតូចស្មើៗគ្នាដល់ទទឹងនេះ ហើយផ្ទាំងដែលបានជ្រើសនៅតែមានទទឹងយ៉ាងហោចណាស់ប៉ុណ្ណេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 바가 꽉 차면 모든 탭이 이 너비까지 고르게 줄어들고, 선택한 탭은 최소 이 너비를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når linjen er full, krymper alle faner jevnt til denne bredden, og den valgte fanen beholder minst denne bredden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy pasek jest pełny, wszystkie karty zwężają się równo do tej szerokości, a wybrana karta pozostaje co najmniej tak szeroka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando a barra está cheia, todas as abas encolhem por igual até esta largura, e a aba selecionada mantém pelo menos esta largura."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда панель заполнена, все вкладки равномерно сужаются до этой ширины, а выбранная вкладка остаётся не уже неё."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อแถบเต็ม แท็บทั้งหมดจะหดลงเท่ากันจนถึงความกว้างนี้ และแท็บที่เลือกจะกว้างอย่างน้อยเท่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şerit dolduğunda tüm sekmeler bu genişliğe kadar eşit olarak daralır ve seçili sekme en az bu genişlikte kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли панель заповнена, усі вкладки рівномірно звужуються до цієї ширини, а вибрана вкладка лишається не вужчою за неї."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi thanh đầy, mọi tab thu hẹp đều đến độ rộng này, và tab đang chọn luôn rộng ít nhất bằng chừng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏拥挤时，所有标签页均匀缩小到此宽度，所选标签页至少保持此宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列擁擠時，所有分頁平均縮小到此寬度，所選分頁至少保持此寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinInactiveWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimum Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの最小幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحد الأدنى لعرض علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna širina kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimal fanebredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale Tabbreite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho mínimo de pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur minimale des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza minima scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងផ្ទាំងអប្បបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최소 탭 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minste fanebredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna szerokość karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura mínima da aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Минимальная ширина вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างแท็บต่ำสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En küçük sekme genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінімальна ширина вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tab tối thiểu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页最小宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁最小寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinInactiveWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーがスクロールする前に、ほかのタブが縮む最小の幅です。選択中タブの最小幅より広くはなりません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أضيق عرض تصل إليه علامات التبويب الأخرى قبل أن يتمرر الشريط. لا يزيد أبدًا عن الحد الأدنى لعلامة التبويب المحددة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najmanja širina ostalih kartica prije nego što se traka počne pomicati. Nikad šira od minimuma odabrane kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den mindste bredde de andre faner får, før bjælken ruller. Aldrig bredere end den valgte fanes minimum."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "So schmal werden die anderen Tabs, bevor die Leiste scrollt. Nie breiter als das Minimum des ausgewählten Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El ancho mínimo de las demás pestañas antes de que la barra se desplace. Nunca mayor que el mínimo de la pestaña seleccionada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur minimale des autres onglets avant que la barre ne défile. Jamais plus large que le minimum de l’onglet sélectionné."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La larghezza minima delle altre schede prima che la barra scorra. Mai più larga del minimo della scheda selezionata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងតូចបំផុតរបស់ផ្ទាំងផ្សេងទៀត មុនពេលរបាររមូរ។ មិនដែលធំជាងអប្បបរមានៃផ្ទាំងដែលបានជ្រើសទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 바가 스크롤되기 전에 다른 탭이 줄어드는 최소 너비입니다. 선택한 탭의 최소 너비보다 넓어지지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den minste bredden de andre fanene får før linjen ruller. Aldri bredere enn minstebredden til den valgte fanen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najmniejsza szerokość pozostałych kart, zanim pasek zacznie się przewijać. Nigdy większa niż minimum wybranej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A largura mínima das outras abas antes de a barra rolar. Nunca maior que o mínimo da aba selecionada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наименьшая ширина остальных вкладок, прежде чем панель начнёт прокручиваться. Не больше минимума выбранной вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างต่ำสุดของแท็บอื่นก่อนที่แถบจะเลื่อน ไม่เกินความกว้างต่ำสุดของแท็บที่เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şerit kaymaya başlamadan önce diğer sekmelerin alabileceği en küçük genişlik. Seçili sekmenin en küçük genişliğinden fazla olmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найменша ширина інших вкладок, перш ніж панель почне прокручуватися. Не більша за мінімум вибраної вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng nhỏ nhất của các tab khác trước khi thanh cuộn. Không bao giờ lớn hơn mức tối thiểu của tab đang chọn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏开始滚动前其他标签页的最小宽度。不会超过所选标签页的最小宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列開始捲動前其他分頁的最小寬度。不會超過所選分頁的最小寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabPinnedWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定タブの幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض علامة التبويب المثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Širina zakačene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredde af fastgjort fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Breite angehefteter Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho de pestaña fijada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur des onglets épinglés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza scheda fissata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងផ្ទាំងដែលបានខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "고정된 탭 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredde på festet fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szerokość przypiętej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura da aba fixada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закреплённой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş sekme genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закріпленої вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tab đã ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "固定标签页宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "釘選分頁寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabPinnedWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Width of a pinned tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定したタブの幅です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض علامة التبويب المثبتة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Širina zakačene kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredden af en fastgjort fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Breite eines angehefteten Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El ancho de una pestaña fijada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur d’un onglet épinglé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La larghezza di una scheda fissata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងរបស់ផ្ទាំងដែលបានខ្ទាស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "고정된 탭의 너비입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredden på en festet fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szerokość przypiętej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A largura de uma aba fixada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закреплённой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างของแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş bir sekmenin genişliği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закріпленої вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng của một tab đã ghim."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "固定标签页的宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "釘選分頁的寬度。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
