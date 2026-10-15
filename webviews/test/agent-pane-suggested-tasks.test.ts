@@ -93,7 +93,15 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         : k === "transcript"
           ? rec.dir === "in" ||
             (rec.dir === "mux" &&
-              ["user_message", "session_offer", "session_offer_decision", "turn_end", "turn_result"].includes(rec.kind))
+              [
+                "user_message",
+                "queued",
+                "dequeued",
+                "session_offer",
+                "session_offer_decision",
+                "turn_end",
+                "turn_result",
+              ].includes(rec.kind))
           : k === rec.kind,
     );
 
@@ -181,8 +189,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Setup = { offered: Record<string, unknown>[]; experiment?: "on" | "off"; extra?: () => Record_[] };
-  async function openChat({ offered, experiment = "on", extra }: Setup): Promise<Page> {
+  type Setup = {
+    offered: Record<string, unknown>[];
+    experiment?: "on" | "off";
+    extra?: () => Record_[];
+    width?: number;
+  };
+  async function openChat({ offered, experiment = "on", extra, width = 900 }: Setup): Promise<Page> {
     calls = [];
     seq = 0;
     children = 0;
@@ -195,7 +208,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       ...offered.map((offer) => record("session_offer", offer)),
       ...(extra?.() ?? []),
     ];
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const page = await browser!.newPage({ viewport: { width, height: 760 } });
     await page.addInitScript(
       (arm) => localStorage.setItem("cmux.experiments", JSON.stringify({ "session-offer": arm })),
       experiment,
@@ -302,8 +315,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
 
     test("a started chat's row shows its latest tool call, and the hidden attach ends with its turn", async () => {
       const accepted = { ...single, offerId: "offer-live" };
-      // The chat was started before this page opened, and is still running.
+      // The chat was started before this page opened, and is still running. A narrow pane.
       const page = await openChat({
+        width: 360,
         offered: [accepted],
         extra: () => {
           sessions = [summary(), summary(RUNNING_CHILD, "running")];
@@ -338,6 +352,19 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(attach?.params.visible).toBe(false);
       expect(attach?.params.kinds).toContain("tool_call");
       expect(calls.some((c) => c.method === "_acpmux/detach" && c.params.sessionId === RUNNING_CHILD)).toBe(false);
+      // One line inside the pane: the title and subtitle give way, the state dot and chevron stay.
+      expect(await row.locator(".acpmux-task-dot").isVisible()).toBe(true);
+      const fits = await row.evaluate((node) => {
+        const line = node.querySelector<HTMLElement>(".acpmux-task-row")!;
+        const chevron = line.lastElementChild!.getBoundingClientRect();
+        return {
+          overflow: line.scrollWidth - line.clientWidth,
+          chevronInside: chevron.right <= line.getBoundingClientRect().right + 0.5 && chevron.width > 0,
+          inPane: node.getBoundingClientRect().right <= document.documentElement.clientWidth + 0.5,
+          height: line.getBoundingClientRect().height,
+        };
+      });
+      expect(fits).toEqual({ overflow: 0, chevronInside: true, inPane: true, height: 28 });
 
       // The chat's turn ends: its attach ends, and the row says it is done.
       socket!.send(
@@ -393,6 +420,45 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "Result from the suggested task" }).count()).toBe(
         0,
       );
+      await page.close();
+    });
+
+    test("a result queued behind a busy turn draws its received line once, before and after it lands", async () => {
+      const accepted = { ...single, offerId: "offer-queued" };
+      const text = `Result from the suggested task "${accepted.title}" (chat child-8):\nAdded width and height.`;
+      const provenance = {
+        kind: "offer_result",
+        offerId: accepted.offerId,
+        childSessionId: "child-8",
+        title: accepted.title,
+      };
+      const promptId = `offer-result-${accepted.offerId}`;
+      const page = await openChat({
+        offered: [accepted],
+        extra: () => [
+          record("session_offer_decision", {
+            offerId: accepted.offerId,
+            outcome: "accepted",
+            childSessionId: "child-8",
+          }),
+          // This chat's turn still runs: the result waits in its queue.
+          record("queued", { promptId, text, client: "acpmux", _meta: { provenance } }),
+        ],
+      });
+      const line = page.locator(".acpmux-task-received");
+      await line.waitFor({ timeout: 10_000 });
+      expect(await line.count()).toBe(1);
+      expect(await line.innerText()).toContain(accepted.title);
+      // Not a queued prompt: the result's text shows nowhere on the page.
+      expect(await page.locator("body").innerText()).not.toContain("Result from the suggested task");
+
+      // The turn ends and the result lands as this chat's prompt: still one line.
+      emit(socket!, record("turn_result", { status: "completed", stopReason: "end_turn" }));
+      emit(socket!, record("dequeued", { promptId }));
+      emit(socket!, record("user_message", { text, client: "acpmux", promptId, _meta: { provenance } }));
+      await page.waitForTimeout(500);
+      expect(await line.count()).toBe(1);
+      expect(await page.locator("body").innerText()).not.toContain("Result from the suggested task");
       await page.close();
     });
   });
