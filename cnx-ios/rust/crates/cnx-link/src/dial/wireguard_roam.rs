@@ -67,6 +67,10 @@ pub(super) enum Control {
     Blackhole,
 }
 
+/// Relayed addresses one announcement carries (a phone has one TURN
+/// allocation), so the message stays within one tunnel datagram.
+const MAX_RELAYED: usize = 2;
+
 /// This side's endpoints to announce, and which of them are its TURN
 /// relayed addresses.
 type Announcement = (Vec<String>, Vec<String>);
@@ -410,7 +414,7 @@ async fn run_control(
                 let Some((mut endpoints, relayed)) = endpoints else { return };
                 endpoints.truncate(MAX_ENDPOINTS);
                 generation += 1;
-                let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).collect();
+                let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
                 let message = RoamMessage::Endpoints { generation, endpoints, relayed };
                 send_message(&socket, peer, &message).await;
                 pending = Some(message);
@@ -448,7 +452,7 @@ async fn run_control(
                         if moved {
                             peer_first = endpoints.first().cloned();
                         }
-                        let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).collect();
+                        let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
                         if control.send(Control::PeerEndpoints { endpoints, relayed }).is_err() {
                             return;
                         }
@@ -548,7 +552,7 @@ mod tests {
         let many = RoamMessage::Endpoints {
             generation: u64::MAX,
             endpoints: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_ENDPOINTS],
-            relayed: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into()],
+            relayed: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
         };
         // Fits one datagram of the 1280-byte tunnel.
         assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);

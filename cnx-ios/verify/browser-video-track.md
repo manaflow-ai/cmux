@@ -573,12 +573,13 @@ Where the 30 ms is not:
   read a TWCC feedback delay of 8 to 12 ms. That delay is a full round trip
   from the sender core's stamp to the phone's TWCC interceptor and back. The
   phone's overlay read 10 ms from capture to decode, while glass to glass
-  read 44 ms. Both carriers share everything after the TWCC interceptor (the
-  receiver core, cnx-ffi, the decoder, `DisplayImmediately`).
+  read 44 ms. The WebRTC track and WireGuard RTP share everything after the
+  TWCC interceptor (the receiver core, cnx-ffi, the decoder,
+  `DisplayImmediately`), and the channel shares the decoder on.
 - **Not the suspects named in the task.**
   - The sender has no pacer: a frame's packets go back to back.
-  - cmux-wg's media class is unpaced and only drops packets older than
-    50 ms.
+  - cmux-wg's media class is unpaced (after interactive traffic) and only
+    drops packets older than 50 ms.
   - The frame buffer releases a frame when its marker packet arrives. It
     adds no playout delay and never waits for the next frame's packet.
   - NACK acts only on a gap.
@@ -587,6 +588,9 @@ Where the 30 ms is not:
   start within seconds of the first measurement on a loaded laptop. The
   host's first-second encode p95 was 36.7 ms; after that it was 4 to 9 ms.
   The bench now streams 30 s unmeasured first (`--warmup`, the default).
+  **Open follow-up:** a person's first stream after the host starts pays
+  this too. Measure the time to a warm stream after host start without the
+  warm-up before calling it a rig artifact.
 
 The 1 to 5 s glass-to-glass maxima, one per configuration, were OCR
 misreads of one seconds digit. In `warm-e/wg-track-relay` frame 249 the
@@ -619,7 +623,13 @@ local), on the same rig as 175127:
 - each configuration's frames analysed (every second frame OCR'd), with
   misreads dropped.
 
-The `-2` rows repeat a configuration at the end of the session.
+The `-2` rows repeat a configuration at the end of the session. The rig ran
+the older wgmedia hostd, which logs the path only at link up (`Relay` for
+every WireGuard link, before the phone confirms UDP). So "direct" below
+is the configuration, backed by a feedback delay of about 10 ms against
+41 to 49 ms on the WSS relay. It is not a logged path. Rerun on this
+branch's hostd to quote its `link path changed` lines. One run per cell;
+run-to-run noise is about ±5 ms.
 
 | Configuration | Path | Glass to glass p50 / p90 / max (ms) | fps | Frame interval p95 / max (ms) | Stalls > 100 ms | Jitter (ms) | Page tap to phone frame p50 / p90 (ms) |
 | --- | --- | --- | --- | --- | --- | --- | --- |

@@ -243,7 +243,7 @@ class Bench:
             time.sleep(1.2)
         time.sleep(1.5)
         sim.record_stop()
-        shot = sim.shot(f"{name}-end")
+        shot = sim.shot(f"{os.path.basename(cfg_dir)}-end")
         result = {"config": os.path.basename(cfg_dir), "transport": "wireguard" if wg else "webrtc", "no_turn": wss,
                   "carrier_expected": carrier, "relay_only": relay, "drop_permille": drop,
                   "hostd_env": env, "overlay_at_start": shown[:300], "link_status": status,
