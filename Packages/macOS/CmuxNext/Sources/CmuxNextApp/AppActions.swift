@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextStash
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
@@ -86,6 +87,7 @@ enum AppActions {
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        StashActions.bind(into: registry, stash: services.historyPage.stash, host: services.historyPage.stashHost)
         IconMenuVisibility.install(registry, context: context)
         TopPages.installTabTargetReasons(services)
         HomeRules.install(services)

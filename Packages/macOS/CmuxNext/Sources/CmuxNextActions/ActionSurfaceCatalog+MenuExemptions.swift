@@ -62,6 +62,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show",
             "music.open", "music.stop",
+            "stash.show", "stash.importOneTab",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
             "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
         ],

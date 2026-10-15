@@ -1,6 +1,5 @@
 import CmuxNextDaemon
-import CmuxNextHistory
-import Foundation
+package import Foundation
 
 /// The daemon's location trail (cx-hnmbt.12): the app reports each step and reads the rows back.
 extension DaemonHistoryClient {
@@ -8,7 +7,7 @@ extension DaemonHistoryClient {
     /// the app's step rules (`steps`, quick passes, `jump`) on its own trail, at the app's `time`.
     /// Answers the daemon's reply: the entry the step landed in and whether its trail changed.
     @discardableResult
-    func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
+    package func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
                      jump: Bool) async throws -> (id: String?, recorded: Bool?) {
         let place = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(HistoryTrailLocation(location)))
         var params: [String: JSONValue] = [
@@ -25,7 +24,7 @@ extension DaemonHistoryClient {
     /// The daemon's trail, oldest first (at most its 200 entries): every step of its trail document,
     /// also the ones History does not list (``HistoryTrailDocument``). Before the daemon's first write
     /// there is no document; the rows then show the app's older trail, adopted.
-    func trail() async throws -> [(location: HistoryLocation, time: Date)] {
+    package func trail() async throws -> [(location: HistoryLocation, time: Date)] {
         let stored = try await connection.frontendProjection(subject: HistoryTrailDocument.subject)
         if stored.projection != .null, stored.schemaVersion == HistoryTrailDocument.schemaVersion,
            let document = try? await Self.decode(HistoryTrailDocument.self, from: stored.projection) {
