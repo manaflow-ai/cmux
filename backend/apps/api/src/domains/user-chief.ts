@@ -31,6 +31,8 @@ export interface ChiefRecord {
   readonly created_at: string
   readonly updated_at: string
   readonly archived_at: string | null
+  /** The chief that created this one with its chiefs grant (brain-chiefs.ts); absent when the user did. */
+  readonly created_by?: string
 }
 export interface ChiefTombstone {
   readonly id: string
@@ -189,7 +191,8 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
         rev: 1,
         created_at: now,
         updated_at: now,
-        archived_at: null
+        archived_at: null,
+        ...(viaChief ? { created_by: p.agent } : {})
       }
       const next = { ...(isDefault ? clearDefault({ ...chiefs }, id) : chiefs), [id]: record }
       const bind: OutboxItem = { kind: "mux.bind", entity: `bind:${id}`, payload: { agent: id, owner_user: owner, brain: "cloud" }, target: { class: "MuxDO", name: id } }

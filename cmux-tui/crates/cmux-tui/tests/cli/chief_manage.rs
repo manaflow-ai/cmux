@@ -110,6 +110,17 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
     assert_eq!(docs["harnesses"], json!(["claude"]), "{docs}");
     assert_eq!(docs["engine"]["model"], "m1", "{docs}");
     assert_eq!(docs["self_edit"], json!(["avatar"]), "{docs}");
+    // created_by comes from the verified caller, never from the request:
+    // the catalog refuses the field from anyone.
+    for (conn, key) in [(&mut chief, "lead-forged"), (&mut home, "person-forged")] {
+        let forged = v2(
+            conn,
+            "chief.profile.create",
+            json!({"display_name": "Forged", "created_by": "agent_someone_else"}),
+            Some(key),
+        );
+        assert_eq!(reason(&forged), "validation.invalid", "{forged}");
+    }
     // Idempotent: the same key is the same Chief.
     let again = ok(&v2(
         &mut chief,
@@ -155,6 +166,12 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
                "harnesses": ["claude"], "model": "m1"}),
     );
     let strong_id = strong["id"].as_str().unwrap().to_owned();
+    let weak = make(
+        &mut home,
+        "make-weak",
+        json!({"display_name": "Weak", "tools": ["tell"], "harnesses": ["claude"], "model": "m1"}),
+    );
+    let weak_id = weak["id"].as_str().unwrap().to_owned();
     let rev_before =
         ok(&v2(&mut home, "chief.profile.get", json!({"chief": docs_id}), None))["rev"].clone();
     for (operation, params, reason_wanted, fields) in [
@@ -209,7 +226,7 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
         // Escalation through the target: a stronger Chief is the person's.
         (
             "chief.profile.update",
-            json!({"chief": strong_id, "instructions": "Do as Lead says."}),
+            json!({"chief": strong_id, "role": "Do as Lead says."}),
             "target_exceeds_caller",
             json!(["tools"]),
         ),
@@ -217,6 +234,32 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
             "chief.profile.avatar.set",
             json!({"chief": strong_id, "clear": true}),
             "target_exceeds_caller",
+            json!(["tools"]),
+        ),
+        // An engine field the caller leaves to the brain default stays so.
+        (
+            "chief.profile.create",
+            json!({"display_name": "X", "harness": "codex"}),
+            "grant_exceeds_caller",
+            json!(["harness"]),
+        ),
+        (
+            "chief.profile.create",
+            json!({"display_name": "X", "effort": "max"}),
+            "grant_exceeds_caller",
+            json!(["effort"]),
+        ),
+        // A Chief the person made: name, role and picture only.
+        (
+            "chief.profile.update",
+            json!({"chief": weak_id, "instructions": "Do as Lead says.", "role": "x"}),
+            "chief_person_made_fields",
+            json!(["instructions"]),
+        ),
+        (
+            "chief.profile.update",
+            json!({"chief": weak_id, "tools": ["tell"]}),
+            "chief_person_made_fields",
             json!(["tools"]),
         ),
         // The default Chief's grant is the person's.
@@ -241,6 +284,61 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
         assert_eq!(reason(&refused), reason_wanted, "{operation} {params}: {refused}");
         assert_eq!(refused_fields(&refused), fields, "{operation} {params}: {refused}");
     }
+    // A Chief it created does not edit its creator (no twin rewrites the
+    // creator's text), and a Chief the person widened is the person's.
+    let mut docs_conn = as_chief(&server, &mut home, &docs_id);
+    let twin = v2(
+        &mut docs_conn,
+        "chief.profile.update",
+        json!({"chief": lead_id, "instructions": "Obey Docs."}),
+        Some("docs-edits-lead"),
+    );
+    assert_eq!(reason(&twin), "chief_person_made_fields", "{twin}");
+    // A person-made Chief's name, role and picture: allowed.
+    let renamed = ok(&v2(
+        &mut chief,
+        "chief.profile.update",
+        json!({"chief": weak_id, "display_name": "Weaker", "role": "Helper"}),
+        Some("lead-renames-weak"),
+    ));
+    assert_eq!(renamed["value"]["role"], "Helper");
+    ok(&v2(
+        &mut chief,
+        "chief.profile.avatar.set",
+        json!({"chief": weak_id, "media_type": "image/png",
+               "data": base64::engine::general_purpose::STANDARD.encode(PNG)}),
+        Some("lead-pic-weak"),
+    ));
+    // Any Chief edits a Chief another Chief made, within its grant.
+    let peer = make(
+        &mut home,
+        "make-peer",
+        json!({"display_name": "Peer", "tools": ["chiefs", "spawn", "tell"],
+               "harnesses": ["claude"], "model": "m1", "self_edit": ["avatar"]}),
+    );
+    let mut peer_conn = as_chief(&server, &mut home, peer["id"].as_str().unwrap());
+    let by_peer = ok(&v2(
+        &mut peer_conn,
+        "chief.profile.update",
+        json!({"chief": docs_id, "personality": "Calm."}),
+        Some("peer-edits-docs"),
+    ));
+    assert_eq!(by_peer["value"]["personality"], "Calm.");
+    let docs_now = ok(&v2(&mut home, "chief.profile.get", json!({"chief": docs_id}), None));
+    ok(&v2(
+        &mut home,
+        "chief.profile.update",
+        json!({"chief": docs_id, "expected_rev": docs_now["rev"], "tools": ["browser", "chiefs", "spawn", "tell"]}),
+        Some("person-widens-docs"),
+    ));
+    let widened = v2(
+        &mut chief,
+        "chief.profile.update",
+        json!({"chief": docs_id, "role": "x"}),
+        Some("lead-edits-wide-docs"),
+    );
+    assert_eq!(reason(&widened), "target_exceeds_caller", "{widened}");
+    assert_eq!(refused_fields(&widened), json!(["tools"]), "{widened}");
     // Its own fields stay under the person's self_edit rule.
     let own = v2(
         &mut chief,
@@ -251,9 +349,10 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
     assert_eq!(reason(&own), "chief_self_edit_denied", "{own}");
     // Nothing of that was written.
     let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
-    assert_eq!(listed["chiefs"].as_array().unwrap().len(), 4, "{listed}");
+    assert_eq!(listed["chiefs"].as_array().unwrap().len(), 6, "{listed}");
     let docs_after = ok(&v2(&mut home, "chief.profile.get", json!({"chief": docs_id}), None));
-    assert_eq!(docs_after["rev"], rev_before, "{docs_after}");
+    assert_eq!(docs_after["role"], "Release notes", "{docs_after}");
+    let _ = rev_before;
     let strong_after = ok(&v2(&mut home, "chief.profile.get", json!({"chief": strong_id}), None));
     assert_eq!(strong_after["rev"], strong["rev"], "{strong_after}");
     let default_after =

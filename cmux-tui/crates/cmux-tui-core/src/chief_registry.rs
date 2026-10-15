@@ -173,6 +173,11 @@ pub(crate) struct ChiefRecord {
     pub rev: u64,
     pub created_at: String,
     pub updated_at: String,
+    /// The Chief that created this one with its `chiefs` grant (absent: the
+    /// person made it); set by the daemon from the verified caller, never
+    /// from a request, and not on the wire ([`wire`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
 }
 
 /// A person's avatar write (`participant.avatar.set`), as committed.
@@ -290,6 +295,7 @@ impl ChiefStore {
                 rev: 1,
                 created_at: now.clone(),
                 updated_at: now,
+                created_by: None,
             };
             transaction.execute(
                 "INSERT INTO chief (id, seq, record) VALUES (?1, 0, ?2)",
@@ -593,6 +599,7 @@ fn insert_new(
         rev: 1,
         created_at: now.clone(),
         updated_at: now,
+        created_by: None,
     };
     apply(&mut record, fields);
     tx.execute(
@@ -600,6 +607,25 @@ fn insert_new(
         params![id, seq, serde_json::to_string(&record)?],
     )?;
     Ok(record)
+}
+
+/// `chief.profile.create` by the Chief `creator` (its `chiefs` grant):
+/// [`create`], with the record naming its creator.
+pub(crate) fn create_by_chief(
+    tx: &rusqlite::Transaction<'_>,
+    fields: &Map<String, Value>,
+    creator: &str,
+) -> anyhow::Result<Outcome<ChiefRecord>> {
+    let mut record = match create(tx, fields)? {
+        Ok(record) => record,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    record.created_by = Some(creator.to_owned());
+    tx.execute(
+        "UPDATE chief SET record = ?2 WHERE id = ?1",
+        params![record.id, serde_json::to_string(&record)?],
+    )?;
+    Ok(Ok(record))
 }
 
 /// The record `record` would be after `fields` (already checked): what a
@@ -887,8 +913,14 @@ fn collect_avatars(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
 }
 
 /// The record as the wire shows it.
+/// `created_by` stays inside the daemon: the catalog's record has no such
+/// field, and the rule it serves is the daemon's (server/chief_manage.rs).
 pub(crate) fn wire(record: &ChiefRecord) -> Value {
-    serde_json::to_value(record).unwrap_or_else(|_| json!({}))
+    let mut value = serde_json::to_value(record).unwrap_or_else(|_| json!({}));
+    if let Some(fields) = value.as_object_mut() {
+        fields.remove("created_by");
+    }
+    value
 }
 
 fn fingerprint(request: &Value) -> anyhow::Result<String> {

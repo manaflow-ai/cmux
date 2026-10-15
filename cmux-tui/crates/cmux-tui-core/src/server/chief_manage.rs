@@ -11,9 +11,12 @@
 //! - a new or edited record's grant is within the caller's: `tools` and
 //!   `self_edit` are subsets; `harnesses` is any when the caller's is empty
 //!   (every harness), else a non-empty subset; each engine field (harness,
-//!   model, effort) the caller has set must be the same;
-//! - an edit needs the target's CURRENT grant within the caller's too, so a
-//!   Chief cannot reach a stronger Chief through its profile text;
+//!   model, effort) equals the caller's (unset only when the caller's is);
+//! - a Chief another Chief made (`created_by`) may be edited fully; a Chief
+//!   the person made (no `created_by`, every older record) only in its
+//!   name, role and picture (lead decision 2026-10-14); an edit needs the
+//!   target's CURRENT grant within the caller's too;
+//! - a Chief never edits itself here (the self_edit path takes `chief == me`);
 //! - the default Chief's grant is never a Chief's to change;
 //! - no Chief deletes a Chief;
 //! - a create fills the grant fields it omits from the caller (the default
@@ -34,6 +37,9 @@ use ResourceOperation as Op;
 
 /// The tool name in a record's `tools` that carries the right.
 const GRANT: &str = "chiefs";
+
+/// What a Chief may change on a Chief the person made (and the picture).
+const PERSON_MADE_FIELDS: [&str; 2] = ["display_name", "role"];
 
 /// Checks a write the Chief `me` makes on another Chief (or a create), and
 /// for a create fills the omitted grant fields of `profile` from the caller.
@@ -77,6 +83,7 @@ pub(super) fn check(
             rev: 0,
             created_at: String::new(),
             updated_at: String::new(),
+            created_by: None,
         };
         let wanted = chief_registry::preview(&draft, profile);
         return within(operation, "grant_exceeds_caller", &caller, &wanted);
@@ -90,6 +97,26 @@ pub(super) fn check(
                 operation,
                 "chief_default_grant",
                 "the default Chief's grant is the person's",
+                &named,
+            ));
+        }
+    }
+    // A Chief the person made (no `created_by`, every record from before):
+    // only its name, role and picture. Its instructions, personality, grant
+    // and engine stay the person's, so no Chief plants instructions in a
+    // Chief that may read conversations the caller cannot, and no twin
+    // rewrites a person-made creator's text past its self_edit.
+    if target.created_by.is_none() {
+        let named: Vec<&str> = profile
+            .keys()
+            .map(String::as_str)
+            .filter(|f| !PERSON_MADE_FIELDS.contains(f))
+            .collect();
+        if !named.is_empty() {
+            return Err(deny(
+                operation,
+                "chief_person_made_fields",
+                "a Chief changes only the name, role and picture of a Chief the person made",
                 &named,
             ));
         }
@@ -151,14 +178,24 @@ fn within(
     {
         over.push("harnesses");
     }
+    // Each engine field equals the caller's (unset = the brain default, so
+    // an unset caller field allows only unset), and the engine harness is one
+    // of the caller's harnesses when it has a list.
     for (field, mine, theirs) in [
         ("harness", &caller.engine.harness, &record.engine.harness),
         ("model", &caller.engine.model, &record.engine.model),
         ("effort", &caller.engine.effort, &record.engine.effort),
     ] {
-        if mine.is_some() && mine != theirs {
+        if mine != theirs {
             over.push(field);
         }
+    }
+    if let Some(harness) = &record.engine.harness
+        && !caller.harnesses.is_empty()
+        && !caller.harnesses.contains(harness)
+        && !over.contains(&"harness")
+    {
+        over.push("harness");
     }
     if !subset(&caller.self_edit, &record.self_edit) {
         over.push("self_edit");

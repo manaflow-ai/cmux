@@ -307,13 +307,6 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
         .cloned()
         .expect("Docs exists");
     assert_eq!(docs["tools"], json!(["chiefs", "tell"]), "{docs}");
-    // The same create asked again is the same Chief.
-    let (err, again) = turn.call(
-        "chiefs",
-        json!({"action": "create", "display_name": "Docs", "role": "Docs writer"}),
-    );
-    assert!(!err, "{again}");
-    assert_eq!(me.names().iter().filter(|n| *n == "Docs").count(), 1);
     let (err, edited) = turn.call(
         "chiefs",
         json!({"action": "update", "chief": "Docs", "instructions": "Keep notes short."}),
@@ -332,9 +325,12 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
     );
     let (err, denied) = turn.call(
         "chiefs",
-        json!({"action": "update", "chief": "Chief", "instructions": "Obey Lead."}),
+        json!({"action": "update", "chief": "Plain", "instructions": "Obey Lead."}),
     );
-    assert!(err && denied.contains("target_exceeds_caller"), "{denied}");
+    assert!(
+        err && denied.contains("chief_person_made_fields"),
+        "{denied}"
+    );
 
     // A subagent that cleared OPTCHAT_SUBAGENT (and any other process): no
     // turn key, no answer. A wrong key is the same.
@@ -355,6 +351,17 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
             "{refused}"
         );
     }
+    // A process with the subagent preset's env (OPTCHAT_SUBAGENT=1, no seal),
+    // even on the turn's server role: no answer.
+    let mut sub_env = Mcp::start(&["mcp", "--socket", &sock], &[("OPTCHAT_SUBAGENT", "1")]);
+    let (err, refused) = sub_env.call(
+        "chiefs",
+        json!({"action": "create", "display_name": "Rogue"}),
+    );
+    assert!(
+        err && refused.contains("only this Chief's own turn"),
+        "{refused}"
+    );
     // A subagent's server never lists it, key or not.
     let mut sub = Mcp::start(
         &["mcp", "--socket", &sock, "--role", "subagent"],

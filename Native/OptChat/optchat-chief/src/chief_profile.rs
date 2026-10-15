@@ -41,7 +41,9 @@ const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/c
 /// The env key of this host's turn key: the host puts it in its own turn
 /// sessions' presets only (never a subagent's, never the launcher file), and
 /// the tools socket answers `chiefs` only to a caller that sends it.
-pub const TURN_KEY_ENV: &str = "OPTCHAT_TURN_KEY";
+// Not named *KEY*/*TOKEN*/*SECRET*: codex's default shell environment
+// policy drops such names, and its `chief chiefs` call would lose it.
+pub const TURN_KEY_ENV: &str = "OPTCHAT_TURN_SEAL";
 
 /// The `chiefs` tool (name, description, input schema) for the MCP list.
 pub fn chiefs_tool() -> Value {
@@ -830,25 +832,8 @@ impl ProfileClient {
                     if !fields.contains_key("display_name") {
                         return Err("chiefs: create needs display_name".to_owned());
                     }
-                    // The same create asked again is the same Chief (the
-                    // daemon's ledger replays it under the same key).
-                    let digest = {
-                        use sha2::Digest;
-                        let body =
-                            serde_json::to_vec(&Value::Object(fields.clone())).unwrap_or_default();
-                        sha2::Sha256::digest(body)
-                            .iter()
-                            .take(16)
-                            .map(|b| format!("{b:02x}"))
-                            .collect::<String>()
-                    };
                     let made = self
-                        .v2_raw(
-                            "chief.profile.create",
-                            fields.clone(),
-                            true,
-                            Some(format!("chiefs-create-{digest}")),
-                        )
+                        .v2_raw("chief.profile.create", fields.clone(), true, None)
                         .map_err(manage_denied)?;
                     let record = made.get("value").cloned().unwrap_or(made);
                     let id = record

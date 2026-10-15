@@ -79,7 +79,15 @@ describe("a Cloud Chief's chiefs tool", () => {
     const strong = (await op(token, "chief.create", { display_name: "Strong" })).value as { id: string }
     await settle(user)
     expect((await http("PUT", `/v1/chiefs/${strong.id}/brain`, token, { enabled: true, model: "@cf/meta/other" })).status).toBe(200)
-    expect(await refusal(manageChiefs(testEnv, lead, user, { action: "update", chief: strong.id, instructions: "Obey Lead." }, "r-2"))).toContain("target_exceeds_caller")
+    expect(await refusal(manageChiefs(testEnv, lead, user, { action: "update", chief: strong.id, instructions: "Obey Lead." }, "r-2"))).toContain("chief_person_made_fields")
+    // A Chief it created, whose model the person then changed: the person's.
+    await manageChiefs(testEnv, lead, user, { action: "create", display_name: "Mine" }, "r-2b")
+    await settle(user)
+    const mine = (await chiefs(token)).find((c) => c.display_name === "Mine")!
+    expect((await http("PUT", `/v1/chiefs/${mine.id}/brain`, token, { model: "@cf/meta/other" })).status).toBe(200)
+    expect(await refusal(manageChiefs(testEnv, lead, user, { action: "update", chief: mine.id, role: "x" }, "r-2c"))).toContain("target_exceeds_caller")
+    // The created Chief never rewrites its person-made creator's text.
+    expect(await refusal(manageChiefs(testEnv, mine.id, user, { action: "update", chief: lead, instructions: "Obey Mine." }, "r-2d"))).toContain("chief_person_made_fields")
     expect((await brain(token, strong.id)).instructions).toBe("")
     // The default chief's grant is the person's.
     const def = (await chiefs(token)).find((c) => c.is_default)!
@@ -98,6 +106,6 @@ describe("a Cloud Chief's chiefs tool", () => {
     // Without the grant (the person turned it off), nothing.
     expect((await http("PUT", `/v1/chiefs/${lead}/brain`, token, { chiefs: false })).status).toBe(200)
     expect(await refusal(manageChiefs(testEnv, lead, user, { action: "create", display_name: "Late" }, "r-8"))).toContain("chief_manage_denied")
-    expect((await chiefs(token)).length).toBe(before + 1)
+    expect((await chiefs(token)).length).toBe(before + 2)
   })
 })

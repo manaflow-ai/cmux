@@ -315,7 +315,10 @@ fn mutate(
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
-            Op::ChiefProfileCreate => chief_registry::create(tx, &profile),
+            Op::ChiefProfileCreate => match caller {
+                Caller::Chief(me) if manages => chief_registry::create_by_chief(tx, &profile, me),
+                _ => chief_registry::create(tx, &profile),
+            },
             Op::ChiefProfileAdopt => match adoptee {
                 Some(Adoptee { id, display_name: Some(name) }) => {
                     chief_registry::adopt(tx, id, name, &profile, || {

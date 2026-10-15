@@ -265,7 +265,7 @@ pub(in crate::cli) fn agent_app_action_refusal(action: &str) -> Option<Value> {
 /// The env key of a Chief host's turn key: its own turn sessions have it,
 /// subagents never (optchat-chief chief_profile.rs `TURN_KEY_ENV`).
 #[cfg(unix)]
-const TURN_KEY_ENV: &str = "OPTCHAT_TURN_KEY";
+const TURN_KEY_ENV: &str = "OPTCHAT_TURN_SEAL";
 
 /// `cmux chief new|edit` inside a Chief's own turn: the request goes to the
 /// turn's Chief host (`$MUX_HOME/optchat/tools.sock`, tool `chiefs`) with
@@ -376,6 +376,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         let output = if request.json { OutputMode::Json } else { global.output };
         // A Chief's own turn: its host decides, on its bound connection.
         if matches!(what, "new" | "edit")
+            && request.chief_home.is_none()
             && let Some(code) = relay_to_turn_host(&request, output)
         {
             return code;

@@ -2,6 +2,7 @@ import { Type } from "@earendil-works/pi-ai"
 import type { ToolRegistration } from "@earendil-works/pi-durable"
 import type { OwnerFrame } from "@cmux/ownership"
 import type { Env } from "../env.ts"
+import { signInRules } from "../policy-gate.ts"
 import type { BrainConfig } from "./brain-store.ts"
 
 /**
@@ -12,7 +13,8 @@ import type { BrainConfig } from "./brain-store.ts"
  * - The grant is the `chiefs` setting of the Chief's settings object (missing = on).
  * - create: a chief record in the owner's UserDO (`chiefManage`, a create with only display_name),
  *   then the new Chief's brain on with the caller's models and the given profile.
- * - update: another Chief's display_name (UserDO), role, personality, instructions (its settings).
+ * - update: another Chief's display_name (UserDO), role, personality, instructions (its settings); a
+ *   Chief the person made (no created_by): display_name and role only.
  * - Ceiling: a new or edited Chief runs the caller's model and compactor model; an edit needs the
  *   target's grant within the caller's (it runs the caller's model, or has no brain on yet); the
  *   default chief's grant (models, chiefs) is the person's; no archive by a Chief.
@@ -31,10 +33,11 @@ type ArgsT = { action: "list" | "get" | "create" | "update"; chief?: string; dis
 export const CHIEFS_DESCRIPTION =
   "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions) that runs on your own model and starts answering in its own conversation. update changes another Chief (chief plus display_name, role, personality or instructions). You cannot give a Chief more than you hold, edit a Chief that holds more than you, change the default Chief's grant, or delete a Chief (the person does)."
 
-interface Record0 { id: string; display_name: string; is_default: boolean; rev: number; archived_at: string | null }
+interface Record0 { id: string; display_name: string; is_default: boolean; rev: number; archived_at: string | null; created_by?: string }
 type Settings = { status(): Promise<{ config: BrainConfig }>; configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: true; config: BrainConfig } | { ok: false; code: string; message: string }> }
 type UserStub = {
   readOp(entity: string, p: unknown, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>
+  homeTeamsOf(entity: string): Promise<Array<{ team: string }>>
   chiefManage(entity: string, agent: string, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
 }
 
@@ -91,6 +94,10 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
   const profile = { role: args.role, personality: args.personality, instructions: args.instructions }
   if (args.action === "create") {
     if (!args.display_name) throw new Error("chiefs: create needs display_name")
+    // agents.allowedClasses (P17-4): the /v1/ops create checks the session's team; a Chief has none, so every team of the owner must allow chiefs.
+    for (const { team } of await user(env, owner).homeTeamsOf(owner)) {
+      if (!(await signInRules(env, team, owner)).allowed_classes.includes("mux")) throw new ChiefsRefused("policy.denied", "a team of this person does not allow chiefs (agents.allowedClasses)")
+    }
     const frame = { t: "op" as const, op: "chief.create", params: { display_name: args.display_name }, idempotency_key: `chiefs:${agent}:${key}`, origin: "script" as const }
     const made = committed((await user(env, owner).chiefManage(owner, agent, frame)).frames)
     await configured(env, made.id, owner, { enabled: true, model: me.model, compactor_model: me.compactor_model, chiefs: true, ...profile })
@@ -100,7 +107,10 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
   if (target.id === agent) throw new ChiefsRefused("chief_self_edit_denied", "change yourself through the person")
   const t = (await settings(env, target.id).status()).config
   if (target.is_default && args.model !== undefined) throw new ChiefsRefused("chief_default_grant", "the default Chief's grant is the person's [model]")
-  if (t.enabled && t.model !== me.model) throw new ChiefsRefused("target_exceeds_caller", "that Chief runs another model; only the person changes it [model]")
+  // A Chief the person made (no created_by): name and role only, never its instructions, personality or model.
+  const personOnly = ["personality", "instructions", "model"].filter((k) => args[k as keyof ArgsT] !== undefined)
+  if (target.created_by === undefined && personOnly.length > 0) throw new ChiefsRefused("chief_person_made_fields", `a Chief changes only the name and role of a Chief the person made [${personOnly.join(", ")}]`)
+  if (t.model !== me.model || t.compactor_model !== me.compactor_model || (t.chiefs && !me.chiefs)) throw new ChiefsRefused("target_exceeds_caller", "that Chief runs another model; only the person changes it [model]")
   let record = target
   if (args.display_name !== undefined && args.display_name !== target.display_name) {
     const frame = { t: "op" as const, op: "chief.update", params: { chief: target.id, expected_rev: target.rev, display_name: args.display_name }, idempotency_key: `chiefs:${agent}:${key}:name`, origin: "script" as const }
