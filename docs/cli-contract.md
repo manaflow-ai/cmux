@@ -107,7 +107,7 @@ English only). Results go to stdout and diagnostics to stderr.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | Operation failure (the request ran and failed, or `screen wait` timed out). |
+| 1 | Operation failure (the request ran and failed, or `screen wait` or `agents wait` timed out). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
 
@@ -354,7 +354,8 @@ modifiers `ctrl`, `alt` (or `option`), `shift`; keys `enter`, `tab`, `backtab`,
 Example: `cmux terminal current keys ctrl+c enter`.
 
 `screen wait` prints its result either way and exits 1 when the timeout passes
-without a match.
+without a match. `cmux agents wait` does the same: it prints its receipt
+(`matched: false`) and exits 1 when its timeout passes.
 
 ### browser (daemon-owned)
 

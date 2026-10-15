@@ -64,7 +64,8 @@ struct AgentTabContent {
         paneView.onLaunchImageCleared = { [weak view] in
             if let view, view.model.newTab == nil { view.showsLoadingState = true }
         }
-        view.model.whenPainted { [weak paneView] in paneView?.clearLaunchImage() }
+        // Once the page has faded in over it (`AgentPaneLoadingView.leave`).
+        view.loadingView.whenRevealed { [weak paneView] in paneView?.clearLaunchImage() }
     }
 
     /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
