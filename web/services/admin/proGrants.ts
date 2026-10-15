@@ -389,7 +389,7 @@ export type RevokeFounderPurchaseAccessInput = {
 export type RevokeFounderPurchaseAccessResult = {
   /** Founder rows this call revoked; empty when none was active. */
   readonly revokedFounderPurchaseIds: readonly string[];
-  /** The reconciled account, or null when nothing was revoked. */
+  /** The reconciled account, or null when the user disappeared. */
   readonly user: AdminUserRow | null;
 };
 
@@ -428,12 +428,10 @@ export async function revokeFounderPurchaseAccess(
   } catch (error) {
     throw adminMutationError(error, input.targetUserId);
   }
-  if (revokedFounderPurchaseIds.length === 0) {
-    return { revokedFounderPurchaseIds, user: null };
-  }
-
   // Outside the lease: the resolver takes its own lease to drop `cmuxPlan`
-  // now that the Founder row no longer grants Pro.
+  // now that the Founder row no longer grants Pro. It also runs when nothing
+  // was revoked, so retrying a revoke that failed after its rows committed
+  // still clears the stale mirror.
   const billing = input.stripeBillingStatus ?? stripeBillingStatusForUser;
   const fresh = await app.getUser(input.targetUserId);
   if (!fresh) return { revokedFounderPurchaseIds, user: null };

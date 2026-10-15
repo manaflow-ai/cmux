@@ -54,6 +54,8 @@ describe("founder revocation (database)", () => {
     await seed(db, "sub_founder_revocation", "pro", { metadata: { founders_edition: "true" } });
     await seed(db, "founders_cs_revocation", "pro", {});
     await seed(db, "sub_max_revocation", "max", { metadata: { app: "cmux", plan: "max" } });
+    // Not a Founder row: "_" must not act as a LIKE wildcard in the prefix.
+    await seed(db, "foundersXcs_lookalike", "pro", { metadata: { app: "cmux", plan: "pro" } });
     const store = makeFounderPurchaseStore();
 
     expect((await store.activeFounderPurchaseIds(USER)).sort()).toEqual([
@@ -70,6 +72,7 @@ describe("founder revocation (database)", () => {
       select id, status, raw from stripe_subscriptions where stack_user_id = ${USER} order by id`;
     const byId = new Map(rows.map((row) => [row.id, row]));
     expect(byId.get("sub_max_revocation")?.status).toBe("active");
+    expect(byId.get("foundersXcs_lookalike")?.status).toBe("active");
     expect(byId.get("sub_max_revocation")?.raw).toEqual({ metadata: { app: "cmux", plan: "max" } });
     for (const id of revoked) {
       expect(byId.get(id)?.status).toBe(FOUNDER_REVOKED_STATUS);
@@ -80,7 +83,7 @@ describe("founder revocation (database)", () => {
     expect(await activePersonalPlanForUser(USER)).toBe("max");
     expect(await store.revokeActiveFounderPurchases(USER, REVOCATION)).toEqual([]);
 
-    await db`delete from stripe_subscriptions where id = 'sub_max_revocation'`;
+    await db`delete from stripe_subscriptions where id in ('sub_max_revocation', 'foundersXcs_lookalike')`;
     expect(await activePersonalPlanForUser(USER)).toBeNull();
   });
 

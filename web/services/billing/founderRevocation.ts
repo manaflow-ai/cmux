@@ -139,7 +139,7 @@ export function revokedFounderRaw(
 
 /** SQL predicate matching `isFounderSubscriptionRow`: synthetic id or the Founder marker. */
 function founderRowSql() {
-  return sql`(${stripeSubscriptions.id} like 'founders\_%' or coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') = 'true')`;
+  return sql`(left(${stripeSubscriptions.id}, 9) = 'founders_' or coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') = 'true')`;
 }
 
 // Every active Founder row for the user, selected in SQL and uncapped, so an

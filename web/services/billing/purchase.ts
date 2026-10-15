@@ -39,7 +39,11 @@ import {
   syncTeamPlanMetadata,
 } from "./pro";
 import { MAX_PRICING_USD } from "./plans";
-import { isAdminRevokedPurchase, notAdminRevokedSql } from "./founderRevocation";
+import {
+  isAdminRevokedPurchase,
+  isAdminRevokedSubscriptionRaw,
+  notAdminRevokedSql,
+} from "./founderRevocation";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import {
@@ -655,6 +659,8 @@ export async function recordFoundersCheckoutCompletion(
       throw new Error("Stripe Founder's Edition customer ownership conflict");
     }
   }
+  // Every id this purchase can be stored under, for the revocation checks.
+  const purchaseRowIds = founderPurchaseRowIds(input.session, subscription.id);
   const lockedResult = await withAccountDeletionUserLock(
     db,
     user.id,
@@ -681,7 +687,6 @@ export async function recordFoundersCheckoutCompletion(
       // An admin revoked this purchase. Webhook, success-callback, recovery,
       // and backfill replays all land here; none may re-activate the row,
       // move it, or re-grant Pro metadata.
-      const purchaseRowIds = founderPurchaseRowIds(input.session, subscription.id);
       const revokedResult = {
         result: {
           skipped: "admin_revoked" as const,
@@ -731,6 +736,9 @@ export async function recordFoundersCheckoutCompletion(
               eq(stripeSubscriptions.id, subscription.id),
               eq(stripeSubscriptions.scope, "user"),
               isNull(stripeSubscriptions.stackTeamId),
+              // A revoke that commits on the previous owner meanwhile keeps
+              // its row where it is.
+              notAdminRevokedSql(),
             ),
           );
         remappedSourceStackUserId = mappedCustomer.stackUserId;
@@ -795,6 +803,9 @@ export async function recordFoundersCheckoutCompletion(
       // Payment identifies a purchase, but it does not prove mailbox control.
       // Re-read after attaching or promoting the channel, then grant the
       // Founder entitlement only when Stack reports a verified ordinary owner.
+      // An admin revoke can land between the row write above and this
+      // lease; it must not be followed by a Pro grant or enrollment.
+      if (await isAdminRevokedPurchase(db, purchaseRowIds)) return;
       const entitlementUser = await stackApp.getUser(user.id);
       if (entitlementUser && isVerifiedCanonicalBillingOwner(entitlementUser, email)) {
         await syncProPlanMetadata(entitlementUser, true, mutationLease);
@@ -1558,8 +1569,10 @@ async function transferBillingOwnershipClaim(
       )
       .limit(100);
     const sourceSubscriptionIDs = sourceSubscriptions.map((row) => row.id);
+    // A revoked Founder row moves with the customer but is not a purchase
+    // to enroll for.
     const founderSubscriptionIds = sourceSubscriptions
-      .filter((row) => isFounderSubscriptionRaw(row.raw))
+      .filter((row) => isFounderSubscriptionRaw(row.raw) && !isAdminRevokedSubscriptionRaw(row.raw))
       .map((row) => row.id);
     const sourceSubscriptionIDSet = new Set(sourceSubscriptionIDs);
     if (
