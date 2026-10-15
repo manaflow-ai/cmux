@@ -164,6 +164,15 @@ typedef enum {
   // tab navigated or closed and the prompt can no longer be answered.
   // Answer once with cmux_shim_password_prompt_answer.
   CMUX_SHIM_PASSWORD_PROMPT = 43,
+  // A JavaScript dialog (CEFShim/src/shim_js_dialogs.mm): Chromium waits for
+  // cmux_shim_js_dialog_reply (during the event or later). request = the
+  // dialog's token, a = 0 alert, 1 confirm, 2 prompt, 3 beforeunload;
+  // b = 1 for a beforeunload on reload; s1 = the message; s2 = JSON
+  // {"origin", "default"} (the prompt's default text).
+  CMUX_SHIM_JS_DIALOG = 44,
+  // Chromium ended a waiting JS_DIALOG itself (the page navigated or
+  // closed); request = its token. Not sent after the host's answer.
+  CMUX_SHIM_JS_DIALOG_DISMISSED = 45,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -467,6 +476,10 @@ CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
 // it unanswered (no dismissal is recorded; Chromium ends it with the page).
 // Returns 0 when the prompt is not waiting.
 CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int prompt_token, int result);
+// Answers JS_DIALOG (dialog_token = its token): accept = 1 for OK / Leave,
+// 0 for Cancel / Stay; user_input is the prompt() text (NULL = ""). Returns
+// 0 when the dialog is not waiting.
+CMUX_SHIM_EXPORT int cmux_shim_js_dialog_reply(int dialog_token, int accept, const char* user_input);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);

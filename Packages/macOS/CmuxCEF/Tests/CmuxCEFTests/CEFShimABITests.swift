@@ -194,3 +194,31 @@ import Testing
         #expect(CEFRuntime.defaultPageBackgroundARGB >> 24 == 0xFF)
     }
 }
+
+@Suite struct CEFJSDialogEventTests {
+    @Test func decodesPromptWithOriginAndDefaultText() {
+        let event = CEFShimEvent(kind: 44, browser: 7, request: 12, a: 2, b: 0, s1: "Name?",
+                                 s2: #"{"origin":"https://a.test","default":"x \"y\""}"#)
+        #expect(event == .jsDialog(browser: 7, token: 12, kind: .prompt, message: "Name?", origin: "https://a.test",
+                                   defaultText: #"x "y""#, isReload: false))
+        #expect(event.browserID == 7)
+    }
+
+    @Test func decodesBeforeUnloadOnReloadAndDismissal() {
+        let event = CEFShimEvent(kind: 44, browser: 3, request: 1, a: 3, b: 1, s1: "", s2: #"{"origin":"","default":""}"#)
+        #expect(event == .jsDialog(browser: 3, token: 1, kind: .beforeUnload, message: "", origin: "", defaultText: "",
+                                   isReload: true))
+        #expect(CEFShimEvent(kind: 45, browser: 3, request: 1, a: 0, b: 0, s1: "", s2: "")
+            == .jsDialogDismissed(browser: 3, token: 1))
+    }
+}
+
+@Suite struct CEFHostViewSeparatorTests {
+    /// The hole over Chromium's contents separator is the top row of the
+    /// (unflipped) host view, and only when the view is tall enough.
+    @Test func separatorHoleIsTheTopRow() {
+        let rect = CEFHostView.chromiumSeparatorRect(in: CGRect(x: 0, y: 0, width: 400, height: 300))
+        #expect(rect == CGRect(x: 0, y: 299, width: 400, height: 1))
+        #expect(CEFHostView.chromiumSeparatorRect(in: CGRect(x: 0, y: 0, width: 400, height: 1)) == nil)
+    }
+}
