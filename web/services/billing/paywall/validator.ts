@@ -4,11 +4,12 @@
 // copy rules are separate from the iOS payload schema.
 
 import {
-  FACT_NUMBERS,
   FACT_QUANTITIES,
   FREE_TRIAL_AVAILABLE,
+  PLAN_FACT_QUANTITIES,
   UNLIMITED_PHRASES,
   UNSUPPORTED_CLAIMS,
+  type FactPlan,
   type FactUnit,
 } from "./facts";
 
@@ -75,13 +76,31 @@ export const BANNED_PHRASES: readonly string[] = [
   "hurry",
   "last chance",
   "today only",
+  // Price claims come from the store, never from copy.
+  "discount",
+  "sale",
 ];
 
-/** Letters, digits, spaces and ordinary sentence punctuation; nothing that formats or links. */
-const PLAIN_TEXT = /^[\p{L}\p{N} .,;:!?'’"“”()\-–—/&]*$/u;
-const URL_LIKE = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.|\b[a-z0-9-]+\.(?:com|dev|io|app|net|org|ai|co|sh|me|so|xyz)\b)/i;
-const ONLY_N_LEFT = /\bonly\s+\p{N}+\s+(?:\p{L}+\s+)?left\b/iu;
-const NUMBER_WITH_UNIT = /(\p{N}+(?:[.,]\p{N}+)?)(?:\s*-\s*|\s+)?([\p{L}]+(?:-[\p{L}]+)?)?/gu;
+/** Numbers must be digits followed by their unit, so they can be checked against the facts. */
+const NUMBER_WORDS: readonly string[] = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "fifteen", "twenty", "thirty", "forty", "fifty", "sixty", "eighty",
+  "hundred", "hundreds", "thousand", "thousands", "million", "millions", "dozen", "dozens",
+  "double", "twice", "triple", "half",
+];
+
+/**
+ * Latin letters, ASCII digits, spaces and ordinary sentence punctuation;
+ * nothing that formats or links. Latin only, so lookalike letters from other
+ * scripts cannot spell a banned name past the checks.
+ */
+const PLAIN_TEXT = /^[\p{Script=Latin}0-9 .,;:!?'’"“”()\-–—/&]*$/u;
+/** A scheme, `www.`, or any `name.tld`, so no domain gets through. */
+const URL_LIKE = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.|[a-z0-9-]\.[a-z]{2,}\b)/i;
+const ONLY_N_LEFT = /\bonly\s+[0-9]+\s+(?:\p{L}+\s+)?left\b/iu;
+/** A digit run and the word right after it (optionally hyphenated: `7-day`). */
+const NUMBER_WITH_UNIT = /([0-9][0-9.,]*)(?:\s*-\s*|\s+)?([\p{L}]+(?:-[\p{L}]+)?)?/gu;
+const PLAN_NAMES: Readonly<Record<string, FactPlan>> = { go: "go", pro: "pro", max: "max" };
 
 const UNIT_ALIASES: Readonly<Record<string, FactUnit>> = {
   vm: "vm",
@@ -116,20 +135,34 @@ function containsPhrase(text: string, phrase: string): boolean {
   return new RegExp(`${start}${body}${end}`, "iu").test(text);
 }
 
+/** The plans a sentence names, by their product names (Go, Pro, Max). */
+function plansNamed(sentence: string): FactPlan[] {
+  return [...sentence.matchAll(/\b(Go|Pro|Max)\b/g)].map((match) => PLAN_NAMES[match[1]!.toLowerCase()]!);
+}
+
 function quantityErrors(field: string, text: string, context: CopyContext): string[] {
   const errors: string[] = [];
   const extra = new Set(context.extraQuantities ?? []);
-  for (const match of text.matchAll(NUMBER_WITH_UNIT)) {
-    const raw = match[1]!;
-    const value = Number(raw.replace(",", "."));
-    const unit = match[2] ? UNIT_ALIASES[match[2].toLowerCase()] : undefined;
-    if (unit) {
-      const quantity = `${value} ${unit}`;
-      if (!FACT_QUANTITIES.has(quantity) && !extra.has(quantity)) {
-        errors.push(`${field}: "${match[0].trim()}" is not a published quantity`);
+  for (const sentence of text.split(/[.;!?]\s+|[.;!?]$/)) {
+    const plans = plansNamed(sentence);
+    for (const match of sentence.matchAll(NUMBER_WITH_UNIT)) {
+      const raw = match[1]!;
+      if (!/^[0-9]+$/.test(raw)) {
+        errors.push(`${field}: "${raw}" must be a whole number without separators`);
+        continue;
       }
-    } else if (!FACT_NUMBERS.has(value) && ![...extra].some((item) => item.startsWith(`${value} `))) {
-      errors.push(`${field}: the number ${raw} is not in the facts`);
+      const unit = match[2] ? UNIT_ALIASES[match[2].toLowerCase()] : undefined;
+      if (!unit) {
+        errors.push(`${field}: the number ${raw} needs a unit the facts state (VMs, vCPUs, GB, VM-hours)`);
+        continue;
+      }
+      const quantity = `${Number(raw)} ${unit}`;
+      if (extra.has(quantity)) continue;
+      if (!FACT_QUANTITIES.has(quantity)) {
+        errors.push(`${field}: "${match[0].trim()}" is not a published quantity`);
+      } else if (plans.length > 0 && !plans.some((plan) => PLAN_FACT_QUANTITIES[plan].has(quantity))) {
+        errors.push(`${field}: "${match[0].trim()}" is not a published quantity for ${plans.join(" or ")}`);
+      }
     }
   }
   return errors;
@@ -143,11 +176,12 @@ function unlimitedErrors(field: string, text: string): string[] {
 }
 
 function trialErrors(field: string, text: string, context: CopyContext): string[] {
-  const mentionsTrial = containsPhrase(text, "trial") || containsPhrase(text, "free for");
+  // "Free" is a price claim; only a variant that sells a free trial may say it.
+  const mentionsTrial = containsPhrase(text, "trial") || containsPhrase(text, "free");
   if (!mentionsTrial) return [];
   const available = context.trialAvailable ?? FREE_TRIAL_AVAILABLE;
   if (available && context.offersTrial) return [];
-  return [`${field}: trial wording needs a variant that offers a trial product`];
+  return [`${field}: "free" and trial wording need a variant that offers a trial product`];
 }
 
 /**
@@ -162,6 +196,7 @@ export function copyErrors(
 ): string[] {
   if (typeof value !== "string") return [`${field}: must be a string`];
   const errors: string[] = [];
+  if (value.normalize("NFKC") !== value) errors.push(`${field}: must be in normalized form (NFKC)`);
   const length = [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(value)].length;
   if (options.required && value.trim().length === 0) errors.push(`${field}: must not be empty`);
   if (length > options.maxLength) errors.push(`${field}: ${length} characters, limit ${options.maxLength}`);
@@ -178,6 +213,9 @@ export function copyErrors(
     if (containsPhrase(value, claim)) errors.push(`${field}: "${claim}" is not a published fact for these plans`);
   }
   if (ONLY_N_LEFT.test(value)) errors.push(`${field}: scarcity claims are banned`);
+  for (const word of NUMBER_WORDS) {
+    if (containsPhrase(value, word)) errors.push(`${field}: write "${word}" as digits with a unit so it can be checked`);
+  }
   errors.push(...unlimitedErrors(field, value), ...trialErrors(field, value, context), ...quantityErrors(field, value, context));
   return errors;
 }

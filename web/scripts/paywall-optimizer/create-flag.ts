@@ -34,7 +34,11 @@ if (!key) {
 const host = (process.env.POSTHOG_API_HOST?.trim() || "https://us.posthog.com").replace(/\/$/, "");
 const project = process.env.POSTHOG_PROJECT_ID?.trim() || POSTHOG_PROJECT_ID_DEFAULT;
 const headers = { authorization: `Bearer ${key}`, "content-type": "application/json" };
-const existing = await fetch(`${host}/api/projects/${project}/feature_flags/?key=${IOS_PAYWALL_EXPERIMENT}`, { headers });
+const existing = await fetch(`${host}/api/projects/${project}/feature_flags/?search=${IOS_PAYWALL_EXPERIMENT}&limit=100`, { headers });
+if (!existing.ok) {
+  console.error(`Could not list flags: ${existing.status} ${(await existing.text()).slice(0, 300)}`);
+  process.exit(1);
+}
 const found = ((await existing.json()) as { results?: { key: string; deleted?: boolean }[] }).results ?? [];
 if (found.some((flag) => flag.key === IOS_PAYWALL_EXPERIMENT && !flag.deleted)) {
   console.error(`${IOS_PAYWALL_EXPERIMENT} already exists; edit it in PostHog or with the optimizer`);

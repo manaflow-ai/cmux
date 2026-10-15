@@ -149,6 +149,9 @@ describe("GET /api/billing/paywall", () => {
     flagAnswer = "down";
     expect((await paywallFor()).variant).toBe("outcome-copy");
     expect(events.map((event) => event.properties?.paywall_variant)).toEqual(["outcome-copy", "outcome-copy", "outcome-copy"]);
+    // A copy edit in the flag reaches new users only; this arm keeps one version per person.
+    flagAnswer = { variant: "outcome-copy", payload: { ...seed("outcome-copy").payload, headline: "Your agents keep working" } };
+    expect((await paywallFor()).headline).toBe(seed("outcome-copy").payload.headline);
   });
 
   test("the kill switch serves control without an exposure, even to an exposed user", async () => {
@@ -171,6 +174,14 @@ describe("GET /api/billing/paywall", () => {
       { ...seed("comparison").payload, bullets: ["Only 3 spots left"] },
       { ...seed("comparison").payload, headline: "x".repeat(61) },
       { ...seed("comparison").payload, bullets: ["**Bold** claims"] },
+      { ...seed("comparison").payload, bullets: ["Up to 1,000 Cloud VMs"] },
+      { ...seed("comparison").payload, bullets: ["Builds 2x faster"] },
+      { ...seed("comparison").payload, bullets: ["Up to 80 parallel VMs"] },
+      { ...seed("comparison").payload, bullets: ["Pro: 160 GB RAM to share"] },
+      { ...seed("comparison").payload, headline: "Pay with Str\u0456pe" },
+      { ...seed("comparison").payload, subheadline: "Read more at cmux.cloud" },
+      { ...seed("comparison").payload, headline: "Try it free" },
+      { ...seed("comparison").payload, bullets: ["Run ten agents at once"] },
     ];
     for (const payload of unsafe) {
       assignments.clear();

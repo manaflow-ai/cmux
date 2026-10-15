@@ -56,9 +56,16 @@ export function postHogApi(input: {
       return body.results ?? [];
     },
     flag: async (key) => {
-      const body = await request(`/feature_flags/?key=${encodeURIComponent(key)}&limit=100`) as { results?: Record<string, unknown>[] };
-      const raw = (body.results ?? []).find((flag) => flag.key === key && flag.deleted !== true);
-      return raw ? parsePostHogFlag(raw) : null;
+      // `search` narrows by substring; the exact key match is ours. Follow
+      // pagination so a project with many similar keys cannot hide the flag.
+      let path: string | null = `/feature_flags/?search=${encodeURIComponent(key)}&limit=100`;
+      for (let page = 0; path && page < 20; page += 1) {
+        const body = await request(path) as { results?: Record<string, unknown>[]; next?: string | null };
+        const raw = (body.results ?? []).find((flag) => flag.key === key && flag.deleted !== true);
+        if (raw) return parsePostHogFlag(raw);
+        path = body.next ? nextPath(body.next, base) : null;
+      }
+      return null;
     },
     setVariantRollouts: async (flag, rollouts) => {
       const multivariate = (flag.filters.multivariate ?? {}) as { variants?: Record<string, unknown>[] };
@@ -72,6 +79,11 @@ export function postHogApi(input: {
       });
     },
   };
+}
+
+/** The `next` URL of a PostHog list page as a path under this project, or null if it points elsewhere. */
+function nextPath(next: string, base: string): string | null {
+  return next.startsWith(base) ? next.slice(base.length) : null;
 }
 
 export function parsePostHogFlag(raw: Record<string, unknown>): PostHogFlag {
@@ -100,7 +112,11 @@ export type VariantStats = {
   readonly exposures: number;
   /** Of those, people with a primary-metric event after their first exposure. */
   readonly conversions: number;
-  /** First exposures since the last allocation change (for the SRM test). */
+  /**
+   * First exposures since the last allocation change (for the SRM test).
+   * Sticky first exposures are left out: an earlier exposure was lost, so the
+   * user was assigned under an older split.
+   */
   readonly exposuresSinceChange: number;
   readonly secondary: Readonly<Record<string, number>>;
   readonly guardrails: Readonly<Record<string, number>>;
@@ -110,7 +126,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)?$/;
 
 function hogqlTimestamp(value: string): string {
   if (!DATE.test(value)) throw new Error(`Invalid timestamp ${value}`);
-  return `toDateTime('${value.replace("T", " ").replace(/\.\d+Z?$|Z$/, "")}')`;
+  // Timestamps are UTC; without the zone HogQL reads them in the project's time zone.
+  return `toDateTime('${value.replace("T", " ").replace(/\.\d+Z?$|Z$/, "")}', 'UTC')`;
 }
 
 function hogqlString(value: string): string {
@@ -120,7 +137,8 @@ function hogqlString(value: string): string {
 
 /** Each exposed person once, with the variant of their first exposure (assignment is sticky). */
 function exposureSubquery(definition: ExperimentDefinition): string {
-  return `SELECT person_id, argMin(properties.$feature_flag_response, timestamp) AS variant, min(timestamp) AS first_at
+  return `SELECT person_id, argMin(properties.$feature_flag_response, timestamp) AS variant, min(timestamp) AS first_at,
+      argMin(coalesce(toString(properties.paywall_sticky), ''), timestamp) AS first_sticky
     FROM events
     WHERE event = '$feature_flag_called'
       AND properties.$feature_flag = ${hogqlString(definition.flagKey)}
@@ -131,7 +149,7 @@ function exposureSubquery(definition: ExperimentDefinition): string {
 
 function metricQuery(definition: ExperimentDefinition, metric: ExperimentMetric, since: string): string {
   return `SELECT e.variant, count() AS exposed, countIf(m.last_at >= e.first_at) AS converted,
-      countIf(e.first_at >= ${hogqlTimestamp(since)}) AS exposed_since
+      countIf(e.first_at >= ${hogqlTimestamp(since)} AND e.first_sticky NOT IN ('true', '1')) AS exposed_since
     FROM (${exposureSubquery(definition)}) AS e
     LEFT JOIN (
       SELECT person_id, max(timestamp) AS last_at FROM events
@@ -539,6 +557,22 @@ export function optimizerReport(definition: ExperimentDefinition, snapshot: Opti
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * Flag evaluations are cached for a few minutes after a PATCH, so people
+ * first exposed right after a change may still get the old split.
+ */
+export const SRM_GRACE_MS = 15 * 60 * 1000;
+
+/** Start of the SRM window: the last allocation change or SRM clearance, plus the grace period. */
+async function srmWindowStart(definition: ExperimentDefinition, log: PaywallExperimentLog | null): Promise<string> {
+  const [allocation, cleared] = log
+    ? await Promise.all([log.lastChangeAt(definition.key, "allocation_changed"), log.lastChangeAt(definition.key, "srm_cleared")])
+    : [null, null];
+  const latest = [allocation, cleared].filter((date): date is Date => date !== null).sort((a, b) => b.getTime() - a.getTime())[0];
+  const start = latest ? new Date(latest.getTime() + SRM_GRACE_MS) : new Date(`${definition.startDate}T00:00:00Z`);
+  return start.toISOString().replace(/\.\d+Z$/, "Z");
+}
+
 export type RunOptimizerInput = {
   readonly definition: ExperimentDefinition;
   readonly api: PostHogApi;
@@ -561,8 +595,7 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
   const found = await api.flag(definition.flagKey);
   const flag = found ?? input.seedFlag;
   if (!flag) throw new Error(`Flag ${definition.flagKey} does not exist`);
-  const lastAllocation = log ? await log.lastChangeAt(definition.key, "allocation_changed") : null;
-  const allocationSince = (lastAllocation?.toISOString() ?? `${definition.startDate}T00:00:00Z`).replace(/\.\d+Z$/, "Z");
+  const allocationSince = await srmWindowStart(definition, log);
   const stats = await fetchVariantStats(api, definition, flag.variants.map((variant) => variant.key), allocationSince);
   const decision = found && !found.active
     ? { ...decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`)), target: Object.fromEntries(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage])), changed: false, reasons: ["hold: the flag is off (kill switch)"] }
@@ -600,15 +633,20 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
     variants,
   };
   const previous = log ? await log.latestRun(definition.key) : null;
+  const wasHalted = previous?.halted === true;
   const logged = apply ? decision : { ...decision, changed: false, retire: [] };
-  const changes = changeLog(definition, variants, logged, previous, input.actor);
+  const changes = changeLog(definition, variants, logged, previous, input.actor)
+    // Log a halt once, when it starts; the run's report repeats it daily.
+    .filter((change) => change.kind !== "srm_halt" || !wasHalted);
   const report = optimizerReport(definition, snapshot, changes, now)
     + (apply || input.dryRun ? "" : "\nObserve mode: the allocation above is proposed, not written to the flag.\n");
   if (!input.dryRun) {
     if (!found) throw new Error(`Flag ${definition.flagKey} does not exist; create it before a live run`);
     if (!log) throw new Error("A live run needs the experiment log (DATABASE_URL)");
     if (apply && decision.changed) await api.setVariantRollouts(found, decision.target);
-    await log.appendChanges(changes.map((change) => ({ ...change, changedAt: now })));
+    // Stamp after the flag write, so the next SRM window starts after the new split is live.
+    const writtenAt = new Date();
+    await log.appendChanges(changes.map((change) => ({ ...change, changedAt: writtenAt })));
     await log.recordRun({ experiment: definition.key, ranAt: now, halted: decision.halted, snapshot, reportMarkdown: report });
   }
   return { snapshot, changes, report };

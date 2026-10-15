@@ -9,9 +9,13 @@
 /** A unit a number in copy can carry. `null` means a bare number. */
 export type FactUnit = "vm" | "vcpu" | "gb" | "vm-hour" | "day";
 
+export type FactPlan = "go" | "pro" | "max";
+
 export type ProductFact = {
   /** Plain statement of the fact. */
   readonly text: string;
+  /** The plans the fact is about. A quantity next to a plan name must come from that plan's facts. */
+  readonly plans: readonly FactPlan[];
   /** Where it is published. */
   readonly source: string;
   /** The quantities the fact states, as `[number, unit]`. */
@@ -21,51 +25,61 @@ export type ProductFact = {
 export const PRODUCT_FACTS: readonly ProductFact[] = [
   {
     text: "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM.",
+    plans: ["pro"],
     source: "https://cmux.com/pricing",
     quantities: [[5, "vm"], [20, "vcpu"], [40, "gb"]],
   },
   {
     text: "On Pro one VM can have up to 8 vCPUs and 16 GB RAM.",
+    plans: ["pro"],
     source: "https://cmux.com/pricing",
     quantities: [[8, "vcpu"], [16, "gb"]],
   },
   {
     text: "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.",
+    plans: ["max"],
     source: "https://cmux.com/pricing",
     quantities: [[5, "vm"], [80, "vcpu"], [160, "gb"]],
   },
   {
     text: "Max unlocks VM sizes of 12 vCPUs and 24 GB, 16 vCPUs and 32 GB, and up to 32 vCPUs and 64 GB on one VM.",
+    plans: ["max"],
     source: "https://cmux.com/pricing",
     quantities: [[12, "vcpu"], [24, "gb"], [16, "vcpu"], [32, "gb"], [32, "vcpu"], [64, "gb"]],
   },
   {
     text: "Go includes 1 Cloud VM with 2 vCPUs and 4 GB RAM and 40 VM-hours a month.",
+    plans: ["go"],
     source: "iOS plan copy (Packages/iOS/CmuxMobileBilling BillingPlanCopy) and services/vms/goUsage.ts (GO_INCLUDED_VM_HOURS)",
     quantities: [[1, "vm"], [2, "vcpu"], [4, "gb"], [40, "vm-hour"]],
   },
   {
     text: "Pro and Max include the iOS app, email support and unlimited workspaces.",
+    plans: ["pro", "max"],
     source: "https://cmux.com/pricing",
     quantities: [],
   },
   {
     text: "Cloud VMs are persistent Linux machines that keep their files, installed tools and state.",
+    plans: ["go", "pro", "max"],
     source: "https://cmux.com/pricing (FAQ)",
     quantities: [],
   },
   {
     text: "Terminals on a Cloud VM keep running when you close your laptop or your Mac sleeps, so coding agents keep working.",
+    plans: ["go", "pro", "max"],
     source: "https://cmux.com/docs (Cloud overview and Cloud workspaces: 'keep running when you ... shut your laptop'; Base: 'while your MacBook is asleep')",
     quantities: [],
   },
   {
     text: "Agents clone repositories, run commands and open pull requests on the VM without touching your Mac.",
+    plans: ["go", "pro", "max"],
     source: "https://cmux.com/pricing (FAQ)",
     quantities: [],
   },
   {
     text: "Yearly billing costs less per month than monthly billing.",
+    plans: ["pro", "max"],
     source: "https://cmux.com/pricing (yearly prices); the app shows the StoreKit price",
     quantities: [],
   },
@@ -116,3 +130,16 @@ export const FACT_NUMBERS: ReadonlySet<number> = new Set(
 export const FACT_QUANTITIES: ReadonlySet<string> = new Set(
   PRODUCT_FACTS.flatMap((fact) => fact.quantities.map(([value, unit]) => `${value} ${unit}`)),
 );
+
+/** The `number unit` pairs each plan's facts state. */
+export const PLAN_FACT_QUANTITIES: Readonly<Record<FactPlan, ReadonlySet<string>>> = {
+  go: planQuantities("go"),
+  pro: planQuantities("pro"),
+  max: planQuantities("max"),
+};
+
+function planQuantities(plan: FactPlan): ReadonlySet<string> {
+  return new Set(PRODUCT_FACTS
+    .filter((fact) => fact.plans.includes(plan))
+    .flatMap((fact) => fact.quantities.map(([value, unit]) => `${value} ${unit}`)));
+}

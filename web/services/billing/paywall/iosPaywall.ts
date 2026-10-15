@@ -131,9 +131,11 @@ function enrollment(user: IosPaywallUser, request: IosPaywallRequest, env: Recor
 type Chosen = { readonly config: IosPaywallConfig; readonly sticky: boolean };
 
 /**
- * The variant to serve: the stored (sticky) variant when the flag now says
- * another one or is unavailable, else the flag's variant. A payload that
- * fails validation is reported and never served.
+ * The variant to serve. An assigned user always gets their stored variant
+ * with the copy they were first shown, whatever the flag says now (unless it
+ * is off): traffic moves and copy edits apply to new users only, so one arm
+ * never mixes two versions of its copy. A new user gets the flag's variant.
+ * A payload that fails validation is reported and never served.
  */
 async function chooseVariant(
   userId: string,
@@ -141,10 +143,9 @@ async function chooseVariant(
   deps: IosPaywallDependencies,
 ): Promise<Chosen | null> {
   const stored = await deps.store.assignment(userId, IOS_PAYWALL_EXPERIMENT);
-  const useStored = stored && (flag.state === "unavailable" || (flag.state === "variant" && flag.variant !== stored.variant));
-  if (useStored) {
+  if (stored) {
     const result = validateIosPaywallPayload(stored.payload, IOS_PAYWALL_EXPERIMENT, stored.variant);
-    if (result.ok) return { config: result.value, sticky: true };
+    if (result.ok) return { config: result.value, sticky: flag.state !== "variant" || flag.variant !== stored.variant };
     deps.reportInvalidPayload(stored.variant, result.errors);
     return null;
   }
@@ -193,6 +194,7 @@ export async function resolveIosPaywall(
     if (flag.state === "off") return IOS_PAYWALL_CONTROL;
     const chosen = await chooseVariant(user.id, flag, deps);
     if (!chosen) return IOS_PAYWALL_CONTROL;
+    // Assignment and copy are written once; later serves only touch served_at.
     await deps.store.recordServed(user.id, IOS_PAYWALL_EXPERIMENT, chosen.config.variant, {
       layout: chosen.config.layout,
       headline: chosen.config.headline,
