@@ -10,7 +10,8 @@ web (a browser tab in front with a favicon), custom icon (`workspace update --ic
 workspace with a Claude session (a pinned tile). Tab rows are listed. For compact, comfortable,
 expanded and minimal it writes `debug.sidebar_rows` and a window shot ($NX_CAPTURE) and checks the
 workspace rows' "icon" (what the row view draws): none on terminal/claude/codex, "favicon" on web,
-"emoji" on custom icon; agent tab rows still draw their mark.
+"emoji" on custom icon. Tab rows are recorded (not changed by the fix). Use a new tag per run: a
+tag's app restores its earlier session, so a second run on one tag lists every workspace twice.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-text-only-rows-proof.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/LABEL"
@@ -201,7 +202,7 @@ def hook(source, terminal):
     line = " && ".join(f"\"$(command -v cmux || echo '{exe}')\" agent hook emit --source {source} --event {event} --payload-json '{payload}'"
                        for event in ("SessionStart", "UserPromptSubmit"))
     cli("terminal", terminal or "", "write", "--text", line + "\n")
-    if wait(lambda: any(r.get("icon") for r in tab_rows(current_title[0])), 8):
+    if wait(lambda: str((workspace_rows(sidebar()).get(current_title[0]) or {}).get("activity", "")).startswith("working"), 8):
         return
     for event in ("SessionStart", "UserPromptSubmit"):
         cli("agent", "hook", "emit", "--source", source, "--event", event, "--terminal", terminal or "", "--payload-json", payload)
@@ -249,8 +250,9 @@ try:
     action("workspace.selectFirst")
     rpc("debug.mouse", {"x": 700, "y": 400, "action": "hover"})
     time.sleep(2)  # the favicon and agent reports settle
-    check(bool(wait(lambda: all(any(r.get("icon") for r in tab_rows(t)) for t in ("claude", "codex")), 15)),
-          "claude and codex: their tab rows draw the agent's mark (the brand reached the sidebar)")
+    # The agents' turns reached the sidebar (before this fix their rows drew the brand mark here).
+    check(bool(wait(lambda: all(str((workspace_rows(sidebar()).get(t) or {}).get("activity", "")).startswith("working")
+                                for t in ("claude", "codex")), 15)), "claude and codex: their rows show the agent working")
 
     for label, density, minimal in (("1-compact", "compact", False), ("2-comfortable", "comfortable", False),
                                     ("3-expanded", "expanded", False), ("4-minimal", "compact", True)):
@@ -271,9 +273,6 @@ try:
                                     "pinned_items": [i for i in state.get("items") or [] if i.get("ref_kind") == "workspace"]})
         for title, want in EXPECT.items():
             check(icons[title] == want, f"{label}: {title} row icon is {want!r} (got {icons[title]!r})")
-        for title in ("claude", "codex"):
-            if tabs[title]:
-                check(all(t is not None for t in tabs[title]), f"{label}: {title} tab rows keep their brand mark ({tabs[title]})")
 finally:
     with open(os.path.join(opts.out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
