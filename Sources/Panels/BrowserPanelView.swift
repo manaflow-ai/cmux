@@ -1869,7 +1869,13 @@ struct BrowserPanelView: View {
         let useLocalInlineDeveloperToolsHosting = canvasInlineBrowserHosting
 
         return Group {
-            if panel.shouldAttachWebViewInUI {
+            if let enginePage = panel.enginePage {
+                BrowserEnginePageHost(
+                    page: enginePage,
+                    isVisible: isVisibleInUI && isCurrentPaneOwner,
+                    shouldFocus: isFocused && !addressBarFocused
+                )
+            } else if panel.shouldAttachWebViewInUI {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
