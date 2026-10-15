@@ -40,7 +40,8 @@ public final class BrowserZoomIndicatorModel {
         }
     }
 
-    @ObservationIgnored private let clock: any Clock<Duration>
+    /// Makes a sleep to a deadline fixed when it is made (from the injected clock).
+    @ObservationIgnored private let makeSleep: (Duration) -> @Sendable () async throws -> Void
     @ObservationIgnored private var dismissTask: Task<Void, Never>?
     @ObservationIgnored private var lastDuration: Duration?
 
@@ -49,10 +50,13 @@ public final class BrowserZoomIndicatorModel {
     ///   - factor: The page's zoom factor. Defaults to `1`.
     ///   - defaultFactor: The default zoom factor.
     ///   - clock: The clock auto-dismiss waits on; tests pass a manual clock.
-    public init(factor: Double = 1, defaultFactor: Double, clock: any Clock<Duration>) {
+    public init<C: Clock>(factor: Double = 1, defaultFactor: Double, clock: C) where C.Duration == Duration {
         self.factor = factor
         self.defaultFactor = defaultFactor
-        self.clock = clock
+        makeSleep = { duration in
+            let deadline = clock.now.advanced(by: duration)
+            return { try await clock.sleep(until: deadline, tolerance: nil) }
+        }
     }
 
     /// Whether the chip shows: the zoom differs from the default.
@@ -104,7 +108,7 @@ public final class BrowserZoomIndicatorModel {
     private func scheduleDismiss(after duration: Duration) {
         dismissTask?.cancel()
         // The deadline is fixed now, not when the task first runs.
-        let sleep = Self.sleeper(clock, for: duration)
+        let sleep = makeSleep(duration)
         // A bounded, cancellable auto-dismiss delay (the intended behavior, not synchronization).
         dismissTask = Task { [weak self] in
             do {
@@ -119,12 +123,6 @@ public final class BrowserZoomIndicatorModel {
     /// Waits for a scheduled auto-dismiss to finish (tests advance the clock first).
     func waitForScheduledDismiss() async {
         await dismissTask?.value
-    }
-
-    private static func sleeper<C: Clock>(_ clock: C, for duration: Duration) -> @Sendable () async throws -> Void
-    where C.Duration == Duration {
-        let deadline = clock.now.advanced(by: duration)
-        return { try await clock.sleep(until: deadline, tolerance: nil) }
     }
 
     private func autoDismiss() {
