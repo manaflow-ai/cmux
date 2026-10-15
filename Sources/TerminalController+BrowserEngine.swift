@@ -296,9 +296,9 @@ extension TerminalController {
 
 /// An engine page that could not run during the current socket command.
 private final class V2EngineUnavailableRecord {
-    let error: V2CallResult
+    let error: TerminalController.V2CallResult
 
-    init(error: V2CallResult) {
+    init(error: TerminalController.V2CallResult) {
         self.error = error
     }
 }
