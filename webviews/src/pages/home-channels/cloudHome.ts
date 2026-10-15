@@ -220,6 +220,8 @@ export class CloudHome {
     inboxStale?: boolean;
     /** A Cloud Chief's run change (the run and the steps that changed), in the owner's shape. */
     run?: { run: Json; steps: Json[] };
+    /** A Cloud Chief's live frame (`step.delta`, `run.activity`, `run.live`), in the owner's shape. */
+    live?: Json;
   } | null {
     // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
     if (event.event === "cloud-inbox-reset") {
@@ -250,6 +252,9 @@ export class CloudHome {
       case "cloud-conversation-run-changed":
         if (!event.run || typeof event.run !== "object") return null;
         return { run: { run: this.localize(event.run as Json), steps: (event.steps as Json[] | undefined) ?? [] } };
+      case "cloud-conversation-live":
+        if (!event.frame || typeof event.frame !== "object") return null;
+        return { live: event.frame as Json };
       case "cloud-conversation-resynced": {
         const id = String(event.conversation);
         this.keepHead(id, this.localize(event.summary as Json));
