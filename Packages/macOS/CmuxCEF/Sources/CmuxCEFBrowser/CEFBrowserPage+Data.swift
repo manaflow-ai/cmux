@@ -1,6 +1,7 @@
 public import CmuxBrowser
 import CmuxCEF
 import Foundation
+import os
 
 /// A Chromium page's permission prompts and downloads, answered through the
 /// page's UI delegate (the browser panel).
@@ -32,12 +33,14 @@ final class CEFBrowserPageDataBridge {
     private(set) var endedDownloads: [String: BrowserPageDownload.State] = [:]
 
     private var runtime: CEFRuntime { .shared }
+    private let logger = Logger(subsystem: "com.cmuxterm.app", category: "browser.chromium.data")
 
     func handle(_ event: CEFShimEvent, page: CEFBrowserPage) {
         switch event {
         case let .permissionPrompt(_, token, permissions, origin):
             askPermission(token: token, bits: permissions, origin: origin, page: page)
         case let .permissionDismissed(_, token):
+            logger.notice("permission dismissed token=\(token)")
             guard waitingPermissions.remove(token) != nil else { return }
             (page.uiDelegate as? any BrowserPagePermissionOutcomeDelegate)?.pageDidEndPermissionRequest(page)
         case let .download(kind, browser, token, a, b, s1, s2):
@@ -74,6 +77,7 @@ final class CEFBrowserPageDataBridge {
     private func askPermission(token: Int32, bits: Int64, origin: String, page: CEFBrowserPage) {
         let request = BrowserChromiumPermissionRequest(cefPromptBits: UInt32(truncatingIfNeeded: bits))
         let pageRequest = request.pageRequest(origin: URL(string: origin))
+        logger.notice("permission prompt token=\(token) bits=\(bits) kinds=\(pageRequest.kinds.count) delegate=\(page.uiDelegate != nil)")
         waitingPermissions.insert(token)
         let delegate = page.uiDelegate
         Task { @MainActor [weak self, weak page] in
@@ -100,6 +104,7 @@ final class CEFBrowserPageDataBridge {
         kinds: [BrowserPagePermissionRequest.Kind],
         origin: String
     ) {
+        logger.notice("permission answer token=\(token) decision=\(String(describing: outcome.decision), privacy: .public) oneTime=\(outcome.isOneTime)")
         switch outcome.decision {
         case .grant:
             runtime.answerPermission(token: token, allow: true)
