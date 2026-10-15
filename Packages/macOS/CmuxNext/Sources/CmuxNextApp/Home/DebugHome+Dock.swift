@@ -46,20 +46,14 @@ extension DebugHome {
         ])
     }
 
-    /// `debug.home.drive {action: list, op: pin | unpin | unread | read, conversation}`: the docked Messages
-    /// list's own menu handlers (Pin, Unpin, Mark as Unread, Mark as Read) for one conversation.
+    /// `debug.home.drive {action: list, op: pin | unpin | unread | read, conversation}`: the docked Messages list's menu handlers.
     static func driveDockList(_ params: [String: JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
-        guard let list = HomeDockTab.view(services)?.messages?.list, let id = params["conversation"]?.stringValue else {
-            return .object(["ok": .bool(false), "error": .string("no docked Messages list, or no conversation")])
-        }
-        let conversation = ConversationID(id)
-        switch params["op"]?.stringValue {
-        case "pin": list.onSetPinned(true, conversation)
-        case "unpin": list.onSetPinned(false, conversation)
-        case "unread": list.onMarkUnread(conversation)
-        case "read": list.onMarkRead(conversation)
-        default: return .object(["ok": .bool(false), "error": .string("op must be pin, unpin, unread or read")])
-        }
+        let fail = { (why: String) in CmuxNextSettings.JSONValue.object(["ok": .bool(false), "error": .string(why)]) }
+        guard let list = HomeDockTab.view(services)?.messages?.list, let id = params["conversation"]?.stringValue else { return fail("no docked Messages list, or no conversation") }
+        let ops: [String: (ConversationID) -> Void] = ["pin": { list.onSetPinned(true, $0) }, "unpin": { list.onSetPinned(false, $0) },
+                                                       "unread": list.onMarkUnread, "read": list.onMarkRead]
+        guard let op = params["op"]?.stringValue.flatMap({ ops[$0] }) else { return fail("op must be pin, unpin, unread or read") }
+        op(ConversationID(id))
         return .object(["ok": .bool(true)])
     }
 }
