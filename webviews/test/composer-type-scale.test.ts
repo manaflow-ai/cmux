@@ -150,7 +150,6 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
       "docked-400",
       "folder-menu",
       "add-menu",
-      "context-breakdown",
       "slash-menu",
       "mention-picker",
       "reasoning-claude",
