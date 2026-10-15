@@ -226,7 +226,11 @@ struct BrowserScreen: View {
     /// scroll position), or the layout at the last known offset before the
     /// grid has reported.
     private func zoomEndpoint() -> CGRect {
-        if isNewTabZoom { return newTabZoom.rect(in: fullRect) }
+        if isNewTabZoom {
+            guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
+            let lone = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: 1)
+            return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
+        }
         let index: Int
         if zoomTabId == Self.newTabMarker {
             index = newTabSlot?.zoomIndex(in: itemIds) ?? tabs.items.count

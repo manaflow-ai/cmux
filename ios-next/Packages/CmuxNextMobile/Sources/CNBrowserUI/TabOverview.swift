@@ -540,7 +540,9 @@ struct TabOverview: View {
 
     private var bottomBar: some View {
         let bar = layout.barRect
-        let count = tabs.items.count
+        // Never "0 Tabs": closing the last tab opens a fresh one in the next
+        // update, and Safari's count goes straight to 1.
+        let count = max(1, tabs.items.count)
         // One glass container for the bar (see `topControls`).
         return GlassEffectContainer(spacing: 0) {
             ZStack(alignment: .topLeading) {

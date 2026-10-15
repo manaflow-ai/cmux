@@ -22,10 +22,12 @@ struct ZoomSpring: Equatable, Sendable {
     /// (+) New Tab: Safari's start page tail fits 0.34 / 0.97 with about
     /// 10 progress/s at its first sharp frame (tabs-parity-audit 2a).
     static let newTab = ZoomSpring(response: 0.34, damping: 0.97, launch: 10)
-    /// The fresh start page after the last tab closed: Safari scales it
-    /// from about 0.84 to 1, at rest about 275 ms after its first frame
-    /// (re-measured from the audit's `saf-last.mp4`, tabs-parity-reaudit D2).
-    static let afterLastClose = ZoomSpring(response: 0.245, damping: 1)
+    /// The fresh start page after the last tab closed: Safari turns the lone
+    /// card into the start page in its own slot (0.665 of the width) and
+    /// zooms it to full screen, at rest about 500 ms later; its page edge
+    /// fits 0.375 / 0.98 from rest within 1.5 pt (`saf-last-page.csv`,
+    /// tabs-parity-reaudit-2 D2).
+    static let afterLastClose = ZoomSpring(response: 0.375, damping: 0.98)
     /// After a reversal Safari follows the destination's spring from about
     /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
     /// 0.346–0.369 / 0.84–0.875).
@@ -43,10 +45,13 @@ struct NewTabZoom: Equatable, Sendable {
     /// The page starts blurred and sharpens (Safari's (+); the page after
     /// the last tab closed is sharp throughout).
     var blurs = true
+    /// Grow from the lone card's slot in the grid instead of the centred
+    /// `scale` rect (the page after the last tab closed).
+    var fromLoneSlot = false
     /// (+): Safari's start page shows first at about 0.6–0.77 of the screen.
     static let plus = NewTabZoom(scale: 0.7, spring: .newTab)
-    /// The last tab closed: a fresh start page from about 0.84, sharp.
-    static let lastTabClosed = NewTabZoom(scale: 0.84, spring: .afterLastClose, blurs: false)
+    /// The last tab closed: a fresh start page from the lone card's slot, sharp.
+    static let lastTabClosed = NewTabZoom(scale: 2.0 / 3, spring: .afterLastClose, blurs: false, fromLoneSlot: true)
 
     func rect(in full: CGRect) -> CGRect {
         let w = full.width * scale, h = full.height * scale
