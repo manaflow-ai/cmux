@@ -8,7 +8,9 @@
 //! began, so time in the queue is not working time) and ends at
 //! `turn_result` (older logs: `turn_end` or `turn_error`). Waiting is time
 //! in status `waiting` (a permission question open). Parallel agents count
-//! turns that overlap in time, across every session.
+//! turns that overlap in time, across every session. Permission wait is
+//! per question, from `permission_request` to its `permission_decision`
+//! (`stats/attention.rs`), so two questions open at once wait twice.
 //!
 //! A turn or wait the daemon lost when it died ends at the session's last
 //! record before the loss: at a restart's own record (`turn_result
@@ -16,6 +18,8 @@
 //! the log for a session this daemon does not hold running or waiting now.
 //! A prompt that never got `turn_started` and was never settled has no
 //! outcome: it counts as a prompt, not a turn.
+
+mod attention;
 
 use crate::store::{EventRecord, SessionMeta, SessionStatus, Store};
 use anyhow::Result;
@@ -78,6 +82,22 @@ pub struct StatsSummary {
     /// Permission questions asked, and those the rules answered.
     pub permission_requests: u64,
     pub permission_auto: u64,
+    /// Questions asked in the range that got an answer (`permission_decision`,
+    /// a cancel included) in it, and those that did not: still open, lost
+    /// when the daemon that asked died, or cancelled by the remote floor
+    /// after a restart (no decision record). The two sum to
+    /// `permissionRequests`.
+    pub permission_answered: u64,
+    pub permission_unanswered: u64,
+    /// Ask to answer, summed over the answered questions, and the longest
+    /// one. A question shown again after a restart waits from its first ask.
+    pub permission_wait_ms: u64,
+    pub permission_wait_max_ms: u64,
+    /// Times an agent could not serve on its account (`hub::is_limit_error`,
+    /// the failover rule: usage, rate or credit limits, rejected credentials,
+    /// an overloaded provider): a turn that failed on one, or a failover to
+    /// the fallback (which may fail too, and then counts again).
+    pub limit_errors: u64,
     /// Agent turn time, summed over sessions (two agents for an hour = 2h).
     pub working_ms: u64,
     /// Time agents spent waiting on a permission answer.
@@ -166,6 +186,7 @@ struct SessionFold {
     tool_calls: u64,
     permission_requests: u64,
     permission_auto: u64,
+    attention: attention::Attention,
     status: Option<SessionStatus>,
     waiting_since: Option<u64>,
     waiting_ms: u64,
@@ -206,6 +227,7 @@ impl SessionFold {
             tool_calls: 0,
             permission_requests: 0,
             permission_auto: 0,
+            attention: attention::Attention::default(),
             status: None,
             waiting_since: None,
             waiting_ms: 0,
@@ -231,6 +253,9 @@ impl SessionFold {
         } else {
             self.last_at.replace(at).unwrap_or(at)
         };
+        if record.dir == "mux" {
+            self.attention.record(record, self.in_range(at));
+        }
         match record.kind.as_str() {
             "user_message" => {
                 let steer = record.msg.get("steer").and_then(Value::as_bool) == Some(true);
@@ -464,6 +489,11 @@ impl Fold {
         s.tool_calls += session.tool_calls;
         s.permission_requests += session.permission_requests;
         s.permission_auto += session.permission_auto;
+        s.permission_answered += session.attention.answered;
+        s.permission_unanswered += session.attention.unanswered();
+        s.permission_wait_ms += session.attention.wait_ms;
+        s.permission_wait_max_ms = s.permission_wait_max_ms.max(session.attention.wait_max_ms);
+        s.limit_errors += session.attention.limit_errors;
         s.waiting_ms += session.waiting_ms;
 
         let mut turns = 0;

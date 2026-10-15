@@ -126,14 +126,26 @@ pub enum Tools {
 /// The system prompt for `tools`: the spec's prompt, the cmux section (its
 /// tool lines for `tools`), then the user's instructions file.
 pub fn system_text(user: Option<&str>, tools: &Tools) -> String {
-    chief_system_text(user, tools, false)
+    chief_system_text(user, tools, false, false)
 }
 
 /// `system_text` for a Chief turn: with `profile_tool` (the record grants
 /// the `profile` tool; constant for the host's life) the launcher section of
 /// a harness without the MCP server names `chief profile` too. A Claude
 /// harness finds the tool in its MCP list.
-pub fn chief_system_text(user: Option<&str>, tools: &Tools, profile_tool: bool) -> String {
+pub fn chief_system_text(
+    user: Option<&str>,
+    tools: &Tools,
+    profile_tool: bool,
+    chiefs_tool: bool,
+) -> String {
+    let chiefs = |chief: &str| {
+        if chiefs_tool {
+            chiefs_line(chief)
+        } else {
+            String::new()
+        }
+    };
     let base = base_prompt();
     let cmux = match tools {
         Tools::Mcp => CMUX_INSTRUCTIONS.to_owned(),
@@ -142,9 +154,9 @@ pub fn chief_system_text(user: Option<&str>, tools: &Tools, profile_tool: bool) 
 change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
 `{{\"avatar_path\": \"/abs/pic.png\"}}` sets your picture.{}",
             cli_instructions(chief),
-            chiefs_line(chief)
+            chiefs(chief)
         ),
-        Tools::Cli(chief) => format!("{}{}", cli_instructions(chief), chiefs_line(chief)),
+        Tools::Cli(chief) => format!("{}{}", cli_instructions(chief), chiefs(chief)),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
         Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
@@ -156,7 +168,7 @@ change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
 /// in its MCP list, with the grant).
 fn chiefs_line(chief: &str) -> String {
     format!(
-        "\n- Other Chiefs: with the person's chiefs tool, `{chief} chiefs '{{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}}'`\n  \
+        "\n- Other Chiefs: `{chief} chiefs '{{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}}'`\n  \
 makes a Chief and `\"action\": \"update\"` edits one, within your own grant (`{chief} chiefs` lists them)."
     )
 }
