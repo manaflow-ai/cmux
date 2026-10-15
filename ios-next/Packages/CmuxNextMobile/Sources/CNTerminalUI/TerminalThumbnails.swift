@@ -37,6 +37,9 @@ public final class TerminalThumbnails {
     public let minRefreshAge: Duration
     /// Latest card image per terminal id.
     public private(set) var images: [String: UIImage] = [:]
+    /// For an image taken from the live terminal: the bottom of its last row
+    /// with content, in points of the terminal (the image at its width).
+    @ObservationIgnored private var contentBottoms: [String: CGFloat] = [:]
 
     @ObservationIgnored private var current: (id: String, terminal: HeadlessTerminal)?
     @ObservationIgnored private var queue: [String] = []
@@ -164,8 +167,23 @@ public final class TerminalThumbnails {
         headless.start()
     }
 
-    private func publish(_ id: String, _ image: UIImage, _ drawnStyle: UIUserInterfaceStyle) {
+    /// How far a card showing only the top `visibleHeight` points (at the
+    /// terminal's width) of `terminalId`'s image moves it up so its prompt and
+    /// cursor are in view. Off-screen frames are drawn at the card's shape
+    /// and need none (0).
+    public func cardOffset(_ terminalId: String, visibleHeight: CGFloat) -> CGFloat {
+        Self.cardOffset(contentBottom: contentBottoms[terminalId], visibleHeight: visibleHeight)
+    }
+
+    /// The prompt row plus a little room, kept inside a card `visibleHeight` tall.
+    nonisolated static func cardOffset(contentBottom: CGFloat?, visibleHeight: CGFloat) -> CGFloat {
+        guard let contentBottom, contentBottom.isFinite, visibleHeight.isFinite, visibleHeight > 0 else { return 0 }
+        return max(0, (contentBottom + 8 - visibleHeight).rounded(.up))
+    }
+
+    private func publish(_ id: String, _ image: UIImage, _ drawnStyle: UIUserInterfaceStyle, contentBottom: CGFloat? = nil) {
         images[id] = image
+        contentBottoms[id] = contentBottom
         imageStyles[id] = drawnStyle
         lastLines[id] = nil
         snapshotAt[id] = .now
@@ -223,16 +241,17 @@ public final class TerminalThumbnails {
     }
 
     /// The full-screen terminal closed with this frame of its renderer.
-    public func resume(_ terminalId: String, image: UIImage) {
+    public func resume(_ terminalId: String, image: UIImage, contentBottom: CGFloat? = nil) {
         suspended.remove(terminalId)
-        setImage(terminalId, image: image)
+        setImage(terminalId, image: image, contentBottom: contentBottom)
     }
 
-    /// A card image taken from the live terminal (its last presented frame).
-    public func setImage(_ terminalId: String, image: UIImage) {
+    /// A card image taken from the live terminal (its last presented frame);
+    /// `contentBottom` places its prompt (see `cardOffset`).
+    public func setImage(_ terminalId: String, image: UIImage, contentBottom: CGFloat? = nil) {
         queue.removeAll { $0 == terminalId }
         held[terminalId] = nil
-        publish(terminalId, image, style)
+        publish(terminalId, image, style, contentBottom: contentBottom)
     }
 
     /// Stops the running surface; images stay until replaced.
@@ -246,6 +265,7 @@ public final class TerminalThumbnails {
         if current?.id == terminalId { stopCurrent(requeue: false) }
         queue.removeAll { $0 == terminalId }
         images[terminalId] = nil
+        contentBottoms[terminalId] = nil
         lastLines[terminalId] = nil
         snapshotAt[terminalId] = nil
         held[terminalId] = nil
@@ -254,6 +274,7 @@ public final class TerminalThumbnails {
 
     private func render(_ id: String, lines: [String], grid: (cols: Int, rows: Int)) {
         lastLines[id] = (lines, grid)
+        contentBottoms[id] = nil
         imageStyles[id] = style
         images[id] = TerminalCardRenderer.image(lines: lines, cols: grid.cols, size: cardSize, style: style)
     }

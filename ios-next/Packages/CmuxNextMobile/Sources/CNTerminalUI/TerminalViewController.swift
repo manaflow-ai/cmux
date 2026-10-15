@@ -206,6 +206,14 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         terminalView.snapshot(maxPixelWidth: maxPixelWidth)
     }
 
+    /// The bottom of the last row with content (the prompt and cursor, or
+    /// output below them) in points from the top of the terminal view, as
+    /// laid out (no keyboard pan).
+    var contentBottom: CGFloat? {
+        guard let bottom = terminalView.contentBottom, bottom.isFinite else { return nil }
+        return bottom
+    }
+
     /// The visible rows' text (for the card when the terminal closes).
     func visibleLines(_ done: @escaping @MainActor ([String], (cols: Int, rows: Int)) -> Void) {
         terminalView.readVisibleLines(done)

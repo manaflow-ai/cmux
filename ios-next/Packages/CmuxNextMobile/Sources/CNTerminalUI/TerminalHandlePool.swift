@@ -96,7 +96,7 @@ public final class TerminalHandlePool {
     public func showAsCard(_ terminalId: String) -> Bool {
         guard let h = handles[terminalId], h.hasRenderer else { return false }
         if let image = h.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) {
-            thumbnails.setImage(terminalId, image: image)
+            thumbnails.setImage(terminalId, image: image, contentBottom: h.model.controller?.contentBottom)
         }
         h.setRendering(false)
         return true
@@ -128,8 +128,8 @@ public final class TerminalHandlePool {
         } else {
             // The card shows the screen as it was when the terminal closed.
             // The card shows the live renderer's last frame (same pixels).
-            if let image = handle.model.controller?.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) {
-                thumbnails.resume(id, image: image)
+            if let controller = handle.model.controller, let image = controller.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) {
+                thumbnails.resume(id, image: image, contentBottom: controller.contentBottom)
             } else {
                 // No frame to keep: the off-screen renderer draws the card.
                 thumbnails.resume(id)

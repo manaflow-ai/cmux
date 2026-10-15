@@ -150,6 +150,15 @@ public final class TerminalHandle {
     public func snapshot(maxPixelWidth: CGFloat) -> UIImage? {
         controller?.snapshot(maxPixelWidth: maxPixelWidth)
     }
+
+    /// How far (points of the terminal, top down) a card that shows only the
+    /// top `visibleHeight` points of this terminal moves its content up so
+    /// the prompt and cursor (the last row with content) are in view; 0 when
+    /// they already are or there is no live view. A terminal's card shows
+    /// the screen you left, which ends at the prompt, not the top rows.
+    public func cardOffset(visibleHeight: CGFloat) -> CGFloat {
+        TerminalThumbnails.cardOffset(contentBottom: controller?.contentBottom, visibleHeight: visibleHeight)
+    }
     /// True once the renderer has drawn the terminal's output (or shows its
     /// ended/failed state); hosts cover it with the card image until then.
     public var isLive: Bool {
