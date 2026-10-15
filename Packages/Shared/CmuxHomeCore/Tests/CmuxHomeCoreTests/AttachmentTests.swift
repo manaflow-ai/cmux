@@ -467,7 +467,12 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         // as an unavailable sample so this test checks the policy without
         // mistaking an invalid fixture for a prepare regression.
         let bytes = data as Data
-        guard CGImageSourceCreateWithData(bytes as CFData, nil) != nil else { return nil }
+        // Some SDKs register a writer (notably Photoshop) that emits a
+        // container ImageIO can open but from which it cannot create a frame.
+        // `prepare` quite correctly rejects those bytes, so do not turn an
+        // unusable platform fixture into a policy failure.
+        guard let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else { return nil }
         return bytes
     }
 
