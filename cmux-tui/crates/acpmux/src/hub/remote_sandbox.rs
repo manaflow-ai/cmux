@@ -799,6 +799,19 @@ mod endpoint_tests {
         assert_eq!(serde_json::from_str::<Value>(&claude_settings(None)).unwrap().get("env"), None);
     }
 
+    /// Claude Code's own temporary files go to this spawn's temporary folder,
+    /// the one the profile lets it write, never the shared /tmp.
+    #[test]
+    fn claude_codes_temporary_folder_is_the_spawns_own() {
+        let (_, out) = wrap(Path::new("/usr/bin/sandbox-exec"), &bound(None), &profile(&["claude"], &[]), "claude".into(), vec![])
+            .unwrap();
+        let env_at = out.iter().position(|a| a == "/usr/bin/env").unwrap();
+        let program_at = out.iter().position(|a| a == "claude").unwrap();
+        let env = &out[env_at..program_at];
+        assert!(env.contains(&"TMPDIR=/private/tmp/acpmux-remote-x".to_string()), "{env:?}");
+        assert!(env.contains(&"CLAUDE_CODE_TMPDIR=/private/tmp/acpmux-remote-x".to_string()), "{env:?}");
+    }
+
     /// `sr claude proxy` cannot start its proxy in the sandbox: Claude Code
     /// runs straight to the subrouter server instead, or the chain is refused.
     #[test]
