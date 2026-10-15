@@ -180,8 +180,12 @@ def open_page(workspace):
     return wait(lambda: any(r.get("icon") == "favicon" for r in tab_rows(workspace)), 20)
 
 
+current_title = [""]
+
+
 def agent(name, source):
     new_workspace(name)
+    current_title[0] = name
     terminal = focused_terminal()
     check(bool(terminal), f"{name}: the workspace has a terminal")
     hook(source, terminal)
@@ -191,6 +195,14 @@ def hook(source, terminal):
     """The agent's own hooks: a session starts and a prompt is submitted in `terminal`, so its tab
     carries the agent's brand (TabModel.agentBrand) while the turn runs."""
     payload = json.dumps({"session_id": f"proof-{source}-{terminal}", "prompt": "proof"})
+    # From inside the terminal, as the agent's hook command runs (its env names the terminal and
+    # the daemon), then from here with --terminal.
+    exe = os.environ.get("NX_APP_CLI") or "cmux"
+    line = " && ".join(f"\"$(command -v cmux || echo '{exe}')\" agent hook emit --source {source} --event {event} --payload-json '{payload}'"
+                       for event in ("SessionStart", "UserPromptSubmit"))
+    cli("terminal", terminal or "", "write", "--text", line + "\n")
+    if wait(lambda: any(r.get("icon") for r in tab_rows(current_title[0])), 8):
+        return
     for event in ("SessionStart", "UserPromptSubmit"):
         cli("agent", "hook", "emit", "--source", source, "--event", event, "--terminal", terminal or "", "--payload-json", payload)
 
@@ -228,6 +240,7 @@ try:
     new_workspace("custom icon")
     cli("workspace", "current", "update", "--icon", "\U0001F680")
     pinned = new_workspace("pinned claude")
+    current_title[0] = "pinned claude"
     hook("claude", focused_terminal())
     action("palette.toggleWorkspacePin", target={"kind": "workspace", "id": pinned})
     check(bool(wait(lambda: any(str(i.get("ref", "")).endswith(":" + str(pinned)) for i in sidebar().get("items") or []), 10)),
