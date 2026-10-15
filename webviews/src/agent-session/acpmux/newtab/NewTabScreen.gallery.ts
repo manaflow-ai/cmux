@@ -65,7 +65,11 @@ function galleryNativeCalls(document: Document): GalleryNativeCall[] {
   );
 }
 
-async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed", id: string): Promise<void> {
+async function waitForTabJump(
+  ctx: PlayContext,
+  target: "tab" | "here" | "closed" | "stashed",
+  id: string,
+): Promise<void> {
   await ctx.waitFor(() =>
     galleryNativeCalls(ctx.document).some(
       (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
@@ -110,6 +114,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ChatFilterMenu.tsx#ChatFilterMenu",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
+    "agent-session/acpmux/newtab/StashedLink.tsx#StashedLink",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
@@ -376,6 +381,17 @@ export default agentPaneEntry({
         await waitForTabJump(ctx, "closed", "closed:2");
         const unavailable = ctx.find({ selector: ".nt-closed .nt-open-tab[disabled]" });
         if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
+      },
+    },
+    stashed: {
+      note: "Stashed (stash-v1, cx-rws36): while tabs are stashed, a link with their count opens the Stashed page; none without stashes.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(2)),
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyStashedCount?.(12);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-stashed .nt-open-tab").length === 1);
+        await ctx.click({ selector: ".nt-stashed .nt-open-tab" });
+        await waitForTabJump(ctx, "stashed", "all");
       },
     },
     "typed-prompt": {

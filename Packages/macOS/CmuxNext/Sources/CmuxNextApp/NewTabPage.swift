@@ -258,6 +258,7 @@ enum NewTabPage {
         case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
         case .here: break // only a split's page lists tabs to move (NewTabPage.split)
         case .closed: NewTabClosed.reopen(id, services: services)
+        case .stashed: TopPages.show(.page(.stashed), services: services)
         }
     }
 
