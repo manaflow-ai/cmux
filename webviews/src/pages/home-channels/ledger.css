@@ -671,6 +671,7 @@
    A narrower pane lets the sheet slide over them. */
 @container lg-main (min-width: 1100px) {
   .lg-stage:has(> .lg-sheet) > :not(.lg-sheet) {
+    width: auto;
     margin-inline-end: 520px;
   }
 }
