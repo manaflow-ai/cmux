@@ -195,11 +195,11 @@ def post_click(x, y):
     cg.CGEventCreateMouseEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, P, ctypes.c_uint32]
     cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     cg.CFRelease.argtypes = [ctypes.c_void_p]
-    # The app runs with CMUX_NEXT_NO_ACTIVATE, so a click lands on an inactive app: NoActivateKeyboardGuard logs
-    # "keyboard given back: app_activated, no_user_input" and WebKit sometimes gets no click at all (cx-ebm.59.5:
-    # 4 of 5 runs at 76bca7f6a85b, 0 of 3 at a5341bc5d774e; the page's submit handler never ran, no page call reached the host, and the hovered
-    # primary button's grey hover style looked like a busy sheet). The press is held like a human press; whether
-    # that lowers the miss rate is not measured yet.
+    # The --needs input job owns the GUI session, so the app runs WITHOUT CMUX_NEXT_NO_ACTIVATE and may activate.
+    # With it, every click landed on an inactive app; WKWebView does not accept a first mouse on a button, so AppKit
+    # held the click back to activate the window, and NoActivateKeyboardGuard then gave the activation back: the
+    # Create Chief click never reached the page (cx-ebm.59.5; 4 of 5 runs at 76bca7f6a85b, gate job
+    # 1014-174413-fa40d9 at e7e462c474a4). The page's hovered primary button looked disabled.
     for kind, hold in ((5, 0.08), (1, 0.4), (2, 0.08)):  # mouseMoved, leftMouseDown (held), leftMouseUp
         e = cg.CGEventCreateMouseEvent(None, kind, P(x, y), 0)
         cg.CGEventPost(0, e)
@@ -358,7 +358,7 @@ check("keyless_owner_running_before_app", before.get("status") == "running" and 
       {"status": before, "cli_err": (R.get("chief_list") or [{}])[-1].get("err", "")[-300:]})
 
 env = env_base()
-env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+env.update({"CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CONFIG_FILE": os.path.join(SCRATCH, "cmux.json"), "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
             "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1600,980", "CMUX_NEXT_ONBOARDING_COMPUTER_USE": "mock",
             "CMUX_NEXT_CHIEF_ROOT": CHIEF_ROOT})
