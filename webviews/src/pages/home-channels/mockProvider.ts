@@ -391,7 +391,7 @@ export class MockHomeProvider implements PageClient {
       role: "",
       personality: "",
       instructions: "",
-      tools: ["spawn", "tell", "workspaces"],
+      tools: ["chiefs", "spawn", "tell", "workspaces"],
       harnesses: [],
       selfEdit: ["avatar"],
       isDefault: false,

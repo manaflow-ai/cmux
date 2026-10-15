@@ -430,10 +430,19 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
+  // the stored one, so the row draws again, done, once another row follows it.
+  if (last.kind === "activity")
+    return [status, ...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
   return [status, ...rows];
 }
 
-/// A running turn's runs as the Codex desktop app draws them (Labs, cx-ncc.108): a run that text
+/// The Debug toggle `agentPane.debug.codexToolRuns` (off by default), which the app sets on
+/// `<html>` as `data-codex-tool-runs` before the page loads (AgentPaneTunables.swift).
+export const codexToolRuns = () =>
+  typeof document !== "undefined" && document.documentElement.dataset.codexToolRuns === "on";
+
+/// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text
 /// followed settles into its summary line, as in an open "Worked for"; the run in flight
 /// (`inFlight`) shows only its newest call, so its line replaces itself instead of growing into a
 /// list. Each derived row's version moves with its drawn state.

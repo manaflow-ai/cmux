@@ -1,7 +1,8 @@
-// Codex-style tool runs while a turn runs (cx-ncc.108, Labs): the Codex desktop app never lets a
-// running turn's tool calls pile up as a list. The run in flight is one line that names the newest
-// call and replaces itself as calls go by; once text follows a run, that run settles into one
-// summary line ("Read files"), which opens to its calls. Off (the default), every call keeps its row.
+// Codex-style tool runs while a turn runs (cx-ncc.108, behind the Debug toggle
+// agentPane.debug.codexToolRuns): the Codex desktop app never lets a running turn's tool calls pile
+// up as a list. The run in flight is one line that names the newest call and replaces itself as
+// calls go by; once text follows a run, that run settles into one summary line ("Read files"),
+// which opens to its calls. Off (the default), every call keeps its row.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";

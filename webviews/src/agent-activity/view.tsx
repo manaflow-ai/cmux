@@ -245,6 +245,7 @@ function Lanes({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
                       className="lane"
                       data-lane={lane.id}
                       data-state={lane.state}
+                      /* tooltip-allow: the lane shows its title; the tooltip is when it started */
                       title={lane.since ? new Date(lane.since).toLocaleString() : undefined}
                       onClick={() => dispatch({ type: "jump", id: lane.id })}
                     >
