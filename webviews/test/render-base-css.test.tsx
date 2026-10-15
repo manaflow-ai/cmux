@@ -120,7 +120,7 @@ test("a rendered page sees the theme's --cmux-* variables and cmux's plain defau
   const { root: vars, style } = framePage(await frameMessage(LIGHT, PAGE));
   expect(vars.getPropertyValue("--cmux-text").trim()).toBe(LIGHT.text);
   expect(vars.getPropertyValue("--cmux-muted").trim()).toBe(LIGHT.mutedText);
-  expect(vars.getPropertyValue("--cmux-surface").trim()).toBe(LIGHT.surfaceBackground);
+  expect(vars.getPropertyValue("--cmux-card").trim()).toBe(LIGHT.surfaceBackground);
   expect(vars.getPropertyValue("--cmux-border").trim()).toBe(LIGHT.border);
   expect(vars.getPropertyValue("--cmux-accent").trim()).toBe(LIGHT.accent);
   for (const name of [
@@ -168,7 +168,7 @@ test("a dark theme changes the variables a page sees", async () => {
   expect(light.root.getPropertyValue("color-scheme").trim()).toBe("light");
   expect(dark.root.getPropertyValue("color-scheme").trim()).toBe("dark");
   expect(dark.root.getPropertyValue("--cmux-text").trim()).toBe(DARK.text);
-  expect(dark.root.getPropertyValue("--cmux-surface").trim()).toBe(DARK.surfaceBackground);
+  expect(dark.root.getPropertyValue("--cmux-card").trim()).toBe(DARK.surfaceBackground);
   expect(dark.style("body").color).toBe(DARK.text);
   expect(dark.style("th").color).toBe(DARK.mutedText);
 });

@@ -12,7 +12,7 @@ export const RENDER_TOKENS: ReadonlyArray<readonly [name: string, source: string
   ["--cmux-text", "--agent-text", "CanvasText"],
   ["--cmux-muted", "--agent-muted", "GrayText"],
   ["--cmux-bg", "--agent-page-bg", "transparent"],
-  ["--cmux-surface", "--agent-surface", "color-mix(in srgb, CanvasText 5%, transparent)"],
+  ["--cmux-card", "--agent-surface", "color-mix(in srgb, CanvasText 5%, transparent)"],
   ["--cmux-border", "--agent-border", "color-mix(in srgb, CanvasText 12%, transparent)"],
   ["--cmux-accent", "--agent-accent", "LinkText"],
   ["--cmux-control", "--agent-control", "color-mix(in srgb, CanvasText 7%, transparent)"],
