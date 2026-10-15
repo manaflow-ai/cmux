@@ -9,6 +9,10 @@
 //! `provenance.origin_refused`), so a remote client cannot pass its words off as an agent's.
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
 //! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
+//!
+//! The hub sets one more kind itself, never taken from a client: `{kind: "offer_result",
+//! offerId, childSessionId, title}` on the prompt that brings a suggested task's first reply
+//! back to the chat that offered it (`hub/offer_results.rs`, cx-lo9yf).
 
 use serde_json::{Map, Value, json};
 
@@ -108,6 +112,12 @@ fn unshown(c: char) -> bool {
             c,
             '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
         )
+}
+
+/// The provenance of a suggested task's result (`hub/offer_results.rs`): the offer, the chat
+/// it started, and the task's title.
+pub fn offer_result(offer_id: &str, child_session_id: &str, title: &str) -> Value {
+    json!({"kind": "offer_result", "offerId": offer_id, "childSessionId": child_session_id, "title": title})
 }
 
 /// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).

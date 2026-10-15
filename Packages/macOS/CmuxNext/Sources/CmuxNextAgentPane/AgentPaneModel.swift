@@ -20,6 +20,10 @@ public final class AgentPaneModel {
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
+    /// Called when acpmux reports the agent the pane's session runs (its `session/new` or
+    /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
+    /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
+    @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
@@ -179,6 +183,13 @@ public final class AgentPaneModel {
         transport.requestHarnessEnable = { [weak self] prompt, answer in
             guard let onConfirmHarness = self?.onConfirmHarness else { return answer(false) }
             onConfirmHarness(prompt, answer)
+        }
+        transport.sessions.onHarness { [weak self] session, _ in
+            // task-owner: one hop to the main actor per reply that names a session's harness
+            Task { @MainActor in
+                guard let self, session == self.sessionId else { return }
+                self.onSessionHarness?(session)
+            }
         }
     }
 

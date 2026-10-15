@@ -46,6 +46,8 @@ type Props = {
   /** The app's page bridge (a real BridgePageClient over GalleryBridgeHost): the host calls the
    * page's ops the way PageRouter.callPage does. */
   hostBridge?: boolean;
+  /** A cmux link the page opens (as the Messages view's switch does through the hash). */
+  link?: string;
 };
 
 /** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
@@ -107,6 +109,7 @@ function HomeChannelsGallery({
   width,
   pane,
   hostBridge = false,
+  link,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
@@ -122,6 +125,7 @@ function HomeChannelsGallery({
     // The gallery owns its window hash: the page never writes it here.
     created.routed = false;
     if (route) created.sheets.show(route);
+    if (link) void created.start().then(() => created.openLink(link));
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -336,6 +340,17 @@ export default componentEntry<Props>({
           .querySelector(field)
           ?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main-compose .hc-tray-item.done").length === 2);
+      },
+    },
+    "composer-menu": {
+      note: "Right-click in the composer: its own menu (Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention), never WebKit's. The gallery has no app host, so the edits are off.",
+      props: { select: "c-chief" },
+      play: async (ctx) => {
+        const field = ".lg-main-compose .hc-composer-field";
+        await ctx.waitFor(() => ctx.document.querySelector(field));
+        await ctx.contextMenu({ selector: field });
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Paste as Plain Text" }));
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Attach Files…" }));
       },
     },
     "row-menu": {
@@ -733,6 +748,29 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
         expectSelection(await askSelection(ctx.document), null);
+      },
+    },
+    "link-no-resolver": {
+      note: "A message link to a reply when the owner has no link read (a Cloud conversation): the page finds it in its pages, opens its thread and marks it.",
+      props: { link: "cmux://conversation/c-release/message/c-release-m4" },
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".lg-sheet .hc-msg.highlighted .hc-md")].some((node) =>
+            node.textContent?.includes("restoreAnchor"),
+          ),
+        );
+        if (ctx.document.querySelector(".lg-error, .hc-error")) throw new Error("the page shows an error");
+      },
+    },
+    "link-no-resolver-timeline": {
+      note: "A message link to a timeline message with no link read: the conversation opens with the message marked.",
+      props: { link: "cmux://conversation/c-release/message/c-release-m6" },
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".lg-main .hc-msg.highlighted .hc-md")].some((node) =>
+            node.textContent?.includes("Changelog draft"),
+          ),
+        );
       },
     },
     "draft-posted": {
