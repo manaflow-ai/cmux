@@ -7,6 +7,7 @@
 mod adoption;
 mod aside;
 mod bookmarks;
+mod cancel;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
@@ -41,6 +42,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turns::is_limit_error;
+mod offer_results;
 mod offers;
 mod secrets;
 mod seen;
@@ -57,6 +59,7 @@ mod steer_end;
 mod stream;
 mod tags;
 mod tap;
+mod titles;
 mod tools;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -363,6 +366,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
+            hub.watch_titles();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }

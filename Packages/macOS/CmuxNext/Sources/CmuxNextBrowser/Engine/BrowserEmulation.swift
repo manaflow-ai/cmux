@@ -15,13 +15,60 @@ public nonisolated struct BrowserEmulation: Sendable, Hashable {
     /// given, only lowering `Emulation.setDeviceMetricsOverride`'s `scale` so
     /// a device bigger than the pane fits (as Chrome does).
     public var chromiumCallsJSON: String
+    /// Fit as a desktop (`mode: "fit"`): the engine sizes the layout from
+    /// its view (`viewport(in:)`); `width` and `height` are 0.
+    public var fit: Fit?
 
-    public init(width: Int, height: Int, deviceScaleFactor: Double, userAgent: String, chromiumCallsJSON: String) {
+    /// The daemon's fit record: a layout as wide as the view would be at
+    /// aspect `aspectWidth:aspectHeight` at its height, between `minWidth`
+    /// and `maxWidth` CSS px, scaled down to the view's width; the layout is
+    /// as tall as the view over that scale, so the page fills the view.
+    public struct Fit: Sendable, Hashable {
+        public var aspectWidth: Int
+        public var aspectHeight: Int
+        public var minWidth: Int
+        public var maxWidth: Int
+
+        public init(aspectWidth: Int, aspectHeight: Int, minWidth: Int, maxWidth: Int) {
+            self.aspectWidth = aspectWidth
+            self.aspectHeight = aspectHeight
+            self.minWidth = minWidth
+            self.maxWidth = maxWidth
+        }
+    }
+
+    /// The page's layout size and the scale that shows it in a view.
+    public struct Viewport: Sendable, Hashable {
+        public var size: CGSize
+        public var scale: CGFloat
+    }
+
+    public init(width: Int, height: Int, deviceScaleFactor: Double, userAgent: String, chromiumCallsJSON: String, fit: Fit? = nil) {
         self.width = width
         self.height = height
         self.deviceScaleFactor = deviceScaleFactor
         self.userAgent = userAgent
         self.chromiumCallsJSON = chromiumCallsJSON
+        self.fit = fit
+    }
+
+    /// The layout size and scale in a view of `available` points: the
+    /// device's size at its fit scale, or for a fit the desktop layout that
+    /// fills the view. Nil when the page shows as is (a fit in a view at
+    /// least as wide as its layout, or an empty view).
+    public func viewport(in available: CGSize) -> Viewport? {
+        guard let fit else {
+            guard width > 0, height > 0 else { return nil }
+            return Viewport(size: CGSize(width: width, height: height), scale: fitScale(in: available))
+        }
+        guard available.width >= 1, available.height >= 1, fit.aspectWidth > 0, fit.aspectHeight > 0 else { return nil }
+        let wanted = (available.height * CGFloat(fit.aspectWidth) / CGFloat(fit.aspectHeight)).rounded()
+        let layoutWidth = min(max(wanted, CGFloat(fit.minWidth)), CGFloat(max(fit.minWidth, fit.maxWidth)))
+        guard available.width < layoutWidth else { return nil }
+        let scale = available.width / layoutWidth
+        // Rounded down: the page never runs past the view's bottom edge.
+        let layoutHeight = max(1, (available.height / scale).rounded(.down))
+        return Viewport(size: CGSize(width: layoutWidth, height: layoutHeight), scale: scale)
     }
 
     /// The scale that fits the device in `available` points (at most 1), in
