@@ -19,8 +19,18 @@ struct CloudSecretsServiceTests {
         private let lock = NSLock()
         private var deliveriesStorage: [(machine: String, entries: [CloudEnvDelivery.Entry])] = []
         private var commandsStorage: [(machine: String, command: String)] = []
+        private var eventsStorage: [String] = []
         var failDelivery: Error?
         var execStdout = ""
+        /// Exit code for an exec; 0 unless a test says otherwise.
+        var execExitCode: @Sendable (String) -> Int = { _ in 0 }
+
+        /// Deliveries and execs in order: "deliver:<names>" or "exec:<command>".
+        var events: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return eventsStorage
+        }
 
         var deliveries: [(machine: String, entries: [CloudEnvDelivery.Entry])] {
             lock.lock()
@@ -39,24 +49,29 @@ struct CloudSecretsServiceTests {
                 deliver: { machine, entries in
                     self.lock.lock()
                     let failure = self.failDelivery
-                    if failure == nil { self.deliveriesStorage.append((machine, entries)) }
+                    if failure == nil {
+                        self.deliveriesStorage.append((machine, entries))
+                        self.eventsStorage.append("deliver:" + entries.map(\.key).joined(separator: ","))
+                    }
                     self.lock.unlock()
                     if let failure { throw failure }
                 },
                 exec: { machine, command in
                     self.lock.lock()
                     self.commandsStorage.append((machine, command))
+                    self.eventsStorage.append("exec:" + command)
                     let stdout = self.execStdout
+                    let exitCode = self.execExitCode(command)
                     self.lock.unlock()
-                    return VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
+                    return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: "")
                 }
             )
         }
     }
 
-    private func makeService(_ recorder: RecordingTransport) -> CloudSecretsService {
+    private func makeService(_ recorder: RecordingTransport, defaults: UserDefaults? = nil) -> CloudSecretsService {
         let suite = "cloud-secrets-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        let defaults = defaults ?? UserDefaults(suiteName: suite) ?? .standard
         return CloudSecretsService(
             vault: CloudSecretVault(storage: InMemoryCloudSecretVaultStorage()),
             transport: recorder.transport,
@@ -104,7 +119,17 @@ struct CloudSecretsServiceTests {
 
         #expect(outcome.changes.map(\.kind) == [.removed])
         #expect(outcome.synced.map(\.removed) == [["OPENAI_API_KEY"]])
-        #expect(recorder.commands == ["cmux env rm OPENAI_API_KEY"])
+        // Names only: the first sync's guards around its delivery, then the
+        // removal, then the guard that releases the endpoint cmux added beside
+        // the key.
+        let unrouted = CloudSecretsProviderRouting.unrouted.command
+        #expect(recorder.commands == [
+            CloudSecretsProviderRouting(openAI: .direct, anthropic: .keep).command,
+            CloudSecretsProviderRouting(openAI: .direct, anthropic: .plane).command,
+            "cmux env rm OPENAI_API_KEY",
+            unrouted,
+        ])
+        #expect(!recorder.commands.contains { $0.contains("sk-openai") })
     }
 
     @Test func aGitHubTokenConfiguresTheCredentialHelperWithoutTheValue() async throws {
@@ -160,6 +185,115 @@ struct CloudSecretsServiceTests {
         #expect(changes.map(\.kind) == [.added])
         await service.reload()
         #expect(service.records.isEmpty)
+    }
+
+    // MARK: - Provider routing
+
+    @Test func providerRoutingFollowsTheUsersKeysAndEndpoints() {
+        let none = CloudSecretsProviderRouting(effectiveNames: ["GH_TOKEN"])
+        #expect(none == .unrouted)
+        #expect(!none.hasUserProviderKey)
+        #expect(none.companionEndpoints.isEmpty)
+
+        let openAI = CloudSecretsProviderRouting(effectiveNames: ["OPENAI_API_KEY", "GH_TOKEN"])
+        #expect(openAI.openAI == .direct)
+        #expect(openAI.anthropic == .plane)
+        #expect(openAI.companionEndpoints.map { $0.name } == ["OPENAI_BASE_URL"])
+        #expect(openAI.companionEndpoints.map { $0.value } == ["https://api.openai.com/v1"])
+        #expect(openAI.protectingOnly == CloudSecretsProviderRouting(openAI: .direct, anthropic: .keep))
+
+        // A user's own endpoint in Cloud Secrets wins; cmux adds none.
+        let ownEndpoint = CloudSecretsProviderRouting(effectiveNames: ["OPENAI_API_KEY", "OPENAI_BASE_URL"])
+        #expect(ownEndpoint.openAI == .user)
+        #expect(ownEndpoint.companionEndpoints.isEmpty)
+
+        // Claude Code's bearer token counts as an Anthropic key too.
+        let token = CloudSecretsProviderRouting(effectiveNames: ["ANTHROPIC_AUTH_TOKEN"])
+        #expect(token.anthropic == .direct)
+        #expect(token.companionEndpoints.map { $0.value } == ["https://api.anthropic.com"])
+        #expect(token.marker == "v1;openai=plane;anthropic=direct")
+    }
+
+    @Test func theRoutingGuardCarriesNamesAndConstantsOnly() {
+        let routing = CloudSecretsProviderRouting(openAI: .direct, anthropic: .user)
+        #expect(routing.command.hasPrefix("sh -c '"))
+        #expect(routing.command.hasSuffix(" cmux-provider-routing direct user"))
+        let script = CloudSecretsProviderRouting.guardScript
+        #expect(script.contains(CloudSecretsProviderRouting.openAIEndpoint))
+        #expect(script.contains(CloudSecretsProviderRouting.anthropicEndpoint))
+        // The model-plane copy is neutralized, never rewritten with a value.
+        #expect(script.contains(#"ln -sfn /dev/null "$mp""#))
+    }
+
+    @Test func aProviderKeyIsRoutedBeforeItIsDeliveredAndNeverWithItsValue() async throws {
+        let recorder = RecordingTransport()
+        let service = makeService(recorder)
+        try await service.set([CloudSecretInput(name: "OPENAI_API_KEY", value: "sk-proj-user")], scope: .all, source: .manual, sync: false)
+
+        let result = await service.sync(machineID: "m1")
+
+        #expect(result.error == nil)
+        let guardCommand = CloudSecretsProviderRouting(openAI: .direct, anthropic: .keep).command
+        // The guard runs first, then the key alone rides the link, then the
+        // release for the provider the user gave no key (Anthropic).
+        #expect(recorder.events == [
+            "exec:" + guardCommand,
+            "deliver:OPENAI_API_KEY",
+            "exec:" + CloudSecretsProviderRouting(openAI: .direct, anthropic: .plane).command,
+        ])
+        #expect(!recorder.commands.contains { $0.contains("sk-proj-user") })
+        #expect(recorder.deliveries.first?.entries == [CloudEnvDelivery.Entry(key: "OPENAI_API_KEY", value: "sk-proj-user")])
+
+        // Current machine, current routing: nothing runs again.
+        let again = await service.sync(machineID: "m1")
+        #expect(again.noop)
+        #expect(recorder.events.count == 3)
+    }
+
+    @Test func aGuardThatFailsKeepsTheKeyOffTheMachine() async throws {
+        let recorder = RecordingTransport()
+        recorder.execExitCode = { command in command.contains("cmux-provider-routing") ? 1 : 0 }
+        let service = makeService(recorder)
+        try await service.set([CloudSecretInput(name: "ANTHROPIC_API_KEY", value: "sk-ant-guarded")], scope: .all, source: .manual, sync: false)
+
+        let result = await service.sync(machineID: "m1")
+
+        #expect(result.error != nil)
+        #expect(!(result.error ?? "").contains("sk-ant-guarded"))
+        #expect(recorder.deliveries.isEmpty)
+    }
+
+    @Test func aMachineThatGotAKeyBeforeRoutingExistedIsRoutedWithoutRedelivery() async throws {
+        let recorder = RecordingTransport()
+        let defaults = try #require(UserDefaults(suiteName: "cloud-secrets-tests-\(UUID().uuidString)"))
+        let service = makeService(recorder, defaults: defaults)
+        try await service.set([CloudSecretInput(name: "OPENAI_API_KEY", value: "sk-proj-old")], scope: .all, source: .manual, sync: false)
+        _ = await service.sync(machineID: "m1")
+        // As if delivered by a build without routing: the ledger is current, the
+        // routing marker absent.
+        service.forgetProviderRouting(machineID: "m1")
+        let before = recorder.events.count
+
+        let results = await service.syncAllStale()
+
+        #expect(results.map(\.machineID) == ["m1"])
+        #expect(results.first?.noop == true)
+        #expect(Array(recorder.events.dropFirst(before)) == [
+            "exec:" + CloudSecretsProviderRouting(openAI: .direct, anthropic: .plane).command,
+        ])
+        #expect(recorder.deliveries.count == 1)
+        #expect(await service.syncAllStale().isEmpty)
+    }
+
+    @Test func aMachineWithoutProviderKeysNeverRunsTheGuard() async throws {
+        let recorder = RecordingTransport()
+        let service = makeService(recorder)
+        try await service.set([CloudSecretInput(name: "NPM_TOKEN", value: "npm-value")], scope: .all, source: .manual, sync: false)
+
+        _ = await service.sync(machineID: "m1")
+
+        #expect(recorder.commands.isEmpty)
+        #expect(recorder.events == ["deliver:NPM_TOKEN"])
     }
 
     // MARK: - Socket parameters

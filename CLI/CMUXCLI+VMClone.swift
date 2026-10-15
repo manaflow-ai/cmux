@@ -20,70 +20,46 @@ import Foundation
 extension CMUXCLI {
     static var vmCloneUsage: String {
         """
-        Usage: cmux vm clone <repo> [--machine <id> | --new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--branch <b>] [--dir <remote-dir>] [--agent <claude|codex|opencode|pi> [-- <prompt>]] [--skip-setup] [--no-open] [--focus|--no-focus] [--dry-run] [--json]
-               cmux vm repo clone <repo> [same options]
-
-        Clone a repository on a cloud machine and open it, in one command:
-          1. machine    pick the machine like `vm agent` (sticky per repository, then an
-                        idle pool machine, then a fresh one) unless --machine / --new
-          2. secrets    sync Cloud Secrets to it, so GH_TOKEN and the project's keys land
-                        before git runs (private GitHub repositories need GH_TOKEN)
-          3. clone      `git clone` on the machine into work/<repo>; when that directory is
-                        already a checkout of the same repository, fetch and check the
-                        branch out instead
-          4. secrets    check the names the repository declares (.cmux/cloud.json `env`,
-                        devcontainer `secrets`) against the secrets that reach the machine,
-                        and say which are missing and how to add them (never blocks)
-          5. workspace  get-or-create the machine workspace named after the repository with
-                        a terminal in the checkout, opened here unless --no-open
-          6. setup      run .cmux/cloud.json `setup` commands, one by one, in a terminal named
-                        "setup" in that workspace, with live progress here; a failed step
-                        stops the run and leaves the terminal open
-          7. agent      --agent starts that agent in the checkout once setup succeeded
-
-        <repo>:
-          https://github.com/<owner>/<repo>               a GitHub repository
-          https://github.com/<owner>/<repo>/tree/<branch>  a branch of it
-          git@github.com:<owner>/<repo>.git               (cloned over https so GH_TOKEN works)
-          <owner>/<repo>                                  shorthand for github.com
-          https://<host>/<path>.git                       any https git URL
-          .                                               this folder's origin remote and the
-                                                          branch it tracks there (uncommitted or
-                                                          unpushed work stays here; use `vm push`)
-
-        Options:
-          --machine <id>   Skip routing and use this machine.
-          --new            Force a fresh pool machine.
-          --size <4g|8g|16g|24g|32g|64g|MB>
-                           Memory preset for a machine this call creates
-                           (4g to 16g on Pro; 24g, 32g, and 64g need cmux Max).
-          --branch <b>     Check this branch out (overrides a /tree/<branch> URL).
-          --dir <path>     Where the checkout lives on the machine, relative to the home
-                           directory unless absolute (default: work/<repo>).
-          --agent <name>   Start claude | codex | opencode | pi in the checkout. Words after
-                           `--` are its prompt (the agent's one-shot form, like `vm agent`);
-                           without them the agent starts interactively.
-          --skip-setup     Do not run the repository's `setup` commands.
-          --no-open        Do everything on the machine; open nothing here.
-          --focus, --no-focus
-                           Focus the opened workspace, or open it in the background.
-                           \(openFocusDefaultHelp)
-          --dry-run        Print the plan (clone URL, branch, project, directory) without
-                           touching the machine.
-          --json           {machine, created, reason, repo: {url, name, owner, branch, project},
-                            dir, result, workspace_id, local_workspace_id, terminal_id,
-                            missing_secrets, setup: {status, terminal_id, steps}, agent_terminal_id,
-                            open, timings}
-
-        Private repositories: add a GitHub token once with `cmux vm secrets import --gh`.
-        Setup commands come from the repository you clone and run on the machine with your
-        Cloud Secrets in reach; pass --skip-setup for a repository you do not trust.
+        Usage: cmux vm clone <repo> [options]       (also: cmux vm repo clone <repo> [options])
 
         Examples:
           cmux vm clone manaflow-ai/cmux
-          cmux vm clone https://github.com/vercel/next.js/tree/canary --new --size 16g
           cmux vm clone . --agent claude -- "run the test suite and fix failures"
+          cmux vm clone https://github.com/vercel/next.js/tree/canary --new --size 16g
           cmux vm clone git@github.com:acme/api.git --machine vivid-newt --no-open --json
+
+        Clones a repository on a Cloud machine and opens a workspace named after it, with a
+        terminal in the checkout. In order: pick a machine (the one this repository used
+        last, then an idle pool machine, then a new one); sync Cloud Secrets so GH_TOKEN
+        reaches git; clone into work/<repo>, or fetch and check out if it is already there;
+        name any secrets the repository declares that the machine lacks; run the
+        repository's .cmux/cloud.json `setup` in a "setup" terminal; start --agent as a tab
+        in the same workspace.
+
+        <repo>   <owner>/<repo>, https://github.com/<owner>/<repo>[/tree/<branch>],
+                 git@<host>:<path>.git (GitHub clones over https), any https git URL, or
+                 `.` for this folder's origin and the branch it tracks there. Uncommitted
+                 and unpushed work stays here; send it with `cmux vm push` or `cmux vm dev`.
+
+        Options:
+          --machine <id>       Use this machine instead of routing.
+          --new                Use a new pool machine.
+          --size <4g|8g|16g|24g|32g|64g|MB>
+                               Memory for a new machine (24g and up need cmux Max).
+          --branch <b>         Check out this branch (wins over /tree/<branch>).
+          --dir <path>         Checkout on the machine, relative to home (default: work/<repo>).
+          --agent <claude|codex|opencode|pi> [-- <prompt>]
+                               Start an agent in the checkout; with a prompt it runs one-shot.
+          --skip-setup         Do not run the repository's setup commands.
+          --no-open            Do everything on the machine; open nothing here.
+          --focus, --no-focus  \(openFocusDefaultHelp)
+          --dry-run            Show the plan, including the machine it would use; change nothing.
+          --json               Print {machine, repo, dir, workspace_id, terminal_id, setup,
+                               agent_terminal_id, open, timings, …}.
+
+        Private repositories: add a GitHub token once with `cmux vm secrets import --gh`.
+        Setup commands come from the repository and run with your Cloud Secrets in reach;
+        pass --skip-setup for a repository you do not trust.
         """
     }
 
@@ -328,6 +304,9 @@ extension CMUXCLI {
                 + "elif [ -e \"$d\" ] && [ -n \"$(ls -A \"$d\" 2>/dev/null)\" ]; then "
                 + "echo 'cmux-clone-conflict: a folder that is not a git checkout' >&2; exit 3; "
                 + "else mkdir -p \"$(dirname \"$d\")\" && git clone \(cloneFlags)-- \"$u\" \"$d\" || exit $?; echo cmux-clone=cloned; fi",
+            // The absolute checkout path, so terminals can start there natively (the
+            // machine user's home is not known on the Mac).
+            "printf 'cmux-clone-path=%s\\n' \"$(cd \"$d\" && pwd -P)\"",
             vmCloneManifestDumpScript,
             "true",
         ]
@@ -368,6 +347,74 @@ extension CMUXCLI {
             files[path] = text
         }
         return files
+    }
+
+    /// The absolute checkout path the clone exec printed (`cmux-clone-path=/home/…`),
+    /// or nil when it is missing (an older script) or not a plain absolute path.
+    static func vmCloneCheckoutPath(fromCloneOutput stdout: String) -> String? {
+        for line in stdout.split(whereSeparator: \.isNewline) where line.hasPrefix("cmux-clone-path=") {
+            let path = String(line.dropFirst("cmux-clone-path=".count))
+            guard path.hasPrefix("/"), path.count > 1,
+                  !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+            return path
+        }
+        return nil
+    }
+
+    /// The agent's terminal program: `vm agent`'s login-shell launch in the checkout, but
+    /// not `exec`, so when the agent exits (a one-shot prompt finishes, or the user quits
+    /// it) the tab stays in the repository's workspace as a shell in the checkout, with
+    /// the agent's output above it.
+    static func vmCloneAgentShellCommand(argv: [String], dir: String) -> [String] {
+        let joined = argv.map(\.posixShellWord).joined(separator: " ")
+        return [
+            "bash", "-lc",
+            "cd \"$HOME\"; cd \(vmCloneShellDirectory(dir)) || exit 1; "
+                + "export PATH=\"$HOME/.npm-global/bin:$HOME/.bun/bin:$HOME/.local/bin:$PATH\"; "
+                + "\(joined); exec \"${SHELL:-bash}\" -l",
+        ]
+    }
+
+    /// The `--dry-run` machine line: the pinned machine, the routed one, or "a new 4g
+    /// machine" when routing would create one. `memoryMb` is the `--size` request.
+    static func vmCloneDryRunMachineText(pinned: String?, forceNew: Bool, routed: VMRunSelection?, memoryMb: Int?) -> String {
+        if let pinned {
+            return String(format: String(localized: "cli.vm.clone.plan.machinePinned", defaultValue: "%@ (pinned with --machine)"), pinned)
+        }
+        let size: String
+        if let memoryMb {
+            size = memoryMb % 1024 == 0 ? "\(memoryMb / 1024)g" : "\(memoryMb) MB"
+        } else {
+            size = "4g"
+        }
+        let newMachine = String(format: String(localized: "cli.vm.clone.plan.machineNew", defaultValue: "a new %@ machine"), size)
+        if forceNew { return newMachine + " (--new)" }
+        guard let routed else {
+            return String(localized: "cli.vm.clone.plan.machineRouted", defaultValue: "the one this repository used last, else an idle pool machine, else a new one")
+        }
+        if routed.wouldProvision { return newMachine }
+        return "\(routed.id) (\(routed.reason))"
+    }
+
+    /// What `.` leaves behind, from this folder's git state: uncommitted changes and
+    /// commits origin does not have. Empty when the folder is clean and pushed.
+    static func vmCloneDotLocalNotes(uncommitted: Int, unpushed: Int, branch: String?) -> [String] {
+        var notes: [String] = []
+        let source = branch.map { "origin/\($0)" }
+            ?? String(localized: "cli.vm.clone.dot.defaultBranch", defaultValue: "origin's default branch")
+        if uncommitted > 0 {
+            let format = uncommitted == 1
+                ? String(localized: "cli.vm.clone.dot.uncommitted.one", defaultValue: "Cloning %1$@ \u{2014} %2$ld uncommitted change in this checkout is not included. Use `cmux vm push` or `cmux vm dev` to send working-tree changes.")
+                : String(localized: "cli.vm.clone.dot.uncommitted.many", defaultValue: "Cloning %1$@ \u{2014} %2$ld uncommitted changes in this checkout are not included. Use `cmux vm push` or `cmux vm dev` to send working-tree changes.")
+            notes.append(String(format: format, source, uncommitted))
+        }
+        if unpushed > 0 {
+            let format = unpushed == 1
+                ? String(localized: "cli.vm.clone.dot.unpushed.one", defaultValue: "%1$ld local commit is not on %2$@ yet, so the machine will not have it. Push first (git push) to include it.")
+                : String(localized: "cli.vm.clone.dot.unpushed.many", defaultValue: "%1$ld local commits are not on %2$@ yet, so the machine will not have them. Push first (git push) to include them.")
+            notes.append(String(format: format, unpushed, source))
+        }
+        return notes
     }
 
     /// `.cmux/cloud.json`'s `setup`: a command string or an array of them, in order.
@@ -562,6 +609,29 @@ extension CMUXCLI {
         return try Self.parseVMCloneRepoSpec(origin, branchOverride: branch)
     }
 
+    /// Changed, staged, and untracked paths in the folder (`git status --porcelain`).
+    static func vmCloneUncommittedCount(directory: String) -> Int {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", directory, "status", "--porcelain"],
+            timeout: 30
+        )
+        guard !result.timedOut, result.status == 0 else { return 0 }
+        return result.stdout.split(whereSeparator: \.isNewline).filter { !$0.isEmpty }.count
+    }
+
+    /// Commits on HEAD that its upstream does not have; 0 without an upstream (the
+    /// no-upstream note already covers that case).
+    static func vmCloneUnpushedCount(directory: String) -> Int {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", directory, "rev-list", "--count", "@{upstream}..HEAD"],
+            timeout: 30
+        )
+        guard !result.timedOut, result.status == 0 else { return 0 }
+        return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
     // MARK: - Command
 
     func runVMRepoCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
@@ -670,6 +740,13 @@ extension CMUXCLI {
         let routingDirectory: String
         if repoArg == "." {
             spec = try resolveVMCloneDotRepo(directory: cwd, branchOverride: branchOption)
+            for note in Self.vmCloneDotLocalNotes(
+                uncommitted: Self.vmCloneUncommittedCount(directory: cwd),
+                unpushed: Self.vmCloneUnpushedCount(directory: cwd),
+                branch: spec.branch
+            ) {
+                cliWriteStderr(note + "\n")
+            }
             // `.` binds this folder, so a later `vm agent` / `vm run` here lands on the
             // machine that now holds its checkout.
             routingDirectory = cwd
@@ -696,13 +773,29 @@ extension CMUXCLI {
         }
 
         if dryRun {
+            // Which machine routing would pick, read without creating one. No socket (or
+            // no sign-in) leaves the plan without it rather than failing the dry run.
+            var routed: VMRunSelection?
+            if machineOverride == nil, !forceNew {
+                routed = try? selectVMForRun(
+                    machineOverride: nil,
+                    forceNew: false,
+                    memoryMb: memoryMb,
+                    workDirectory: routingDirectory,
+                    allowProvision: false,
+                    client: client
+                )
+            }
+            let machineText = Self.vmCloneDryRunMachineText(pinned: machineOverride, forceNew: forceNew, routed: routed, memoryMb: memoryMb)
             if jsonOutput {
                 var plan: [String: Any] = [:]
                 plan["dry_run"] = true
                 plan["repo"] = repoPayload()
                 plan["dir"] = remoteDir
                 plan["workspace_name"] = workspaceName
-                plan["machine"] = orNull(machineOverride)
+                plan["machine"] = orNull(machineOverride ?? routed.flatMap { $0.wouldProvision ? nil : $0.id })
+                plan["machine_plan"] = machineText
+                plan["would_provision"] = forceNew || routed?.wouldProvision == true
                 plan["new"] = forceNew
                 plan["agent"] = orNull(agent)
                 plan["agent_command"] = orNull(agentArgv)
@@ -710,7 +803,6 @@ extension CMUXCLI {
                 plan["skip_setup"] = skipSetup
                 print(jsonString(plan))
             } else {
-                let machineText = machineOverride ?? (forceNew ? "a fresh pool machine" : "routed (sticky per repository, then the idle pool)")
                 let branchText = spec.branch.map { " (branch \($0))" } ?? " (default branch)"
                 print("plan: clone \(spec.cloneURL)\(branchText)")
                 print("plan: project \(spec.projectKey)")
@@ -775,6 +867,7 @@ extension CMUXCLI {
             responseTimeout: TimeInterval(cloneTimeoutMs / 1000 + 60)
         )
         let cloneStdout = (cloneResponse["stdout"] as? String) ?? ""
+        let checkoutPath = Self.vmCloneCheckoutPath(fromCloneOutput: cloneStdout)
         let cloneStderr = ((cloneResponse["stderr"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let cloneExit = (cloneResponse["exit_code"] as? Int) ?? -1
         if cloneExit != 0 {
@@ -803,7 +896,7 @@ extension CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.vm.clone.failed",
-                    defaultValue: "vm clone: git failed on %1$@ (exit %2$d)%3$@"
+                    defaultValue: "vm clone: git failed on %1$@ (exit %2$ld)%3$@"
                 ),
                 machine, cloneExit, detail
             ))
@@ -856,21 +949,47 @@ extension CMUXCLI {
         let workspaceResponse = try client.sendV2(method: "vm.workspace_new", params: workspaceParams, responseTimeout: 240)
         let remoteWorkspace = (workspaceResponse["remote_workspace_id"] as? String) ?? "?"
         let existingWorkspace = (workspaceResponse["existing"] as? Bool) ?? false
-        let starterTerminal = (workspaceResponse["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        var starterTerminal = (workspaceResponse["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let localWorkspace = (workspaceResponse["workspace_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        // A fresh workspace's starter shell begins in the home directory; move it into the
-        // checkout. An existing workspace keeps whatever its terminals are doing.
-        if !existingWorkspace, let starterTerminal {
-            _ = try client.sendV2(
-                method: "vm.terminal_write",
-                params: [
-                    "id": machine,
-                    "terminal_id": starterTerminal,
-                    "text": "cd \(Self.vmCloneShellDirectory(remoteDir))",
-                    "keys": ["enter"],
-                ],
-                responseTimeout: 120
-            )
+        // A fresh workspace's starter shell begins in the home directory. Replace it with
+        // a terminal started in the checkout (a native cwd, so nothing is typed into it
+        // and the sidebar shows the checkout); an existing workspace keeps whatever its
+        // terminals are doing. Without the checkout's absolute path, or when the new
+        // terminal cannot start, the starter is moved with `cd` as before.
+        if !existingWorkspace, let starter = starterTerminal {
+            var replaced = false
+            if let checkoutPath {
+                var params: [String: Any] = [
+                    "machine": machine,
+                    "cwd": checkoutPath,
+                    "open": open && localWorkspace != nil,
+                    "focus": focusValue,
+                ]
+                if remoteWorkspace != "?" { params["remote_workspace_id"] = remoteWorkspace }
+                if open, let localWorkspace { params["workspace_id"] = localWorkspace }
+                if let response = try? client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240),
+                   let terminal = (response["terminal_id"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
+                    _ = try? client.sendV2(
+                        method: "vm.terminal_close",
+                        params: ["id": machine, "terminal_id": starter],
+                        responseTimeout: 120
+                    )
+                    starterTerminal = terminal
+                    replaced = true
+                }
+            }
+            if !replaced {
+                _ = try client.sendV2(
+                    method: "vm.terminal_write",
+                    params: [
+                        "id": machine,
+                        "terminal_id": starter,
+                        "text": "cd \(Self.vmCloneShellDirectory(remoteDir))",
+                        "keys": ["enter"],
+                    ],
+                    responseTimeout: 120
+                )
+            }
         }
         phase(
             "workspace",
@@ -902,6 +1021,7 @@ extension CMUXCLI {
                     localWorkspace: localWorkspace,
                     open: open,
                     remoteDir: remoteDir,
+                    checkoutPath: checkoutPath,
                     commands: setupCommands,
                     client: client
                 )
@@ -927,13 +1047,16 @@ extension CMUXCLI {
             let agentStarted = Date()
             var agentParams: [String: Any] = [
                 "machine": machine,
-                "command": vmAgentShellCommand(argv: agentArgv, workDirectory: remoteDir),
+                // A tab in the repository's workspace that outlives the agent: when it
+                // exits, a shell in the checkout keeps the tab (and its output) there.
+                "command": Self.vmCloneAgentShellCommand(argv: agentArgv, dir: remoteDir),
                 "name": Self.vmAgentTerminalName(agent: agent, args: promptArgs),
                 "open": open && localWorkspace != nil,
                 "focus": focusValue,
             ]
             if remoteWorkspace != "?" { agentParams["remote_workspace_id"] = remoteWorkspace }
             if open, let localWorkspace { agentParams["workspace_id"] = localWorkspace }
+            if let checkoutPath { agentParams["cwd"] = checkoutPath }
             let agentResponse = try client.sendV2(method: "surface.new_terminal", params: agentParams, responseTimeout: 240)
             agentTerminal = agentResponse["terminal_id"] as? String
             agentSurface = (agentResponse["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1036,6 +1159,7 @@ extension CMUXCLI {
         localWorkspace: String?,
         open: Bool,
         remoteDir: String,
+        checkoutPath: String? = nil,
         commands: [String],
         client: SocketClient
     ) throws -> VMCloneSetupOutcome {
@@ -1049,6 +1173,7 @@ extension CMUXCLI {
         ]
         if let remoteWorkspace { params["remote_workspace_id"] = remoteWorkspace }
         if open, let localWorkspace { params["workspace_id"] = localWorkspace }
+        if let checkoutPath { params["cwd"] = checkoutPath }
         let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
         guard let terminalID = (response["terminal_id"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else {
             throw CLIError(message: String(
@@ -1289,7 +1414,7 @@ extension CMUXCLI {
         }
         let sent = (response["sent"] as? [String]) ?? []
         return (true, String(
-            format: String(localized: "cli.vm.clone.secretsSent", defaultValue: "%d delivered"),
+            format: String(localized: "cli.vm.clone.secretsSent", defaultValue: "%ld delivered"),
             sent.count
         ))
     }

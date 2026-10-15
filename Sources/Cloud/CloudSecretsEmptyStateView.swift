@@ -21,7 +21,7 @@ struct CloudSecretsEmptyStateView: View {
                     .accessibilityAddTraits(.isHeader)
                 Text(String(
                     localized: "cloudSecrets.empty.body",
-                    defaultValue: "Claude Code, Codex, and other agents on your Cloud machines will use it automatically."
+                    defaultValue: "Claude Code, Codex, and other agents on your Cloud machines use your keys automatically."
                 ))
                 .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)

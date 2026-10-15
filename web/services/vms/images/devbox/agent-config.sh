@@ -29,36 +29,124 @@ if [ -z "${NODE_EXTRA_CA_CERTS-}" ] && [ -f /usr/local/share/ca-certificates/fre
   export NODE_EXTRA_CA_CERTS
 fi
 
+# The public placeholder every guest sends (VM_PLACEHOLDER_API_KEY in
+# services/coderouter/vmGuestEnv.ts); the machine's edge swaps in the real
+# credential. The only key the model plane ever persists or sends.
+cmux_plane_placeholder=cmux-vm-edge-placeholder
+
+# Provider precedence: a key the user provided (Cloud Secrets, `cmux env set`,
+# an export, a one-off `KEY=... agent`) always reaches that provider directly
+# and never pairs with a CodeRouter endpoint; the model plane applies only to a
+# provider the user gave no key for. The model plane never persists anything
+# but its own values (the alias origin and the placeholder), so a user's key
+# is never copied out of ~/.config/cmux/env.
+
+# 0 when $1 is a key the user provided: set, and not the plane's placeholder.
+cmux_is_user_key() {
+  [ -n "${1-}" ] && [ "$1" != "$cmux_plane_placeholder" ]
+}
+
+# 0 when $1 is the model plane's OpenAI base URL (the CodeRouter origin's /v1).
+cmux_is_plane_openai_base() {
+  [ -n "${1-}" ] && [ -n "${CMUX_CODEROUTER_URL-}" ] && [ "${1%/}" = "${CMUX_CODEROUTER_URL%/}/v1" ]
+}
+
 # Sets cmux_claude_plane_base/key to Claude's CodeRouter pair: the one this
 # shell carries when its base URL is the CodeRouter origin, else the one a
-# parent shell set aside (CMUX_CLAUDE_TEAM_*), else empty.
+# parent shell set aside (CMUX_CLAUDE_TEAM_*), else empty. The pair's key is
+# always the placeholder: a user's key beside the origin is never the plane's.
 cmux_claude_plane_pair() {
   cmux_claude_plane_base=${CMUX_CLAUDE_TEAM_BASE_URL-}
   cmux_claude_plane_key=${CMUX_CLAUDE_TEAM_API_KEY-}
   if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" = "${CMUX_CODEROUTER_URL-}" ]; then
     cmux_claude_plane_base=$ANTHROPIC_BASE_URL
-    cmux_claude_plane_key=${ANTHROPIC_API_KEY-}
+    cmux_claude_plane_key=$cmux_plane_placeholder
   fi
+  if cmux_is_user_key "$cmux_claude_plane_key"; then cmux_claude_plane_key=$cmux_plane_placeholder; fi
+}
+
+# Sources the persisted model plane (this home's copy, else the baked one)
+# without letting it replace what the user set: a user's own OpenAI or
+# Anthropic key keeps its own endpoint (or none, which is the provider's own),
+# never the plane's; a user's own endpoint is kept as is.
+cmux_load_model_plane() {
+  if [ -f "$HOME/.config/cmux/model-plane.env" ]; then
+    cmux_lp_file="$HOME/.config/cmux/model-plane.env"
+  elif [ -f /etc/cmux/model-plane.env ]; then
+    # Baked into the image: the same alias origin for every machine; the
+    # machine's TLS edge rule routes it and adds the credential.
+    cmux_lp_file=/etc/cmux/model-plane.env
+  else
+    return 0
+  fi
+  cmux_lp_openai_base=${OPENAI_BASE_URL-}
+  cmux_lp_openai_key=${OPENAI_API_KEY-}
+  cmux_lp_anthropic_base=${ANTHROPIC_BASE_URL-}
+  cmux_lp_anthropic_key=${ANTHROPIC_API_KEY-}
+  unset OPENAI_BASE_URL
+  . "$cmux_lp_file" 2>/dev/null || true
+  cmux_plane_openai=${OPENAI_BASE_URL-}
+  if cmux_is_user_key "$cmux_lp_openai_key"; then
+    OPENAI_API_KEY=$cmux_lp_openai_key
+    export OPENAI_API_KEY
+    if [ -n "$cmux_lp_openai_base" ] && ! cmux_is_plane_openai_base "$cmux_lp_openai_base"; then
+      OPENAI_BASE_URL=$cmux_lp_openai_base
+      export OPENAI_BASE_URL
+    else
+      unset OPENAI_BASE_URL
+    fi
+  elif [ -n "$cmux_lp_openai_base" ]; then
+    OPENAI_BASE_URL=$cmux_lp_openai_base
+    export OPENAI_BASE_URL
+  fi
+  if cmux_is_user_key "$cmux_lp_anthropic_key" || cmux_is_user_key "${ANTHROPIC_AUTH_TOKEN-}"; then
+    if cmux_is_user_key "$cmux_lp_anthropic_key"; then
+      ANTHROPIC_API_KEY=$cmux_lp_anthropic_key
+      export ANTHROPIC_API_KEY
+    elif [ "${ANTHROPIC_API_KEY-}" = "$cmux_plane_placeholder" ]; then
+      unset ANTHROPIC_API_KEY
+    fi
+    # The plane's pair is still set aside for a team-mode launch that has
+    # no key of its own (cmux_claude_set_team_env_aside, below).
+    if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" = "${CMUX_CODEROUTER_URL-}" ]; then
+      CMUX_CLAUDE_TEAM_BASE_URL=$ANTHROPIC_BASE_URL
+      CMUX_CLAUDE_TEAM_API_KEY=$cmux_plane_placeholder
+      export CMUX_CLAUDE_TEAM_BASE_URL CMUX_CLAUDE_TEAM_API_KEY
+    fi
+    if [ -n "$cmux_lp_anthropic_base" ] && [ "$cmux_lp_anthropic_base" != "${CMUX_CODEROUTER_URL-}" ]; then
+      ANTHROPIC_BASE_URL=$cmux_lp_anthropic_base
+      export ANTHROPIC_BASE_URL
+    else
+      unset ANTHROPIC_BASE_URL
+    fi
+  elif [ -n "$cmux_lp_anthropic_base" ]; then
+    ANTHROPIC_BASE_URL=$cmux_lp_anthropic_base
+    export ANTHROPIC_BASE_URL
+  fi
+  unset cmux_lp_file cmux_lp_openai_base cmux_lp_openai_key cmux_lp_anthropic_base cmux_lp_anthropic_key
 }
 
 cmux_write_agent_configs() {
-  # Every model-plane var, persisted generically; OPENAI_BASE_URL is the
-  # anchor: its presence means a boot env is present. Claude's pair is the
-  # exception: only the CodeRouter pair is persisted (cmux_claude_plane_pair),
-  # whether this shell still carries it or a parent set it aside, never a
-  # user's own key or endpoint (a one-off `ANTHROPIC_API_KEY=... claude`
-  # passes through here via the launcher).
+  # Every model-plane var, persisted generically, but only from a shell that
+  # carries the plane (its OpenAI base URL is the CodeRouter origin's) and
+  # only the plane's own values: the keys are always the placeholder, never
+  # this shell's value, which may be the user's. Claude's pair is the plane's
+  # (cmux_claude_plane_pair), whether this shell still carries it or a parent
+  # set it aside.
   cmux_model_plane_vars="OPENAI_BASE_URL OPENAI_API_KEY CMUX_CODEROUTER_URL ANTHROPIC_BASE_URL ANTHROPIC_API_KEY CMUX_VM_ID"
   cmux_claude_plane_pair
-  if [ -n "${OPENAI_BASE_URL-}" ]; then
+  cmux_plane_openai=""
+  if cmux_is_plane_openai_base "${OPENAI_BASE_URL-}"; then
+    cmux_plane_openai=$OPENAI_BASE_URL
     mkdir -p "$HOME/.config/cmux" 2>/dev/null && (
       umask 077
       {
         echo "# generated by cmux from machine boot env; managed, do not edit"
         for cmux_var in $cmux_model_plane_vars; do
           case "$cmux_var" in
+            OPENAI_API_KEY) cmux_val=$cmux_plane_placeholder ;;
             ANTHROPIC_BASE_URL) cmux_val=$cmux_claude_plane_base ;;
-            ANTHROPIC_API_KEY) cmux_val=$cmux_claude_plane_key ;;
+            ANTHROPIC_API_KEY) cmux_val=${cmux_claude_plane_base:+$cmux_plane_placeholder} ;;
             *) eval "cmux_val=\${$cmux_var-}" ;;
           esac
           if [ -n "$cmux_val" ]; then
@@ -67,12 +155,11 @@ cmux_write_agent_configs() {
         done
       } > "$HOME/.config/cmux/model-plane.env" 2>/dev/null
     ) || true
-  elif [ -f "$HOME/.config/cmux/model-plane.env" ]; then
-    . "$HOME/.config/cmux/model-plane.env" 2>/dev/null || true
-  elif [ -f /etc/cmux/model-plane.env ]; then
-    # Baked into the image: the same alias origin for every machine; the
-    # machine's TLS edge rule routes it and adds the credential.
-    . /etc/cmux/model-plane.env 2>/dev/null || true
+    # A user's own OpenAI key never pairs with the plane's endpoint: without
+    # one of its own it goes to OpenAI itself.
+    if cmux_is_user_key "${OPENAI_API_KEY-}"; then unset OPENAI_BASE_URL; fi
+  else
+    cmux_load_model_plane
   fi
   cmux_claude_plane_pair
   unset cmux_model_plane_vars cmux_var cmux_val
@@ -85,7 +172,11 @@ cmux_write_agent_configs() {
   # plane serves only the plain HTTP Responses API, and an implicit default
   # can move under a codex upgrade. Auth comes from OPENAI_API_KEY at request
   # time (env_key); it is the public placeholder, and the edge adds the real
-  # credential, so a rotated token needs no config rewrite.
+  # credential, so a rotated token needs no config rewrite. A user's own
+  # OPENAI_API_KEY never uses this provider: the codex launcher starts codex
+  # on the cmux-openai-key provider instead (agent-auth.sh). The base URL is
+  # the plane's (cmux_plane_openai), never this shell's OPENAI_BASE_URL, which
+  # may be the user's own endpoint.
   #
   # config.toml has a second writer: `cmux-tui agent hook install codex` keeps
   # its hook trust state under [hooks] there (the bake runs it before any
@@ -96,7 +187,7 @@ cmux_write_agent_configs() {
   # carries our tables, is left to whoever wrote it.
   # Parse logical TOML keys, including quoted and dotted forms. Invalid user
   # configuration is preserved so a shell startup cannot damage it further.
-  if [ -n "${OPENAI_BASE_URL-}" ] && python3 - "$HOME/.codex/config.toml" 2>/dev/null <<'CMUX_TOML_CHECK'
+  if [ -n "$cmux_plane_openai" ] && python3 - "$HOME/.codex/config.toml" 2>/dev/null <<'CMUX_TOML_CHECK'
 import pathlib, sys, tomllib
 config = pathlib.Path(sys.argv[1])
 data = tomllib.loads(config.read_text()) if config.exists() else {}
@@ -115,7 +206,7 @@ CMUX_TOML_CHECK
       fi
       echo "[model_providers.cmux]"
       echo "name = \"cmux\""
-      echo "base_url = \"$OPENAI_BASE_URL\""
+      echo "base_url = \"$cmux_plane_openai\""
       echo "env_key = \"OPENAI_API_KEY\""
       echo "wire_api = \"responses\""
       echo "requires_openai_auth = false"
@@ -140,13 +231,13 @@ CMUX_TOML_CHECK
   # placeholder JWT the `cr pi` extension ships. No route-token header is
   # configured: the edge supplies it on every request. baseUrl must be a
   # literal (pi does not env-resolve it), hence this generator.
-  if [ -n "${OPENAI_BASE_URL-}" ] && [ ! -e "$HOME/.pi/agent/models.json" ]; then
+  if [ -n "$cmux_plane_openai" ] && [ ! -e "$HOME/.pi/agent/models.json" ]; then
     mkdir -p "$HOME/.pi/agent" 2>/dev/null && {
       echo '{'
       echo '  "providers": {'
       echo '    "openai-codex": {'
       echo '      "name": "cmux",'
-      echo "      \"baseUrl\": \"$OPENAI_BASE_URL\","
+      echo "      \"baseUrl\": \"$cmux_plane_openai\","
       echo '      "apiKey": "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature"'
       echo '    }'
       echo '  }'
@@ -201,16 +292,19 @@ CMUX_TOML_CHECK
 # Python owns the advisory lock so process exit releases it even after a crash.
 # The CodeRouter providers go to a cmux-owned file, not opencode's global
 # config: the opencode launcher layers it on (OPENCODE_CONFIG) only in team
-# mode, so an own-login launch sees none of them (agent-auth.sh).
+# mode, so an own-login launch sees none of them (agent-auth.sh). The request
+# and the providers carry the public placeholder literally, never
+# OPENAI_API_KEY: that may be the user's own OpenAI key, which never goes to
+# CodeRouter.
 cmux_ensure_opencode_config() {
   [ -e "$HOME/.config/cmux/opencode-team.json" ] && return 0
-  [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
+  [ -n "${CMUX_CODEROUTER_URL-}" ] || return 0
   python3 - <<'CMUX_OPENCODE_CONFIG'
 import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tempfile, time
 
 config = pathlib.Path.home() / ".config/cmux/opencode-team.json"
 origin = os.environ["CMUX_CODEROUTER_URL"].rstrip("/")
-key = os.environ["OPENAI_API_KEY"]
+key = "cmux-vm-edge-placeholder"
 state = pathlib.Path.home() / ".cache/cmux"
 state.mkdir(parents=True, exist_ok=True, mode=0o700)
 scope = hashlib.sha256((origin + "\0" + key).encode()).hexdigest()
@@ -226,7 +320,7 @@ def redact(value):
     if isinstance(value, list):
         return [redact(v) for v in value]
     if isinstance(value, str):
-        return re.sub(r"crt_[A-Za-z0-9._-]+", "{env:OPENAI_API_KEY}", value.replace(key, "{env:OPENAI_API_KEY}"))
+        return re.sub(r"crt_[A-Za-z0-9._-]+", key, value)
     return value
 
 with (state / "opencode-config.lock").open("a") as lock:
@@ -422,13 +516,15 @@ fi
 cmux_claude_set_team_env_aside() {
   if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" = "${CMUX_CODEROUTER_URL-}" ]; then
     CMUX_CLAUDE_TEAM_BASE_URL=$ANTHROPIC_BASE_URL
-    CMUX_CLAUDE_TEAM_API_KEY=${ANTHROPIC_API_KEY-}
+    CMUX_CLAUDE_TEAM_API_KEY=$cmux_plane_placeholder
     export CMUX_CLAUDE_TEAM_BASE_URL CMUX_CLAUDE_TEAM_API_KEY
-    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+    unset ANTHROPIC_BASE_URL
+    # A user's own key beside the origin stays, and goes to Anthropic itself.
+    if ! cmux_is_user_key "${ANTHROPIC_API_KEY-}"; then unset ANTHROPIC_API_KEY; fi
   fi
 }
 
 cmux_write_agent_configs
 cmux_claude_set_team_env_aside
-unset -f cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair
-unset cmux_claude_plane_base cmux_claude_plane_key
+unset -f cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair cmux_load_model_plane cmux_is_plane_openai_base cmux_is_user_key
+unset cmux_claude_plane_base cmux_claude_plane_key cmux_plane_openai

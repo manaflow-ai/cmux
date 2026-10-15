@@ -172,7 +172,10 @@ require_coderouter() {
     *[!A-Za-z0-9:/._-]*)
       die_message 2 invalidCodeRouter ;;
   esac
-  cmux_coderouter_key="\${OPENAI_API_KEY:-cmux-vm-edge-placeholder}"
+  # Always the public placeholder: OPENAI_API_KEY may be the user's own key
+  # (Cloud Secrets), which never goes to CodeRouter. The edge adds the
+  # machine's credential.
+  cmux_coderouter_key=cmux-vm-edge-placeholder
 }
 
 # ---------------------------------------------------------------------------
@@ -211,7 +214,7 @@ reflection_fetch_url() {
   cmux_rf_out="\$2"
   : > "\$cmux_rf_out"
   cmux_rf_raw="\$(cmux_curl -sSL --connect-timeout 5 --max-time 20 \\
-    -H "authorization: Bearer \${OPENAI_API_KEY:-cmux-vm-edge-placeholder}" -H 'accept: application/json' \\
+    -H "authorization: Bearer cmux-vm-edge-placeholder" -H 'accept: application/json' \\
     --write-out '\\n%{http_code}' "\$1" 2>/dev/null)" || :
   cmux_rf_status="\$(printf '%s' "\$cmux_rf_raw" | tail -n 1)"
   case "\$cmux_rf_status" in ''|*[!0-9]*) cmux_rf_status=000; return 1 ;; esac
@@ -444,7 +447,7 @@ guest_auth_status() {
     case "\$CMUX_CODEROUTER_URL" in
       https://*)
         if cmux_edge_status="\$(cmux_curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 20 \\
-          -H "authorization: Bearer \${OPENAI_API_KEY:-cmux-vm-edge-placeholder}" \\
+          -H "authorization: Bearer cmux-vm-edge-placeholder" \\
           "\${CMUX_CODEROUTER_URL%/}/api/coderouter/vm-usage/self" 2>/dev/null)"; then :; else :; fi
         case "\$cmux_edge_status" in
           200) cmux_tls_reachable=1; cmux_route_auth=accepted ;;
@@ -1000,6 +1003,44 @@ env_install_hook() {
   return 0
 }
 
+# Provider routing. The model plane points OPENAI_BASE_URL at CodeRouter in
+# every machine shell, so a provider key the user keeps here (Cloud Secrets,
+# \`cmux env set\`) would otherwise be sent there. Beside a user's own key and no
+# endpoint of their own, the file also names the provider's own endpoint, so
+# the key always goes to that provider directly (add, on every set); when the
+# key goes, an endpoint added this way goes with it (drop, on every rm). A set
+# never drops one: the Mac's Cloud Secrets sync adds the endpoint before it
+# delivers the key, so the two never meet a CodeRouter endpoint in between.
+# env_provider_routes <file of export KEY='value' lines> add|drop
+env_provider_routes() {
+  env_provider_route "\$1" "\$2" OPENAI_BASE_URL https://api.openai.com/v1 OPENAI_API_KEY
+  env_provider_route "\$1" "\$2" ANTHROPIC_BASE_URL https://api.anthropic.com ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+}
+
+# env_provider_route <file> add|drop <endpoint-name> <endpoint> <key-name>...
+env_provider_route() {
+  cmux_pr_file="\$1"
+  cmux_pr_mode="\$2"
+  cmux_pr_base="\$3"
+  cmux_pr_url="\$4"
+  shift 4
+  cmux_pr_user_key=0
+  for cmux_pr_name in "\$@"; do
+    if grep "^export \$cmux_pr_name=" "\$cmux_pr_file" 2>/dev/null | grep -qvxF "export \$cmux_pr_name='cmux-vm-edge-placeholder'"; then
+      cmux_pr_user_key=1
+    fi
+  done
+  if [ "\$cmux_pr_user_key" -eq 1 ]; then
+    [ "\$cmux_pr_mode" = add ] || return 0
+    grep -q "^export \$cmux_pr_base=" "\$cmux_pr_file" 2>/dev/null \\
+      || printf "export %s='%s'\\n" "\$cmux_pr_base" "\$cmux_pr_url" >> "\$cmux_pr_file"
+  elif [ "\$cmux_pr_mode" = drop ]; then
+    grep -vxF "export \$cmux_pr_base='\$cmux_pr_url'" "\$cmux_pr_file" > "\$cmux_pr_file.next" 2>/dev/null || true
+    mv -f "\$cmux_pr_file.next" "\$cmux_pr_file"
+  fi
+  return 0
+}
+
 # Rewrite the managed file from KEY=VALUE lines on stdin (replacing those keys,
 # keeping every other key), sorted by key.
 env_merge_and_write() {
@@ -1025,6 +1066,7 @@ env_merge_and_write() {
       grep -q "^export \$cmux_key=" "\$cmux_env_tmp" || printf '%s\\n' "\$cmux_line" >> "\$cmux_env_tmp"
     done
   fi
+  env_provider_routes "\$cmux_env_tmp" add
   {
     printf '%s\\n' "# managed by cmux env; KEY='value' lines; edit with cmux env set/rm"
     LC_ALL=C sort -t = -k 1,1 "\$cmux_env_tmp"
@@ -1203,6 +1245,7 @@ guest_env_rm() {
     grep -v "^export \$cmux_key=" "\$cmux_env_tmp" > "\$cmux_env_tmp.next" || true
     mv -f "\$cmux_env_tmp.next" "\$cmux_env_tmp"
   done
+  env_provider_routes "\$cmux_env_tmp" drop
   {
     printf '%s\\n' "# managed by cmux env; KEY='value' lines; edit with cmux env set/rm"
     LC_ALL=C sort -t = -k 1,1 "\$cmux_env_tmp"

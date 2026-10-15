@@ -81,6 +81,16 @@ cmux vm clone owner/repo --agent claude`}</CodeBlock>
       </ul>
       <Callout type="warn">{t("trustAgents")}</Callout>
 
+      <DocsHeading level={2} id="provider-keys">{t("providerKeysTitle")}</DocsHeading>
+      <p>{t("providerKeysDesc")}</p>
+      <ul>
+        <li>{t.rich("providerKeysOpenAI", { code })}</li>
+        <li>{t.rich("providerKeysAnthropic", { code })}</li>
+        <li>{t.rich("providerKeysOwnEndpoint", { code })}</li>
+        <li>{t("providerKeysRemove")}</li>
+      </ul>
+      <Callout type="check">{t.rich("providerKeysNever", { code })}</Callout>
+
       <DocsHeading level={2} id="scopes">{t("scopesTitle")}</DocsHeading>
       <p>{t("scopesDesc")}</p>
       <ul>

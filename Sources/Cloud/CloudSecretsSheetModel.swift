@@ -349,14 +349,11 @@ final class CloudSecretsSheetModel {
                 : String(localized: "cloudSecrets.import.needsMachine", defaultValue: "Open Secrets from a machine’s menu to import secrets for that machine.")
             return
         }
-        let inputs: [CloudSecretInput]
-        do {
-            inputs = try CloudSecretDotenv.parse(text)
-        } catch {
-            actionError = CloudSecretsSheetPresentation.message(for: error)
-            return
-        }
-        guard !inputs.isEmpty else {
+        // Lenient: a bad line or an empty value is a skipped row, never the end of the
+        // import. Only a file with nothing usable at all stops here.
+        let parsed = CloudSecretDotenv.parseLenient(text)
+        let inputs = parsed.inputs
+        guard !inputs.isEmpty || !parsed.skipped.isEmpty else {
             actionError = String(localized: "cloudSecrets.import.empty", defaultValue: "That file has no KEY=VALUE lines to import.")
             return
         }
@@ -375,7 +372,13 @@ final class CloudSecretsSheetModel {
             source: source,
             scope: scope,
             inputs: inputs,
-            preview: CloudSecretsSheetPresentation.importPreview(inputs: inputs, scope: scope, existing: records, changes: changes)
+            preview: CloudSecretsSheetPresentation.importPreview(
+                inputs: inputs,
+                skipped: parsed.skipped,
+                scope: scope,
+                existing: records,
+                changes: changes
+            )
         )
     }
 

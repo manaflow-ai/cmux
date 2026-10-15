@@ -163,14 +163,39 @@ struct CloudSecretsSheetModelTests {
         #expect(rows.map(\.kind) == [.updated, .added])
     }
 
-    @Test("A malformed .env reports its line and opens no preview")
-    func importParseError() async {
+    @Test("A bad line or an empty value is a skipped row; the rest still imports")
+    func importSkipsBadLinesAndKeepsTheRest() async throws {
         let harness = Harness()
         let model = harness.model()
         await model.load()
-        await model.beginImport(text: "OK=1\nnot a line\n", sourceName: ".env", source: .dotenv(".env"))
-        #expect(model.importDraft == nil)
-        #expect(model.actionError?.contains("2") == true)
+        let text = "OK=1\nsk-bare-token-line\nEMPTY=\nALSO_OK=2\n"
+        await model.beginImport(text: text, sourceName: ".env", source: .dotenv(".env"))
+        #expect(model.actionError == nil)
+        let draft = try #require(model.importDraft)
+        #expect(draft.preview.inputsToCommit.map(\.name) == ["OK", "ALSO_OK"])
+        let skipped = draft.preview.rows.filter { $0.problem != nil }
+        #expect(skipped.map(\.line) == [2, 3])
+        #expect(skipped.map(\.name) == ["Line 2", "EMPTY"])
+        #expect(skipped.first?.problem == "Skipped (not NAME=value, line 2)")
+        // The bare line may be a value: no row shows its text.
+        #expect(!draft.preview.rows.contains { $0.name.contains("sk-") || ($0.problem ?? "").contains("sk-") })
+        #expect(CloudSecretsSheetPresentation.importSummary(draft.preview) == "New: 2 \u{00B7} Skipped: 2")
+
+        await model.commitImport()
+        #expect(harness.setCalls.map(\.names) == [["OK", "ALSO_OK"]])
+    }
+
+    @Test("A file with only bad lines previews them and cannot be imported")
+    func importOnlyBadLines() async throws {
+        let harness = Harness()
+        let model = harness.model()
+        await model.load()
+        await model.beginImport(text: "not a line\n", sourceName: ".env", source: .dotenv(".env"))
+        let draft = try #require(model.importDraft)
+        #expect(!draft.preview.canCommit)
+        #expect(draft.preview.problemCount == 1)
+        await model.beginImport(text: "# only comments\n", sourceName: ".env", source: .dotenv(".env"))
+        #expect(model.actionError != nil)
     }
 
     @Test("Delete asks first, and only the confirmation removes")

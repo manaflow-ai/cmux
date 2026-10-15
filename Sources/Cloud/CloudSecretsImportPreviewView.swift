@@ -25,7 +25,7 @@ struct CloudSecretsImportPreviewView: View {
                 .truncationMode(.middle)
                 .accessibilityAddTraits(.isHeader)
                 Text(String(
-                    format: String(localized: "cloudSecrets.import.scope", defaultValue: "Into %@ · %@"),
+                    format: String(localized: "cloudSecrets.import.scope", defaultValue: "Into %1$@ · %2$@"),
                     CloudSecretsSheetPresentation.scopeDescription(draft.scope, machineLabels: model.machineLabels),
                     CloudSecretsSheetPresentation.importSummary(draft.preview)
                 ))

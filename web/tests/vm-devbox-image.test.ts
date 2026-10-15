@@ -1147,15 +1147,16 @@ test "$daemon_pid" = fixture
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
       const configPath = path.join(home, ".config/cmux/opencode-team.json");
       const written = readFileSync(configPath, "utf8");
-      // A route token the endpoint inlined is swapped for a runtime env
-      // reference (as is the placeholder itself), so no token lands on disk.
+      // A route token the endpoint inlined is swapped for the public
+      // placeholder, so no token lands on disk. Never an OPENAI_API_KEY
+      // reference: that may be the user's own key, which never goes to CodeRouter.
       expect(JSON.parse(written)).toEqual({
         provider: {
           go: {
             npm: "@ai-sdk/openai-compatible",
             options: {
               baseURL: "http://127.0.0.1:9/api/coderouter/opencode/proxy/go",
-              apiKey: "{env:OPENAI_API_KEY}",
+              apiKey: "cmux-vm-edge-placeholder",
             },
           },
         },
@@ -1189,7 +1190,7 @@ test "$daemon_pid" = fixture
       })));
       expect(requests).toBe(1);
       const config = path.join(home, ".config/cmux/opencode-team.json");
-      expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
+      expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("cmux-vm-edge-placeholder");
       writeFileSync(config, '{"provider":{"mine":{}}}');
       await sourceAgentConfig(home, server.origin, true);
       expect(readFileSync(config, "utf8")).toBe('{"provider":{"mine":{}}}');

@@ -214,12 +214,12 @@ struct CloudSecretsList: View {
     private var emptyTabText: String {
         switch model.tab {
         case .all:
-            return String(localized: "cloudSecrets.empty.all", defaultValue: "No secrets for every machine yet. Secrets here reach all your Cloud machines.")
+            return String(localized: "cloudSecrets.empty.all", defaultValue: "No secrets for all machines yet. A secret here reaches every Cloud machine you use.")
         case .project:
             return String(localized: "cloudSecrets.empty.project", defaultValue: "No project secrets yet. A project secret reaches only machines linked to that project, and wins over one for all machines.")
         case .machine:
             return model.isMachineMode
-                ? String(localized: "cloudSecrets.empty.thisMachine", defaultValue: "No secrets only for this machine. A machine secret wins over project and all-machine secrets with the same name.")
+                ? String(localized: "cloudSecrets.empty.thisMachine", defaultValue: "No secrets just for this machine yet. A machine secret wins over a project or all-machines secret with the same name.")
                 : String(localized: "cloudSecrets.empty.machines", defaultValue: "No machine-only secrets. To add one, open Secrets from a machine’s menu.")
         }
     }
@@ -361,7 +361,16 @@ private struct CloudSecretsRow: View {
         return Color.clear
     }
 
-    private var helpText: String { "\(fingerprint)\n\(updated)" }
+    /// "Value ID •••• 3f9a1c2e …" and the age: what the dots mean, in plain words.
+    private var helpText: String {
+        String(
+            format: String(
+                localized: "cloudSecrets.row.valueID.help",
+                defaultValue: "Value ID %@. It changes when the value changes; the value itself is never shown."
+            ),
+            fingerprint
+        ) + "\n" + updated
+    }
 
     private var selectionTraits: AccessibilityTraits { isSelected ? .isSelected : [] }
 

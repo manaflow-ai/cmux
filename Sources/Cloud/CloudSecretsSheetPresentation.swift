@@ -22,11 +22,14 @@ enum CloudSecretsSheetPresentation {
         case overridden(by: CloudSecretScope)
     }
 
-    /// One name in an import preview. `problem` rows are not imported.
+    /// One name in an import preview. `problem` rows are not imported. `line` is
+    /// the file line a skipped row came from; a row whose line had no valid name
+    /// is labeled by that line alone, never by its text (it may be a value).
     struct ImportRow: Hashable, Sendable {
         let name: String
         let kind: CloudSecretChange.Kind
         let problem: String?
+        var line: Int? = nil
     }
 
     /// The preview's rows and what Import will send.
@@ -322,10 +325,12 @@ enum CloudSecretsSheetPresentation {
     // MARK: Import
 
     /// The import diff. `changes` is the vault's dry run when available; without
-    /// it a name already in the scope reads as updated. Invalid entries are
-    /// listed with their reason and left out of the commit.
+    /// it a name already in the scope reads as updated. Invalid entries and the
+    /// lines the parser skipped are listed with their reason and left out of the
+    /// commit, so one bad line never blocks the rest of the file.
     static func importPreview(
         inputs: [CloudSecretInput],
+        skipped: [CloudSecretDotenvError] = [],
         scope: CloudSecretScope,
         existing: [CloudSecretRecord],
         changes: [CloudSecretChange]?
@@ -345,7 +350,25 @@ enum CloudSecretsSheetPresentation {
             rows.append(ImportRow(name: input.name, kind: kind, problem: nil))
             if kind != .unchanged { commit.append(input) }
         }
+        for skip in skipped.sorted(by: { $0.line < $1.line }) {
+            rows.append(skippedRow(skip))
+        }
         return ImportPreview(rows: rows, inputsToCommit: commit)
+    }
+
+    /// "EMPTY · Skipped (empty value, line 5)", or "Line 3 · Skipped (not
+    /// NAME=value, line 3)" when the line has no valid name to show.
+    static func skippedRow(_ skip: CloudSecretDotenvError) -> ImportRow {
+        let name = skip.name ?? String(
+            format: String(localized: "cloudSecrets.import.skippedLine", defaultValue: "Line %ld"),
+            skip.line
+        )
+        let problem = String(
+            format: String(localized: "cloudSecrets.import.skippedReason", defaultValue: "Skipped (%1$@, line %2$ld)"),
+            skip.skipReason,
+            skip.line
+        )
+        return ImportRow(name: name, kind: .unchanged, problem: problem, line: skip.line)
     }
 
     static func importKindTitle(_ kind: CloudSecretChange.Kind) -> String {

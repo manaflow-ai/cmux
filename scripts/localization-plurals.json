@@ -783,7 +783,7 @@
     ]
   },
   "cli.vm.clone.secretsSent": {
-    "source": "%d delivered",
+    "source": "%ld delivered",
     "arguments": [
       1
     ]
@@ -795,9 +795,57 @@
     ]
   },
   "cloud.gettingStarted.progress.accessibility": {
-    "source": "%1$d of %2$d steps done",
+    "source": "%1$ld of %2$ld steps done",
     "arguments": [
       2
+    ]
+  },
+  "cloudSecrets.cli.set.stdinCount": {
+    "source": "vm secrets set: expected %1$ld lines on stdin (one value per NAME), got %2$ld",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.set.stdinCount.one": {
+    "source": "vm secrets set: expected %1$ld line on stdin (one value per NAME), got %2$ld",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.sync.changed.one": {
+    "source": "Synced %1$ld change to %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.sync.changed.many": {
+    "source": "Synced %1$ld changes to %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.dot.uncommitted.one": {
+    "source": "Cloning %1$@ — %2$ld uncommitted change in this checkout is not included. Use `cmux vm push` or `cmux vm dev` to send working-tree changes.",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.clone.dot.uncommitted.many": {
+    "source": "Cloning %1$@ — %2$ld uncommitted changes in this checkout are not included. Use `cmux vm push` or `cmux vm dev` to send working-tree changes.",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.clone.dot.unpushed.one": {
+    "source": "%1$ld local commit is not on %2$@ yet, so the machine will not have it. Push first (git push) to include it.",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.dot.unpushed.many": {
+    "source": "%1$ld local commits are not on %2$@ yet, so the machine will not have them. Push first (git push) to include them.",
+    "arguments": [
+      1
     ]
   }
 }

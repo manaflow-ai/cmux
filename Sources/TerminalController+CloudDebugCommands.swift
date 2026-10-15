@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxCloud
 import Foundation
 
 /// DEBUG-only socket verbs that open and drive the Cloud UI for dogfood and

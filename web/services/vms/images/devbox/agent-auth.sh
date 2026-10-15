@@ -202,9 +202,12 @@ cmux_agent_drop_model_plane_env() {
 cmux_claude_apply_auth_mode() {
   cmux_agent_auth_resolve claude
   if [ "$cmux_agent_auth_mode" = team ]; then
-    if [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
+    # Any Anthropic key of the user's own (ANTHROPIC_API_KEY or
+    # ANTHROPIC_AUTH_TOKEN) goes to Anthropic itself, never beside the
+    # CodeRouter endpoint. The pair's key is only ever the placeholder.
+    if [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
-      ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
+      ANTHROPIC_API_KEY=$cmux_aa_placeholder
       export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
     fi
     return 0
@@ -212,19 +215,59 @@ cmux_claude_apply_auth_mode() {
   cmux_agent_drop_model_plane_env
 }
 
+# The provider codex uses for the user's own OpenAI key: OpenAI itself (or the
+# user's own endpoint), authenticated with OPENAI_API_KEY. Defined per launch
+# with -c overrides, never written to config.toml. Cloud Secrets sync writes
+# the same provider name into config.toml on images older than this launcher.
+cmux_codex_user_key_provider=cmux-openai-key
+cmux_codex_openai_origin=https://api.openai.com/v1
+
 # codex reads its provider from ~/.codex/config.toml, which agent-config.sh
-# generates with model_provider = "cmux" (CodeRouter). Own mode sets
-# cmux_codex_own_provider=1: the launcher then starts codex with
-# -c model_provider="openai", the built-in provider that uses `codex login`.
-# Only a config cmux generated is overridden; a user's own provider choice is
-# left alone.
+# generates with model_provider = "cmux" (CodeRouter). Only a config cmux
+# generated is overridden; a user's own provider choice is left alone. Sets
+# cmux_codex_provider for the launcher:
+#   ""          keep the configured provider
+#   openai      own mode with a codex login: the built-in provider, so
+#               `codex login` is what it uses
+#   key         the user's own OpenAI key (any mode): the
+#               cmux-openai-key provider at cmux_codex_key_base, so the key
+#               reaches OpenAI (or the user's endpoint), never CodeRouter
+#   cmux        team mode, no key of the user's: CodeRouter
+# cmux_codex_own_provider stays for older callers (1 when openai).
 cmux_codex_apply_auth_mode() {
+  cmux_codex_provider=""
   cmux_codex_own_provider=0
+  cmux_codex_key_base=""
   cmux_agent_auth_resolve codex
-  [ "$cmux_agent_auth_mode" = own ] || return 0
-  cmux_agent_drop_model_plane_env
-  if grep -qx 'model_provider = "cmux"' "${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml" 2>/dev/null; then
+  if [ "$cmux_agent_auth_mode" = own ]; then cmux_agent_drop_model_plane_env; fi
+  cmux_codex_config="${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml"
+  grep -qx -e 'model_provider = "cmux"' -e "model_provider = \"$cmux_codex_user_key_provider\"" "$cmux_codex_config" 2>/dev/null || return 0
+  cmux_codex_user_key=0
+  if [ -n "${OPENAI_API_KEY-}" ] && [ "$OPENAI_API_KEY" != "$cmux_aa_placeholder" ]; then cmux_codex_user_key=1; fi
+  if [ "$cmux_agent_auth_mode" = own ] && { [ "$cmux_codex_user_key" = 0 ] || cmux_agent_has_own_login codex; }; then
+    # The built-in provider sends a ChatGPT sign-in to whatever
+    # OPENAI_BASE_URL names; the OpenAI origin Cloud Secrets adds beside a
+    # user key would steer it away from ChatGPT.
+    if [ "${OPENAI_BASE_URL-}" = "$cmux_codex_openai_origin" ]; then unset OPENAI_BASE_URL; fi
+    cmux_codex_provider=openai
     cmux_codex_own_provider=1
+  elif [ "$cmux_codex_user_key" = 1 ]; then
+    cmux_codex_provider=key
+    cmux_codex_key_base=$cmux_codex_openai_origin
+    # The user's own endpoint, when they set one: never the CodeRouter
+    # origin, and only what a TOML string can carry raw.
+    cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
+    cmux_aa_origin="${cmux_aa_origin%/}"
+    case "${OPENAI_BASE_URL-}" in
+      ''|*[\"\\]*|*[![:print:]]*) ;;
+      *)
+        if [ -z "$cmux_aa_origin" ] || { [ "${OPENAI_BASE_URL%/}" != "$cmux_aa_origin" ] && [ "${OPENAI_BASE_URL#"$cmux_aa_origin"/}" = "$OPENAI_BASE_URL" ]; }; then
+          cmux_codex_key_base=$OPENAI_BASE_URL
+        fi
+        ;;
+    esac
+  elif grep -qx "model_provider = \"$cmux_codex_user_key_provider\"" "$cmux_codex_config" 2>/dev/null; then
+    cmux_codex_provider=cmux
   fi
 }
 

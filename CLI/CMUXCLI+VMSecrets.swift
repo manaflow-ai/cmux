@@ -11,38 +11,39 @@ import Foundation
 /// part of an error message.
 extension CMUXCLI {
     static let vmSecretsUsage = String(localized: "cloudSecrets.cli.usage", defaultValue: """
-        Usage:
-          cmux vm secrets [ls] [--scope <scope>] [--json]
-                                                              List stored secrets: name, scope, fingerprint, last update.
-                                                              Values are never shown.
-          cmux vm secrets set NAME [NAME2 …] [--scope <scope>] [--project] [--machine <id>] [--no-sync]
-                                                              Store secrets. Each value is read from a hidden prompt, or,
-                                                              when stdin is not a terminal, one line per NAME from stdin.
-                                                              NAME=value on the command line is refused: it would land in
-                                                              your shell history and `ps`.
-          cmux vm secrets import [<.env>|-] [--from-shell [NAME …]] [--gh] [--scope <scope>] [--dry-run] [--no-sync]
-                                                              Import a .env file (or - for stdin), variables from this
-                                                              shell (--from-shell alone takes every well-known agent key
-                                                              that is set), or GitHub CLI's token as GH_TOKEN (--gh).
-                                                              --dry-run shows what would be added or updated.
-          cmux vm secrets rm NAME [NAME2 …] [--scope <scope>] [--no-sync]
-                                                              Remove secrets from the vault and from synced machines.
-          cmux vm secrets sync <machine> [--project <key>|.]  Deliver the secrets that apply to a machine now.
-                                                              --project links it to a project first.
-          cmux vm secrets status <machine> [--verify] [--json]
-                                                              Per name: current, stale, missing, or extra on the machine.
-                                                              --verify reads the machine's env file (names only).
-          cmux vm secrets check [<dir>]                       Compare the names a repository declares (.cmux/cloud.json,
-                                                              .devcontainer secrets) with the vault.
-          cmux vm secrets link <machine> [--project <key>|.]  Apply a project's secrets to a machine (default: this
-          cmux vm secrets unlink <machine> [--project <key>|.]
-                                                              directory's git remote).
+        Usage: cmux vm secrets <verb> [options]
 
-        Scopes (the most specific wins when a name is stored more than once):
-          all                 every Cloud machine you use from this Mac (default)
-          project[:<key>]     machines linked to a project; the key is the git remote as host/owner/repo,
-                              and --project or a bare `project` means this directory's remote
-          machine:<id>        one machine (same as --machine <id>)
+        Examples:
+          cmux vm secrets set ANTHROPIC_API_KEY      Store a key (the value is read from a hidden prompt)
+          cmux vm secrets import .env --dry-run      Preview a .env import; bad lines are skipped
+          cmux vm secrets import --gh                Store GitHub CLI's token as GH_TOKEN
+          cmux vm secrets status brave-otter         Show what a machine has
+          cmux vm secrets sync brave-otter           Send a machine its secrets now
+
+        Verbs:
+          ls [--scope <scope>] [--json]              Names, scopes, value IDs, and ages. Never values.
+          set NAME… [--scope <scope> | --project | --machine <m>] [--no-sync]
+                                                     One value per NAME from a hidden prompt, or one line
+                                                     per NAME on stdin. NAME=value is refused: it would
+                                                     land in shell history and `ps`.
+          import [<.env> | -] [--from-shell [NAME…]] [--gh] [--scope <scope>] [--dry-run] [--no-sync]
+                                                     A .env file or stdin, this shell's agent keys, or
+                                                     GitHub CLI's token. Lines that are not NAME=value,
+                                                     or have an empty value, are skipped and listed.
+          rm NAME… [--scope <scope>] [--no-sync]     Remove from this Mac and from synced machines.
+          sync <m> [--project <key> | .]             Send a machine its secrets now.
+          status <m> [--verify] [--json]             Per name: current, stale, missing, or extra.
+          check [<dir>]                              Compare a repository's declared names with the vault.
+          link <m> [--project <key> | .]             Give a machine a project's secrets.
+          unlink <m> [--project <key> | .]           Stop giving a machine a project's secrets.
+
+        <m> is a machine id or label from `cmux vm ls`.
+
+        Scopes (when a name is stored more than once, the most specific wins):
+          all               every Cloud machine (default)
+          project[:<key>]   machines linked to a project; the key is host/owner/repo, and a
+                            bare `project` or --project means this folder's git remote
+          machine:<m>       one machine (same as --machine <m>)
 
         Secrets live in this Mac's Keychain and travel to a machine only over its end-to-end
         encrypted link, into ~/.config/cmux/env (mode 0600), which every shell cmux starts there
@@ -98,7 +99,8 @@ extension CMUXCLI {
         }
         var params: [String: Any] = [:]
         if let spec = try Self.vmSecretsScopeSpec(options) {
-            params.merge(vmSecretsScopeParams(spec, directory: FileManager.default.currentDirectoryPath)) { _, new in new }
+            let resolved = try resolveVMSecretsMachineScope(spec, client: client)
+            params.merge(vmSecretsScopeParams(resolved, directory: FileManager.default.currentDirectoryPath)) { _, new in new }
         }
         let response = try client.sendV2(method: "vm.secrets_list", params: params, responseTimeout: 60)
         if json {
@@ -110,7 +112,7 @@ extension CMUXCLI {
             print(String(localized: "cloudSecrets.cli.ls.empty", defaultValue: "No Cloud Secrets yet. Add one with: cmux vm secrets set ANTHROPIC_API_KEY"))
             return
         }
-        print(Self.vmSecretsTable(secrets))
+        print(Self.vmSecretsTable(secrets, now: Date()))
         let machines = (response["machines"] as? [[String: Any]]) ?? []
         let failing = machines.filter { ($0["last_error"] as? String) != nil }
         if !failing.isEmpty {
@@ -126,7 +128,7 @@ extension CMUXCLI {
     private func runVMSecretsSet(_ args: [String], client: SocketClient, json: Bool) throws {
         let options = try Self.parseVMSecretsOptions(args, verb: "set", valueFlags: ["--scope", "--machine"], boolFlags: ["--project", "--no-sync"])
         let names = try Self.vmSecretsNames(options.positional, verb: "set")
-        let spec = try Self.vmSecretsScopeSpec(options) ?? .all
+        let spec = try resolveVMSecretsMachineScope(Self.vmSecretsScopeSpec(options) ?? .all, client: client)
         let values: [String]
         if isatty(STDIN_FILENO) == 1 {
             values = try names.map { name in
@@ -146,6 +148,7 @@ extension CMUXCLI {
             source: "manual",
             sync: options.flags.contains("--no-sync") ? false : nil,
             dryRun: false,
+            skipped: [],
             client: client,
             json: json
         )
@@ -153,8 +156,9 @@ extension CMUXCLI {
 
     private func runVMSecretsImport(_ args: [String], client: SocketClient, json: Bool) throws {
         let request = try Self.parseVMSecretsImport(args)
-        let spec = try Self.vmSecretsScopeSpec(request.options) ?? .all
+        let spec = try resolveVMSecretsMachineScope(Self.vmSecretsScopeSpec(request.options) ?? .all, client: client)
         var entries: [VMEnvAssignment] = []
+        var skipped: [VMSecretsDotenvSkip] = []
         var sources: [String] = []
         if let file = request.file {
             let text: String
@@ -173,7 +177,11 @@ extension CMUXCLI {
                 text = decoded
                 sources.append("dotenv:" + (path as NSString).lastPathComponent)
             }
-            entries += try Self.parseVMSecretsDotenv(text)
+            // Lenient: a bad line or an empty value is reported and skipped; the
+            // rest of the file still imports.
+            let parsed = Self.parseVMSecretsDotenv(text)
+            entries += parsed.entries
+            skipped = parsed.skipped
         }
         if request.fromShell {
             var shellNames = request.shellNames
@@ -194,6 +202,15 @@ extension CMUXCLI {
             sources.append("gh")
         }
         guard !entries.isEmpty else {
+            if !skipped.isEmpty {
+                for line in Self.vmSecretsSkipLines(skipped) {
+                    cliWriteStderr(line + "\n")
+                }
+                throw CLIError(message: String(
+                    format: String(localized: "cloudSecrets.cli.import.allSkipped", defaultValue: "vm secrets import: nothing to import. Every line was skipped: %@"),
+                    Self.vmSecretsSkipSummaryItems(skipped)
+                ))
+            }
             if request.fromShell && request.file == nil && !request.gh {
                 print(String(localized: "cloudSecrets.cli.import.shellNone", defaultValue: "No well-known agent keys are set in this shell. Name them: cmux vm secrets import --from-shell NAME"))
                 return
@@ -206,6 +223,7 @@ extension CMUXCLI {
             source: sources.count == 1 ? sources[0] : "manual",
             sync: request.options.flags.contains("--no-sync") ? false : nil,
             dryRun: request.dryRun,
+            skipped: skipped,
             client: client,
             json: json
         )
@@ -214,38 +232,52 @@ extension CMUXCLI {
     private func runVMSecretsRemove(_ args: [String], client: SocketClient, json: Bool) throws {
         let options = try Self.parseVMSecretsOptions(args, verb: "rm", valueFlags: ["--scope", "--machine"], boolFlags: ["--project", "--no-sync"])
         let names = try Self.vmSecretsNames(options.positional, verb: "rm")
-        let spec = try Self.vmSecretsScopeSpec(options) ?? .all
+        let spec = try resolveVMSecretsMachineScope(Self.vmSecretsScopeSpec(options) ?? .all, client: client)
         var params = vmSecretsScopeParams(spec, directory: FileManager.default.currentDirectoryPath)
         params["names"] = names
         if options.flags.contains("--no-sync") { params["sync"] = false }
         let response = try client.sendV2(method: "vm.secrets_rm", params: params, responseTimeout: Self.vmSecretsResponseTimeout)
+        let changes = (response["changes"] as? [[String: Any]]) ?? []
+        let removed = changes.compactMap { $0["name"] as? String }
+        let notStored = names.filter { !removed.contains($0) }
         if json {
             print(jsonString(response))
-            return
-        }
-        let removed = ((response["changes"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String }
-        if removed.isEmpty {
-            print(String(format: String(localized: "cloudSecrets.cli.rm.none", defaultValue: "Nothing removed: %@ not stored in that scope."), names.joined(separator: ", ")))
         } else {
-            print(String(format: String(localized: "cloudSecrets.cli.rm.done", defaultValue: "OK removed %@"), removed.joined(separator: ", ")))
+            if !removed.isEmpty {
+                print(String(format: String(localized: "cloudSecrets.cli.rm.done", defaultValue: "OK removed %@"), removed.joined(separator: ", ")))
+            }
+            printVMSecretsSyncLines((response["synced"] as? [[String: Any]]) ?? [], changes: changes, client: client)
         }
-        printVMSecretsSyncLines((response["synced"] as? [[String: Any]]) ?? [])
+        // A name that was not stored is a mistake worth a non-zero exit (a typo, or the
+        // wrong scope), even when other names were removed.
+        if !notStored.isEmpty {
+            throw CLIError(message: String(
+                format: String(localized: "cloudSecrets.cli.rm.notStored", defaultValue: "No secret named %1$@ in %2$@."),
+                notStored.joined(separator: ", "),
+                Self.vmSecretsScopePhrase(spec)
+            ))
+        }
     }
 
     private func runVMSecretsSync(_ args: [String], client: SocketClient, json: Bool) throws {
         let options = try Self.parseVMSecretsOptions(args, verb: "sync", valueFlags: ["--project"], boolFlags: [])
-        guard options.positional.count == 1, let machine = options.positional.first else {
+        guard options.positional.count == 1, let selector = options.positional.first else {
             throw CLIError(message: Self.vmSecretsUsage, exitCode: 2)
         }
-        var params: [String: Any] = ["id": machine]
+        let machine = try resolveVMSecretsMachine(selector, client: client)
+        var params: [String: Any] = ["id": machine.id]
         if let project = options.values["--project"] {
             params.merge(vmSecretsProjectParams(project, directory: FileManager.default.currentDirectoryPath)) { _, new in new }
         }
+        let before = json ? nil : vmSecretsStatusRowsBeforeSync(machine.id, client: client)
         let response = try client.sendV2(method: "vm.secrets_sync", params: params, responseTimeout: 260)
         if json {
             print(jsonString(response))
-        } else {
-            printVMSecretsSyncLines([response], reportNoop: true)
+        } else if (response["error"] as? String)?.isEmpty ?? true {
+            let changes = Self.vmSecretsSyncChanges(result: response, before: before)
+            for line in Self.vmSecretsSyncReport(machine: machine.display, changes: changes, noop: (response["noop"] as? Bool) == true) {
+                print(line)
+            }
         }
         if let error = response["error"] as? String, !error.isEmpty {
             throw CLIError(message: String(format: String(localized: "cloudSecrets.cli.sync.failed", defaultValue: "vm secrets sync: %@"), error))
@@ -254,12 +286,13 @@ extension CMUXCLI {
 
     private func runVMSecretsStatus(_ args: [String], client: SocketClient, json: Bool) throws {
         let options = try Self.parseVMSecretsOptions(args, verb: "status", valueFlags: [], boolFlags: ["--verify"])
-        guard options.positional.count == 1, let machine = options.positional.first else {
+        guard options.positional.count == 1, let selector = options.positional.first else {
             throw CLIError(message: Self.vmSecretsUsage, exitCode: 2)
         }
+        let machine = try resolveVMSecretsMachine(selector, client: client)
         let response = try client.sendV2(
             method: "vm.secrets_status",
-            params: ["id": machine, "verify": options.flags.contains("--verify")],
+            params: ["id": machine.id, "verify": options.flags.contains("--verify")],
             responseTimeout: 120
         )
         if json {
@@ -268,7 +301,7 @@ extension CMUXCLI {
         }
         let rows = (response["rows"] as? [[String: Any]]) ?? []
         if rows.isEmpty {
-            print(String(format: String(localized: "cloudSecrets.cli.status.empty", defaultValue: "No Cloud Secrets apply to %@."), machine))
+            print(String(format: String(localized: "cloudSecrets.cli.status.empty", defaultValue: "No Cloud Secrets apply to %@."), machine.display))
         } else {
             print(Self.vmSecretsStatusTable(rows))
         }
@@ -312,15 +345,17 @@ extension CMUXCLI {
     private func runVMSecretsLink(_ args: [String], linking: Bool, client: SocketClient, json: Bool) throws {
         let verb = linking ? "link" : "unlink"
         let options = try Self.parseVMSecretsOptions(args, verb: verb, valueFlags: ["--project"], boolFlags: ["--no-sync"])
-        guard options.positional.count == 1, let machine = options.positional.first else {
+        guard options.positional.count == 1, let selector = options.positional.first else {
             throw CLIError(message: Self.vmSecretsUsage, exitCode: 2)
         }
-        var params: [String: Any] = ["id": machine]
+        let machine = try resolveVMSecretsMachine(selector, client: client)
+        var params: [String: Any] = ["id": machine.id]
         params.merge(vmSecretsProjectParams(options.values["--project"] ?? ".", directory: FileManager.default.currentDirectoryPath)) { _, new in new }
         guard params["project"] != nil || params["project_remote_url"] != nil || params["project_dir_name"] != nil else {
             throw CLIError(message: Self.vmSecretsUsage, exitCode: 2)
         }
         if options.flags.contains("--no-sync") { params["sync"] = false }
+        let before = json || options.flags.contains("--no-sync") ? nil : vmSecretsStatusRowsBeforeSync(machine.id, client: client)
         let response = try client.sendV2(method: "vm.secrets_\(verb)", params: params, responseTimeout: 260)
         if json {
             print(jsonString(response))
@@ -330,9 +365,15 @@ extension CMUXCLI {
         let format = linking
             ? String(localized: "cloudSecrets.cli.link.done", defaultValue: "OK linked %1$@ to %2$@")
             : String(localized: "cloudSecrets.cli.unlink.done", defaultValue: "OK unlinked %1$@ from %2$@")
-        print(String(format: format, machine, project))
-        if let sync = response["sync"] as? [String: Any] {
-            printVMSecretsSyncLines([sync])
+        print(String(format: format, machine.display, project))
+        if let sync = response["sync"] as? [String: Any], (sync["error"] as? String)?.isEmpty ?? true {
+            // Linking adds the project's names; unlinking removes them.
+            let changes = Self.vmSecretsSyncChanges(result: sync, before: before)
+            for line in Self.vmSecretsSyncReport(machine: machine.display, changes: changes, noop: (sync["noop"] as? Bool) == true) {
+                print(line)
+            }
+        } else if let sync = response["sync"] as? [String: Any], let error = sync["error"] as? String {
+            print(String(format: String(localized: "cloudSecrets.cli.sync.machineFailed", defaultValue: "%1$@: sync failed: %2$@"), machine.display, error))
         }
     }
 
@@ -528,6 +569,7 @@ extension CMUXCLI {
         source: String,
         sync: Bool?,
         dryRun: Bool,
+        skipped: [VMSecretsDotenvSkip],
         client: SocketClient,
         json: Bool
     ) throws {
@@ -537,8 +579,16 @@ extension CMUXCLI {
         params["source"] = source
         if let sync { params["sync"] = sync }
         if dryRun { params["dry_run"] = true }
-        let response = try client.sendV2(method: "vm.secrets_set", params: params, responseTimeout: Self.vmSecretsResponseTimeout)
+        var response = try client.sendV2(method: "vm.secrets_set", params: params, responseTimeout: Self.vmSecretsResponseTimeout)
         if json {
+            if !skipped.isEmpty {
+                // Line numbers and reasons only; a skipped line's text is never echoed.
+                response["skipped"] = skipped.map { skip -> [String: Any] in
+                    var item: [String: Any] = ["line": skip.line, "reason": skip.code]
+                    if let name = skip.name { item["name"] = name }
+                    return item
+                }
+            }
             print(jsonString(response))
             return
         }
@@ -546,34 +596,129 @@ extension CMUXCLI {
         for line in Self.vmSecretsChangeLines(changes, dryRun: dryRun) {
             print(line)
         }
-        printVMSecretsSyncLines((response["synced"] as? [[String: Any]]) ?? [])
+        for line in Self.vmSecretsSkipLines(skipped) {
+            print(line)
+        }
+        if !skipped.isEmpty {
+            print(Self.vmSecretsImportSummary(imported: entries.count, skipped: skipped, dryRun: dryRun))
+        }
+        printVMSecretsSyncLines((response["synced"] as? [[String: Any]]) ?? [], changes: changes, client: client)
     }
 
-    private func printVMSecretsSyncLines(_ results: [[String: Any]], reportNoop: Bool = false) {
+    /// One line per machine a vault change reached, naming only what changed there
+    /// ("Synced 1 change to brave-otter: OPENAI_API_KEY updated"), then the reminder
+    /// that open shells keep their old values. A machine with nothing new prints nothing.
+    private func printVMSecretsSyncLines(_ results: [[String: Any]], changes: [[String: Any]], client: SocketClient) {
+        guard !results.isEmpty else { return }
+        let labels = vmSecretsMachineLabels(client: client)
+        var deliveredSomething = false
         for result in results {
-            let machine = (result["machine"] as? String) ?? "?"
+            let id = (result["machine"] as? String) ?? "?"
+            let machine = labels[id] ?? id
             if let error = result["error"] as? String, !error.isEmpty {
                 print(String(format: String(localized: "cloudSecrets.cli.sync.machineFailed", defaultValue: "%1$@: sync failed: %2$@"), machine, error))
                 continue
             }
-            let sent = (result["sent"] as? [String]) ?? []
-            let removed = (result["removed"] as? [String]) ?? []
-            if (result["noop"] as? Bool) == true {
-                if reportNoop {
-                    print(String(format: String(localized: "cloudSecrets.cli.sync.current", defaultValue: "%@ is up to date."), machine))
-                }
-                continue
+            guard (result["noop"] as? Bool) != true else { continue }
+            let reached = Set(((result["sent"] as? [String]) ?? []) + ((result["removed"] as? [String]) ?? []))
+            let applied = changes.compactMap { change -> VMSecretsSyncChange? in
+                guard let name = change["name"] as? String, reached.contains(name),
+                      let kind = change["kind"] as? String, kind != "unchanged" else { return nil }
+                return VMSecretsSyncChange(name: name, kind: kind)
             }
-            if !sent.isEmpty {
-                print(String(format: String(localized: "cloudSecrets.cli.sync.sent", defaultValue: "%1$@: delivered %2$@"), machine, sent.joined(separator: ", ")))
-            }
-            if !removed.isEmpty {
-                print(String(format: String(localized: "cloudSecrets.cli.sync.removed", defaultValue: "%1$@: removed %2$@"), machine, removed.joined(separator: ", ")))
-            }
+            guard !applied.isEmpty else { continue }
+            deliveredSomething = true
+            print(Self.vmSecretsSyncedLine(machine: machine, changes: applied))
         }
-        if results.contains(where: { ($0["noop"] as? Bool) != true && ($0["error"] as? String) == nil }) {
+        if deliveredSomething {
             print(String(localized: "cloudSecrets.cli.sync.newTerminals", defaultValue: "Open a new terminal on the machine to use the updated values."))
         }
+    }
+
+    /// The machine's status rows before a sync, so the report names only what changed.
+    /// nil when status cannot be read (an older app, or no link); the report then lists
+    /// the delivered names.
+    private func vmSecretsStatusRowsBeforeSync(_ machine: String, client: SocketClient) -> [[String: Any]]? {
+        guard let response = try? client.sendV2(
+            method: "vm.secrets_status",
+            params: ["id": machine, "verify": false],
+            responseTimeout: 120
+        ) else { return nil }
+        return response["rows"] as? [[String: Any]]
+    }
+
+    // MARK: - Machines by id or label
+
+    /// A machine argument resolved against `vm.list`: the id to send, and the label to print.
+    struct VMSecretsMachine: Equatable {
+        let id: String
+        let label: String?
+
+        var display: String { label ?? id }
+    }
+
+    /// `secrets status|sync|link|unlink <machine>`: an id or a label (`vm ls` NAME or
+    /// LABEL), through the same resolver every `cmux vm` verb uses. An unknown machine
+    /// is an error, never "every secret missing". When the machine list cannot be read
+    /// (an app without `vm.list`), the argument goes to the app as typed.
+    func resolveVMSecretsMachine(_ selector: String, client: SocketClient) throws -> VMSecretsMachine {
+        guard let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
+              let vms = listed["vms"] as? [[String: Any]] else {
+            return VMSecretsMachine(id: selector, label: nil)
+        }
+        func label(of id: String) -> String? {
+            guard let vm = vms.first(where: { ($0["id"] as? String) == id }) else { return nil }
+            return [vm["displayName"], vm["slug"]].compactMap { $0 as? String }.first { !$0.isEmpty }
+        }
+        switch VMMachineSelectorResolver().resolve(selector, vms: vms) {
+        case .id(let id), .label(id: let id):
+            return VMSecretsMachine(id: id, label: label(of: id))
+        case .ambiguous(let matches):
+            let list = matches.map { "  \($0.id)  \($0.label)" }.joined(separator: "\n")
+            throw CLIError(message: String(
+                format: String(localized: "cli.vm.machineLabel.ambiguous", defaultValue: "%1$@ is the label of more than one machine; use an id:\n%2$@"),
+                selector, list
+            ))
+        case .unknown:
+            throw CLIError(message: String(
+                format: String(localized: "cloudSecrets.cli.unknownMachine", defaultValue: "vm secrets: no machine named %@. Run `cmux vm ls` to see your machines."),
+                selector
+            ))
+        }
+    }
+
+    /// `--machine <label>` (or `--scope machine:<label>`) stores under the machine's id.
+    /// A name no machine has passes through unchanged, so a secret left behind by a
+    /// deleted machine can still be listed and removed.
+    func resolveVMSecretsMachineScope(_ spec: VMSecretsScopeSpec, client: SocketClient) throws -> VMSecretsScopeSpec {
+        guard case .machine(let selector) = spec else { return spec }
+        guard let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
+              let vms = listed["vms"] as? [[String: Any]] else { return spec }
+        switch VMMachineSelectorResolver().resolve(selector, vms: vms) {
+        case .id(let id), .label(id: let id):
+            return .machine(id)
+        case .ambiguous(let matches):
+            let list = matches.map { "  \($0.id)  \($0.label)" }.joined(separator: "\n")
+            throw CLIError(message: String(
+                format: String(localized: "cli.vm.machineLabel.ambiguous", defaultValue: "%1$@ is the label of more than one machine; use an id:\n%2$@"),
+                selector, list
+            ))
+        case .unknown:
+            return spec
+        }
+    }
+
+    /// Machine id → label, for printing. Empty when the list cannot be read.
+    private func vmSecretsMachineLabels(client: SocketClient) -> [String: String] {
+        guard let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
+              let vms = listed["vms"] as? [[String: Any]] else { return [:] }
+        var labels: [String: String] = [:]
+        for vm in vms {
+            guard let id = vm["id"] as? String,
+                  let label = [vm["displayName"], vm["slug"]].compactMap({ $0 as? String }).first(where: { !$0.isEmpty }) else { continue }
+            labels[id] = label
+        }
+        return labels
     }
 
     /// Socket params for a scope, resolving "this project" from `directory`'s git remote.
@@ -840,7 +985,12 @@ extension CMUXCLI {
         if lines.last == "" { lines.removeLast() }
         lines = lines.map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
         guard lines.count == names.count else {
-            throw CLIError(message: String(format: String(localized: "cloudSecrets.cli.set.stdinCount", defaultValue: "vm secrets set: expected %1$ld line(s) on stdin, one value per NAME, got %2$ld"), names.count, lines.count), exitCode: 2)
+            // English picks the form here; other languages carry plural variations on
+            // the first count (scripts/localization-plurals.json).
+            let format = names.count == 1
+                ? String(localized: "cloudSecrets.cli.set.stdinCount.one", defaultValue: "vm secrets set: expected %1$ld line on stdin (one value per NAME), got %2$ld")
+                : String(localized: "cloudSecrets.cli.set.stdinCount", defaultValue: "vm secrets set: expected %1$ld lines on stdin (one value per NAME), got %2$ld")
+            throw CLIError(message: String(format: format, names.count, lines.count), exitCode: 2)
         }
         if let index = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
             throw CLIError(message: String(format: String(localized: "cloudSecrets.cli.set.emptyValue", defaultValue: "vm secrets set: the value for %@ is empty"), names[index]), exitCode: 2)
@@ -848,27 +998,125 @@ extension CMUXCLI {
         return lines
     }
 
-    /// dotenv for secrets: the `vm env` rules, but an error names the line number only,
-    /// never its content (a malformed line can be a bare token).
-    static func parseVMSecretsDotenv(_ text: String) throws -> [VMEnvAssignment] {
-        var assignments: [VMEnvAssignment] = []
-        for (index, rawLine) in text.components(separatedBy: .newlines).enumerated() {
+    /// A `.env` line `vm secrets import` left out: its number, why, and its name when
+    /// the line has a valid one. The line's text is never kept (it may be a value).
+    struct VMSecretsDotenvSkip: Equatable {
+        enum Reason: String, Equatable {
+            case expectedAssignment = "not_assignment"
+            case invalidName = "invalid_name"
+            case multilineValue = "multiline_value"
+            case emptyValue = "empty_value"
+        }
+
+        let line: Int
+        let reason: Reason
+        let name: String?
+
+        /// The stable `--json` code.
+        var code: String { reason.rawValue }
+
+        /// "not NAME=value", "empty value".
+        var phrase: String {
+            switch reason {
+            case .expectedAssignment:
+                return String(localized: "cloudSecrets.cli.dotenv.skip.expectedAssignment", defaultValue: "not NAME=value")
+            case .invalidName:
+                return String(localized: "cloudSecrets.cli.dotenv.skip.invalidName", defaultValue: "invalid variable name")
+            case .multilineValue:
+                return String(localized: "cloudSecrets.cli.dotenv.skip.multilineValue", defaultValue: "value spans several lines")
+            case .emptyValue:
+                return String(localized: "cloudSecrets.cli.dotenv.skip.emptyValue", defaultValue: "empty value")
+            }
+        }
+    }
+
+    /// dotenv for secrets, leniently: the `vm env` rules, but a malformed line, a quote
+    /// that never closes, or an empty value (`KEY=`) is skipped and reported by line
+    /// number instead of failing the file. A repeated name keeps its last good value.
+    static func parseVMSecretsDotenv(_ text: String) -> (entries: [VMEnvAssignment], skipped: [VMSecretsDotenvSkip]) {
+        var order: [String] = []
+        var values: [String: String] = [:]
+        var skipped: [VMSecretsDotenvSkip] = []
+        var body = text.replacingOccurrences(of: "\r\n", with: "\n")
+        if body.hasPrefix("\u{FEFF}") { body.removeFirst() }
+        for (index, rawLine) in body.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let lineNumber = index + 1
             var line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
             if line.hasPrefix("export ") || line.hasPrefix("export\t") {
                 line = String(line.dropFirst("export".count)).trimmingCharacters(in: .whitespaces)
             }
             guard let separator = line.firstIndex(of: "=") else {
-                throw CLIError(message: String(format: String(localized: "cloudSecrets.cli.dotenv.expected", defaultValue: "vm secrets import: line %ld is not NAME=value"), index + 1), exitCode: 2)
+                skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .expectedAssignment, name: nil))
+                continue
             }
             let key = line[..<separator].trimmingCharacters(in: .whitespaces)
             guard isValidVMEnvKey(key) else {
-                throw CLIError(message: String(format: String(localized: "cloudSecrets.cli.dotenv.invalidName", defaultValue: "vm secrets import: line %ld has an invalid variable name"), index + 1), exitCode: 2)
+                skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .invalidName, name: nil))
+                continue
             }
-            let value = parseVMEnvFileValue(line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces))
-            assignments.append(VMEnvAssignment(key: key, value: value))
+            let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            if vmSecretsOpensUnclosedQuote(rawValue) {
+                skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .multilineValue, name: key))
+                continue
+            }
+            let value = parseVMEnvFileValue(rawValue)
+            guard !value.trimmingCharacters(in: .whitespaces).isEmpty else {
+                skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .emptyValue, name: key))
+                continue
+            }
+            if values[key] == nil { order.append(key) }
+            values[key] = value
         }
-        return assignments
+        let entries = order.compactMap { key in values[key].map { VMEnvAssignment(key: key, value: $0) } }
+        return (entries, skipped)
+    }
+
+    /// A value that starts a quote it never closes on its line: the rest of the value is
+    /// on later lines, which a single-line env file cannot carry.
+    static func vmSecretsOpensUnclosedQuote(_ value: String) -> Bool {
+        guard let quote = value.first, quote == "\"" || quote == "'" else { return false }
+        var escaped = false
+        for character in value.dropFirst() {
+            if character == quote, !escaped { return false }
+            escaped = character == "\\" && !escaped
+        }
+        return true
+    }
+
+    /// `! EMPTY skipped (empty value, line 5)`, or `! line 6 skipped (not NAME=value)`
+    /// for a line with no valid name to show.
+    static func vmSecretsSkipLines(_ skipped: [VMSecretsDotenvSkip]) -> [String] {
+        skipped.map { skip in
+            if let name = skip.name {
+                return String(
+                    format: String(localized: "cloudSecrets.cli.import.skippedNamed", defaultValue: "! %1$@ skipped (%2$@, line %3$ld)"),
+                    name, skip.phrase, skip.line
+                )
+            }
+            return String(
+                format: String(localized: "cloudSecrets.cli.import.skippedLine", defaultValue: "! line %1$ld skipped (%2$@)"),
+                skip.line, skip.phrase
+            )
+        }
+    }
+
+    /// "line 5 (empty value), line 6 (not NAME=value)".
+    static func vmSecretsSkipSummaryItems(_ skipped: [VMSecretsDotenvSkip]) -> String {
+        skipped.map { skip in
+            String(
+                format: String(localized: "cloudSecrets.cli.import.skipItem", defaultValue: "line %1$ld (%2$@)"),
+                skip.line, skip.phrase
+            )
+        }.joined(separator: ", ")
+    }
+
+    /// "Imported 3 · Skipped 1: line 6 (not NAME=value)"; a dry run says "Would import".
+    static func vmSecretsImportSummary(imported: Int, skipped: [VMSecretsDotenvSkip], dryRun: Bool) -> String {
+        let format = dryRun
+            ? String(localized: "cloudSecrets.cli.import.summaryDryRun", defaultValue: "Would import %1$ld \u{00B7} Skipped %2$ld: %3$@")
+            : String(localized: "cloudSecrets.cli.import.summary", defaultValue: "Imported %1$ld \u{00B7} Skipped %2$ld: %3$@")
+        return String(format: format, imported, skipped.count, vmSecretsSkipSummaryItems(skipped))
     }
 
     /// The named variables from `environment`. With `explicit`, unset names are reported
@@ -916,16 +1164,116 @@ extension CMUXCLI {
         }
     }
 
-    static func vmSecretsTable(_ secrets: [[String: Any]]) -> String {
+    /// `NAME  SCOPE  VALUE ID  UPDATED`: the value ID is the keyed fingerprint (it tells
+    /// two values apart, never reveals one), and the age is relative ("2h ago").
+    /// `--json` keeps the ISO 8601 timestamps.
+    static func vmSecretsTable(_ secrets: [[String: Any]], now: Date, locale: Locale = .current) -> String {
         let rows = secrets.map { secret -> [String] in
             [
                 (secret["name"] as? String) ?? "?",
                 (secret["scope"] as? String) ?? "?",
-                "••••" + ((secret["fingerprint"] as? String) ?? ""),
-                (secret["updated_at"] as? String) ?? "",
+                "\u{2022}\u{2022}\u{2022}\u{2022}" + ((secret["fingerprint"] as? String) ?? ""),
+                vmSecretsAge((secret["updated_at"] as? String) ?? "", now: now, locale: locale),
             ]
         }
-        return vmSecretsColumns(header: ["NAME", "SCOPE", "FINGERPRINT", "UPDATED"], rows: rows)
+        return vmSecretsColumns(header: ["NAME", "SCOPE", "VALUE ID", "UPDATED"], rows: rows)
+    }
+
+    /// "just now" under a minute (or for a clock that runs ahead), else "2h ago" in the
+    /// locale; an unreadable timestamp is shown as given.
+    static func vmSecretsAge(_ iso: String, now: Date, locale: Locale = .current) -> String {
+        let formatter = ISO8601DateFormatter()
+        var date = formatter.date(from: iso)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            date = formatter.date(from: iso)
+        }
+        guard let date else { return iso }
+        guard now.timeIntervalSince(date) >= 60 else {
+            return String(localized: "cloudSecrets.cli.ls.justNow", defaultValue: "just now")
+        }
+        let relative = RelativeDateTimeFormatter()
+        relative.locale = locale
+        relative.unitsStyle = .abbreviated
+        relative.dateTimeStyle = .numeric
+        return relative.localizedString(for: date, relativeTo: now)
+    }
+
+    /// One name a sync changed on a machine: `added`, `updated`, or `removed`.
+    struct VMSecretsSyncChange: Equatable {
+        let name: String
+        let kind: String
+    }
+
+    /// What a `vm.secrets_sync` result changed, given the machine's status rows from
+    /// before it: a delivered name that was missing is added, one that was stale is
+    /// updated, one that was current is unchanged. Without `before`, every delivered
+    /// name counts as updated (the result cannot tell new from rewritten).
+    static func vmSecretsSyncChanges(result: [String: Any], before: [[String: Any]]?) -> [VMSecretsSyncChange] {
+        guard (result["noop"] as? Bool) != true else { return [] }
+        var states: [String: String] = [:]
+        for row in before ?? [] {
+            if let name = row["name"] as? String, let state = row["state"] as? String { states[name] = state }
+        }
+        var changes: [VMSecretsSyncChange] = []
+        for name in (result["sent"] as? [String]) ?? [] {
+            guard before != nil else {
+                changes.append(VMSecretsSyncChange(name: name, kind: "updated"))
+                continue
+            }
+            switch states[name] {
+            case "current": continue
+            case "stale": changes.append(VMSecretsSyncChange(name: name, kind: "updated"))
+            default: changes.append(VMSecretsSyncChange(name: name, kind: "added"))
+            }
+        }
+        for name in (result["removed"] as? [String]) ?? [] {
+            changes.append(VMSecretsSyncChange(name: name, kind: "removed"))
+        }
+        return changes
+    }
+
+    /// "Synced 1 change to brave-otter: OPENAI_API_KEY updated" plus the new-terminal
+    /// reminder, or "brave-otter is up to date." when nothing changed.
+    static func vmSecretsSyncReport(machine: String, changes: [VMSecretsSyncChange], noop: Bool) -> [String] {
+        guard !changes.isEmpty else {
+            return [String(format: String(localized: "cloudSecrets.cli.sync.current", defaultValue: "%@ is up to date."), machine)]
+        }
+        return [
+            vmSecretsSyncedLine(machine: machine, changes: changes),
+            String(localized: "cloudSecrets.cli.sync.newTerminals", defaultValue: "Open a new terminal on the machine to use the updated values."),
+        ]
+    }
+
+    static func vmSecretsSyncedLine(machine: String, changes: [VMSecretsSyncChange]) -> String {
+        let items = changes.map { change -> String in
+            let kind: String
+            switch change.kind {
+            case "added": kind = String(localized: "cloudSecrets.cli.change.added", defaultValue: "added")
+            case "removed": kind = String(localized: "cloudSecrets.cli.change.removed", defaultValue: "removed")
+            default: kind = String(localized: "cloudSecrets.cli.change.updated", defaultValue: "updated")
+            }
+            return "\(change.name) \(kind)"
+        }.joined(separator: ", ")
+        let format = changes.count == 1
+            ? String(localized: "cloudSecrets.cli.sync.changed.one", defaultValue: "Synced %1$ld change to %2$@: %3$@")
+            : String(localized: "cloudSecrets.cli.sync.changed.many", defaultValue: "Synced %1$ld changes to %2$@: %3$@")
+        return String(format: format, changes.count, machine, items)
+    }
+
+    /// The scope as words for a message: "all machines", "project github.com/o/r",
+    /// "this project", "machine brave-otter".
+    static func vmSecretsScopePhrase(_ spec: VMSecretsScopeSpec) -> String {
+        switch spec {
+        case .all:
+            return String(localized: "cloudSecrets.cli.scopePhrase.all", defaultValue: "all machines")
+        case .project(nil):
+            return String(localized: "cloudSecrets.cli.scopePhrase.thisProject", defaultValue: "this project")
+        case .project(let key?):
+            return String(format: String(localized: "cloudSecrets.cli.scopePhrase.project", defaultValue: "project %@"), key)
+        case .machine(let id):
+            return String(format: String(localized: "cloudSecrets.cli.scopePhrase.machine", defaultValue: "machine %@"), id)
+        }
     }
 
     static func vmSecretsStatusTable(_ rows: [[String: Any]]) -> String {

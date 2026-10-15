@@ -325,10 +325,10 @@ describe("OpenCode sign-in precedence", () => {
     const env = await launch(m, "opencode");
     const team = path.join(m.home, ".config/cmux/opencode-team.json");
     expect(env.OPENCODE_CONFIG).toBe(team);
-    expect(JSON.parse(readFileSync(team, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
+    expect(JSON.parse(readFileSync(team, "utf8")).provider.go.options.apiKey).toBe(PLACEHOLDER);
     expect(existsSync(path.join(m.home, ".config/opencode/opencode.json"))).toBe(false);
-    // The team providers read the placeholder from OPENAI_API_KEY and carry
-    // their own CodeRouter baseURL; the shell's CodeRouter endpoints are
+    // The team providers carry the placeholder and their own CodeRouter
+    // baseURL; the shell's CodeRouter endpoints are
     // dropped so an `opencode auth login` provider still reaches its own service.
     expect(env.OPENAI_API_KEY).toBe(PLACEHOLDER);
     expect(env.OPENAI_BASE_URL).toBe("<unset>");
@@ -676,5 +676,118 @@ describe("cr use", () => {
     expect(twice.status).toBe(2);
     expect(twice.stderr).toContain("one mode");
     expect(existsSync(path.join(m.home, ".config/cmux/agent-auth"))).toBe(false);
+  });
+});
+
+// A provider key the user provided (Cloud Secrets, `cmux env set`, an export)
+// always reaches that provider directly; the model plane applies only to a
+// provider the user gave no key for, and never persists a user's value.
+describe("a user's own provider key goes to the provider, never to CodeRouter", () => {
+  const OPENAI_KEY = "sk-proj-user-key";
+  const ANTHROPIC_KEY = "sk-ant-user-key";
+  const probe = `printf '%s|%s|%s' "\${OPENAI_BASE_URL-unset}" "\${OPENAI_API_KEY-unset}" "\${CMUX_CODEROUTER_URL-unset}"`;
+  const nested = (before: string) =>
+    `. ${path.join(templateDir, "agent-config.sh")}; ${before} bash -c '. ${path.join(templateDir, "agent-config.sh")}; ${probe.replaceAll("'", "'\\''")}'`;
+  const plane = (m: Machine) => readFileSync(path.join(m.home, ".config/cmux/model-plane.env"), "utf8");
+
+  test("an OpenAI key never pairs with the plane endpoint and is never persisted", async () => {
+    const m = machine();
+    const result = await runChild("/bin/bash", ["-c", nested(`export OPENAI_API_KEY=${OPENAI_KEY};`)], { env: bootEnv(m) });
+    expect(result.stdout).toBe(`unset|${OPENAI_KEY}|${ORIGIN}`);
+    expect(plane(m)).not.toContain(OPENAI_KEY);
+    expect(plane(m)).toContain(`export OPENAI_API_KEY='${PLACEHOLDER}'`);
+    expect(plane(m)).toContain(`export OPENAI_BASE_URL='${ORIGIN}/v1'`);
+  });
+
+  test("the OpenAI endpoint Cloud Secrets adds beside the key survives every shell, including a fresh one", async () => {
+    const m = machine();
+    const companion = `export OPENAI_API_KEY=${OPENAI_KEY} OPENAI_BASE_URL=https://api.openai.com/v1;`;
+    expect((await runChild("/bin/bash", ["-c", nested(companion)], { env: bootEnv(m) })).stdout)
+      .toBe(`https://api.openai.com/v1|${OPENAI_KEY}|${ORIGIN}`);
+    // A shell without the boot env reads the persisted plane but keeps the user's pair.
+    const fresh = await runChild("/bin/bash", ["-c", `${companion} . ${path.join(templateDir, "agent-config.sh")}; ${probe}`], {
+      env: { PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: m.home },
+    });
+    expect(fresh.stdout).toBe(`https://api.openai.com/v1|${OPENAI_KEY}|${ORIGIN}`);
+    expect(plane(m)).not.toContain(OPENAI_KEY);
+    expect(plane(m)).not.toContain("api.openai.com");
+  });
+
+  test("an Anthropic key beside the plane origin stays and goes to Anthropic; the pair set aside is the placeholder", async () => {
+    const m = machine();
+    const claudeProbe = `printf '%s|%s|%s' "\${ANTHROPIC_BASE_URL-unset}" "\${ANTHROPIC_API_KEY-unset}" "\${CMUX_CLAUDE_TEAM_API_KEY-}"`;
+    const result = await runChild("/bin/bash", ["-c", `export ANTHROPIC_API_KEY=${ANTHROPIC_KEY}; . ${path.join(templateDir, "agent-config.sh")}; ${claudeProbe}`], { env: bootEnv(m) });
+    expect(result.stdout).toBe(`unset|${ANTHROPIC_KEY}|${PLACEHOLDER}`);
+    expect(plane(m)).not.toContain(ANTHROPIC_KEY);
+    choose(m, "team");
+    const env = await launch(m, "claude", {}, `export ANTHROPIC_API_KEY=${ANTHROPIC_KEY};`);
+    expect(env.ANTHROPIC_API_KEY).toBe(ANTHROPIC_KEY);
+    expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
+  });
+
+  test("Claude Code's bearer token keeps team mode from adding the CodeRouter pair", async () => {
+    const m = machine();
+    choose(m, "team");
+    const env = await launch(m, "claude", {}, "export ANTHROPIC_AUTH_TOKEN=user-bearer;");
+    expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
+    expect(env.ANTHROPIC_API_KEY).toBe("<unset>");
+  });
+
+  const keyProvider = (base: string) =>
+    `-c model_provider="cmux-openai-key" -c model_providers.cmux-openai-key={ name = "OpenAI", base_url = "${base}", env_key = "OPENAI_API_KEY", wire_api = "responses" } --resume x`;
+
+  test("codex in team mode sends the user's key to OpenAI through its own provider", async () => {
+    const m = machine();
+    cmuxCodexConfig(m);
+    choose(m, "team", "codex");
+    const env = await launch(m, "codex", {}, `export OPENAI_API_KEY=${OPENAI_KEY};`);
+    expect(env.args).toBe(keyProvider("https://api.openai.com/v1"));
+    expect(env.OPENAI_API_KEY).toBe(OPENAI_KEY);
+    expect(env.OPENAI_BASE_URL).toBe("<unset>");
+  });
+
+  test("codex keeps a user's own endpoint for their key, and never takes the CodeRouter one", async () => {
+    const m = machine();
+    cmuxCodexConfig(m);
+    choose(m, "own", "codex");
+    expect((await launch(m, "codex", {}, `export OPENAI_API_KEY=${OPENAI_KEY} OPENAI_BASE_URL=https://proxy.example.test/v1;`)).args)
+      .toBe(keyProvider("https://proxy.example.test/v1"));
+    const team = machine();
+    cmuxCodexConfig(team);
+    choose(team, "team", "codex");
+    expect((await launch(team, "codex", {}, `export OPENAI_API_KEY=${OPENAI_KEY} OPENAI_BASE_URL=${ORIGIN}/v1;`)).args)
+      .toBe(keyProvider("https://api.openai.com/v1"));
+  });
+
+  test("codex in own mode with a codex login keeps that login, without the OpenAI endpoint added beside a key", async () => {
+    const m = machine();
+    cmuxCodexConfig(m);
+    signIn(m, "codex");
+    const env = await launch(m, "codex", {}, `export OPENAI_API_KEY=${OPENAI_KEY} OPENAI_BASE_URL=https://api.openai.com/v1;`);
+    expect(env.args).toBe('-c model_provider="openai" --resume x');
+    expect(env.OPENAI_BASE_URL).toBe("<unset>");
+  });
+
+  test("codex without a user key uses CodeRouter even when an older sync named the key provider in config.toml", async () => {
+    const m = machine();
+    cmuxCodexConfig(m, "cmux-openai-key");
+    choose(m, "team", "codex");
+    const env = await launch(m, "codex");
+    expect(env.args).toBe('-c model_provider="cmux" --resume x');
+    expect(env.OPENAI_API_KEY).toBe(PLACEHOLDER);
+  });
+
+  test("the OpenCode catalog fetch sends the placeholder, never the user's OpenAI key", async () => {
+    const m = machine();
+    choose(m, "team", "opencode");
+    const env = await launch(m, "opencode", {}, `export OPENAI_API_KEY=${OPENAI_KEY};`);
+    const calls = readFileSync(m.calls, "utf8");
+    expect(calls).toContain(`authorization: Bearer ${PLACEHOLDER}`);
+    expect(calls).not.toContain(OPENAI_KEY);
+    const team = readFileSync(path.join(m.home, ".config/cmux/opencode-team.json"), "utf8");
+    expect(team).not.toContain(OPENAI_KEY);
+    expect(team).not.toContain("{env:OPENAI_API_KEY}");
+    // The user's own OpenAI providers still see their key.
+    expect(env.OPENAI_API_KEY).toBe(OPENAI_KEY);
   });
 });

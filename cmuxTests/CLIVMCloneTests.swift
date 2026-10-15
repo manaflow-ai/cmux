@@ -191,6 +191,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(interactive["open"] as? Bool, false)
     }
 
+    func testVMCloneDryRunNamesTheMachineItWouldUse() throws {
+        let root = try vmCloneScratch("drymachine")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let cases: [(arguments: [String], expected: String)] = [
+            (["o/r", "--machine", "brave-otter"], "plan: machine brave-otter (pinned with --machine)"),
+            (["o/r", "--new", "--size", "16g"], "plan: machine a new 16g machine (--new)"),
+            // No app to ask: the plan says how routing decides instead of failing.
+            (["o/r"], "plan: machine the one this repository used last"),
+        ]
+        for testCase in cases {
+            let result = try runVMCloneCLI(
+                arguments: ["vm", "clone"] + testCase.arguments + ["--dry-run"],
+                home: home,
+                socketPath: makeSocketPath("vdm")
+            )
+            XCTAssertEqual(result.status, 0, "\(testCase.arguments): stdout=\(result.stdout) stderr=\(result.stderr)")
+            XCTAssertTrue(result.stdout.contains(testCase.expected), "\(testCase.arguments): \(result.stdout)")
+        }
+        let (pinned, _) = try vmCloneDryRunPlan(["o/r", "--machine", "brave-otter"], home: home)
+        XCTAssertEqual(pinned["machine"] as? String, "brave-otter")
+        XCTAssertEqual(pinned["machine_plan"] as? String, "brave-otter (pinned with --machine)")
+        XCTAssertEqual(pinned["would_provision"] as? Bool, false)
+    }
+
     func testVMCloneDotResolvesOriginAndTrackedBranch() throws {
         let root = try vmCloneScratch("dot")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -214,12 +239,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         git(["update-ref", "refs/remotes/origin/feature/login", "HEAD"])
         git(["branch", "--set-upstream-to=origin/feature/login"])
 
-        let (tracked, _) = try vmCloneDryRunPlan(["."], home: home, directory: repo)
+        let (tracked, trackedResult) = try vmCloneDryRunPlan(["."], home: home, directory: repo)
         let trackedRepo = try XCTUnwrap(tracked["repo"] as? [String: Any])
         XCTAssertEqual(trackedRepo["url"] as? String, "https://github.com/Acme/Widget.git")
         XCTAssertEqual(trackedRepo["project"] as? String, "github.com/acme/widget")
         XCTAssertEqual(trackedRepo["branch"] as? String, "feature/login")
         XCTAssertEqual(tracked["dir"] as? String, "work/Widget")
+        XCTAssertFalse(trackedResult.stderr.contains("uncommitted"), "a clean, pushed checkout has no note: \(trackedResult.stderr)")
+
+        // Work that stays on this Mac is named: uncommitted edits and unpushed commits.
+        try "draft".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        git(["commit", "-q", "--allow-empty", "-m", "local"])
+        let (_, dirtyResult) = try vmCloneDryRunPlan(["."], home: home, directory: repo)
+        XCTAssertTrue(
+            dirtyResult.stderr.contains("Cloning origin/feature/login \u{2014} 1 uncommitted change in this checkout is not included. Use `cmux vm push` or `cmux vm dev`"),
+            dirtyResult.stderr
+        )
+        XCTAssertTrue(dirtyResult.stderr.contains("1 local commit is not on origin/feature/login yet"), dirtyResult.stderr)
 
         // A branch origin does not have: the default branch, with a note saying why.
         git(["checkout", "-q", "-b", "local-only"])
@@ -296,21 +332,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "vcf",
             arguments: ["vm", "repo", "clone", "git@github.com:acme/api.git", "--machine", "brave-otter", "--branch", "main", "--no-open", "--json", "--agent", "claude", "--", "fix", "it"],
             home: home
-        ) { method, _ in
+        ) { method, params in
             switch method {
             case "vm.secrets_sync": return ["machine": "brave-otter", "sent": ["GH_TOKEN"], "removed": [], "noop": false]
-            case "vm.exec": return ["exit_code": 0, "stdout": "cmux-clone=cloned\n", "stderr": "Cloning into 'work/api'...\n"]
+            case "vm.exec": return ["exit_code": 0, "stdout": "cmux-clone=cloned\ncmux-clone-path=/home/cmux/work/api\n", "stderr": "Cloning into 'work/api'...\n"]
             case "vm.workspace_new": return ["machine": "brave-otter", "remote_workspace_id": "ws_9", "existing": false, "opened": false, "terminal_id": "term_starter"]
-            case "vm.terminal_write": return ["wrote": 20]
-            case "surface.new_terminal": return ["terminal_id": "term_agent", "remote_workspace_id": "ws_9"]
+            case "vm.terminal_close": return ["closed": true]
+            case "surface.new_terminal":
+                // The checkout shell has no command; the agent has one.
+                let terminal = params["command"] == nil ? "term_shell" : "term_agent"
+                return ["terminal_id": terminal, "remote_workspace_id": "ws_9"]
             default: return nil
             }
         }
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        // --machine pins the machine: no routing traffic, secrets before git.
+        // --machine pins the machine: no routing traffic, secrets before git. The starter
+        // shell is replaced by one started in the checkout: nothing is typed into it.
         XCTAssertEqual(
             log.methods,
-            ["vm.secrets_sync", "vm.exec", "vm.workspace_new", "vm.terminal_write", "surface.new_terminal"],
+            ["vm.secrets_sync", "vm.exec", "vm.workspace_new", "surface.new_terminal", "vm.terminal_close", "surface.new_terminal"],
             log.methods.description
         )
         let secrets = try XCTUnwrap(log.params(ofFirst: "vm.secrets_sync"))
@@ -330,21 +370,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(workspace["reuse"] as? Bool, true)
         XCTAssertEqual(workspace["open"] as? Bool, false)
 
-        let write = try XCTUnwrap(log.params(ofFirst: "vm.terminal_write"))
-        XCTAssertEqual(write["terminal_id"] as? String, "term_starter")
-        let cd = try XCTUnwrap(write["text"] as? String)
-        XCTAssertTrue(cd.hasPrefix("cd \"$HOME\"/"), cd)
-        XCTAssertTrue(cd.contains("work/api"), cd)
-        XCTAssertEqual(write["keys"] as? [String], ["enter"])
+        // The clone exec reports the absolute checkout path for native terminal cwds.
+        XCTAssertTrue(command.contains("cmux-clone-path="), command)
+        let terminals = log.snapshot()
+            .filter { ($0["method"] as? String) == "surface.new_terminal" }
+            .compactMap { $0["params"] as? [String: Any] }
+        XCTAssertEqual(terminals.count, 2, log.methods.description)
+        let shell = terminals[0]
+        XCTAssertNil(shell["command"], "the checkout terminal is a plain login shell: \(shell)")
+        XCTAssertEqual(shell["cwd"] as? String, "/home/cmux/work/api")
+        XCTAssertEqual(shell["remote_workspace_id"] as? String, "ws_9")
+        XCTAssertEqual(log.params(ofFirst: "vm.terminal_close")?["terminal_id"] as? String, "term_starter")
 
-        let agent = try XCTUnwrap(log.params(ofFirst: "surface.new_terminal"))
+        let agent = terminals[1]
         XCTAssertEqual(agent["machine"] as? String, "brave-otter")
-        XCTAssertEqual(agent["remote_workspace_id"] as? String, "ws_9")
+        XCTAssertEqual(agent["remote_workspace_id"] as? String, "ws_9", "the agent is a tab in the repository's workspace")
+        XCTAssertEqual(agent["cwd"] as? String, "/home/cmux/work/api")
         XCTAssertEqual(agent["open"] as? Bool, false)
         let agentCommand = try XCTUnwrap(agent["command"] as? [String])
         XCTAssertEqual(agentCommand.prefix(2), ["bash", "-lc"])
         XCTAssertTrue(agentCommand.last?.contains("work/api") == true, agentCommand.description)
-        XCTAssertTrue(agentCommand.last?.contains("exec claude -p 'fix it'") == true, agentCommand.description)
+        // Not exec'd: when the one-shot agent exits, a shell keeps the tab in the workspace.
+        XCTAssertTrue(agentCommand.last?.hasSuffix("claude -p 'fix it'; exec \"${SHELL:-bash}\" -l") == true, agentCommand.description)
 
         let payload = try XCTUnwrap(result.stdout.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any], result.stdout)
         XCTAssertEqual(payload["machine"] as? String, "brave-otter")
@@ -352,6 +399,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(payload["dir"] as? String, "work/api")
         XCTAssertEqual(payload["workspace_id"] as? String, "ws_9")
         XCTAssertEqual(payload["agent_terminal_id"] as? String, "term_agent")
+        XCTAssertEqual(payload["terminal_id"] as? String, "term_shell")
         XCTAssertEqual(payload["secrets_synced"] as? Bool, true)
         XCTAssertEqual(payload["open"] as? String, "cmux vm open brave-otter/ws_9")
         let timings = try XCTUnwrap(payload["timings"] as? [String: Any])

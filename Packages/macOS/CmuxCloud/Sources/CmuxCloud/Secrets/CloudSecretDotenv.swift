@@ -8,9 +8,49 @@ import Foundation
 /// value whose closing quote is not on the same line is refused, because a multi-line
 /// value cannot be delivered. A repeated key keeps its last value at its first position.
 /// Values are not validated here; ``CloudSecretVault/set(_:scope:source:)`` does that.
+///
+/// ``parse(_:)`` stops at the first bad line. ``parseLenient(_:)`` keeps every good line
+/// and reports each bad one (and each `KEY=` with an empty value) by line number, so an
+/// import can store what it can and say what it skipped.
 /// lint:allow namespace-type: the contract's stateless parser entry point, shared by the CLI and the sheet.
 public enum CloudSecretDotenv {
+    /// What ``parseLenient(_:)`` found: the importable entries, and why each other
+    /// non-blank, non-comment line was left out, in line order. Never carries a value.
+    public struct LenientResult: Sendable, Equatable {
+        public let inputs: [CloudSecretInput]
+        public let skipped: [CloudSecretDotenvError]
+
+        public init(inputs: [CloudSecretInput], skipped: [CloudSecretDotenvError]) {
+            self.inputs = inputs
+            self.skipped = skipped
+        }
+    }
+
+    /// Strict: the first malformed line throws. An empty value (`KEY=`) is returned
+    /// as an entry with an empty value; validation refuses it later.
     public static func parse(_ text: String) throws -> [CloudSecretInput] {
+        var firstError: CloudSecretDotenvError?
+        let inputs = scan(text, skipEmptyValues: false) { error in
+            if firstError == nil { firstError = error }
+        }
+        if let firstError { throw firstError }
+        return inputs
+    }
+
+    /// Lenient: every good line is kept; a malformed line or an empty value is
+    /// reported in ``LenientResult/skipped`` with its line number instead of failing
+    /// the whole file. A key whose later line was skipped keeps its earlier value.
+    public static func parseLenient(_ text: String) -> LenientResult {
+        var skipped: [CloudSecretDotenvError] = []
+        let inputs = scan(text, skipEmptyValues: true) { skipped.append($0) }
+        return LenientResult(inputs: inputs, skipped: skipped)
+    }
+
+    private static func scan(
+        _ text: String,
+        skipEmptyValues: Bool,
+        onBadLine: (CloudSecretDotenvError) -> Void
+    ) -> [CloudSecretInput] {
         var order: [String] = []
         var values: [String: String] = [:]
         // "\r\n" is one Character, so normalize it before splitting on "\n".
@@ -25,15 +65,22 @@ public enum CloudSecretDotenv {
                 line = String(line.dropFirst("export".count)).trimmingCharacters(in: .whitespaces)
             }
             guard let separator = line.firstIndex(of: "=") else {
-                throw CloudSecretDotenvError(line: lineNumber, reason: .expectedAssignment)
+                onBadLine(CloudSecretDotenvError(line: lineNumber, reason: .expectedAssignment))
+                continue
             }
             let key = line[..<separator].trimmingCharacters(in: .whitespaces)
             guard CloudEnvDelivery.isValidKey(key) else {
-                throw CloudSecretDotenvError(line: lineNumber, reason: .invalidName(key))
+                onBadLine(CloudSecretDotenvError(line: lineNumber, reason: .invalidName(key)))
+                continue
             }
             let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
             guard let value = parseValue(rawValue) else {
-                throw CloudSecretDotenvError(line: lineNumber, reason: .multilineValue(key))
+                onBadLine(CloudSecretDotenvError(line: lineNumber, reason: .multilineValue(key)))
+                continue
+            }
+            if skipEmptyValues, value.isEmpty {
+                onBadLine(CloudSecretDotenvError(line: lineNumber, reason: .emptyValue(key)))
+                continue
             }
             if values[key] == nil { order.append(key) }
             values[key] = value

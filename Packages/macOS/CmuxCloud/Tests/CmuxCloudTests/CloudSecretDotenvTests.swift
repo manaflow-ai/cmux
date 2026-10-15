@@ -108,4 +108,56 @@ import Testing
         #expect(try CloudSecretDotenv.parse("").isEmpty)
         #expect(try CloudSecretDotenv.parse("\n# only comments\n\n").isEmpty)
     }
+    // MARK: Lenient
+
+    @Test
+    func lenientKeepsGoodLinesAndReportsEachBadOneByLine() {
+        let text = """
+        # keys
+        ANTHROPIC_API_KEY=sk-ant-1
+        sk-bare-token-line
+        1BAD=sk-under-a-bad-name
+        EMPTY=
+        OPENAI_API_KEY='sk-2'
+        CERT="-----BEGIN
+        """
+        let result = CloudSecretDotenv.parseLenient(text)
+        #expect(result.inputs.map { "\($0.name)=\($0.value)" } == ["ANTHROPIC_API_KEY=sk-ant-1", "OPENAI_API_KEY=sk-2"])
+        #expect(result.skipped == [
+            CloudSecretDotenvError(line: 3, reason: .expectedAssignment),
+            CloudSecretDotenvError(line: 4, reason: .invalidName("1BAD")),
+            CloudSecretDotenvError(line: 5, reason: .emptyValue("EMPTY")),
+            CloudSecretDotenvError(line: 7, reason: .multilineValue("CERT")),
+        ])
+    }
+
+    @Test
+    func lenientSkipDescriptionsNeverShowLineText() {
+        // A bare token, and text before `=` that is not a name: both may be values.
+        let result = CloudSecretDotenv.parseLenient("sk-bare-token-line\nsk-under=a-bad-name\n9TOKEN=x\n")
+        #expect(result.inputs.isEmpty)
+        #expect(result.skipped.map(\.line) == [1, 2, 3])
+        for skip in result.skipped {
+            #expect(!skip.skipReason.contains("sk-"))
+            #expect(!skip.skipReason.contains("9TOKEN"))
+            #expect(skip.name == nil)
+        }
+        #expect(result.skipped.first?.skipReason == "not NAME=value")
+    }
+
+    @Test
+    func lenientEmptyValueKeepsAnEarlierValue() {
+        let result = CloudSecretDotenv.parseLenient("A=1\nA=\n")
+        #expect(result.inputs.map { "\($0.name)=\($0.value)" } == ["A=1"])
+        #expect(result.skipped == [CloudSecretDotenvError(line: 2, reason: .emptyValue("A"))])
+        #expect(result.skipped.first?.name == "A")
+    }
+
+    @Test
+    func strictParseStillStopsAtTheFirstBadLineAndKeepsEmptyValues() throws {
+        #expect(throws: CloudSecretDotenvError(line: 2, reason: .expectedAssignment)) {
+            try CloudSecretDotenv.parse("A=1\nbad\nalso bad\n")
+        }
+        #expect(try pairs("EMPTY=") == ["EMPTY="])
+    }
 }

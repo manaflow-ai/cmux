@@ -65,7 +65,7 @@ struct CloudGettingStartedCard: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Text(String(localized: "cloud.gettingStarted.title", defaultValue: "Get started with Cloud"))
+            Text(String(localized: "cloud.gettingStarted.title", defaultValue: "Get started with cmux Cloud"))
                 .cmuxFont(size: 12, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -87,7 +87,7 @@ struct CloudGettingStartedCard: View {
 
     private var progressLabel: String {
         String(
-            format: String(localized: "cloud.gettingStarted.progress", defaultValue: "%1$d/%2$d"),
+            format: String(localized: "cloud.gettingStarted.progress", defaultValue: "%1$ld/%2$ld"),
             checklist.completedCount,
             checklist.totalCount
         )
@@ -97,7 +97,7 @@ struct CloudGettingStartedCard: View {
         String(
             format: String(
                 localized: "cloud.gettingStarted.progress.accessibility",
-                defaultValue: "%1$d of %2$d steps done"
+                defaultValue: "%1$ld of %2$ld steps done"
             ),
             checklist.completedCount,
             checklist.totalCount

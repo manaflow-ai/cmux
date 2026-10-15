@@ -64,7 +64,7 @@ final class CloudSecretsService: ObservableObject {
 
     let vault: CloudSecretVault
     let transport: Transport
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     private let notificationCenter: NotificationCenter
     private let autoSyncKey = CloudCatalogSection().secretsAutoSync
     /// The newest sync per machine; a new request chains after it so one machine
@@ -203,6 +203,7 @@ final class CloudSecretsService: ObservableObject {
 
     /// Forgets a destroyed machine: its ledger entry and machine-scoped secrets.
     func forgetMachine(_ machineID: String) {
+        forgetProviderRouting(machineID: machineID)
         Task { @MainActor in
             do {
                 try await self.vault.forgetMachine(machineID)
@@ -252,12 +253,18 @@ final class CloudSecretsService: ObservableObject {
         return result
     }
 
-    /// Syncs every machine in the ledger whose plan is not a no-op.
+    /// Syncs every machine in the ledger whose plan is not a no-op, or whose
+    /// provider routing (``CloudSecretsProviderRouting``) is not applied yet: a
+    /// machine that received a provider key before routing existed gets it here.
     @discardableResult
     func syncAllStale() async -> [CloudSecretSyncResult] {
-        let machineIDs: [String]
+        var machineIDs: [String] = []
         do {
-            machineIDs = try await vault.machinesNeedingSync()
+            for delivery in try await vault.deliveries() {
+                if try await machineNeedsSync(delivery.machineID) {
+                    machineIDs.append(delivery.machineID)
+                }
+            }
         } catch {
             loadError = Self.redactedMessage(for: error, values: [])
             return []
