@@ -255,6 +255,26 @@
             }
           },
           {
+            "key" : "settings.group.colorTransition",
+            "rows" : [
+              "appearance.colorTransition.enabled",
+              "appearance.colorTransition.duration",
+              "appearance.colorTransition.curve",
+              "appearance.colorTransition.springResponse",
+              "appearance.colorTransition.springDamping",
+              "appearance.colorTransition.bezierX1",
+              "appearance.colorTransition.bezierY1",
+              "appearance.colorTransition.bezierX2",
+              "appearance.colorTransition.bezierY2",
+              "appearance.colorTransition.colorSpace",
+              "appearance.colorTransition.reduceMotion"
+            ],
+            "title" : {
+              "key" : "settings.group.colorTransition",
+              "text" : "Color Changes"
+            }
+          },
+          {
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.backdropArt",

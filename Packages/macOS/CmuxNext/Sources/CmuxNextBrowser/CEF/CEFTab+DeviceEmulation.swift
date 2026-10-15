@@ -28,13 +28,21 @@ extension CEFTab: BrowserEmulating {
                 let viewport = emulation.flatMap { $0.viewport(in: $0.layoutArea(in: self.container.pageViewportFrame).size) }
                 self.deviceEmulationViewport = viewport
                 self.deviceEmulationApplied = emulation != nil
+                // The scale Chromium applies once the calls went through (the metrics call
+                // failed: none); rounded, so a pane drag does not re-announce every frame.
+                var inputScale = (Double(viewport?.scale ?? 1) * 10_000).rounded() / 10_000
                 for (method, params) in CEFDeviceEmulation.calls(emulation, viewport: viewport) {
+                    let metrics = method.hasSuffix("DeviceMetricsOverride")
                     do {
                         _ = try await runtime.devTools(browserID, method: method, params: params)
                     } catch {
+                        if metrics { inputScale = 1 }
                         runtime.logger.error("device emulation \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                     }
+                    // As soon as the metrics call answered (set or cleared), not after the other calls.
+                    if metrics, self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
                 }
+                if self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
             }
             self?.deviceEmulationTask = nil
         }
