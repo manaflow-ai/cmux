@@ -1,8 +1,8 @@
-#if os(iOS)
 import CNCore
-import SwiftUI
+import Foundation
 
-/// A site for the Favorites grid, derived from the open tabs.
+/// A site for the Favorites grid, derived from the open tabs: one per site
+/// (host without "www."), named like Safari's tiles.
 struct FavoriteSite: Identifiable, Hashable {
     var id: String { host }
     var host: String
@@ -23,9 +23,18 @@ struct FavoriteSite: Identifiable, Hashable {
             let name = base.prefix(1).uppercased() + base.dropFirst()
             out.append(FavoriteSite(host: display, url: "\(scheme)://\(host)", name: name, monogram: String(name.prefix(1))))
         }
+        // Sites whose short names collide (example.com, example.net and
+        // example.org were all "Example") are named by their host instead,
+        // so every tile reads differently.
+        var counts: [String: Int] = [:]
+        for site in out { counts[site.name, default: 0] += 1 }
+        for i in out.indices where counts[out[i].name, default: 0] > 1 { out[i].name = out[i].host }
         return out
     }
 }
+
+#if os(iOS)
+import SwiftUI
 
 /// New-tab start page: Favorites grid of the sites open on the Mac.
 struct StartPageView: View {
