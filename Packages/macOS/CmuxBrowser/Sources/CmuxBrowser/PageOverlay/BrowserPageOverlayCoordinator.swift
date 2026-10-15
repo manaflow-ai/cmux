@@ -40,6 +40,7 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
     private weak var contentView: NSView?
     private weak var occlusionTarget: (any BrowserPageOcclusionHosting)?
     private var occludingAnchors: [String: WeakView] = [:]
+    private var occludingRadii: [String: CGFloat] = [:]
     private var floatingOverlays: [String: FloatingOverlay] = [:]
     private var updateObserver: (any NSObjectProtocol)?
     private weak var observedWindow: NSWindow?
@@ -91,15 +92,26 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
     // MARK: Occluding overlays
 
     /// `anchor` shows an occluding overlay (its frame is the overlay's frame).
-    public func registerOccluding(_ anchor: NSView, id: String) {
+    /// A rounded card passes its `cornerRadius`, so the page shows in its
+    /// corners (notched hole, design spec §0.9).
+    public func registerOccluding(_ anchor: NSView, id: String, cornerRadius: CGFloat = 0) {
         occludingAnchors[id] = WeakView(view: anchor)
+        occludingRadii[id] = cornerRadius
         update()
     }
 
     public func unregisterOccluding(id: String) {
+        occludingRadii[id] = nil
         guard occludingAnchors.removeValue(forKey: id) != nil else { return }
         update()
     }
+
+    /// Whether overlays sit over a child-window (Chromium) page. An occluding
+    /// overlay then draws in a hole of the page, where material blurs cmux's
+    /// own views rather than the page and an outer shadow is clipped: it
+    /// switches to an opaque fill with a 0.5 pt separator stroke
+    /// (`browserPageOverlayCard`, design spec §0.9). WebKit keeps its look.
+    public var overlaysSitInPageHoles: Bool { hostsFloatingOverlaysInPanels }
 
     // MARK: Floating overlays
 
@@ -143,8 +155,11 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
         // flipped view or a bounds offset).
         let plan = BrowserPageOcclusionPlan(
             contentBounds: contentView.bounds,
-            overlayRects: occludingAnchors.values.compactMap { anchor in
-                Self.shownRectInWindow(anchor.view, window: window).map { contentView.convert($0, from: nil) }
+            overlays: occludingAnchors.compactMap { id, anchor in
+                Self.shownRectInWindow(anchor.view, window: window).map {
+                    BrowserPageOcclusionPlan.Overlay(rect: contentView.convert($0, from: nil),
+                                                     cornerRadius: occludingRadii[id] ?? 0)
+                }
             }
         )
         let holes = plan.holes

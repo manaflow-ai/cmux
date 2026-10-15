@@ -56,13 +56,13 @@ final class CEFApplicationSupport {
             let getter: @convention(block) (AnyObject) -> ObjCBool = { [unowned self] _ in
                 ObjCBool(self.handlingSendEvent)
             }
-            class_addMethod(appClass, getSelector, imp_implementationWithBlock(getter), "c@:")
+            class_addMethod(appClass, getSelector, imp_implementationWithBlock(getter), Self.boolGetterTypes)
         }
         if !application.responds(to: setSelector) {
             let setter: @convention(block) (AnyObject, ObjCBool) -> Void = { [unowned self] _, value in
                 self.handlingSendEvent = value.boolValue
             }
-            class_addMethod(appClass, setSelector, imp_implementationWithBlock(setter), "v@:c")
+            class_addMethod(appClass, setSelector, imp_implementationWithBlock(setter), Self.boolSetterTypes)
         }
         if !class_conformsToProtocol(appClass, proto) {
             class_addProtocol(appClass, proto)
@@ -72,8 +72,20 @@ final class CEFApplicationSupport {
         return isInstalled
     }
 
+    /// ObjC type encodings of a BOOL getter and setter (BOOL is `B` on arm64, `c` on x86_64).
+    #if arch(arm64)
+    private static let boolGetterTypes = "B@:"
+    private static let boolSetterTypes = "v@:B"
+    #else
+    private static let boolGetterTypes = "c@:"
+    private static let boolSetterTypes = "v@:c"
+    #endif
+
     /// Wraps the current `-sendEvent:` so `isHandlingSendEvent` is true while
-    /// it runs (restoring the outer value for nested dispatch).
+    /// it runs (restoring the outer value for nested dispatch). Order matters:
+    /// cmux's own `sendEvent:` swizzle (AppDelegate, installed during launch)
+    /// must already be in place, because this wraps whatever implementation is
+    /// current; CEF starts only after launch finished, from an async load.
     private func wrapSendEvent(_ appClass: AnyClass) {
         typealias SendEvent = @convention(c) (AnyObject, Selector, NSEvent) -> Void
         let selector = #selector(NSApplication.sendEvent(_:))

@@ -27,6 +27,7 @@ public final class CEFBrowserPage: BrowserPage {
     private var devToolsVisible = false
     private var muted = false
     private var lastFaviconURL: URL?
+    private let faviconFetcher = CEFFaviconFetcher()
     private var isClosed = false
     /// Finds the helper process of a renderer; set by the provider, shared by its pages.
     var rendererProcesses: CEFRendererProcessResolver?
@@ -388,7 +389,7 @@ public final class CEFBrowserPage: BrowserPage {
             emit(.stateChanged(Self.pageState(cefState)))
             if cefState.faviconURL != lastFaviconURL {
                 lastFaviconURL = cefState.faviconURL
-                if cefState.faviconURL == nil { emit(.faviconChanged(nil)) }
+                updateFavicon(cefState.faviconURL)
             }
         case .loadStarted(let url, _):
             // CEF's OnLoadStart runs once the navigation has committed.
@@ -542,6 +543,21 @@ public final class CEFBrowserPage: BrowserPage {
             uiDelegate.page(self, didCreatePopup: popupPage, for: request)
         case .handled, .block:
             popup.close()
+        }
+    }
+
+    /// Publishes the page's favicon as PNG data (`faviconChanged`): nil for
+    /// no icon, else the image fetched through the page's request context.
+    /// A reply for an icon the page has since replaced is ignored.
+    private func updateFavicon(_ url: URL?) {
+        guard let url, let browserID = browser.browserID else {
+            if let browserID = browser.browserID { faviconFetcher.cancel(browserID: browserID) }
+            emit(.faviconChanged(nil))
+            return
+        }
+        faviconFetcher.fetch(url, browserID: browserID) { [weak self] png in
+            guard let self, self.lastFaviconURL == url else { return }
+            self.emit(.faviconChanged(png))
         }
     }
 

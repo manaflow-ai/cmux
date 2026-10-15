@@ -2670,9 +2670,12 @@ struct BrowserPanelView: View {
                 let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
                 applyOmnibarEffects(effects)
             }
+            // chrome://settings opens cmux Settings instead of loading: the
+            // address bar goes back to the page's URL (design review #21050).
+            let opensCmuxPage = panel.opensCmuxPage(forTyped: text)
             panel.navigateSmart(text)
             hideSuggestions()
-            suppressNextFocusLostRevert = true
+            suppressNextFocusLostRevert = !opensCmuxPage
             setAddressBarFocused(false, reason: "omnibar.submit.navigate")
         }
     }
@@ -2687,6 +2690,7 @@ struct BrowserPanelView: View {
         // Treat this as a commit, not a user edit: don't refetch suggestions while we're navigating away.
         omnibarState.buffer = suggestion.completion
         omnibarState.isUserEditing = false
+        let opensCmuxPage = panel.opensCmuxPage(forTyped: suggestion.completion)
         switch suggestion.kind {
         case .switchToTab(let host, _, let panelId, _, _):
             if let app = AppDelegate.shared {
@@ -2700,7 +2704,7 @@ struct BrowserPanelView: View {
         }
         hideSuggestions()
         inlineCompletion = nil
-        suppressNextFocusLostRevert = true
+        suppressNextFocusLostRevert = !opensCmuxPage
         setAddressBarFocused(false, reason: "suggestion.commit")
     }
 
@@ -4121,6 +4125,12 @@ struct OmnibarSuggestion: Identifiable, Hashable {
             let titleOneline = Self.singleLineText(title)
             guard !titleOneline.isEmpty else { return Self.displayURLText(for: url) }
             return "\(titleOneline) — \(Self.displayURLText(for: url))"
+        case .navigate(let url):
+            // Only Chromium panels offer chrome:// rows. chrome://settings opens
+            // cmux Settings in another window, so its row says so (design review #21050).
+            guard let pageURL = URL(string: url), ChromiumPageRoute(pageURL) == .browserSettings else { return primaryText }
+            let hint = String(localized: "browser.omnibar.chromeSettingsHint", defaultValue: "Opens cmux Settings")
+            return "\(primaryText) — \(hint)"
         default:
             return primaryText
         }
