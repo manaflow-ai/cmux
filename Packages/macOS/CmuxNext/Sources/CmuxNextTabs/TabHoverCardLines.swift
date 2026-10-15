@@ -45,8 +45,8 @@ struct TabHoverCardLines: Equatable {
         case .running: facts.command ?? Strings.axBusy
         case nil: nil
         }
-        let elapsed = word == nil ? nil : facts.since.map { elapsed(since: $0, now: now) }
-        return [word, elapsed, facts.model].compactMap(\.self).nilIfEmpty
+        let duration: String? = word == nil ? nil : facts.since.map { Self.elapsed(since: $0, now: now) }
+        return [word, duration, facts.model].compactMap(\.self).nilIfEmpty
     }
 
     /// "Memory 106 MB" (with the CPU when notable); for a hibernated page "Hibernated", with
