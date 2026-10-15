@@ -12,9 +12,11 @@ import SwiftUI
 /// does and as cmux-next's rail Home item does. It leads with Chief's own
 /// avatar at 16 pt (the header's and the list's face), says "Needs you" or
 /// "Working…" while a Chief waits or runs, and shows an 8 pt accent dot for unread replies only while Home
-/// is not showing. Selected, its trailing button starts a new conversation (the
-/// list's compose button). A hairline under it sets the destination apart
-/// from the list below. It has no hover fill, like workspace rows, and sits in
+/// is not showing. Selected, the row is the way back: it shows a trailing
+/// "Workspaces ›" and a click returns to the last selected workspace (the
+/// row toggles Home, as ⌘⇧C does); its compose button still starts a new
+/// conversation. A hairline 6 pt under it sets the destination apart from
+/// the list below. It has no hover fill, like workspace rows, and sits in
 /// the band `SidebarWorkspaceListMetrics` reserves below the titlebar.
 struct SidebarChiefHomeRow: View {
     let isSelected: Bool
@@ -40,11 +42,26 @@ struct SidebarChiefHomeRow: View {
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        SidebarChiefHomeStatus(
-                            showsUnreadDot: !isSelected,
-                            dotColor: dotColor,
-                            font: font(10, weight: .regular)
-                        )
+                        if isSelected {
+                            // Selected, the row is the way back: a click returns to the
+                            // last selected workspace (the row toggles Home).
+                            HStack(spacing: 2) {
+                                Text(ChiefStrings.backToWorkspaces)
+                                    .font(font(11, weight: .regular))
+                                    .lineLimit(1)
+                                Image(systemName: "chevron.right")
+                                    .font(font(9, weight: .semibold))
+                            }
+                            .foregroundColor(.secondary)
+                            .fixedSize()
+                            .accessibilityHidden(true)
+                        } else {
+                            SidebarChiefHomeStatus(
+                                showsUnreadDot: true,
+                                dotColor: dotColor,
+                                font: font(10, weight: .regular)
+                            )
+                        }
                     }
                     .contentShape(Rectangle())
                 }
@@ -52,9 +69,12 @@ struct SidebarChiefHomeRow: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(chiefName))
                 .accessibilityValue(Text(SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected)))
+                .accessibilityHint(isSelected ? Text(ChiefStrings.backToWorkspacesTooltip(keys: nil)) : Text(verbatim: ""))
                 .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("SidebarChiefHomeRow")
-                .help(String(localized: "sidebar.chiefHome.tooltip", defaultValue: "Talk to Chief"))
+                .help(isSelected
+                    ? ChiefStrings.backToWorkspacesTooltip(keys: SidebarChiefHomeBackRow.shortcutKeys)
+                    : String(localized: "sidebar.chiefHome.tooltip", defaultValue: "Talk to Chief"))
 
                 if isSelected, let onNewConversation {
                     Button(action: onNewConversation) {
@@ -75,11 +95,11 @@ struct SidebarChiefHomeRow: View {
             .background(selectionBackground)
             .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
 
-            // The destination's edge: separator color at half strength, centered in the gap.
+            // The destination's edge: a separator-color hairline 6 pt under the row.
             Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.5))
+                .fill(Color(nsColor: .separatorColor))
                 .frame(height: 1 / max(1, NSScreen.main?.backingScaleFactor ?? 2))
-                .padding(.top, SidebarWorkspaceListMetrics.homeRowBottomGap / 2)
+                .padding(.top, SidebarWorkspaceListMetrics.homeRowHairlineGap)
                 .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
                     + SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
                 .accessibilityHidden(true)
@@ -133,8 +153,9 @@ struct SidebarChiefHomeRow: View {
 /// is spelled out instead of relying on clicking the selected Home row again.
 /// A back row rather than a Chief | Workspaces segmented control: the
 /// sidebar keeps one stack of rows (no new control style), and the Home row
-/// stays where it is in both modes. The tooltip names the Open Chief
-/// shortcut, which toggles Home.
+/// stays where it is in both modes. The Open Chief shortcut, which toggles
+/// Home, sits at its trailing edge in 12 pt tertiary text (as on the
+/// first-run rows) and in its tooltip.
 struct SidebarChiefHomeBackRow: View {
     let workspaceCount: Int
     let settings: SidebarTabItemSettingsSnapshot
@@ -159,6 +180,15 @@ struct SidebarChiefHomeBackRow: View {
                         .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                         .accessibilityHidden(true)
                 }
+                if let keys = Self.shortcutKeys {
+                    // The toggle shortcut, spelled out as on the first-run rows.
+                    Text(verbatim: keys)
+                        .font(font(12, weight: .regular))
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
             .frame(height: SidebarWorkspaceListMetrics.homeBackRowHeight)
@@ -172,8 +202,8 @@ struct SidebarChiefHomeBackRow: View {
         .accessibilityIdentifier("SidebarChiefHomeBackToWorkspaces")
     }
 
-    /// The Open Chief shortcut (it toggles Home); nil when unbound.
-    private static var shortcutKeys: String? {
+    /// The Open Chief shortcut (it toggles Home), as configured now; nil when unbound.
+    static var shortcutKeys: String? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .openChief)
         return shortcut.isUnbound ? nil : shortcut.displayString
     }

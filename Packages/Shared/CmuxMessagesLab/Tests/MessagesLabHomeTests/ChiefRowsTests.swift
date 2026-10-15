@@ -118,6 +118,25 @@ import Testing
         #expect(ChiefRows.decidedLabel("Deny", command: answered.command) == "Denied")
     }
 
+    /// A card an earlier run left open is settled "expired" by the owner (ChiefConversationOwner.approvalExpired).
+    @Test func anExpiredCardReadsExpiredNotAChoice() {
+        #expect(ChiefRows.decidedLabel("expired") == "Expired")
+        #expect(ChiefRows.decidedLabel("expired", command: "ls") == "Expired")
+    }
+
+    /// The owner stores tool titles and prompts in canonical English; Home draws them in the user's language.
+    @Test func canonicalTitlesAndPromptsReadThroughTheCatalog() {
+        #expect(ChiefRows.displayTitle("Read Sources/App.swift") == "Read Sources/App.swift")
+        #expect(ChiefRows.displayTitle("Search the web: swift actors") == "Search the web: swift actors")
+        #expect(ChiefRows.displayTitle("Find tools") == "Find tools")
+        #expect(ChiefRows.displayTitle("List workspaces") == "List workspaces")
+        #expect(ChiefRows.displayPrompt("Run `cmux tree`?") == "Run `cmux tree`?")
+        #expect(ChiefRows.displayPrompt("Allow Edit README.md?") == "Allow Edit README.md?")
+        #expect(ChiefRows.displayPrompt("Approve the plan?") == "Approve the plan?")
+        #expect(ChiefRows.ToolKind(title: "Read a.swift").localizedFrame("a.swift") == "Read a.swift")
+        #expect(ChiefRows.ToolKind(title: "cmux tree --all").localizedFrame("x") == nil)
+    }
+
     @Test func approvalAnswersTravelAsQuestionSelections() {
         let answer = ChiefApprovalAnswer.answer(choice: "Allow", always: true)
         #expect(answer.selections[ChiefApprovalAnswer.item]?.optionIDs == ["Allow"])

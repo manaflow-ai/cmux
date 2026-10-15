@@ -77,8 +77,10 @@ enum SidebarWorkspaceListMetrics {
     /// One-line navigation row height (the macOS medium sidebar row).
     static let homeRowHeight: CGFloat = 28
     /// Space between the Home row and the first workspace row; the list's
-    /// top fade runs through it.
-    static let homeRowBottomGap: CGFloat = 8
+    /// top fade runs through it, and the Home row's hairline sits in its middle.
+    static let homeRowBottomGap: CGFloat = 12
+    /// The Home row's hairline, this far under the row (v2 eval P1-2).
+    static let homeRowHairlineGap: CGFloat = 6
     /// While Home is selected: the "Workspaces" back row under the Home row
     /// (a medium sidebar row) and the gap above Chief's conversation list.
     static let homeBackRowHeight: CGFloat = 28

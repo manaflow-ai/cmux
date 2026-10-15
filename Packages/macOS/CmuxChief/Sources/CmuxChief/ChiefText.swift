@@ -10,6 +10,9 @@ import Foundation
 /// them (``ChiefAllowRules/command(inPrompt:)``, Home's tool kinds); Home
 /// localizes them when it draws them.
 enum ChiefText {
+    /// The bundle with this package's String Catalog.
+    static var bundle: Bundle { .module }
+
     /// The Chief message a failed turn posts.
     static func turnFailed(_ error: String) -> String {
         String(localized: "chief.turn.failed",
