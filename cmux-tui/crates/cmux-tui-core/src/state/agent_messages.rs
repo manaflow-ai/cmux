@@ -288,7 +288,9 @@ impl Mux {
                 || self.agent_message_attempt_unnoted(message_id, &target.recipient);
             match self.acp_withdraw_message(session, message_id) {
                 // acpmux holds no such prompt yet, but the hand-over may
-                // still reach it and run: not unsent, try again.
+                // still reach it and run: not unsent, try again. A session
+                // acpmux no longer knows (`NoSession`: deleted, and no peer
+                // runs it) takes nothing late.
                 Ok(Withdrawn::NotFound) if tried && target.state == "queued" => {
                     failures.insert(to, unsend::in_flight(&target.recipient));
                 }
