@@ -141,6 +141,7 @@ impl ProviderDriver {
         tabs.insert(target_id.to_owned(), tab.clone());
         drop(tabs);
         tab.driver.set_request_filter(self.tab_filter(target_id));
+        tab.driver.set_input_scale(self.tab_input_scale(target_id));
         Ok(tab)
     }
 

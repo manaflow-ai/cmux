@@ -27,6 +27,8 @@ extension CEFTab: BrowserEmulating {
                 let emulation = self.deviceEmulation
                 let viewport = emulation.flatMap { $0.viewport(in: $0.layoutArea(in: self.container.pageViewportFrame).size) }
                 self.deviceEmulationViewport = viewport
+                let inputScale = Double(viewport?.scale ?? 1)
+                if self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
                 self.deviceEmulationApplied = emulation != nil
                 for (method, params) in CEFDeviceEmulation.calls(emulation, viewport: viewport) {
                     do {

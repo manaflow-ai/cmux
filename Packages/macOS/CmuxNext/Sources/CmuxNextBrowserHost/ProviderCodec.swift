@@ -121,8 +121,10 @@ public nonisolated struct ProviderCodec {
     }
 
     static func announceObject(_ tab: ProviderTabAnnounce) -> [String: Any] {
-        ["targetId": tab.targetID, "engine": tab.engine, "workspace": tab.workspace, "profile": tab.profile,
-         "url": tab.url, "title": tab.title, "visible": tab.visible]
+        var object: [String: Any] = ["targetId": tab.targetID, "engine": tab.engine, "workspace": tab.workspace, "profile": tab.profile,
+                                     "url": tab.url, "title": tab.title, "visible": tab.visible]
+        if tab.inputScale != 1 { object["inputScale"] = tab.inputScale }
+        return object
     }
 
     static func announce(_ f: Fields) throws(ProviderCodecError) -> ProviderTabAnnounce {

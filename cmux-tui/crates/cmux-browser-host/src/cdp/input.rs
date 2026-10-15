@@ -31,6 +31,8 @@ impl Inner {
             }
             (x, y, tab.buttons)
         };
+        // The tab keeps CSS px (`tab.mouse`); Chromium gets view points.
+        let (x, y) = self.input_point((x, y));
         let mut event = json!({"x": x, "y": y, "modifiers": modifiers, "buttons": buttons});
         match kind {
             "move" => {
@@ -139,6 +141,7 @@ impl Inner {
         }
         let session = self.session(&json!({"targetId": target_id}))?;
         let deadline = Instant::now() + super::driver::INTERNAL_TIMEOUT;
+        let (x, y) = self.input_point((x, y));
         let modifier = |key: &str| match key {
             "Alt" => 1,
             "Control" => 2,
