@@ -161,8 +161,67 @@ final class TabsModel {
 
     // MARK: Items
 
-    /// The grid's cards: browser tabs and terminals in creation order.
-    var items: [TabItem] { allItems }
+    /// The grid's cards: pinned items first (Safari's pinned area), then
+    /// browser tabs and terminals in grid order.
+    var items: [TabItem] {
+        let all = allItems
+        guard !pins.keys.isEmpty else { return all }
+        var byKey: [String: TabItem] = [:]
+        for i in all { byKey[i.id] = i }
+        return pins.arranged(all.map(\.id)).compactMap { byKey[$0] }
+    }
+
+    // MARK: Pinned tabs and Select Tabs (Safari's card menu)
+
+    /// Pinned items, kept on this device per host.
+    private(set) var pins = TabPins()
+    /// How many of `items` are pinned (they come first).
+    var pinnedCount: Int { pins.count(in: allItems.map(\.id)) }
+    func isPinned(_ key: String) -> Bool { pins.isPinned(key) }
+    private var pinsHost: String { connection.hostId ?? "local" }
+
+    func loadPins() { pins = TabPins.load(host: pinsHost) }
+
+    /// Pin Tab / Unpin Tab: the item moves to or from the pinned area.
+    func setPinned(_ keys: [String], _ pinned: Bool) {
+        let m = BrowserStyle.shared.motion
+        withAnimation(m.resolve(m.reflow)) {
+            for k in keys { if pinned { pins.pin(k) } else { pins.unpin(k) } }
+        }
+        pins.save(host: pinsHost)
+    }
+
+    /// Select Tabs mode: cards toggle a checkmark; the bar closes, pins or
+    /// copies the links of the selected tabs.
+    private(set) var selecting = false
+    private(set) var selection = TabSelection()
+
+    func beginSelecting(_ key: String? = nil) {
+        selection = TabSelection()
+        if let key { selection.toggle(key) }
+        selecting = true
+    }
+
+    func endSelecting() {
+        selecting = false
+        selection = TabSelection()
+    }
+
+    func toggleSelected(_ key: String) { selection.toggle(key) }
+
+    var selectedKeys: [String] { selection.keys(in: items.map(\.id)) }
+
+    /// Close N Tabs: every selected item closes (optimistically, at once).
+    func closeSelected(animation: Animation?) {
+        let keys = selectedKeys
+        endSelecting()
+        for k in keys { Task { _ = await closeOptimistic(k, animation: animation) } }
+    }
+
+    /// The links of the selected browser tabs, one per line.
+    var selectedLinks: String {
+        selectedKeys.compactMap { k in browser.tabs.first { $0.id == k }?.url }.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
 
     /// Browser tabs and terminals in grid order.
     var allItems: [TabItem] {
@@ -268,6 +327,7 @@ final class TabsModel {
             if caps?.supports(.browserMac) ?? false { browserAccess = try? await client.browserMacStatus() }
         }
         syncOrder(initial: true)
+        loadPins()
         if let key = activeTerminalKey, item(key) == nil { activeTerminalKey = nil }
     }
 

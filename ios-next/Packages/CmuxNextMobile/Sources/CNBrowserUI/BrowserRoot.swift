@@ -237,7 +237,8 @@ struct BrowserScreen: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.items.firstIndex { $0.id == id } } ?? (tabs.activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: max(tabs.items.count, index + 1))
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: max(tabs.items.count, index + 1),
+                                  pinned: tabs.pinnedCount)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -296,6 +297,7 @@ struct BrowserScreen: View {
                             slotTakeover: newTabSlot?.created(in: itemIds),
                             onCardMenu: cardMenu,
                             onQueueSelect: { queuedOpen = $0 },
+                            onSelectionAction: selectionAction,
                             onMove: { key, index in tabs.move(key, to: index) },
                             onScrolling: { tabs.setGridScrolling($0) })
                     .opacity(overviewVisible ? 1 : 0)
@@ -500,6 +502,7 @@ struct BrowserScreen: View {
                     Task { await tabs.browser.attach(id) }
                 }
                 if phase == .page {
+                    tabs.endSelecting()
                     zoomTabId = nil
                     chrome.expand(tap: true)
                 }
@@ -869,7 +872,8 @@ struct BrowserScreen: View {
     // MARK: Tab overview
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: newTabSlot?.cardCount(in: itemIds) ?? tabs.items.count)
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: newTabSlot?.cardCount(in: itemIds) ?? tabs.items.count,
+                       pinned: tabs.pinnedCount)
     }
 
     /// What the zooming rect shows: the same image the card shows (or the
@@ -895,7 +899,7 @@ struct BrowserScreen: View {
         captureOverviewImages()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen (OverviewLayout.offset(revealing:from:)).
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: count)
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: count, pinned: tabs.pinnedCount)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
@@ -1202,9 +1206,30 @@ struct BrowserScreen: View {
         case .close:
             Task { _ = await tabs.closeOptimistic(key, animation: reflow) }
         case .closeOthers:
-            for other in tabs.items.map(\.id) where other != key {
+            // Safari keeps pinned tabs.
+            for other in tabs.items.map(\.id) where other != key && !tabs.isPinned(other) {
                 Task { _ = await tabs.closeOptimistic(other, animation: reflow) }
             }
+        case .pin:
+            tabs.setPinned([key], true)
+        case .unpin:
+            tabs.setPinned([key], false)
+        case .select:
+            tabs.beginSelecting(key)
+        }
+    }
+
+    /// A Select Tabs bar action.
+    private func selectionAction(_ action: SelectionAction) {
+        switch action {
+        case .close:
+            tabs.closeSelected(animation: motion.resolve(motion.reflow))
+        case .pin:
+            tabs.setPinned(tabs.selectedKeys, true)
+            tabs.endSelecting()
+        case .copyLinks:
+            UIPasteboard.general.string = tabs.selectedLinks
+            tabs.endSelecting()
         }
     }
 
