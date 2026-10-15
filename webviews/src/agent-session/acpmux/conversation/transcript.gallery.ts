@@ -15,6 +15,37 @@ import {
 
 const prompt = "Add retries with backoff to the fetch helper";
 
+/// A thought taller than this folds (ThoughtRow.tsx): seven 20px lines, as Codex's 8.75rem.
+const THOUGHT_FOLD_PX = 140;
+const LONG_THOUGHT_FIRST = "Start with how the helper parses errors.";
+const LONG_THOUGHT_LAST = "Then run the focused tests once more before answering.";
+const LONG_THOUGHT = [
+  LONG_THOUGHT_FIRST,
+  "The retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.",
+  "A 429 should wait for Retry-After when the server sends one; otherwise back off with jitter.",
+  "5xx responses retry the same way, but a 501 means the endpoint is missing and never recovers.",
+  "Three attempts is the cap the issue asks for; the third failure should surface the last status.",
+  "The tests mock fetch with a queue of responses, so each case can list its statuses in order.",
+  "Timers: the suite already fakes them, so the backoff can be checked without sleeping.",
+  "Abort signals must still cancel a wait between attempts, or a closed page keeps retrying.",
+  "Logging stays at debug level; the caller decides what the person sees.",
+  LONG_THOUGHT_LAST,
+].join("\n\n");
+const SHORT_THOUGHT_LAST = "Retry only on 429 and 5xx.";
+const SHORT_THOUGHT = `Check how the helper parses errors first. ${SHORT_THOUGHT_LAST}`;
+const readClient = () =>
+  tool("Read client.ts", "read", "completed", { locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }] });
+/// Where `words` draw inside `element`, or nil when they are not in its text.
+function lineRect(element: HTMLElement, words: string): DOMRect | undefined {
+  const node = element.firstChild;
+  const at = node?.textContent?.indexOf(words) ?? -1;
+  if (!node || at < 0) return undefined;
+  const range = element.ownerDocument.createRange();
+  range.setStart(node, at);
+  range.setEnd(node, at + words.length);
+  return range.getBoundingClientRect();
+}
+
 const selectionRows = [
   user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
   assistant(
@@ -617,6 +648,78 @@ export default agentPaneEntry({
         const at = active()!.startContainer.parentElement;
         if (!at?.closest(".cv-thought__text"))
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
+      },
+    },
+    "thought-fold-live": {
+      note: "Play: a long thought still streaming holds a fixed viewport of about seven lines, the newest line in view and the oldest fading out at its top (Codex's reasoning trace, Leo 2026-10-15).",
+      snapshot: chat([user(prompt, 2), activity([readClient(), thought(LONG_THOUGHT)], 1.5)], { isWorking: true }),
+      play: async (ctx) => {
+        const text = () => ctx.document.querySelector<HTMLElement>(".cv-thought__text");
+        await ctx.waitFor(() => text()?.textContent?.includes(LONG_THOUGHT_LAST) ?? false);
+        // Pointing at it changes nothing: the viewport stays pinned to the newest line.
+        await ctx.hover({ selector: ".cv-thought__text" });
+        const row = ctx.document.querySelector<HTMLElement>(".cv-thought")!;
+        const box = row.getBoundingClientRect();
+        if (box.height > THOUGHT_FOLD_PX + 8)
+          throw new Error(`a long live thought grows to ${Math.round(box.height)}px instead of folding`);
+        // The newest words show; the first line has scrolled out above the viewport.
+        const last = lineRect(text()!, LONG_THOUGHT_LAST);
+        if (!last || last.bottom > box.bottom + 1 || last.top < box.top)
+          throw new Error("the newest line of a live thought is out of view");
+        const first = lineRect(text()!, LONG_THOUGHT_FIRST);
+        if (first && first.bottom > box.top + 1) throw new Error("a folded live thought still shows its first line");
+      },
+    },
+    "thought-fold-done": {
+      note: "Play: a long thought that has ended folds to one line, Thought for 12s, that opens on a click or Enter and closes again (Codex's reasoning trace, Leo 2026-10-15).",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(LONG_THOUGHT, { startedAt: minutesAgo(1.5), endedAt: minutesAgo(1.5) + 12_000 }),
+              readClient(),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      checks: {
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "Opening the thought moves the rows below it on purpose; the play opens it with a key, not a click.",
+        },
+      },
+      play: async (ctx) => {
+        const toggle = () => ctx.document.querySelector<HTMLElement>(".cv-thought [aria-expanded]");
+        await ctx.waitFor(() => toggle());
+        if (toggle()!.getAttribute("aria-expanded") !== "false") throw new Error("an ended long thought is not folded");
+        if (!toggle()!.textContent?.includes("Thought for 12s"))
+          throw new Error(`the folded thought reads "${toggle()!.textContent}", not "Thought for 12s"`);
+        if (ctx.document.body.textContent?.includes(LONG_THOUGHT_LAST))
+          throw new Error("a folded thought still draws its text");
+        await ctx.click({ selector: ".cv-thought [aria-expanded]" });
+        await ctx.waitFor(() => toggle()?.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes(LONG_THOUGHT_LAST) ?? false);
+        await ctx.focus({ selector: ".cv-thought [aria-expanded]" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => toggle()?.getAttribute("aria-expanded") === "false");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => toggle()?.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes(LONG_THOUGHT_LAST) ?? false);
+      },
+    },
+    "thought-short-live": {
+      note: "Play: a short thought never folds, streaming or ended: it shows in full after a muted Thought label.",
+      snapshot: chat([user(prompt, 2), activity([readClient(), thought(SHORT_THOUGHT)], 1.5)], { isWorking: true }),
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes(SHORT_THOUGHT_LAST) ?? false);
+        await ctx.hover({ selector: ".cv-thought__text" });
+        if (row()!.querySelector("[aria-expanded]")) throw new Error("a short thought offers to fold");
+        const text = row()!.querySelector<HTMLElement>(".cv-thought__text")!;
+        if (text.scrollHeight > text.clientHeight + 1) throw new Error("a short live thought is cut off");
       },
     },
     "working-tools": {

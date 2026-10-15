@@ -80,7 +80,11 @@ export function tool(title: string, kind: string, status: string, fields: Partia
   return { kind: "tool", text: title, tool: { id: nextId("tool"), title, kind, status, ...fields } };
 }
 
-export const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text });
+export const thought = (text: string, fields: Partial<AcpmuxActivity> = {}): AcpmuxActivity => ({
+  kind: "thought",
+  text,
+  ...fields,
+});
 
 export const activity = (items: AcpmuxActivity[], minutes: number, fields: Partial<AcpmuxRow> = {}) =>
   row("activity", minutes, {
