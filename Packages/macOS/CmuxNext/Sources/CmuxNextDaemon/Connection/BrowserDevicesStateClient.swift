@@ -20,6 +20,11 @@ extension StateResourceClient {
         _ = try await stateMutation("browser.tab.emulate", params)
     }
 
+    /// `browser.tab.emulate {fit}`: a desktop layout of aspect `aspect` ("16:9") scaled to the tab's width, full height.
+    public func fitTab(_ tab: ResourceID, aspect: String) async throws {
+        _ = try await stateMutation("browser.tab.emulate", ["tab": .string(tab.rawValue), "fit": .string(aspect)])
+    }
+
     /// `browser.tab.emulate.clear`.
     public func clearTabEmulation(_ tab: ResourceID) async throws {
         _ = try await stateMutation("browser.tab.emulate.clear", ["tab": .string(tab.rawValue)])

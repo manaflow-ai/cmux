@@ -223,6 +223,48 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
             .contains("only to browser tabs")
     );
 
+    // Fit as 16:9 Desktop: the tab keeps a fit in place of the device; the
+    // record names the aspect and width bounds, the engine sizes the layout
+    // from its view, and the calls reset the device's user agent and touch.
+    let fit = ok(&server, &["tab", &browser, "emulate", "--fit", "16:9"]);
+    let fit = find(&fit, "emulation").expect("result shows extra.emulation").clone();
+    assert_eq!(fit["mode"], "fit", "{fit}");
+    assert_eq!(
+        fit["fit"],
+        serde_json::json!({"aspect": "16:9", "aspect_width": 16, "aspect_height": 9,
+                           "min_width": 1024, "max_width": 1920})
+    );
+    assert!(fit.get("device").is_none(), "a fit names no device: {fit}");
+    assert_eq!((fit["mobile"].as_bool(), fit["touch"].as_bool()), (Some(false), Some(false)));
+    assert_eq!(fit["user_agent"], "");
+    let calls = fit["chromium_calls"].as_array().unwrap();
+    assert_eq!(calls[0]["method"], "Emulation.setDeviceMetricsOverride");
+    assert_eq!(calls[0]["params"]["mobile"], false);
+    assert_eq!(calls[0]["params"]["dontSetVisibleSize"], true);
+    assert_eq!(calls[1]["params"], serde_json::json!({"userAgent": ""}));
+    assert_eq!(calls[2]["params"], serde_json::json!({"enabled": false}));
+    assert_eq!(emulation(&server, &browser).as_ref(), Some(&fit));
+    // "16x9" is the same fit; a bad ratio or fit with a device is refused.
+    let same = ok(&server, &["tab", &browser, "emulate", "--fit", "16x9"]);
+    assert_eq!(find(&same, "emulation"), Some(&fit));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "wide"]).contains("W:H"));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "9:40"]).contains("W:H"));
+    assert!(
+        refused(&server, &["tab", &browser, "emulate", "--fit", "16:9", "--device", "Kiosk"])
+            .contains("fit alone")
+    );
+    assert!(
+        refused(&server, &["tab", &terminal, "emulate", "--fit", "16:9"])
+            .contains("only to browser tabs")
+    );
+    // Orientation alone needs a device, not a fit.
+    assert!(
+        refused(&server, &["tab", &browser, "emulate", "--orientation", "portrait"])
+            .contains("emulates no device")
+    );
+    // A device again replaces the fit.
+    ok(&server, &["tab", &browser, "emulate", "--device", "Kiosk"]);
+
     // A removed custom device leaves the tab's own copy; clear ends emulation.
     ok(&server, &["browser", "devices", "remove", "--title", "Kiosk"]);
     assert!(devices(&server).iter().all(|d| d["title"] != "Kiosk"));

@@ -787,6 +787,7 @@ fn state_resource_cases<'a>(
             vec!["tab", tab, "emulate", "--device", "iPhone 15", "--orientation", "horizontal"],
             "browser.tab.emulate",
         ),
+        (vec!["tab", tab, "emulate", "--fit", "16:9"], "browser.tab.emulate"),
         (vec!["tab", tab, "emulate", "clear"], "browser.tab.emulate.clear"),
         (vec!["browser", "devices", "list"], "browser.devices.list"),
         (

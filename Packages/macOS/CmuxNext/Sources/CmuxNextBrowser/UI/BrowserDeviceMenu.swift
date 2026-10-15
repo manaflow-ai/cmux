@@ -2,7 +2,7 @@ public import AppKit
 
 /// Chrome's device menu (Emulate Device…) drawn from the daemon's device
 /// list (`browser.devices.list`, browser-devices-v1, cx-ocbf3): No Device,
-/// the current device's orientations, the default-visible devices by
+/// Fit as 16:9 Desktop, the current device's orientations, the default-visible devices by
 /// Chrome's categories, the custom devices, and every device under All
 /// Devices. It holds no device data; each row sends `choose`.
 @MainActor
@@ -43,10 +43,16 @@ public struct BrowserDeviceMenu {
     public var current: Current?
     /// A row's choice: the device title (nil: No Device) and the orientation (nil: the device's first).
     public var choose: @MainActor (String?, String?) -> Void
+    /// Whether the tab fits a 16:9 desktop layout, and the row that toggles it (nil hides the row).
+    public var isFitting: Bool
+    public var toggleFit: (@MainActor () -> Void)?
 
-    public init(devices: [Device], current: Current?, choose: @escaping @MainActor (String?, String?) -> Void) {
+    public init(devices: [Device], current: Current?, isFitting: Bool = false, toggleFit: (@MainActor () -> Void)? = nil,
+                choose: @escaping @MainActor (String?, String?) -> Void) {
         self.devices = devices
         self.current = current
+        self.isFitting = isFitting
+        self.toggleFit = toggleFit
         self.choose = choose
     }
 
@@ -54,7 +60,8 @@ public struct BrowserDeviceMenu {
 
     public func menu() -> NSMenu {
         let menu = NSMenu()
-        add(Strings.noDevice, to: menu, checked: current == nil) { choose(nil, nil) }
+        add(Strings.noDevice, to: menu, checked: current == nil && !isFitting) { choose(nil, nil) }
+        if let toggleFit { add(Strings.fitDesktop, to: menu, checked: isFitting, toggleFit) }
         if let current, current.orientations.count > 1 {
             menu.addItem(.separator())
             for name in current.orientations {
@@ -114,6 +121,10 @@ public struct BrowserDeviceMenu {
     nonisolated enum Strings {
         static var noDevice: String { String(localized: "browserDevices.none", defaultValue: "No Device", table: "BrowserDevices", bundle: .module) }
         static var allDevices: String { String(localized: "browserDevices.all", defaultValue: "All Devices", table: "BrowserDevices", bundle: .module) }
+        /// The menu row of Fit as 16:9 Desktop (the palette action `browserFitDesktop` has its own string).
+        static var fitDesktop: String {
+            String(localized: "browserDevices.fitDesktop", defaultValue: "Fit as 16:9 Desktop", table: "BrowserDevices", bundle: .module)
+        }
         static var custom: String { String(localized: "browserDevices.custom", defaultValue: "Custom", table: "BrowserDevices", bundle: .module) }
 
         static func details(width: Int, height: Int, ratio: Double) -> String {

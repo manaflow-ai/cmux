@@ -14763,6 +14763,16 @@
             },
             "description": "The device's mode orientation; absent is its first. portrait, landscape, unfolded-portrait and unfolded-landscape name vertical, horizontal, vertical-spanned and horizontal-spanned."
           },
+          "fit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 3,
+              "max_length": 16
+            },
+            "description": "Fit a desktop layout instead of a device: an aspect ratio W:H such as 16:9 (whole numbers of 1 to 64, at most 4:1 either way). Give it alone."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -14774,8 +14784,9 @@
         },
         "extra": false,
         "constraints": [
-          "A browser tab only. device or custom (not both); with neither, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
-          "An unknown title, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
+          "A browser tab only. device or custom (not both), or fit alone; with none of them, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
+          "fit W:H keeps a fit on the tab instead of a device and shows extra.emulation {mode: \"fit\", fit {aspect, aspect_width, aspect_height, min_width 1024, max_width 1920}, device_scale_factor 0, mobile false, touch false, user_agent \"\", chromium_calls}. The engine lays the page out at layout width = clamp(view height x W / H, min_width, max_width) CSS px, scale = view width / layout width, layout height = view height / scale, so the page fills the whole view (no bars) and shows a desktop layout; a view at least layout width wide shows the page as is. It recomputes on every view resize without a reload. chromium_calls carry 0 for width and height (the engine fills them and scale) and reset the user agent and touch.",
+          "An unknown title, a fit that is not W:H, fit with device, custom or orientation, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
         ]
       },
       "result": {
