@@ -2122,8 +2122,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
-    /// The engine rendering this panel's page, fixed at creation.
-    let engineKind: BrowserEngineKind
+    /// The engine rendering this panel's page: fixed at creation, except
+    /// that a Chromium page whose runtime fails to start falls back to WebKit.
+    var engineKind: BrowserEngineKind { enginePage?.engineKind ?? .webkit }
+    /// The engines this panel resolves against (fallback notices, start failures).
+    let engineRuntime: BrowserEngineRuntime
     /// The page of a non-WebKit engine; `nil` for WebKit panels, whose page
     /// is ``webView``.
     private(set) var enginePage: (any BrowserPage)?
@@ -3768,7 +3771,7 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: resolvedProfileID,
             runtime: engineRuntime
         )
-        self.engineKind = enginePageSetup.page?.engineKind ?? .webkit
+        self.engineRuntime = engineRuntime ?? .shared
         self.enginePage = enginePageSetup.page
         self.engineFallbackNotice = enginePageSetup.notice
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -6741,6 +6744,23 @@ extension BrowserPanel {
     /// Publishes a non-WebKit page's favicon.
     func applyEnginePageFavicon(_ pngData: Data?) {
         faviconPNGData = pngData
+    }
+
+    /// Drops a non-WebKit page whose engine stopped being available (its
+    /// runtime failed to start) and shows the page in WebKit with the
+    /// once-per-run fallback notice.
+    func fallBackToWebKit(reason: BrowserEngineUnavailableReason) {
+        guard enginePage != nil else { return }
+        let url = currentURL
+        closeEnginePage()
+        enginePage = nil
+        if engineRuntime.fallbackNotices.recordFallback(reason) {
+            engineFallbackNotice = reason
+        }
+        objectWillChange.send()
+        if let url, url.absoluteString != blankURLString {
+            navigate(to: url)
+        }
     }
 
     /// Clears the fallback notice once the person dismissed it.

@@ -127,7 +127,8 @@ extension BrowserPanel {
         }
     }
 
-    private func handleEnginePageEvent(_ event: BrowserPageEvent) {
+    /// Applies one page event (internal for tests).
+    func handleEnginePageEvent(_ event: BrowserPageEvent) {
         noteEnginePageSafetyEvent(event)
         switch event {
         case .stateChanged(let state):
@@ -141,6 +142,12 @@ extension BrowserPanel {
         case .devToolsVisibilityChanged(let open):
             isEngineDevToolsOpen = open
         case .navigationFailed(let url, _, _, _):
+            // A Chromium runtime that failed to start reports it as a failed
+            // load: the panel opens the page in WebKit instead of staying blank.
+            if let enginePage, let reason = engineRuntime.availability(for: enginePage.engineKind).unavailableReason {
+                fallBackToWebKit(reason: reason)
+                return
+            }
             applyEnginePageNavigationFailure(url: url)
         default:
             break
