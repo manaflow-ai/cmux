@@ -1,3 +1,5 @@
+public import Foundation
+
 /// The permissions one Chromium permission prompt asks for: the bits of
 /// CEF's `cef_permission_request_types_t` (`OnShowPermissionPrompt`'s
 /// `requested_permissions`). A page can group several kinds in one request
@@ -57,4 +59,47 @@ public struct BrowserChromiumPermissionRequest: OptionSet, Hashable, Sendable {
     /// prompt bit (CEF reports it only through media access); kept outside
     /// the prompt bit range so it never collides with one.
     public static let screenCapture = Self(rawValue: 1 << 31)
+
+    /// The engine-neutral kinds of this request, in a stable order (camera
+    /// before microphone, so one prompt reads "camera and microphone").
+    /// Bits without a named ``BrowserPagePermissionRequest/Kind`` become
+    /// ``BrowserPagePermissionRequest/Kind/other(_:)`` with their CEF name.
+    public var pageKinds: [BrowserPagePermissionRequest.Kind] {
+        var kinds: [BrowserPagePermissionRequest.Kind] = []
+        var rest = self
+        for (bit, kind) in Self.namedKinds where contains(bit) {
+            kinds.append(kind)
+            rest.remove(bit)
+        }
+        for index in 0..<32 {
+            let bit = Self(rawValue: 1 << UInt32(index))
+            guard rest.contains(bit) else { continue }
+            kinds.append(.other(Self.otherNames[index] ?? "permission-bit-\(index)"))
+        }
+        return kinds
+    }
+
+    /// An engine-neutral request for these kinds from `origin`.
+    public func pageRequest(origin: URL?) -> BrowserPagePermissionRequest {
+        BrowserPagePermissionRequest(kinds: pageKinds, origin: origin)
+    }
+
+    private static let namedKinds: [(Self, BrowserPagePermissionRequest.Kind)] = [
+        (.camera, .camera),
+        (.microphone, .microphone),
+        (.screenCapture, .screenCapture),
+        (.geolocation, .geolocation),
+        (.notifications, .notifications),
+        (.clipboard, .clipboardRead),
+        (.midiSysex, .midiSysex),
+    ]
+
+    private static let otherNames: [Int: String] = [
+        0: "ar-session", 1: "camera-pan-tilt-zoom", 3: "captured-surface-control", 5: "top-level-storage-access",
+        6: "disk-quota", 7: "local-fonts", 9: "hand-tracking", 10: "identity-provider", 11: "idle-detection",
+        14: "multiple-downloads", 16: "keyboard-lock", 17: "pointer-lock", 18: "protected-media-identifier",
+        19: "register-protocol-handler", 20: "storage-access", 21: "vr-session", 22: "web-app-installation",
+        23: "window-management", 24: "file-system-access", 25: "local-network-access", 26: "local-network",
+        27: "loopback-network", 28: "sensors", 29: "ambient-login",
+    ]
 }
