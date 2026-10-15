@@ -280,3 +280,22 @@ Findings fixed in round 2:
    Tests: unit (Linux) and `remote_sandbox` on macOS (the chain reaches its
    loopback proxy port and no other loopback port).
 
+
+### Remaining gaps after round 2 (and why)
+
+- **opencode** from a phone: refused. opencode starts every agent from allow-all and
+  merges the user's own rules last, so acpmux cannot prove it asks before each change.
+- **`cmux` harness** (cmux model router): the phone path works through the sandbox now;
+  the test account's team is not entitled to the hosted router (403), and the
+  mini-cmux11s rig's local router did not answer. Needs an entitled account to see a reply.
+- **Folder trust from the phone**: left on the Mac by decision; the phone gives the steps.
+- **Duplicate Workspace**: the Mac composes it from its tabs' programs and folders; a phone
+  may not choose either.
+- **Workspace groups** (personal order): more resource ops on the lane; not reviewed yet.
+- **Reopen Saved Tab Group**: recreates terminals; same live check as Restart Shell needed.
+- **Open Link in New Tab, Checkpoints, Commit, Push, New Chief…, Memory Inspector, Reset
+  Terminal, Keep Running After Close**: not on the link (or Mac-only by design).
+- **The Mac's last pick** reaching the phone: unit-tested on both sides; not driven live
+  (a hidden rig app has no person to pick on its New Tab page).
+- **A Mac-started Codex chat in Agent mode** is refused for phone prompts by cnx-hostd
+  (unit-tested); not driven live.

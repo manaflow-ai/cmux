@@ -85,7 +85,12 @@ pub fn controlled_session(message: &str) -> Option<(Value, String)> {
     if !SESSION_CONTROL_METHODS.contains(&method) {
         return None;
     }
-    let session = value.pointer("/params/sessionId").and_then(Value::as_str)?.to_owned();
+    // acpmux's own key order (`server::session_key`): sessionId, then session, then name.
+    let params = value.get("params")?;
+    let session = ["sessionId", "session", "name"]
+        .iter()
+        .find_map(|k| params.get(*k).and_then(Value::as_str))?
+        .to_owned();
     Some((value.get("id").cloned().unwrap_or(Value::Null), session))
 }
 
@@ -191,6 +196,11 @@ mod tests {
         assert_eq!(mode_refusal(&id, Some("ask")), None);
         assert_eq!(mode_refusal(&id, Some("default")), None);
         assert_eq!(mode_refusal(&id, None), None);
+        // acpmux also takes the session as `session` or `name`.
+        for key in ["session", "name"] {
+            let r = json!({"jsonrpc": "2.0", "id": 4, "method": "session/prompt", "params": {key: "s2", "prompt": []}});
+            assert_eq!(controlled_session(&r.to_string()).map(|(_, s)| s).as_deref(), Some("s2"), "{key}");
+        }
         // Answering a pending permission is the asking itself.
         let answer = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/permission_respond", "params": {"sessionId": "s1"}});
         assert!(controlled_session(&answer.to_string()).is_none());
