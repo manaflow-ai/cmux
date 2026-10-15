@@ -190,7 +190,7 @@ fn incognito_tabs_never_store_restore_state() {
         &mux,
         "tab.close",
         json!({"tab": tab, "restore_state": {
-            tab.clone(): {"provider": "cmux.agent", "version": 1, "payload": {"draft": "secret"}}}}),
+            tab: {"provider": "cmux.agent", "version": 1, "payload": {"draft": "secret"}}}}),
         "close",
     );
     assert!(stored_tabs(&mux).is_empty());
