@@ -447,9 +447,8 @@ impl Hub {
         result
     }
 
-    /// Settle a turn once its `session/prompt` answered (or failed): record
-    /// `turn_end`/`turn_error` and `turn_result`, and the session status.
-    /// Also settles a turn recovered from an adopted agent host.
+    /// Settle a turn once its `session/prompt` answered (or failed), also one recovered from an
+    /// adopted agent host: `turn_end`/`turn_error`, `turn_result` and the session status.
     pub(super) async fn finish_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -559,6 +558,7 @@ impl Hub {
                     if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
                         o.insert("cancelForced".into(), Value::Bool(true));
                     }
+                    o.extend(super::turn_usage::turn_usage(session, v));
                 }
                 self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);
