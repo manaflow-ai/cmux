@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
+import { sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
+  agentReadablePages,
   buildLlmsText,
   resolveAgentPageVariant,
   variantPathForPage,
@@ -22,6 +26,11 @@ import {
   headersForCanonicalFetch,
 } from "../app/lib/agent-page-canonical-fetch";
 import { sameOriginRedirectUrl } from "../app/lib/agent-page-redirects";
+import {
+  PLATFORM_DOWNLOADS,
+  isPlatformDownloadAvailable,
+  type DownloadPlatform,
+} from "../app/lib/download";
 
 describe("agent page variants", () => {
   test("drops docs chrome and uses the public canonical host", () => {
@@ -500,7 +509,75 @@ describe("agent page variants", () => {
       ).not.toBeNull();
     }
   });
+
+  test("lists every public page route in the sitemap and agent registry", () => {
+    const sitemapPaths = new Set(
+      sitemap().map((entry) => new URL(String(entry.url)).pathname),
+    );
+    const agentPaths = new Set<string>(agentReadablePages.map((page) => page.path));
+    const llms = buildLlmsText("https://cmux.com");
+
+    const routes = publicPageRoutes();
+    expect(routes).toContain("/browser");
+    expect(routes).toContain("/docs/getting-started");
+
+    const missing = routes.flatMap((route) => [
+      ...(sitemapPaths.has(route) ? [] : [`sitemap: ${route}`]),
+      ...(agentPaths.has(route) ? [] : [`agent registry: ${route}`]),
+      ...(llms.includes(`https://cmux.com${variantRequestPath(route, "md")})`)
+        ? []
+        : [`llms.txt: ${route}`]),
+    ]);
+    expect(missing).toEqual([]);
+  });
 });
+
+// Static page routes under app/[locale] that are deliberately kept out of the
+// sitemap, the agent-readable registry and llms.txt.
+const undiscoverablePageRoutes = new Set([
+  // Signed-in account surfaces.
+  "/dashboard/billing/success",
+  "/billing/recover",
+  // Post-download interstitial; the page sets robots noindex.
+  "/download/confirmation",
+  // Redirect-only Base docs; the sitemap test above asserts it stays out.
+  "/docs/base",
+  // Redirects to /docs/getting-started, which is listed.
+  "/docs",
+  // Not listed for discovery.
+  "/tui",
+  "/docs/tui",
+  // Legal disclosure kept out of indexes (company-information.test.tsx).
+  "/company-information",
+  // Download pages return 404 until their platform's artifacts are released.
+  ...(Object.keys(PLATFORM_DOWNLOADS) as DownloadPlatform[])
+    .filter((platform) => !isPlatformDownloadAvailable(platform))
+    .map((platform) => PLATFORM_DOWNLOADS[platform].page),
+]);
+
+/**
+ * Static public page routes, read from the app router directory. Route groups
+ * such as (landing) do not add a path segment. Dynamic routes ([agent],
+ * [slug], [version], [kind], [token], [[...path]]) are skipped: their
+ * registries enumerate the same data the sitemap does, and the forward test
+ * above covers them.
+ */
+function publicPageRoutes(): string[] {
+  const localeRoot = fileURLToPath(new URL("../app/[locale]/", import.meta.url));
+  const routes: string[] = [];
+  for (const file of readdirSync(localeRoot, { recursive: true })) {
+    const relativePath = String(file);
+    if (!/(^|[\\/])page\.(tsx|ts|mdx)$/u.test(relativePath)) continue;
+    const segments = relativePath
+      .split(sep)
+      .slice(0, -1)
+      .filter((segment) => !/^\(.+\)$/u.test(segment));
+    if (segments.some((segment) => segment.includes("["))) continue;
+    const route = `/${segments.join("/")}`;
+    if (!undiscoverablePageRoutes.has(route)) routes.push(route);
+  }
+  return routes.sort();
+}
 
 function variantRequestPath(pathname: string, format: "md" | "txt"): string {
   return pathname === "/" ? `/index.${format}` : `${pathname}.${format}`;
