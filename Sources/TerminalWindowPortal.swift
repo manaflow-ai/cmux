@@ -1238,9 +1238,15 @@ final class WindowTerminalPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let settled = externalGeometrySignature()
         lastHierarchySyncSignature = settled
-        // Layout that leaves the measured hierarchy unchanged is already at
-        // rest. A pass that moved it must wait for another stable observation.
-        return settled == signature
+        // Pending layout is an entry gate: it must prevent a provisional
+        // frame from being treated as settled before AppKit runs the layout
+        // pass. It is not itself measured geometry, though, and portal-owned
+        // frame writes can leave an ancestor marked for layout. Comparing it
+        // here would turn that bookkeeping flag into a self-echo retry even
+        // after the frames have returned to the last settled values.
+        // Compare the measured geometry before and after this pass so genuine
+        // Cloud materialization changes still get a follow-up pass.
+        return settled.withoutPendingLayoutViews == signature.withoutPendingLayoutViews
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
@@ -1377,6 +1383,18 @@ final class WindowTerminalPortal: NSObject {
         let referenceFrame: NSRect?
         let entries: [ObjectIdentifier: HostedGeometrySignature]
         let pendingLayoutViews: Set<ObjectIdentifier>
+
+        var withoutPendingLayoutViews: ExternalGeometrySignature {
+            ExternalGeometrySignature(
+                windowSize: windowSize,
+                backingScale: backingScale,
+                hostFrame: hostFrame,
+                containerFrame: containerFrame,
+                referenceFrame: referenceFrame,
+                entries: entries,
+                pendingLayoutViews: []
+            )
+        }
     }
 
     /// Raw-rect snapshot of everything a sync pass reads or writes.
