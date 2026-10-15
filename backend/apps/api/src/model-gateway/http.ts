@@ -44,7 +44,7 @@ interface Usage {
 }
 
 /** Reads the Messages stream's usage as it passes (message_start, message_delta); calls `end` once at the end or on cancel. */
-const usageTap = (end: (u: Usage) => void): TransformStream<Uint8Array, Uint8Array> => {
+const usageTap = (end: (u: Usage) => Promise<void>): TransformStream<Uint8Array, Uint8Array> => {
   const dec = new TextDecoder()
   const u: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   let buf = ""
@@ -62,8 +62,10 @@ const usageTap = (end: (u: Usage) => void): TransformStream<Uint8Array, Uint8Arr
       if (typeof x.output_tokens === "number") u.output = Math.max(u.output, x.output_tokens)
     } catch {}
   }
-  const finish = () => {
-    if (!ended) [(ended = true), end(u)]
+  const finish = (): Promise<void> => {
+    if (ended) return Promise.resolve()
+    ended = true
+    return end(u)
   }
   return new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, out) {
@@ -72,12 +74,13 @@ const usageTap = (end: (u: Usage) => void): TransformStream<Uint8Array, Uint8Arr
       let at: number
       while ((at = buf.indexOf("\n\n")) >= 0) [read(buf.slice(0, at)), (buf = buf.slice(at + 2))]
     },
-    flush() {
+    // The charge is part of the response: the stream ends after the settle (a dropped promise would be lost with the request).
+    async flush() {
       if (buf) read(buf)
-      finish()
+      await finish()
     },
     cancel() {
-      finish()
+      void finish()
     }
   } as Transformer<Uint8Array, Uint8Array> & { cancel(): void })
 }
@@ -110,11 +113,11 @@ export const handleModelGateway = async (request: Request, env: Env): Promise<Re
     if (!r.ok) return r.e._tag === "CreditsExhausted" ? err(402, "invalid_request_error", `out of Cloud credits (available ${r.e.available_usd} USD, this call needs up to ${r.e.needed_usd} USD)`) : err(503, "overloaded_error", "credits could not be checked; retry")
     held = r.res
   }
-  const settle = (u: Usage) => {
+  const settle = (u: Usage): Promise<void> => {
     if (!held) return Promise.resolve()
     const usd = (u.input * model.cost.input + u.output * model.cost.output + u.cacheRead * model.cost.cacheRead + u.cacheWrite * model.cost.cacheWrite) / 1_000_000
     const h = held
-    return run(env, Credits.use((c) => c.settle(h, usd))).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", request: request_id, error: String(e).slice(0, 200) })))
+    return run(env, Credits.use((c) => c.settle(h, usd))).then(() => undefined, (e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", request: request_id, error: String(e).slice(0, 200) })))
   }
   const route = claudeRoute(env)
   const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
@@ -134,5 +137,5 @@ export const handleModelGateway = async (request: Request, env: Env): Promise<Re
     await settle({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
     return err(res.status >= 400 && res.status < 600 ? res.status : 502, res.status === 429 ? "rate_limit_error" : "api_error", `the model route answered ${res.status}`)
   }
-  return new Response(res.body.pipeThrough(usageTap((u) => void settle(u))), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } })
+  return new Response(res.body.pipeThrough(usageTap((u) => settle(u))), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } })
 }
