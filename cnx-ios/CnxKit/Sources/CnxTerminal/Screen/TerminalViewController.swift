@@ -166,7 +166,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .interacting: return "interacting"
             }
         }
-        log.blankProvider = { [weak self] in self?.blankWatch.uncoveredSince != nil }
+        log.blankProvider = { [weak self] in self?.legibleRowsBlank ?? false }
         return log
     }()
 
@@ -1607,6 +1607,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                                                 visibleBottom: visible.upperBound, documentRows: document.originRow..<document.endRow)
         guard blankWatch.observe(covered: covered, now: now) else { return }
         recoverBlankPage(visible: visible)
+    }
+
+    /// The frame log's `blank`: the legible band (below the top inset,
+    /// above the composer) shows at least a row's height of background where
+    /// the document has rows (`TerminalBlankWatch.showsBlank`). A held frame
+    /// covers the page by itself.
+    private var legibleRowsBlank: Bool {
+        guard !model.isTUI, cell.height > 0, document != nil, surface.surface != nil, view.window != nil, freezeView == nil else { return false }
+        let offset = scrollView.contentOffset.y
+        let legibleTop = offset + scrollView.contentInset.top
+        let legibleBottom = offset + min(scrollView.bounds.height, bottomStack.frame.minY)
+        guard legibleBottom > legibleTop else { return false }
+        return TerminalBlankWatch.showsBlank(frame: surface.frame.minY..<surface.frame.maxY,
+                                             document: 0..<scrollView.contentSize.height,
+                                             legible: legibleTop..<legibleBottom, cellHeight: cell.height)
     }
 
     /// The page has shown uncovered rows past the deadline: nothing it waits
