@@ -848,8 +848,8 @@ impl Hub {
         {
             let mut applied =
                 session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if super::start_defaults::is_effort_id(config_id) {
-                applied.effort = value.as_str().map(str::to_owned);
+            if let Some(effort) = super::start_defaults::effort_of(config_id, &value) {
+                applied.effort = Some(effort.to_owned());
             }
         }
         Ok(r)

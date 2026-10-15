@@ -14,6 +14,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -36,6 +37,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {

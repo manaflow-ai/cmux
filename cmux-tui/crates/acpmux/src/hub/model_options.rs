@@ -21,6 +21,15 @@ pub fn current_option(m: &SessionMeta, id: &str) -> Option<String> {
         .and_then(|o| o.get("currentValue").and_then(Value::as_str).map(str::to_owned))
 }
 
+/// The effort a Claude Code session (re)starts with: its Reasoning level, or
+/// `ultracode` while that switch is on.
+pub fn current_effort(m: &SessionMeta) -> Option<String> {
+    if current_option(m, crate::claude_stdio::ULTRACODE_OPTION).as_deref() == Some("on") {
+        return Some("ultracode".into());
+    }
+    current_option(m, "effort")
+}
+
 /// The option id a harness uses for thinking effort, given the name a
 /// client asked for. `effort` is the portable name; Codex calls it
 /// `reasoning_effort`.

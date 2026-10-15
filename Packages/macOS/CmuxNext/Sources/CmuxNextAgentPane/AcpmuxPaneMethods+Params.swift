@@ -14,7 +14,9 @@ nonisolated extension AcpmuxPaneMethods {
         "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
-        "_acpmux/watch": (["enabled"], []),
+        // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
+        "_acpmux/watch": (["enabled", "limit"], []),
+        "_acpmux/sessions": (["limit", "cursor"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
