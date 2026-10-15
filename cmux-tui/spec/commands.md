@@ -8560,7 +8560,7 @@ flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
 `{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?}`
 subscribes the connection to the tab's session and answers acpmux's attach
 page `{session, events, hasMore, lastSeq}` (`limit` 1 to 500, default 200;
-`kinds` at most 8 acpmux record kinds or categories; at most 8 MiB of
+`kinds` at most 32 acpmux record kinds or categories; at most 8 MiB of
 records, the rest left for the next page with `hasMore`). On an attached tab
 it only pages. Live records then arrive as
 `{event:"agent-session-record", surface, record}` (one acpmux record in its

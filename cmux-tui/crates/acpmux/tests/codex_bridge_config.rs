@@ -213,12 +213,8 @@ async fn a_prefer_list_still_picks_the_codex_profile() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// The real daemon discovers its harnesses on its own PATH.
-#[tokio::test]
-async fn codex_on_path_is_the_bridge_and_the_adapter_becomes_codex_acp() {
-    let d = dir("discover");
-    shim(&d, "codex", FAKE_APP_SERVER);
-    shim(&d, "codex-acp", FAKE_AGENT);
+/// The harnesses a real daemon discovers on the PATH `d/bin` (plus the system's).
+async fn discovered_harnesses(d: &Path) -> Value {
     let home = d.join("home");
     std::fs::create_dir_all(&home).unwrap();
     let acp_home = d.join("acpmux");
@@ -264,9 +260,41 @@ async fn codex_on_path_is_the_bridge_and_the_adapter_becomes_codex_acp() {
     };
     let _ = child.kill();
     let _ = child.wait();
-    let h = &reply["result"]["harnesses"];
+    reply["result"]["harnesses"].clone()
+}
+
+/// The real daemon discovers its harnesses on its own PATH.
+#[tokio::test]
+async fn codex_on_path_is_the_bridge_and_the_adapter_becomes_codex_acp() {
+    let d = dir("discover");
+    shim(&d, "codex", FAKE_APP_SERVER);
+    shim(&d, "codex-acp", FAKE_AGENT);
+    let h = &discovered_harnesses(&d).await;
     assert_eq!(h["codex"]["argv"][1], "app-server", "{h}");
     assert!(h["codex"]["argv"][0].as_str().unwrap_or("").ends_with("/codex"), "{h}");
     assert!(h["codex-acp"]["argv"][0].as_str().unwrap_or("").ends_with("/codex-acp"), "{h}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Without a codex-acp on PATH, the pinned npx adapter is not offered beside
+/// the bridge: it reads the account through codex's `account/read`, which a
+/// ChatGPT login behind a routing proxy (subrouter) fails, so its chats never
+/// started ("Authentication required"). `codex-acp`, the name earlier chats
+/// and model picks recorded, runs the bridge instead.
+#[tokio::test]
+async fn without_codex_acp_on_path_the_npx_adapter_gives_way_to_the_bridge() {
+    let d = dir("npx-adapter");
+    shim(&d, "codex", FAKE_APP_SERVER);
+    // An npx that installs nothing: discovery only needs it to exist.
+    let npx = d.join("bin").join("npx");
+    std::fs::write(&npx, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&npx, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let h = &discovered_harnesses(&d).await;
+    for (name, profile) in h.as_object().unwrap() {
+        let program = profile["argv"][0].as_str().unwrap_or("");
+        assert!(!program.ends_with("/npx"), "{name} launches through npx: {h}");
+    }
+    assert_eq!(h["codex"]["argv"][1], "app-server", "{h}");
+    assert_eq!(h["codex-acp"]["argv"], h["codex"]["argv"], "codex-acp runs the bridge: {h}");
     let _ = std::fs::remove_dir_all(&d);
 }

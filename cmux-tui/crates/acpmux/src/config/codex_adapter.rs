@@ -1,36 +1,10 @@
-//! Codex without its ACP adapter on PATH: run the pinned adapter package through npx.
+//! The pinned Codex ACP adapter package, and npx launches of adapter packages.
 
-use std::collections::BTreeMap;
-
-use super::{HarnessKind, HarnessProfile};
-
-/// The codex-acp adapter version acpmux runs when only `codex` is installed (the version the
-/// cmux ACP installer pins).
+/// The codex-acp adapter version the cmux ACP installer pins. Discovery offers no npx launch of
+/// it: an installed codex is the in-process bridge (`discover.rs`).
 pub const CODEX_ACP_PACKAGE: &str = "@agentclientprotocol/codex-acp@1.10.0";
 
-/// A `codex` harness through `npx -y <CODEX_ACP_PACKAGE>`, the adapter pointed at the installed
-/// codex by CODEX_PATH; None unless both codex and npx are found.
-pub fn codex_through_adapter_package(
-    codex: Option<&str>,
-    npx: Option<&str>,
-) -> Option<HarnessProfile> {
-    let (codex, npx) = (codex?, npx?);
-    Some(HarnessProfile {
-        kind: HarnessKind::Acp,
-        argv: vec![npx.to_owned(), "-y".into(), CODEX_ACP_PACKAGE.into()],
-        env: BTreeMap::from([("CODEX_PATH".to_owned(), codex.to_owned())]),
-        description: Some(format!("Codex through {CODEX_ACP_PACKAGE} (no codex-acp on PATH)")),
-        fallback: None,
-        family: None,
-        models: vec![],
-        model: None,
-        effort: None,
-        policy: None,
-    })
-}
-
-/// `[npx, -y, PACKAGE, ...]` (the pinned adapter launch above, or a config
-/// written the same way): `(npx, PACKAGE)`.
+/// `[npx, -y, PACKAGE, ...]` (a config written that way): `(npx, PACKAGE)`.
 pub fn adapter_package_launch(argv: &[String]) -> Option<(&str, &str)> {
     let [npx, yes, package, ..] = argv else { return None };
     let is_npx = std::path::Path::new(npx).file_name().is_some_and(|n| n == "npx");
