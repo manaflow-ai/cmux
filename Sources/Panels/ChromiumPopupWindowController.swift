@@ -57,7 +57,7 @@ final class ChromiumPopupWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         super.init()
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup.chromium")
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
         panel.level = .normal
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
