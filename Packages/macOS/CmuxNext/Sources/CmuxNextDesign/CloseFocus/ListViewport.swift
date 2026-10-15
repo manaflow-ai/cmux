@@ -77,9 +77,10 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
 
     /// The item the user's eye rests on when the list changes to `next`:
     /// the first partly visible item that survives and did not move by
-    /// itself (its next surviving neighbour is the same before and after),
-    /// else the first partly visible item that survives. A row the change
-    /// moves (a drop, a pin, a keyboard move) is never the anchor while a
+    /// itself, else the first partly visible item that survives. An item
+    /// moved by itself (a drop, a pin, a keyboard move) has a new surviving
+    /// neighbour on both sides; an item beside the place a row left or
+    /// arrived keeps one of them. A moved row is never the anchor while a
     /// row that stayed in place is visible, so the offset follows what the
     /// user sees, not the moved row.
     public func anchor(at offset: CGFloat, next: ListViewport<ID>) -> Item? {
@@ -87,27 +88,25 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
         let newIDs = Set(next.items.map(\.id))
         guard items.contains(where: { visible($0) && newIDs.contains($0.id) }) else { return nil }
         let oldIDs = Set(items.map(\.id))
-        let oldCommon = items.lazy.map(\.id).filter { newIDs.contains($0) }
-        let newCommon = Array(next.items.lazy.map(\.id).filter { oldIDs.contains($0) })
-        var newNext: [ID: ID?] = [:]
-        newNext.reserveCapacity(newCommon.count)
-        for (index, id) in newCommon.enumerated() {
-            let follower: ID? = index + 1 < newCommon.count ? newCommon[index + 1] : nil
-            newNext[id] = .some(follower)
-        }
-        var oldNext: [ID: ID?] = [:]
-        var previous: ID?
-        for id in oldCommon {
-            if let previous { oldNext[previous] = .some(id) }
-            previous = id
-        }
-        if let previous { oldNext[previous] = .some(ID?.none) }
+        let before = Self.neighbours(items.map(\.id).filter { newIDs.contains($0) })
+        let after = Self.neighbours(next.items.map(\.id).filter { oldIDs.contains($0) })
         var firstSurviving: Item?
         for item in items where visible(item) && newIDs.contains(item.id) {
             if firstSurviving == nil { firstSurviving = item }
-            if let before = oldNext[item.id], let after = newNext[item.id], before == after { return item }
+            guard let old = before[item.id], let new = after[item.id] else { continue }
+            if old.previous == new.previous || old.next == new.next { return item }
         }
         return firstSurviving
+    }
+
+    /// Each id's previous and next id in `order` (nil at the ends).
+    private static func neighbours(_ order: [ID]) -> [ID: (previous: ID?, next: ID?)] {
+        var result: [ID: (previous: ID?, next: ID?)] = [:]
+        result.reserveCapacity(order.count)
+        for (index, id) in order.enumerated() {
+            result[id] = (index > 0 ? order[index - 1] : nil, index + 1 < order.count ? order[index + 1] : nil)
+        }
+        return result
     }
 
     /// Step 1 of `settle`: the offset that keeps the anchor (`anchor`, the

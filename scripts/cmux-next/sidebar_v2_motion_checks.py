@@ -134,8 +134,10 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                     kink = max(abs((fb[j] - fa[j]) - (fa[j] - f0[j])) for j in (0, 3))
                     # The vertical kink in the list or on screen (minus `scroll`), the smaller: an anchored shift is no kink.
                     s0, s1, s2 = scroll_of(frames, i - 2), scroll_of(frames, i - 1), scroll_of(frames, i)
+                    sl = scroll_of(frames, i - 3)
                     kink = max(kink, min(abs((fb[1] - fa[1]) - (fa[1] - f0[1])),
-                                         abs(((fb[1] - s2) - (fa[1] - s1)) - ((fa[1] - s1) - (f0[1] - s0)))))
+                                         abs(((fb[1] - s2) - (fa[1] - s1)) - ((fa[1] - s1) - (f0[1] - s0))),
+                                         abs(((fb[1] - s1) - (fa[1] - s0)) - ((fa[1] - s0) - (f0[1] - sl)))))
                     if kink > 1:
                         kinks.append({"key": key, "t": round(frames[i]["t"] - frames[0]["t"], 3), "kink": round(kink, 1)})
             for key, fa in frames[i - 1]["views"].items():
