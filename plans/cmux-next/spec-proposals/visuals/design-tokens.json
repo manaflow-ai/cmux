@@ -1907,7 +1907,7 @@
   },
   "tabMaxWidth": {
    "compact": 200,
-   "comfortable": 200,
+   "comfortable": 240,
    "unit": "pt",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:58-59 (MetricTunables.tabMaxWidth)"
   },
