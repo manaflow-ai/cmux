@@ -188,6 +188,138 @@
       },
       "extra": false
     },
+    "AvatarRef": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarImage": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        },
+        "data": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "base64"
+          },
+          "description": "The picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarPage": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ParticipantAvatarImage"
+            }
+          },
+          "description": "null when the participant has no picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarResult": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "AvatarRef"
+            }
+          },
+          "description": "The stored reference, null after clear."
+        }
+      },
+      "extra": false
+    },
     "ChiefAvatarRef": {
       "kind": "object",
       "fields": {
@@ -3030,10 +3162,14 @@
     "AgentMessageState": {
       "kind": "enum",
       "values": [
+        "held",
         "queued",
         "delivered",
         "acknowledged",
-        "failed"
+        "failed",
+        "unsent",
+        "retracted",
+        "declined"
       ]
     },
     "AgentMessageDelivery": {
@@ -3089,6 +3225,68 @@
               "name": "string"
             }
           }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Why the delivery is held or declined: workspace_unknown or cross_workspace (held), approved (released), declined or expired (declined)."
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "queued_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the delivery became queued: at the send, or when a person approved it."
+        },
+        "delivered_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a delivery path last handed the message over."
+        },
+        "acknowledged_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the recipient acknowledged the message."
+        },
+        "held_until_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a held delivery expires (declined, reason expired) without a decision."
         }
       },
       "extra": false
@@ -13230,6 +13428,85 @@
         "validation.invalid"
       ]
     },
+    "agent.message.release": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "recipient": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "decision": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "approve",
+                "decline"
+              ]
+            },
+            "description": "approve queues the held delivery; decline declines it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only a held delivery is released; another state is refused with operation.failed, reason not_held, or reason expired once its 24 hours ended.",
+          "Only the person decides, in the verified cmux app (the frontend actor): any other request, a plain local connection or the CLI included, is refused with operation.failed, reason release_needs_app. Any local connection may be an agent that left out its launch credential."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "agent.message.send": {
       "class": "mutation",
       "idempotency": "required",
@@ -13264,9 +13541,9 @@
             "type": {
               "kind": "primitive",
               "name": "string",
-              "min_length": 1,
-              "max_length": 32768
-            }
+              "min_length": 1
+            },
+            "description": "At most 32768 bytes of UTF-8; a longer body is refused with validation.invalid, reason body_too_large."
           },
           "sender": {
             "required": false,
@@ -13276,7 +13553,7 @@
               "min_length": 1,
               "max_length": 256
             },
-            "description": "The sender's address, as the caller asserts it; it is not verified. Defaults to cli."
+            "description": "The sender is the request's verified actor: the terminal (term_...) or ACP session (acp:<session id>) its launch credential names, else cli (the person). A sender given here must match it, or the send is refused with validation.invalid, reason sender_mismatch."
           },
           "sender_name": {
             "required": false,
@@ -13319,7 +13596,10 @@
         "extra": false,
         "constraints": [
           "The body is text: newlines and tabs are the only control characters allowed.",
-          "Every recipient starts queued. Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued."
+          "A recipient's delivery starts queued when the sender is the person or shares the recipient's workspace, held (reason workspace_unknown) when either workspace is unknown, and for different workspaces as the daemon's CMUX_AGENT_MESSAGE_CROSS_WORKSPACE says: hold (default; reason cross_workspace), refuse (operation.failed, reason cross_workspace) or allow (queued). The person is the local user or the verified app; every other actor without a known workspace starts held. A held delivery waits 24 hours for agent.message.release, then is declined with reason expired. Holds are advisory against an agent that leaves out its launch credential: it then sends as the person, until launch credentials are mandatory.",
+          "Limits, each refused with operation.failed and its details.reason: 5 sends in 10 seconds per sender and 20 a minute per sender and recipient (rate_limited), 50 queued or held deliveries per recipient (queue_full), replies at most 8 deep (reply_depth), 40 messages per thread, counted apart from pruning (thread_budget), and the same body from the same sender to the same recipient within 10 seconds (duplicate). Every limit counts stored rows, so a restart keeps them.",
+          "An agent puts a message, or a reply, in an existing thread only when it sent one of its messages or one was addressed to it; otherwise operation.failed, reason thread_not_joined.",
+          "Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued or held."
         ]
       },
       "result": {
@@ -14844,6 +15124,24 @@
               "max_length": 128
             },
             "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
+          },
+          "compactor_harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's acpmux harness, applied at the next brain start; empty or default clears it (the turns' engine harness when it is a Claude one, else the default Claude route)."
+          },
+          "compactor_model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's model, applied at the next brain start; empty or default clears it (Claude Haiku on a Claude harness)."
           }
         },
         "extra": false
@@ -14872,6 +15170,159 @@
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, invalid_speed, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
         "An absent field is unchanged. The change applies from the Chief's next turn; a running turn finishes on its engine. The value is the engine report after the write. The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model, speed, compactor_speed}, choice, last_turn, recent}.",
         "Setting the same values again changes nothing, so a retry is safe; replayed is always false."
+      ]
+    },
+    "chief.profile.adopt": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 7,
+              "max_length": 70
+            },
+            "description": "An agent participant of the owner's local conversations (agent_ then 1 to 64 characters) that is not a Chief record and not a deleted Chief; never agent_mux and never a person."
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            },
+            "description": "1 to 100 characters, one line; default: the participant's display name."
+          },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "personality": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4000
+            }
+          },
+          "instructions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32000
+            },
+            "description": "System prompt additions."
+          },
+          "tools": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces; owner only. A new Chief without it gets spawn, tell, workspaces."
+          },
+          "harnesses": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Owner only; empty: every harness."
+          },
+          "self_edit": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "effort": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only: a trusted local Unix caller acting as the person (a registered Unix client with no link peer record whose conversation principal is user_local). A page WebSocket, a paired or remote device and a bound agent (a Chief) are refused with origin.forbidden; no page route allows it.",
+        "The participant must be an agent participant (kind agent) of a local conversation that is not a Chief record: a live record is already_chief, a deleted Chief (its tombstone, and its memory while it is kept) is deleted_chief, agent_mux is default_chief, an id whose brain directory (its last 8 characters, lowercased) another Chief, live or deleted, already has is brain_home_taken, a participant with a bound connection (its current agent session) is participant_bound with the hint to stop that session first, anything else is not_an_agent_participant (operation.failed details.reason). At most 64 live Chiefs: too_many_chiefs. In the same write the daemon revokes every credential issued for the participant before the adopt; after it, only the Chief brain's credential binds (with a brain supervisor), or on a daemon without one a credential the person mints from a local terminal (conversation-agent-token) after the adopt.",
+        "The record gets create's defaults (tools spawn, tell, workspaces; self_edit avatar; no engine) and only the fields given; from the participant it takes only its id and, without display_name, its display name. Its conversations, history and credentials stay as they are.",
+        "The idempotency key is per caller, as for chief.profile.create: the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict. The committed write reaches the Chief brain supervisor and publishes chief-profile-changed as a create does."
       ]
     },
     "chief.profile.avatar.get": {
@@ -21299,6 +21750,120 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "participant.avatar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ParticipantAvatarPage"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the person's own clients of the local conversations (a Unix connection, or an authenticated WebSocket: the Channels page reads it through its page allow list). A relayed or remote connection is refused with origin.forbidden.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "avatar is null when the participant has no picture (also for an id that is no person or live Chief)."
+      ]
+    },
+    "participant.avatar.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          },
+          "bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The picture, at most 1048576 bytes; its type comes from its signature."
+          },
+          "clear": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true removes the picture (no bytes)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ParticipantAvatarResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A person sets only their own picture: the connection's principal is that person (user_local on the owner's Unix or authenticated WebSocket connection, or a person bound with a person credential). Nobody sets another person's: operation.failed details.reason avatar_not_yours.",
+        "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief only its own and only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
       ]
     },
     "project.add": {

@@ -6,6 +6,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("worktree-creating.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -29,6 +30,7 @@ await requireBrowserLane("worktree-creating.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -42,7 +44,10 @@ await requireBrowserLane("worktree-creating.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.start-folder&variant=worktree-creating`,
     );
-    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 90_000,
+    });
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,
       report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),

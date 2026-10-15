@@ -4,12 +4,16 @@
 // rest with `_acpmux/sessions` cursors behind it, so the list still ends up whole: the composer's
 // projects, the picker and links to old chats need every session. A session purged or changed
 // while a page is on its way keeps its newer state, and a link to a chat on a late page opens it.
+// The stand-in daemon refuses what the cmux host's pane policy (policy.json) refuses, as the host
+// would: #20644 sent params the policy lacked and local chats lost their list (cx-ibngi).
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -22,6 +26,19 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
   }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
+
+  // The cmux host's pane policy: the methods the page may send and each one's params.
+  const policy = JSON.parse(
+    readFileSync(path.resolve(webviews, "../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+  ) as { requests: string[]; known_params: Record<string, { params: string[] }> };
+  const refused: string[] = [];
+  function refusal(method: string, params: Record<string, any>): string | undefined {
+    if (method === "initialize") return undefined;
+    if (!policy.requests.includes(method)) return method;
+    const known = policy.known_params[method]?.params ?? [];
+    const unknown = Object.keys(params).filter((key) => key !== "_meta" && !known.includes(key));
+    return unknown.length > 0 ? `${method} ${unknown.join(",")}` : undefined;
+  }
 
   const COUNT = 1200;
   const START = Date.UTC(2026, 9, 1, 9, 0, 0);
@@ -108,6 +125,13 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
           if (message.id === undefined) return;
           const params = message.params ?? {};
           requests.push({ method: message.method, params });
+          const refusedAs = refusal(message.method, params);
+          if (refusedAs) {
+            refused.push(refusedAs);
+            const error = { code: -32601, message: "Refused by the cmux host" };
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error }));
+            return;
+          }
           // The page is read now; a later page waits until the test lets it go, as a slow link would.
           const result = answer(message.method, params);
           if (message.method === "_acpmux/sessions") await held;
@@ -124,6 +148,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -279,5 +304,9 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     expect(after.sessionId).toBe(LATE);
     expect(after.missingSession).toBeNull();
     await page.close();
+  });
+
+  test("everything the pane sent while paging passes the host's pane policy", () => {
+    expect(refused).toEqual([]);
   });
 });

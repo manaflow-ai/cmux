@@ -471,6 +471,7 @@ session <selector> terminal defaults set
 agent list
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
+agent message release <message-id> --recipient <agent> --approve|--decline
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
@@ -558,7 +559,7 @@ conversation search <words>... [--limit <1..100>]
 conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
-chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
+chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
 chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief>
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
@@ -714,7 +715,11 @@ person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.cr
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
 `--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
 `--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
-`--model`, `--effort`. `--json` prints the record. It refuses a socket under
+`--model`, `--effort`. `chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
+makes an agent already in the person's conversations a Chief under its own
+id; its conversations and history stay. Every write (new, adopt, edit,
+delete) is refused for an agent caller (`origin.forbidden`, reason
+`agent_caller`). `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
 timeout.
@@ -838,8 +843,11 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 `agent message` stores a message with `agent.message.send` and then delivers
 it. `<agent>` is a terminal agent (`term_...`), an agent (`agent_...`, sent to
 its terminal), or an acpmux session by name or id (`acp:` optional). The
-sender is the caller's acpmux session (`ACPMUX_SESSION_ID`), else its terminal
-(`CMUX_TUI_TERMINAL_ID`), else `cli`; `--from` adds an untrusted display name.
+daemon sets the sender from the caller's launch credential (the CLI sends it to
+its own terminal's session): the agent's terminal or ACP session, else `cli`
+(the person); `--from` adds an untrusted display name. A recipient in another
+workspace, or one whose workspace is unknown, may be held for the person
+(`agent.message.send` in resource-api-v2.md).
 A lone `-` reads the body from standard input. `--reply-to` answers a message:
 the reply goes to its sender and stays in its thread.
 
@@ -855,9 +863,17 @@ and marks them `delivered`. Any other terminal agent's message, or one Codex
 cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
 stored either way, and problems with older messages are reported on stderr.
 
+`agent message release` is the person's decision on a held delivery of
+`<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines
+it (one `agent.message.release`). Only the verified cmux app may decide, so
+from a terminal the command is refused with reason `release_needs_app`; the
+app's Approve and Decline controls make the same request.
+
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
-own address when it has one, else every message. `--ack` marks the listed
-messages acknowledged for that recipient.
+own address when it has one, else every message. `--state` is any delivery
+state: held, queued, delivered, acknowledged, failed, unsent, retracted or
+declined. `--ack` marks the listed queued, delivered or failed messages
+acknowledged for that recipient.
 
 ## Local agent plugins
 

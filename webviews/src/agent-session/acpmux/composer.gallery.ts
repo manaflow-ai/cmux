@@ -51,6 +51,18 @@ const composerControls = {
   },
 };
 
+/// Claude Code's Ultracode switch, as acpmux's claude_stdio lists it beside the levels.
+const CLAUDE_ULTRACODE_OFF = {
+  id: "ultracode",
+  name: "Ultracode",
+  category: "model_config",
+  currentValue: "off",
+  options: [
+    { value: "off", name: "Off" },
+    { value: "on", name: "On", description: "Extra High effort plus multi-agent workflow orchestration" },
+  ],
+};
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -82,8 +94,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
-    // The context-usage-menu play draws it beside Hide Context Usage.
-    "agent-session/acpmux/ComposerPickers.tsx#RingIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -468,34 +478,6 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
-    "context-usage-menu": {
-      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the composer's button row then offers Show Context Usage.",
-      snapshot: chat(finished, {
-        summary: {
-          sessionId: "gallery-usage",
-          harness: "claude",
-          model: "claude-opus-5-5",
-          cwd: CWD,
-          turnCount: 2,
-          usage: { used: 48_000, size: 200_000 },
-        },
-      }),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-context-ring"));
-        const ring = ctx.document.querySelector<HTMLElement>("button.acpmux-context-ring")!;
-        const box = ring.getBoundingClientRect();
-        const view = ctx.document.defaultView!;
-        ring.dispatchEvent(
-          new view.MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            clientX: box.left + 4,
-            clientY: box.top + 4,
-          }),
-        );
-        await ctx.waitFor(() => ctx.document.querySelector(".ui-context-menu [role=menuitem]"));
-      },
-    },
     "add-menu": {
       note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
       snapshot: chat(finished, {
@@ -780,7 +762,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, Ultracode (with its line), Ultrathink, then Fast Mode On/Off; the chip reads Medium Fast.",
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (with its line) and Fast Mode On/Off; the chip reads Medium Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
@@ -795,10 +777,9 @@ export default agentPaneEntry({
               { value: "high", name: "High" },
               { value: "xhigh", name: "Extra High" },
               { value: "max", name: "Max" },
-              { value: "ultracode", name: "Ultracode" },
-              { value: "ultrathink", name: "Ultrathink" },
             ],
           },
+          CLAUDE_ULTRACODE_OFF,
           {
             id: "fast-mode",
             name: "Fast mode",
@@ -814,6 +795,38 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+      },
+    },
+    "reasoning-claude-default": {
+      note: "Play: a chat on Claude Code's own level (default) on Opus 5.5 [1m]: the chip names the level it resolves to, Medium; the menu checks Medium with a Default hint and lists no Ultrathink.",
+      snapshot: withSummary(chat(finished, { title: "Claude default reasoning" }), {
+        model: "claude-opus-5-5[1m]",
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "default",
+            // An older acpmux still lists Ultrathink, a prompt keyword: the menu drops it.
+            options: ["default", "low", "medium", "high", "xhigh", "max", "ultrathink"].map((value) => ({ value })),
+          },
+          CLAUDE_ULTRACODE_OFF,
+        ],
+      }),
+      play: async (ctx) => {
+        const chip = () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button");
+        await ctx.waitFor(() => chip()?.textContent?.trim() === "Medium");
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        await ctx.waitFor(() => {
+          const checked = ctx.document.querySelectorAll(
+            '.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]',
+          );
+          const level = checked[0]?.textContent ?? "";
+          return level.includes("Medium") && level.includes("Default");
+        });
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".acpmux-effort-menu")?.textContent?.includes("Ultrathink"),
+        );
       },
     },
     "reasoning-codex": {
@@ -1058,8 +1071,9 @@ export default agentPaneEntry({
         if (contextStyle.borderTopWidth !== "0px" || contextStyle.boxShadow !== "none")
           throw new Error("location scope still draws a divider or inner box");
         if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
-        const spacer = ctx.find({ selector: ".acpmux-chips-spacer" });
-        if (Number(ctx.document.defaultView!.getComputedStyle(spacer).flexGrow) < 1)
+        // The free space sits only between the left cluster and mic/Send (hq#1957 item 15).
+        const actions = ctx.find({ selector: ".acpmux-composer-actions" });
+        if (ctx.document.defaultView!.getComputedStyle(actions).marginLeft === "0px")
           throw new Error("composer controls lost the flexible gap between left and right groups");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");

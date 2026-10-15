@@ -951,7 +951,7 @@ describe("billing checkout route", () => {
     expect(captureBillingCheckoutStarted).toHaveBeenCalledTimes(1);
     expect(captureBillingCheckoutStarted).toHaveBeenCalledWith({
       sessionId: CHECKOUT_SESSION_ID,
-      subject: { scope: "team", stackTeamId: TEAM_ID },
+      subject: { scope: "team", stackTeamId: TEAM_ID, actorUserId: SIGNED_IN_USER_ID },
       plan: "team",
       billingInterval: "month",
       attribution: expect.objectContaining({ source: "unknown", client: "web" }),

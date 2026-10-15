@@ -22,6 +22,8 @@ mod permission_groups;
 mod prompt_context;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_withdraw.rs"]
+mod prompt_withdraw;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/restart.rs"]
@@ -1331,6 +1333,8 @@ mod quit_spawn;
 mod fork_through;
 #[path = "hub_integration/last_message.rs"]
 mod last_message;
+#[path = "hub_integration/session_git_state.rs"]
+mod session_git_state;
 #[cfg(unix)]
 #[path = "hub_integration/session_list_order.rs"]
 mod session_list_order;

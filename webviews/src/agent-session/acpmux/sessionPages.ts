@@ -43,9 +43,12 @@ export class SessionPager<S extends Summary> {
     return run === this.run ? page : undefined;
   }
 
-  /** The whole list in one reply, for a decision that cannot wait for the pages. */
+  /**
+   * The whole list in one reply, for a decision that cannot wait for the pages: watch without a
+   * `limit`, as every host answers it (a remote pane's host never pages).
+   */
   async whole(): Promise<S[]> {
-    return pageOf<S>(await this.request("_acpmux/sessions", {})).sessions;
+    return pageOf<S>(await this.request("_acpmux/watch", { enabled: true })).sessions;
   }
 
   /** A `session_changed` seen while the list loads. */

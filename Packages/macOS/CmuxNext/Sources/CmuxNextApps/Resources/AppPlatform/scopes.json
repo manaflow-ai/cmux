@@ -209,6 +209,10 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.adopt": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.profile.avatar.get": {
       "scope": "chief:read",
       "class": "read"
@@ -991,6 +995,14 @@
     },
     "pane.zoom": {
       "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "participant.avatar.get": {
+      "scope": "participant:read",
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "scope": "participant:write",
       "class": "mutation"
     },
     "participants.add": {
@@ -1813,6 +1825,7 @@
   "never": [
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
     "automation.delete",
     "automation.settings.set",

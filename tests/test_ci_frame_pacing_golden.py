@@ -53,7 +53,8 @@ def reduced(trace: dict, on: bool) -> dict:
 def write_run(
     out: Path,
     *,
-    cold_frames: int,
+    cold_frames: int = 0,
+    warm_frames: int = 0,
     reduce_frames: int = 0,
     looping: list[str] | None = None,
     reduce_on: bool = True,
@@ -64,8 +65,10 @@ def write_run(
     def save(name: str, data: dict) -> None:
         (out / f"{name}.json").write_text(json.dumps(data))
 
-    save("new_tab_cold", tabs_trace(eased(0, 200, cold_frames), spare=False))
-    save("new_tab_warm", {**tabs_trace(eased(0, 200, 30), spare=bool(warm_spare)), "spare_ready": warm_spare})
+    # A new tab is there at once, full width, and the strip makes room in the same frame
+    # (b235e5f5d752): one step, with frames at rest on both sides.
+    save("new_tab_cold", tabs_trace(eased(0, 200, cold_frames, rest=14), spare=False))
+    save("new_tab_warm", {**tabs_trace(eased(0, 200, warm_frames, rest=14), spare=bool(warm_spare)), "spare_ready": warm_spare})
     save("sidebar_collapse", sidebar_trace(eased(260, 0, 28)))
     save("sidebar_expand", sidebar_trace(eased(0, 260, 28)))
     # A Reduce Motion trace still runs ~0.9 s: frames at rest on both sides of the one step.
@@ -91,28 +94,31 @@ def verdicts(out: Path) -> dict:
     return json.loads((out / "verdicts.json").read_text())
 
 
-def test_animations_that_run_pass() -> None:
+def test_a_run_as_designed_passes() -> None:
+    """New tabs land at once at full width (b235e5f5d752); the sidebar and transcript move."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)
+        assert found["new_tab_cold"]["intermediate"] == 0
+        assert found["new_tab_cold"]["neighbors"], "tab-b made room in the same frame"
+        assert "| new_tab_cold | ok |" in result.stdout
+
+
+def test_a_new_tab_that_grows_in_fails() -> None:
+    """Grow-in is not the default since b235e5f5d752: a cold opening that eases in is a regression."""
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
         write_run(out, cold_frames=30)
         result = judge(out)
-        assert result.returncode == 0, result.stdout + result.stderr
-        found = verdicts(out)
-        assert found["new_tab_cold"]["intermediate"] >= 25
-        assert found["new_tab_cold"]["neighbors"], "tab-b moved as the new tab grew"
-        assert "| new_tab_cold | ok |" in result.stdout
-
-
-def test_a_new_tab_that_lands_in_one_frame_fails() -> None:
-    """The #20216 state: the cold opening's tab is at full width on its first frame."""
-    with tempfile.TemporaryDirectory() as temp:
-        out = Path(temp)
-        write_run(out, cold_frames=0)
-        result = judge(out)
         assert result.returncode == 1
         found = verdicts(out)
         assert not found["new_tab_cold"]["ok"]
-        assert found["new_tab_cold"]["intermediate"] == 0
+        assert found["new_tab_cold"]["intermediate"] >= 25
+        assert any("should land at once" in problem for problem in found["new_tab_cold"]["problems"])
+        assert any("neighbor" in problem for problem in found["new_tab_cold"]["problems"])
         assert found["new_tab_warm"]["ok"]
         assert "new_tab_cold" in result.stderr and "::warning" in result.stderr
         assert "| new_tab_cold | FAIL |" in result.stdout
@@ -139,7 +145,7 @@ def test_a_strip_that_changes_width_during_the_opening_fails() -> None:
 def test_reduce_motion_expects_one_step_and_no_loops() -> None:
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
-        write_run(out, cold_frames=30, reduce_frames=20, looping=["CALayer/spinner/rotation"])
+        write_run(out, reduce_frames=20, looping=["CALayer/spinner/rotation"])
         result = judge(out)
         assert result.returncode == 1
         found = verdicts(out)
@@ -151,7 +157,7 @@ def test_reduce_motion_expects_one_step_and_no_loops() -> None:
 def test_reduce_motion_passes_when_the_app_reports_it_on_and_nothing_moves_between_the_ends() -> None:
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
-        write_run(out, cold_frames=30)
+        write_run(out)
         judge(out)
         found = verdicts(out)
         for name in ("reduce_new_tab", "reduce_sidebar_collapse", "reduce_sidebar_expand"):
@@ -162,7 +168,7 @@ def test_a_reduce_scenario_the_app_did_not_run_under_reduce_motion_is_not_measur
     """A Reduce Motion override that silently failed must not pass as a Reduce Motion run."""
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
-        write_run(out, cold_frames=30, reduce_on=False)
+        write_run(out, reduce_on=False)
         result = judge(out)
         assert result.returncode == 1
         found = verdicts(out)
@@ -174,7 +180,7 @@ def test_a_reduce_trace_of_two_frames_fails() -> None:
     """Two frames have no room for an intermediate one: a throttled trace must not pass."""
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
-        write_run(out, cold_frames=30)
+        write_run(out)
         (out / "reduce_sidebar_collapse.json").write_text(json.dumps(reduced(sidebar_trace([260, 0]), True)))
         judge(out)
         problems = verdicts(out)["reduce_sidebar_collapse"]["problems"]
@@ -184,7 +190,7 @@ def test_a_reduce_trace_of_two_frames_fails() -> None:
 def test_a_repeating_animation_fails_every_reduce_scenario_it_shows_in() -> None:
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
-        write_run(out, cold_frames=30, looping=["CALayer/spinner/rotation"])
+        write_run(out, looping=["CALayer/spinner/rotation"])
         judge(out)
         found = verdicts(out)
         for name in ("reduce_new_tab", "reduce_sidebar_collapse"):
@@ -195,7 +201,7 @@ def test_a_repeating_animation_fails_every_reduce_scenario_it_shows_in() -> None
 def test_a_warm_opening_without_a_ready_spare_is_not_measured() -> None:
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
-        write_run(out, cold_frames=30, warm_spare=False)
+        write_run(out, warm_spare=False)
         result = judge(out)
         assert result.returncode == 1
         problems = verdicts(out)["new_tab_warm"]["problems"]
@@ -205,7 +211,7 @@ def test_a_warm_opening_without_a_ready_spare_is_not_measured() -> None:
 def test_a_missing_scenario_fails_as_not_measured() -> None:
     with tempfile.TemporaryDirectory() as temp:
         out = Path(temp)
-        write_run(out, cold_frames=30)
+        write_run(out)
         (out / "transcript_follow.json").unlink()
         result = judge(out)
         assert result.returncode == 1

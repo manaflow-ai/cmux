@@ -10,6 +10,7 @@
 //! chat (`tui`).
 
 mod adapter;
+mod avatar;
 mod chat;
 mod control;
 mod editor;
@@ -51,6 +52,9 @@ pub(super) enum Input {
 /// can take long, but a script must never wait forever.
 pub(super) const DEFAULT_TIMEOUT_SECS: u64 = 30 * 60;
 
+/// The client kind of an open `cmux chief` chat (pipe or terminal), in `client.list`.
+const CHAT_CLIENT_KIND: &str = "chief-chat";
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Args {
     pub prompt: Option<String>,
@@ -73,6 +77,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let (scope, rest) = command_args.split_first()?;
     (scope == "chief").then(|| run(global, rest))
+}
+
+/// `cmux avatar set|get` (participant-avatars-v1): a person's or a Chief's picture.
+pub(super) fn run_avatar_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command_args) = super::parse_globals(args).ok()?;
+    let (scope, rest) = command_args.split_first()?;
+    (scope == "avatar").then(|| avatar::run(&global, rest))
 }
 
 pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -102,7 +113,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             {
                 parsed.control = Some(control::Control::Stop(Some(name.to_owned())));
             }
-            "--harness" | "--model" | "--effort" | "--speed" | "--compactor-speed" => {
+            "--harness"
+            | "--model"
+            | "--effort"
+            | "--speed"
+            | "--compactor-speed"
+            | "--compactor-harness"
+            | "--compactor-model" => {
                 let key = flag.trim_start_matches("--").replace('-', "_");
                 let value = value()?;
                 match &mut parsed.control {
@@ -171,6 +188,13 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     if let Some(control) = &args.control {
         return control::run(&global, args.chief_home.as_deref(), control, global.output);
+    }
+    // cx-tgf4h: with agents off in this build session no Chief turn can
+    // run; refuse before anything starts or is sent (a send would wait for
+    // a reply that never comes).
+    if cmux_tui_core::agent_launch::disabled() {
+        let refusal = cmux_tui_core::agent_launch::refusal(m.agents_disabled);
+        return super::wire::print_operation_error(&refusal, global.output);
     }
     let stdin_tty = std::io::stdin().is_terminal();
     let pipe_mode = args.prompt.is_some() || !stdin_tty;
@@ -250,6 +274,11 @@ impl Session {
             rejected => (1, rejected.to_string()),
         };
         let mut control = connect()?;
+        // The chat names its connection `chief-chat` for as long as it runs: a DEV app restarts a
+        // keyless Chief owner only while no such client is attached (CmuxNextDaemon
+        // OwnerIdleProbe). Best effort: a daemon that refuses it still serves the chat.
+        let named = json!({"client": "current", "name": "cmux chief", "kind": CHAT_CLIENT_KIND});
+        let _ = control.call("client.metadata.update", named, None);
         let listed = control.call("conversation.list", json!({}), None).map_err(failed)?;
         let conversations = listed.as_array().cloned().unwrap_or_default();
         let chief = link::select_chief(&conversations).ok_or((1, m.no_chief.to_owned()))?;
