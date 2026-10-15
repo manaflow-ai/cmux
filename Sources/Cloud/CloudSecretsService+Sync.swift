@@ -371,6 +371,17 @@ elif [ -f "$mp" ]; then
   } > "$mp.cmux-tmp" && chmod 600 "$mp.cmux-tmp" && mv -f "$mp.cmux-tmp" "$mp" || status=1
 fi
 
+# A provider key can reach the env file outside Cloud Secrets (`cmux vm env
+# set`, or `cmux env set` on the machine). Never release such a provider to the
+# model plane: that would pair the user's key with cmux's router. Names only;
+# no value is read. Vault removals run before this script, so a key revoked
+# through Cloud Secrets is already gone and its provider is released as asked.
+has_key() {
+  grep -E "^export ($1)=" "$envf" 2>/dev/null | grep -qvx -E "export ($1)='$placeholder'"
+}
+if [ "$openai" = plane ] && has_key OPENAI_API_KEY; then openai=direct; fi
+if [ "$anthropic" = plane ] && has_key 'ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN'; then anthropic=direct; fi
+
 # 2. Beside a user's key with no endpoint of their own, the provider's own
 # endpoint; a cmux-added endpoint goes when the key does.
 route() {
