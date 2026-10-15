@@ -64,6 +64,18 @@ import Testing
         #expect(throws: ChiefMemoryError.notFound(id: "m-nope")) { try memory.forget("m-nope") }
     }
 
+    @Test func updateKeepsIdentityAndMetadata() throws {
+        let (memory, root) = makeMemory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try memory.add("Prefers the dark theme", source: "app")
+        let updated = try memory.update(original.id, text: "Prefers the light theme")
+        #expect(updated.id == original.id)
+        #expect(updated.source == original.source)
+        #expect(updated.createdAt == original.createdAt)
+        #expect(updated.text == "Prefers the light theme")
+        #expect(memory.facts() == [updated])
+    }
+
     @Test func refusesEmptyLongAndSecretText() throws {
         let (memory, root) = makeMemory()
         defer { try? FileManager.default.removeItem(at: root) }

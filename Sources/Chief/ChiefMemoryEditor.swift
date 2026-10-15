@@ -341,10 +341,33 @@ final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDeleg
                 row.onForget = { [weak self] id in
                     if !ChiefMemoryStore.shared.forget(id) { self?.showFailure(ChiefMemoryStrings.forgetFailed) }
                 }
+                row.onEdit = { [weak self] fact in self?.editNote(fact) }
                 row.apply(theme)
                 notesStack.addArrangedSubview(row)
             }
         }
+    }
+
+    /// Edits one note without changing its id, timestamp or source. A small
+    /// alert keeps the notes list scannable while making the action discoverable
+    /// beside the visible pencil affordance.
+    private func editNote(_ fact: ChiefMemoryFact) {
+        let alert = NSAlert()
+        alert.messageText = ChiefMemoryStrings.editNote
+        alert.informativeText = fact.text
+        let field = NSTextField(string: fact.text)
+        field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
+        field.lineBreakMode = .byTruncatingTail
+        field.usesSingleLineMode = true
+        alert.accessoryView = field
+        alert.addButton(withTitle: ChiefMemoryStrings.saveNote)
+        alert.addButton(withTitle: ChiefMemoryStrings.close)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard ChiefMemoryStore.shared.update(fact.id, text: field.stringValue) else {
+            showFailure(ChiefMemoryStrings.editFailed)
+            return
+        }
+        showSelection()
     }
 
     // MARK: Editing

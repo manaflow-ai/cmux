@@ -117,6 +117,7 @@ final class ChiefMemoryNoteRow: NSView {
     let fact: ChiefMemoryFact
     private let text = NSTextField(labelWithString: "")
     private let meta = NSTextField(labelWithString: "")
+    private let editButton = NSButton()
     private let forgetButton = NSButton()
     private var hoverArea: NSTrackingArea?
     private var hovering = false { didSet { updateHover() } }
@@ -125,6 +126,8 @@ final class ChiefMemoryNoteRow: NSView {
 
     /// The ✕ was clicked: forget the note with this id.
     var onForget: (String) -> Void = { _ in }
+    /// The pencil was clicked (sheet rows only).
+    var onEdit: (ChiefMemoryFact) -> Void = { _ in }
 
     /// - Parameters:
     ///   - compact: The settings list (11 pt, one line, time only) rather than the sheet's notes list.
@@ -149,6 +152,14 @@ final class ChiefMemoryNoteRow: NSView {
         meta.setContentCompressionResistancePriority(.required, for: .horizontal)
         meta.setContentHuggingPriority(.required, for: .horizontal)
         meta.toolTip = DateFormatter.localizedString(from: fact.createdAt, dateStyle: .medium, timeStyle: .short)
+        editButton.image = NSImage(systemSymbolName: "pencil", accessibilityDescription: ChiefMemoryStrings.editNote)
+        editButton.imagePosition = .imageOnly
+        editButton.isBordered = false
+        editButton.target = self
+        editButton.action = #selector(editClicked)
+        editButton.toolTip = ChiefMemoryStrings.editNote
+        editButton.setAccessibilityLabel(ChiefMemoryStrings.editNote)
+        editButton.isHidden = compact
         forgetButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: ChiefMemoryStrings.forget)
         forgetButton.imagePosition = .imageOnly
         forgetButton.isBordered = false
@@ -156,8 +167,8 @@ final class ChiefMemoryNoteRow: NSView {
         forgetButton.action = #selector(forgetClicked)
         forgetButton.toolTip = ChiefMemoryStrings.forgetHelp(fact.text)
         forgetButton.setAccessibilityLabel(ChiefMemoryStrings.forgetHelp(fact.text))
-        forgetButton.alphaValue = 0
-        for view in [text, meta, forgetButton] as [NSView] {
+        forgetButton.alphaValue = compact ? 0 : 1
+        for view in [text, meta, editButton, forgetButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -168,19 +179,23 @@ final class ChiefMemoryNoteRow: NSView {
             forgetButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             forgetButton.widthAnchor.constraint(equalToConstant: 16),
             forgetButton.heightAnchor.constraint(equalToConstant: 16),
+            editButton.trailingAnchor.constraint(equalTo: forgetButton.leadingAnchor, constant: -4),
+            editButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            editButton.widthAnchor.constraint(equalToConstant: 16),
+            editButton.heightAnchor.constraint(equalToConstant: 16),
             text.leadingAnchor.constraint(equalTo: leadingAnchor, constant: compact ? 4 : 10),
         ]
         if compact {
             constraints += [
                 text.centerYAnchor.constraint(equalTo: centerYAnchor),
                 meta.firstBaselineAnchor.constraint(equalTo: text.firstBaselineAnchor),
-                meta.trailingAnchor.constraint(equalTo: forgetButton.leadingAnchor, constant: -4),
+                meta.trailingAnchor.constraint(equalTo: editButton.leadingAnchor, constant: -4),
                 text.trailingAnchor.constraint(lessThanOrEqualTo: meta.leadingAnchor, constant: -6),
             ]
         } else {
             constraints += [
                 text.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-                text.trailingAnchor.constraint(lessThanOrEqualTo: forgetButton.leadingAnchor, constant: -8),
+                text.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -8),
                 meta.leadingAnchor.constraint(equalTo: text.leadingAnchor),
                 meta.topAnchor.constraint(equalTo: text.bottomAnchor, constant: 1),
             ]
@@ -198,7 +213,7 @@ final class ChiefMemoryNoteRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func accessibilityChildren() -> [Any]? { [forgetButton] }
+    override func accessibilityChildren() -> [Any]? { compact ? [forgetButton] : [editButton, forgetButton] }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -221,9 +236,10 @@ final class ChiefMemoryNoteRow: NSView {
     }
 
     private func updateHover() {
-        forgetButton.alphaValue = hovering ? 1 : 0
+        forgetButton.alphaValue = compact && !hovering ? 0 : 1
         layer?.backgroundColor = hovering ? theme.hoverFill.cgColor : nil
     }
 
+    @objc private func editClicked() { onEdit(fact) }
     @objc private func forgetClicked() { onForget(fact.id) }
 }

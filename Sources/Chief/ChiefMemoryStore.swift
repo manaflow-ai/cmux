@@ -72,4 +72,23 @@ final class ChiefMemoryStore {
             return false
         }
     }
+
+    /// Replaces a note's text in the memory browser while keeping its id and
+    /// provenance. The watcher then refreshes every open memory view.
+    @discardableResult
+    func update(_ id: String, text: String) -> Bool {
+        start()
+        guard let memory else { return false }
+        do {
+            try memory.update(id, text: text)
+            reload()
+            return true
+        } catch ChiefMemoryError.notFound {
+            reload()
+            return false
+        } catch {
+            NSSound.beep()
+            return false
+        }
+    }
 }

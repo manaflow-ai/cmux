@@ -226,23 +226,54 @@ public struct ChiefMemory: Sendable {
             guard let removed = all.first(where: { $0.id == wanted }) else {
                 throw ChiefMemoryError.notFound(id: wanted)
             }
-            var data = Data()
-            for fact in all where fact.id != wanted { data.append(try Self.encodeLine(fact)) }
-            let temporary = paths.directory.appendingPathComponent(".memory.jsonl.\(getpid()).tmp")
-            do {
-                try data.write(to: temporary, options: [])
-                _ = chmod(temporary.path, 0o600)
-                guard rename(temporary.path, paths.facts.path) == 0 else {
-                    throw ChiefMemoryError.io("rename: \(String(cString: strerror(errno)))")
-                }
-            } catch let error as ChiefMemoryError {
-                try? FileManager.default.removeItem(at: temporary)
-                throw error
-            } catch {
-                try? FileManager.default.removeItem(at: temporary)
-                throw ChiefMemoryError.io("\(error)")
-            }
+            try rewrite(all.filter { $0.id != wanted })
             return removed
+        }
+    }
+
+    /// Replaces a fact's text while keeping its id, source and timestamp.
+    ///
+    /// Editing is deliberately a rewrite under the same lock as ``forget``;
+    /// readers either see the old complete file or the new complete file.
+    /// The same validation as ``add`` prevents the sheet from becoming a way
+    /// around the memory store's secret and size limits.
+    @discardableResult
+    public func update(_ id: String, text: String) throws -> ChiefMemoryFact {
+        let wanted = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = Self.normalize(text)
+        guard !normalized.isEmpty else { throw ChiefMemoryError.emptyText }
+        guard normalized.utf8.count <= Self.maxFactBytes else {
+            throw ChiefMemoryError.textTooLong(limit: Self.maxFactBytes)
+        }
+        guard !Self.looksLikeSecret(normalized) else { throw ChiefMemoryError.looksLikeSecret }
+        return try withLock {
+            let all = facts()
+            guard let old = all.first(where: { $0.id == wanted }) else {
+                throw ChiefMemoryError.notFound(id: wanted)
+            }
+            let updated = ChiefMemoryFact(id: old.id, text: normalized, createdAt: old.createdAt, source: old.source)
+            try rewrite(all.map { $0.id == wanted ? updated : $0 })
+            return updated
+        }
+    }
+
+    /// Atomically rewrites the JSONL file while the caller holds the lock.
+    private func rewrite(_ facts: [ChiefMemoryFact]) throws {
+        var data = Data()
+        for fact in facts { data.append(try Self.encodeLine(fact)) }
+        let temporary = paths.directory.appendingPathComponent(".memory.jsonl.\(getpid()).tmp")
+        do {
+            try data.write(to: temporary, options: [])
+            _ = chmod(temporary.path, 0o600)
+            guard rename(temporary.path, paths.facts.path) == 0 else {
+                throw ChiefMemoryError.io("rename: \(String(cString: strerror(errno)))")
+            }
+        } catch let error as ChiefMemoryError {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw ChiefMemoryError.io("\(error)")
         }
     }
 

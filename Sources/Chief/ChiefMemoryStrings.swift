@@ -16,6 +16,9 @@ enum ChiefMemoryStrings {
     static var forgetFailed: String {
         String(localized: "chief.memory.forgetFailed", defaultValue: "Chief couldn’t forget that. Try again.")
     }
+    static var editFailed: String {
+        String(localized: "chief.memory.editFailed", defaultValue: "Chief couldn’t update that note. Try again.")
+    }
 
     // MARK: Sheet
 
@@ -26,6 +29,8 @@ enum ChiefMemoryStrings {
     }
     static var sidebarNotes: String { String(localized: "chief.memory.sheet.notes", defaultValue: "Notes") }
     static var edit: String { String(localized: "chief.memory.sheet.edit", defaultValue: "Edit") }
+    static var editNote: String { String(localized: "chief.memory.sheet.editNote", defaultValue: "Edit note") }
+    static var saveNote: String { String(localized: "chief.memory.sheet.saveNote", defaultValue: "Save") }
     static var done: String { String(localized: "chief.memory.sheet.done", defaultValue: "Done") }
     static var close: String { String(localized: "chief.memory.sheet.close", defaultValue: "Close") }
     static var emptyDocument: String {
