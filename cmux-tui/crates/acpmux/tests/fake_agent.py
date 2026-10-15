@@ -697,6 +697,9 @@ def main():
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
+            # FAKE_PLAN_MODE=1: opencode's modes, "build" and a "plan" that runs bash.
+            if os.environ.get("FAKE_PLAN_MODE") == "1":
+                result["modes"] = {"currentModeId": "build", "availableModes": [{"id": "build", "name": "Build"}, {"id": "plan", "name": "Plan"}]}
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
