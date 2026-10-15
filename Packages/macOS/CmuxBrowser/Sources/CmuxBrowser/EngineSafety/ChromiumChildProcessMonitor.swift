@@ -97,6 +97,14 @@ public final class ChromiumChildProcessMonitor: @unchecked Sendable {
         }
     }
 
+    /// Returns once every event the monitor's queue already holds is handled
+    /// (tests use it as a sync point instead of waiting).
+    func waitForQueuedEvents() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { continuation.resume() }
+        }
+    }
+
     private func drain() {
         var events = Array(repeating: Darwin.kevent(), count: 16)
         var zero = timespec(tv_sec: 0, tv_nsec: 0)
