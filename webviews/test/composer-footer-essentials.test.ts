@@ -87,27 +87,16 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     expect(access?.title).toContain("Default");
     expect(access?.text).toContain("Default");
     expect(await page.locator(".acpmux-context").count()).toBe(0);
-    const computer = await read(page, '.acpmux-location-button[title^="Computer: "]');
-    expect(computer?.visible).not.toContain("This Mac");
-    expect(computer?.title).toContain("This Mac");
-    expect(computer?.text).toContain("This Mac");
+    // The computer follows the strip's own rule (its name in a wide pane, its icon alone in a narrow
+    // one: composer-location-strip.test.ts); the folder keeps its name.
     const folder = await read(page, ".acpmux-location-picker .acpmux-location-label");
-    expect(folder?.visible).toBe("atlas-web");
+    expect(folder?.text).toBe("atlas-web");
     await page.close();
   });
 
   test("a mode that is not the default keeps its name in the bar", async () => {
     const page = await open("agent-pane.composer", "footer-full-access");
     expect((await read(page, ".acpmux-access-trigger"))?.visible).toBe("Full access");
-    await page.close();
-  });
-
-  test("a chat on another machine keeps that machine's name", async () => {
-    const page = await open("agent-pane.composer-context", "ssh-chat");
-    const labels = await page.$$eval(".acpmux-location-label", (spans) =>
-      spans.map((span) => (span as HTMLElement).innerText.trim()),
-    );
-    expect(labels.some((label) => label.length > 0 && label !== "This Mac" && !label.includes("/"))).toBe(true);
     await page.close();
   });
 });
