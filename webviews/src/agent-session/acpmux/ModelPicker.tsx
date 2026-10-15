@@ -245,8 +245,12 @@ export function ModelPicker(props: ModelPickerProps) {
     onCombo,
     fastMode,
     catalogRefresh,
+    signedOut,
+    onLogIn,
     usage,
   } = props;
+  /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
+  const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
@@ -306,25 +310,29 @@ export function ModelPicker(props: ModelPickerProps) {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
       for (const entry of harnesses)
-        if (entry.pickable && !blockedProfile(entry))
+        if (entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined)
           for (const model of choicesFor(entry)) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
-        for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
-    } else if (selected) {
+        if (loginFor(entry) === undefined)
+          for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
+    } else if (selected && loginFor(selected) === undefined) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = shownSections(selected, runsHere);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   // Add harness… is the list's last row, after the models: arrows reach it like a model row.
   const addRow = onAddAgent ? visible.length : -1;
   const rowCount = visible.length + (onAddAgent ? 1 : 0);
   const addRowId = `${menuId}-add-harness`;
   const onAddRow = active === addRow && (visible.length > 0 || addChosen);
-  const olderCount = searching || starredView ? 0 : shownSections(selected, runsHere).older.length;
+  const olderCount =
+    searching || starredView || (selected && loginFor(selected) !== undefined)
+      ? 0
+      : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -467,7 +475,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || !owner?.pickable) return;
+    if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
     const fast = searching ? parsed.fast : undefined;
@@ -646,7 +654,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const railTitle = (entry: HarnessChoice) => {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
     const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
-    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry)].filter(Boolean).join(" · ");
+    const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
+    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
   return (
     <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
@@ -737,7 +746,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   type="button"
                   key={entry.folder ? `folder:${entry.id}` : entry.name}
                   aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                  aria-disabled={blockedProfile(entry) || undefined}
+                  aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
+                  data-signed-out={loginFor(entry) !== undefined || undefined}
                   disabled={!entry.pickable}
                   data-harness-index={index}
                   className={`acpmux-mp-harness ${railTab}`}
@@ -824,7 +834,23 @@ export function ModelPicker(props: ModelPickerProps) {
                 className="acpmux-mp-models p-1.5"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
-                {selectedOther && blockedProfile(selected) ? (
+                {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
+                  <>
+                    <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
+                    {loginFor(selected) && onLogIn && (
+                      <button
+                        type="button"
+                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                        onClick={() => {
+                          onLogIn(selected.acpmuxHarness ?? selected.id, loginFor(selected)!);
+                          close();
+                        }}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
+                      </button>
+                    )}
+                  </>
+                ) : selectedOther && blockedProfile(selected) ? (
                   <div className={emptyNote}>
                     {selected.folder?.state === "needs-trust"
                       ? t("picker.trustFirst")

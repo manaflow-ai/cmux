@@ -130,10 +130,26 @@
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
 .acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
 
+/* The controls row's rhythm (Leo 2026-10-14: "one consistent gap, group related controls, and
+   right-align the trailing cluster"). Its groups: [+] [model · effort] [permission mode · Plan]
+   ……… [Interrupt · mic · Send]. Every control draws its text or icon --acpmux-row-inset in from its
+   own edge (where its hover wash ends), so what a person sees between two controls is
+   inset + gap + inset: --acpmux-row-gap inside a group, --acpmux-row-group-gap between groups, one
+   gap scale and no per-control spacing. Send's disc is drawn to its edge, so it keeps its inset
+   outside it. The + glyph and Send's disc sit --acpmux-row-edge from the card's sides (the
+   leading padding gives + its inset back).
+   test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
+  --acpmux-row-inset: 6px;
+  --acpmux-row-gap: 4px;
+  --acpmux-row-group-gap: 12px;
+  --acpmux-row-icon-gap: 4px;
+  --acpmux-row-edge: 12px;
   min-height: 52px;
   height: auto;
-  padding: 6px 12px;
+  gap: var(--acpmux-row-group-gap);
+  padding-block: 6px;
+  padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
 }
 .acpmux-mode .acpmux-mode-text { display: none; }
 .acpmux-mode .acpmux-picker-button {
@@ -259,12 +275,38 @@
   .acpmux-location-readonly { padding-inline: 4px; }
 }
 
-/* The top row is a compact control rail. Keep the selected value visible so the
-   model, effort, and access choices can be scanned without opening a menu. Every control is the
-   bar's regular 28 px and 8 px from the next, the bar's own gap, so + · model · effort · access
-   read as one evenly spaced group (hq#1957 item 15 compact row). */
+/* The top row is a compact control rail. Keep the selected value visible so the model, effort,
+   and access choices can be scanned without opening a menu. Every control is the bar's regular
+   28 px; the chips are one group apart from + and from each other's groups (the rhythm above):
+   the permission mode, and Plan beside it, open the chips' second group. */
 .acpmux-composer-bar .acpmux-chips {
-  gap: 8px;
+  gap: var(--acpmux-row-gap);
+}
+/* Padding on the chip's wrapper, not a margin: the hover wash stays the button's, and the row's
+   fit (composerRowFit.ts) counts the wrapper's whole box. */
+.acpmux-composer-bar .acpmux-chips > .acpmux-mode:not(:first-child) {
+  padding-inline-start: calc(var(--acpmux-row-group-gap) - var(--acpmux-row-gap));
+}
+/* The trailing cluster takes the row's free space on its leading side, in either direction. */
+.acpmux-composer-bar .acpmux-composer-actions {
+  gap: var(--acpmux-row-gap);
+  margin-left: 0;
+  margin-inline-start: auto;
+}
+/* Send's inset sits inside the actions cluster's box, which the row's fit measures whole. */
+.acpmux-composer-bar .acpmux-send { margin-inline-start: var(--acpmux-row-inset); }
+/* + and the mic draw a 16 px glyph, as Send does, so a 28 px button keeps the row's inset. */
+.acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button .acpmux-icon,
+.acpmux-composer-bar .acpmux-mic .acpmux-icon {
+  width: 16px;
+  height: 16px;
+}
+/* Interrupt (or Steer) and Plan: the chips' inset and radius. */
+.acpmux-composer-bar .acpmux-steer,
+.acpmux-composer-bar .acpmux-plan {
+  gap: var(--acpmux-row-icon-gap);
+  padding-inline: var(--acpmux-row-inset);
+  border-radius: 7px;
 }
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
@@ -282,9 +324,14 @@
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
   height: 28px;
-  padding-inline: 6px 4px;
   border-radius: 7px;
   color: var(--agent-muted);
+}
+/* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
+   distance from the text. */
+.acpmux-composer-bar .acpmux-chips .acpmux-picker-button {
+  gap: var(--acpmux-row-icon-gap);
+  padding-inline: var(--acpmux-row-inset);
 }
 /* Hover is the shared quiet wash (ui/ui.css --ui-hover, which the agent pane does not load): the
    control's own ink at 6% over the card, tight to the control, a step further on press; no
@@ -358,7 +405,7 @@
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
 @media (max-width: 220px) {
-  .acpmux-composer-bar { gap: 6px; padding-inline: 8px; }
+  .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; }
   .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
 }
 /* The composer is one material surface; the location strip on its top edge shares its fill and

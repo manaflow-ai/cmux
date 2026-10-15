@@ -204,7 +204,7 @@ export function ComposerContext({
 function BranchPicker({ branch }: { branch: string }) {
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   return (
-    <span ref={control} className="acpmux-location-picker" title={branch}>
+    <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
@@ -490,7 +490,7 @@ function LocationPicker({
   const suggestions = shown.map((option) => option.id);
   if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
   return (
-    <span ref={control} className="acpmux-location-picker" title={selected}>
+    <span ref={control} className="acpmux-location-picker">
       <button
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
@@ -527,6 +527,7 @@ function LocationPicker({
             const folder = options.find((option) => option.id === path);
             const suffix = suffixes?.get(path);
             return (
+              // tooltip-allow: the row shows the folder's name; the tooltip is its full path
               <span className="acpmux-menu-text acpmux-location-name" title={path}>
                 <span className="acpmux-menu-label">{folder?.label ?? path}</span>
                 {suffix && (

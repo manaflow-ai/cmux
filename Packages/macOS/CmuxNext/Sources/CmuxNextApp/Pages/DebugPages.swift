@@ -15,7 +15,8 @@ import Foundation
 //   html/body backgrounds (the one-backdrop check), `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
-//   acknowledged / refused / timedOut / loaded, `ms`);
+//   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
+//   running: id, op, age_ms);
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
@@ -64,6 +65,7 @@ enum DebugPages {
             if case .object(var members) = state {
                 members.merge(identity(page)) { _, new in new }
                 members["subscriptions"] = .number(Double(page.router.subscriptionCount))
+                members["in_flight"] = .array(page.router.inFlightCalls())
                 // The first frame of this document (preflights wait on it with a deadline).
                 members["painted"] = .bool(page.hasPainted)
                 members["painted_uptime"] = page.paintedUptime.map { .number($0) } ?? .null
