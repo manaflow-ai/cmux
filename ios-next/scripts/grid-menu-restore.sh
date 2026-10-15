@@ -5,7 +5,7 @@
 #
 #   CMUX_NEXT_IOS_HOST=mini-cmux15 ios-next/scripts/grid-menu-restore.sh [--slot S] [--app tabs|kit] [PATH...]
 #
-# PATH is dismiss (a tap beside the menu), or a menu item: "Copy Link",
+# PATH is dismiss (a tap left of the menu), or a menu item: "Copy Link",
 # "Duplicate Tab", "Pin Tab", "Select Tabs", "Close Other Tabs"; all of
 # them by default. Each run launches the app (mock host, 5 tabs) or the kit
 # demo, opens the grid, long-presses the right card in row 1 (GitHub; the
@@ -34,7 +34,7 @@ for p in "${paths[@]}"; do
   fi
   axe tap -x 344 -y 816 >/dev/null; sleep 1.5     # Tabs: the grid settles
   axe touch -x 297 -y 250 --down --up --delay 1.5 >/dev/null; sleep 0.8   # long press: the menu is up
-  if [[ $p == dismiss ]]; then axe tap -x 380 -y 40 >/dev/null; else axe tap --label "\"$p\"" >/dev/null; fi
+  if [[ $p == dismiss ]]; then axe tap -x 40 -y 600 >/dev/null; else axe tap --label "\"$p\"" >/dev/null; fi
   sleep 1.5                                       # the menu and its action settle
   [[ $p == "Select Tabs" ]] && { axe tap --label Done >/dev/null; sleep 1; }   # out of Select mode
   ui=$(axe describe-ui || true)
