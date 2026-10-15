@@ -639,20 +639,10 @@ final class WorkspaceShareExporter {
                         imageDataUrl: nil
                     )
                 }
-                let kind: WorkspaceShareScene.Surface.Kind
-                var docID: String?
-                if let terminal = panel as? TerminalPanel {
-                    if isShareableTextBox(terminal) {
-                        kind = .textbox
-                        docID = terminal.id.uuidString
-                    } else {
-                        kind = .terminal
-                    }
-                } else if panel is BrowserPanel {
-                    kind = .browser
-                } else {
-                    kind = .unsupported
-                }
+                let kind = Self.sceneSurfaceKind(for: panel, isShareableTextBox: isShareableTextBox)
+                let docID = kind.rawValue == WorkspaceShareScene.Surface.Kind.textbox.rawValue
+                    ? surfaceID.uuidString
+                    : nil
                 return WorkspaceShareScene.Surface(
                     id: surfaceID.uuidString,
                     title: Self.boundedTitle(
@@ -697,12 +687,46 @@ final class WorkspaceShareExporter {
     ) async -> [UUID: String] {
         var images: [UUID: String] = [:]
         for panelID in topology.panes.compactMap(\.selectedSurfaceID) {
-            guard let browser = workspace.browserPanel(for: panelID),
-                  let image = try? await browser.captureAutomationVisibleViewportSnapshot(),
-                  let dataURL = Self.browserDataURL(image) else { continue }
+            guard let dataURL = await Self.captureBrowserImage(
+                panelID: panelID,
+                workspace: workspace,
+                capture: { browser in
+                    try await browser.captureAutomationVisibleViewportSnapshot()
+                }
+            ) else { continue }
             images[panelID] = dataURL
         }
         return images
+    }
+
+    static func sceneSurfaceKind(
+        for panel: any Panel,
+        isShareableTextBox: (TerminalPanel) -> Bool
+    ) -> WorkspaceShareScene.Surface.Kind {
+        if let terminal = panel as? TerminalPanel {
+            return isShareableTextBox(terminal) ? .textbox : .terminal
+        } else if panel is BrowserPanel || panel is DeferredBrowserPanel {
+            return .browser
+        } else {
+            return .unsupported
+        }
+    }
+
+    static func captureBrowserImage(
+        panelID: UUID,
+        workspace: Workspace,
+        capture: @escaping (BrowserPanel) async throws -> NSImage
+    ) async -> String? {
+        if workspace.panels[panelID] is DeferredBrowserPanel {
+            guard workspace.requestDeferredBrowserMaterialization(
+                panelId: panelID,
+                isVisibleInUI: true,
+                reason: "workspace.share.browser"
+            ) else { return nil }
+        }
+        guard let browser = workspace.browserPanel(for: panelID),
+              let image = try? await capture(browser) else { return nil }
+        return browserDataURL(image)
     }
 
     private func renderFrame(
@@ -718,23 +742,22 @@ final class WorkspaceShareExporter {
             full: true,
             includeTheme: startsNewStream || previousEmissionState == nil
         )?.frame,
-        let emission = try? fullFrame.renderGridEmission(
-            comparedTo: previousEmissionState
-        ) else { return nil }
+        let emission = try? fullFrame.renderGridEmission(comparedTo: previousEmissionState),
+        case let .emit(emittedFrame, emittedState) = emission else { return nil }
 
-        let kind: WorkspaceShareTerminalVTFrame.Kind = emission.frame.full ? .snapshot : .patch
+        let kind: WorkspaceShareTerminalVTFrame.Kind = emittedFrame.full ? .snapshot : .patch
         let bytes = kind == .snapshot
-            ? emission.frame.vtReplacementBytes()
-            : emission.frame.vtPatchBytes()
+            ? emittedFrame.vtReplacementBytes()
+            : emittedFrame.vtPatchBytes()
         guard let payload = try? terminalTransportTracker.makeFrame(
             surfaceId: surfaceID,
             kind: kind,
-            columns: emission.frame.columns,
-            rows: emission.frame.rows,
+            columns: emittedFrame.columns,
+            rows: emittedFrame.rows,
             data: bytes
         ) else { return nil }
 
-        terminalEmissionStateBySurfaceID[panel.id] = emission.state
+        terminalEmissionStateBySurfaceID[panel.id] = emittedState
         return payload
     }
 

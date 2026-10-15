@@ -3,7 +3,7 @@ import CmuxFoundation
 import Foundation
 
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
-/// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
+/// cloud machine, a pool ("Terminals", "Browsers", "Displays"), a group header, a workspace
 /// (cmux-tui on a machine, or the local workspace that projects a terminal), a
 /// terminal, a VNC display, a browser, a forwarded port, or a placeholder line.
 ///
@@ -304,7 +304,7 @@ struct CloudTreeLocalWorkspace: Equatable {
 
 /// Pure assembly of outline nodes from the fleet rows and the catalog snapshot.
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
-/// cloud machine, with Workspaces first, then Ports, Displays, and the
+/// cloud machine, with Workspaces first, then Ports, Browsers, Displays, and the
 /// complete Terminals process index. Workspace children preserve exact daemon
 /// tab placement identities. A machine without a connected link keeps cached
 /// pool rows beside its status placeholder.
@@ -782,6 +782,7 @@ enum CloudTreeNodeBuilder {
         var children: [CloudTreeNode] = []
         let resources = snapshot.resources(on: machine)
         let terminals = resources.filter { $0.kind == .terminal }
+        let browsers = resources.filter { $0.kind == .browser && !$0.id.isForwardedPort }
         let displays = CloudMachineSurfacePresentation.displays(resources: resources, info: info)
 
         switch info.linkState {
@@ -836,6 +837,17 @@ enum CloudTreeNodeBuilder {
             ))
         }
 
+        // Browsers are a machine-level resource index, like Terminals. Workspace
+        // rows still retain the exact tab placement; this pool keeps a cloud
+        // browser visible even when it is detached from a workspace.
+        if !browsers.isEmpty {
+            children.append(browsersGroupNode(
+                machine: machine,
+                browsers: browsers,
+                projectionIndex: projectionIndex
+            ))
+        }
+
         // Connected machines expose Displays as a machine-level category, just
         // like Ports and Terminals. The catalog owns real VNC resources; a
         // connected empty state is explicit, while a down link stays truthful.
@@ -869,6 +881,28 @@ enum CloudTreeNodeBuilder {
             ))
         }
         return children
+    }
+
+    private static func browsersGroupNode(
+        machine: SurfaceMachineID,
+        browsers: [SurfaceResource],
+        projectionIndex: LocalProjectionIndex
+    ) -> CloudTreeNode {
+        CloudTreeNode(
+            id: nodeID(browsersGroup: machine),
+            kind: .browsersGroup(machine: machine),
+            children: browsers.map { browser in
+                CloudTreeNode(
+                    id: nodeID(resource: browser.id),
+                    kind: .browser(CloudTreeBrowserRow(
+                        resource: browser,
+                        isOpen: projectionIndex.isOpen(browser.id, remoteView: nil),
+                        workspaceTitle: browser.remoteWorkspace?.name,
+                        remoteView: nil
+                    ))
+                )
+            }
+        )
     }
 
     /// Builds every nonempty Cloud workspace from its actual layout members.

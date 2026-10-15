@@ -15,11 +15,13 @@ private struct CloudTreeCLIResult {
 /// The Cloud sidebar's model is one big machine hosting MANY cmux-tui
 /// workspaces (the shape cmux Cloud had on Blaxel, now on Freestyle) — never
 /// "one VM = one workspace". These pin what the outline builds for such a
-/// machine — its four groups, in this order: **Workspaces** (the machine's
+/// machine — its five groups, in this order: **Workspaces** (the machine's
 /// face, always its own row with its own "+", one row per workspace with the
-/// terminals in its layout), **Ports**, **Displays** (one row per screen),
-/// and last, its own section, **Terminals** (every terminal the machine owns,
-/// one row per identity, always present so its "+" is New Terminal).
+/// terminals and browsers in its layout), **Ports**, **Browsers**, **Displays**
+/// (one row per screen), and last, its own section, **Terminals** (every
+/// terminal the machine owns, one row per identity, always present so its "+"
+/// is New Terminal). Browsers also have a machine-level index so detached
+/// cloud browser resources remain reachable.
 ///
 /// Regression (https://github.com/manaflow-ai/cmux/issues/11762): a machine
 /// with a single workspace used to fold the group into the workspace row
@@ -217,7 +219,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(!row.isMachineRow, "a workspace is a row under its machine, never a machine of its own")
     }
 
-    @Test("Under a connected machine: Workspaces, Ports, Displays, then Terminals (every terminal) as the last section")
+    @Test("Under a connected machine: Workspaces, Ports, Browsers, Displays, then Terminals")
     func workspacesPortsDisplaysThenTerminals() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
         let side = workspace("ws_side", "side", index: 1)
@@ -250,6 +252,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/ws/ws_side/resource:brave-otter/display/display:1/tab:tab_desk_0",
             "machine:brave-otter/ports",
             "resource:brave-otter/browser/port:3000",
+            "machine:brave-otter/browsers",
+            "resource:brave-otter/browser/docs",
             "machine:brave-otter/displays",
             "resource:brave-otter/display/display:1",
             "machine:brave-otter/terminals",
@@ -257,8 +261,15 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "resource:brave-otter/terminal/term_2",
             "resource:brave-otter/terminal/term_3",
             "resource:brave-otter/terminal/term_shared",
-        ], "the machine's four groups in order, Terminals last; a daemon browser in no workspace gets no group of its own")
+        ], "the machine's five groups in order, with detached browsers in the Browsers index and Terminals last")
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard case .browsersGroup = try #require(byID["machine:brave-otter/browsers"]).kind,
+              case .browser(let browserRow) = try #require(byID["resource:brave-otter/browser/docs"]).kind else {
+            Issue.record("expected the cloud Browsers group and detached browser row")
+            return
+        }
+        #expect(browserRow.resource.title == "Docs")
+        #expect(!browserRow.isOpen)
         // Terminals lists every terminal the machine owns, one row per identity — the
         // workspace rows are pointers into it — badged with its daemon-tab count.
         guard case .terminalsPool(_, let poolCount) = try #require(byID["machine:brave-otter/terminals"]).kind else {
@@ -549,8 +560,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let lines = result.stdout.split(whereSeparator: \.isNewline).map(String.init)
         let rows = lines.filter { $0.hasPrefix("      ") }
         #expect(rows.count == 2, Comment(rawValue: result.stdout))
-        #expect(rows[0].contains("term_b"), Comment(rawValue: rows[0]))
-        #expect(rows[1].contains("term_a"), Comment(rawValue: rows[1]))
+        #expect(rows[0].contains("term_a"), Comment(rawValue: rows[0]))
+        #expect(rows[1].contains("term_b"), Comment(rawValue: rows[1]))
         #expect(!result.stdout.contains("hidden"))
     }
 
