@@ -259,15 +259,7 @@ public final class CEFBrowser {
         if let restore = pendingRestore {
             pendingRestore = nil
             let restored = restore.withCString { shim.tabRestoreNavigation(id, $0) }
-            if restored != 1 {
-                if let url = configuration.initialURL { shim.loadURL(id, url.absoluteString) }
-            } else {
-                // Restoring sets the entries but loads nothing (Chrome's
-                // session restore follows it with LoadIfNecessary): a
-                // restored tab stayed blank and never reached its server.
-                // Reloading loads the restored current entry.
-                shim.reload(id)
-            }
+            if restored != 1, let url = configuration.initialURL { shim.loadURL(id, url.absoluteString) }
         } else if let url = pendingURL {
             pendingURL = nil
             shim.loadURL(id, url.absoluteString)
