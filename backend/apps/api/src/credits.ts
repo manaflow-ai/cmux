@@ -35,8 +35,13 @@ export const creditsMinReserveUsd = (env: Pick<Env, "CHIEF_CREDITS_MIN_RESERVE_U
   return Number.isFinite(n) && n >= 0 ? n : 0.01
 }
 
-/** Credits gate the brain unless CHIEF_CREDITS_ENFORCE is "0"; the in-process test model never costs anything. */
-export const creditsRequired = (env: Pick<Env, "CHIEF_CREDITS_ENFORCE">, modelName: string): boolean => modelName !== "fake" && env.CHIEF_CREDITS_ENFORCE !== "0"
+/**
+ * Credits gate every model call except the in-process test model (it never costs anything).
+ * CHIEF_CREDITS_ENFORCE="0" turns the gate off on development and staging only: production always
+ * enforces, whatever the var says (hq-1f 2026-10-15, the precondition for Chief brains in production).
+ */
+export const creditsRequired = (env: Pick<Env, "CHIEF_CREDITS_ENFORCE" | "ENVIRONMENT">, modelName: string): boolean =>
+  modelName !== "fake" && (env.ENVIRONMENT === "production" || env.CHIEF_CREDITS_ENFORCE !== "0")
 
 /** pi-ai prices are USD per million tokens. */
 export interface ModelCost {

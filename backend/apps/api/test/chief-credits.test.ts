@@ -202,6 +202,25 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     expect(b.chiefs[0].spent_usd).toBeCloseTo(0.081 + lostHold, 6)
   })
 
+  it("production always enforces credits, even when CHIEF_CREDITS_ENFORCE says 0; other deployments may turn the gate off", async () => {
+    const { team } = await person("credits-prod-enforce")
+    const who = () => ({ team, chief: "agent_prod", conversation: "conv_prod" })
+    // Staging with the gate off: an empty team's call passes (nothing is held).
+    const off = new CreditsGate(runEnv({ CHIEF_CREDITS_ENFORCE: "0", ENVIRONMENT: "staging" }), "brain-p1", who)
+    expect(await off.before("task-1", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true, skipped: true })
+    expect(await off.canStart("claude-opus-5-5")).toBe(true)
+    // Production with the same var: the empty team is refused before any provider call, and told once.
+    const prod = new CreditsGate(runEnv({ CHIEF_CREDITS_ENFORCE: "0", ENVIRONMENT: "production" }), "brain-p2", who)
+    expect(await prod.before("task-1", MODEL, "claude-opus-5-5", MESSAGES)).toMatchObject({ ok: false, available_usd: 0 })
+    expect(await prod.canStart("claude-opus-5-5")).toBe(false)
+    expect(await prod.notice("conv_prod")).toMatch(/^This team is out of Cloud credits/)
+    // Once the team has credits, production holds and charges like everywhere else.
+    expect((await admin(runEnv(), { action: "grant", team, usd: 5, actor: "test", reason: "prod enforce test", key: "prod-enforce-1" })).json).toMatchObject({ added: true })
+    expect(await prod.before("task-1", MODEL, "claude-opus-5-5", MESSAGES)).toEqual({ ok: true })
+    await prod.after("task-1", answered(0.01))
+    expect((await admin(runEnv(), { action: "read", team })).json.balance_usd).toBeCloseTo(4.99, 6)
+  })
+
   it("the operator's dogfood grant gives each configured team its amount once per round", async () => {
     const a = await person("credits-dogfood-a")
     const b = await person("credits-dogfood-b")
