@@ -39,6 +39,29 @@ pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_
 };
 pub const NPM_BOOTSTRAP_VERSION: Option<&str> = option_env!("CMUX_TUI_NPM_BOOTSTRAP_VERSION");
 pub const BUILD_IDENTITY: &str = env!("CMUX_TUI_BUILD_IDENTITY");
+/// Unix seconds of this build's source commit (cx-3r9mt); 0 when unknown.
+pub const BUILD_TIME: u64 = parse_u64(env!("CMUX_TUI_BUILD_TIME"));
+
+const fn parse_u64(text: &str) -> u64 {
+    let bytes = text.as_bytes();
+    let mut value: u64 = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        let digit = bytes[index];
+        if !digit.is_ascii_digit() {
+            return 0;
+        }
+        value = match value.checked_mul(10) {
+            Some(scaled) => match scaled.checked_add((digit - b'0') as u64) {
+                Some(next) => next,
+                None => return 0,
+            },
+            None => return 0,
+        };
+        index += 1;
+    }
+    value
+}
 
 #[derive(Debug, Clone)]
 pub struct SshBootstrapConfig {

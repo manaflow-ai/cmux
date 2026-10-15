@@ -250,6 +250,7 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+pub use capabilities::build_capabilities;
 mod daemon_build;
 pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;

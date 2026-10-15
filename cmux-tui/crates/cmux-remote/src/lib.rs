@@ -29,6 +29,7 @@ pub use ssh_artifacts::{
 };
 mod ssh_artifacts;
 pub mod ssh_bootstrap;
+pub mod update_need;
 mod ssh_payload_proxy;
 #[cfg(unix)]
 mod unix_socket;
