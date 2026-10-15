@@ -3026,12 +3026,14 @@ function AcpmuxPane() {
     selectSession: (sessionId: string) => void;
     openDiff: OpenDiff;
     diff: { open: boolean; paths: string[] };
+    preview: boolean;
   }>(undefined);
   automationView.current = {
     snapshot,
     selectSession,
     openDiff,
     diff: { open: diffOpen, paths: (diffFiles ?? []).map((file) => file.path) },
+    preview,
   };
   // Show all chats opens the command palette's chats page (agentPane.searchChats, decision K1:
   // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
@@ -3458,6 +3460,7 @@ function AcpmuxPane() {
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
         pickFolder: (cwd) => automationPick.current?.(cwd),
+        preview: () => automationView.current?.preview === true,
       },
     });
     let cancelled = false;

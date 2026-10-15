@@ -188,6 +188,8 @@ enum DebugAgentPane {
             }
             guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
             members["pane"] = .string(pane)
+            // What the host holds for Labs, beside what the page applied (`preview`).
+            if action == "chat_state" { members["hostPreview"] = .bool(view.previewFeatures) }
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])

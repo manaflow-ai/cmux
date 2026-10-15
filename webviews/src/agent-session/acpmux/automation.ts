@@ -22,6 +22,8 @@ export type AutomationHost = {
   diff(): { open: boolean; paths: string[] };
   /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
   pickFolder?(cwd: string): void;
+  /// Whether the page shows Labs preview features (the host's applyPreview).
+  preview?(): boolean;
 };
 
 const TRANSCRIPT_ROWS = 30;
@@ -37,6 +39,7 @@ export function automationState(host: AutomationHost) {
     sessionId: snapshot.sessionId ?? null,
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
+    preview: host.preview?.() ?? false,
     rows: snapshot.rows.length,
     /// The session the tab recorded that the daemon lacks (the pane says "This chat isn't available").
     missingSession: snapshot.missingSession ?? null,
