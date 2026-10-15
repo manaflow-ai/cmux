@@ -7,6 +7,7 @@ pid that belongs to the app: the WebKit WebContent pid the pane reports
 `--type=renderer` / `--type=gpu-process` (Chromium helpers), found by parent pid.
 
 Legs (CMUX_CRASH_E2E_LEGS, comma-separated, default all that apply):
+  sandbox   (Chromium) every renderer and GPU helper of the app runs sandboxed (sandbox_check).
   webkit    SIGKILL the WebKit pane's WebContent process: the pane shows the Reload
             overlay, `debug.browser.crashes` records it, Reload brings the page back
             in a new process, cmux keeps running.
@@ -28,6 +29,7 @@ Usage: CMUX_SOCKET_PATH=<tagged socket> python3 tests_v2/test_browser_crash_inje
 
 from __future__ import annotations
 
+import ctypes
 import functools
 import http.server
 import os
@@ -44,7 +46,7 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
-LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,renderer,gpu,hang").split(","))
+LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,sandbox,renderer,gpu,hang").split(","))
 PAGE_TITLE = "crash-e2e"
 
 
@@ -188,6 +190,24 @@ def chromium_tab(h: Harness, url: str) -> str | None:
     return sid
 
 
+def _sandboxed(pid: int) -> bool:
+    """Whether macOS reports `pid` as running in a sandbox (sandbox_check with no filter)."""
+    libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    libsystem.sandbox_check.restype = ctypes.c_int
+    libsystem.sandbox_check.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+    return libsystem.sandbox_check(pid, None, 0) == 1
+
+
+def leg_sandbox(h: Harness) -> None:
+    """Chromium's renderer and GPU helpers run sandboxed; the app process does not."""
+    for kind in ("renderer", "gpu-process"):
+        pids = _children(h.app_pid, kind)
+        _must(bool(pids), f"sandbox: no Chromium {kind} process")
+        unsandboxed = [pid for pid in pids if not _sandboxed(pid)]
+        _must(not unsandboxed, f"sandbox: {kind} processes run without a sandbox: {unsandboxed}")
+    print("PASS sandbox: Chromium renderer and GPU helpers are sandboxed")
+
+
 def leg_renderer(h: Harness, sid: str) -> None:
     renderers = _children(h.app_pid, "renderer")
     _must(bool(renderers), "renderer: no Chromium renderer process")
@@ -238,9 +258,11 @@ def main() -> int:
         h = Harness(client, app_pid)
         if "webkit" in LEGS:
             leg_webkit(h, url)
-        if LEGS & {"renderer", "gpu", "hang"}:
+        if LEGS & {"sandbox", "renderer", "gpu", "hang"}:
             sid = chromium_tab(h, url)
             if sid:
+                if "sandbox" in LEGS:
+                    leg_sandbox(h)
                 if "renderer" in LEGS:
                     leg_renderer(h, sid)
                 if "gpu" in LEGS:
