@@ -103,6 +103,7 @@ export function EffortPicker({
           </span>
         )}
         {choice.description && (
+          // tooltip-allow: the note is cut with an ellipsis when the menu is narrow; the tooltip is its whole text
           <span className="acpmux-effort-detail" title={choice.description}>
             {choice.description}
           </span>
