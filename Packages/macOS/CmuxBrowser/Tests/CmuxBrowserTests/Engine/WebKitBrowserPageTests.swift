@@ -89,5 +89,13 @@ struct WebKitBrowserPageTests {
         #expect((value as? NSNumber)?.intValue == 3)
         let isolated = try await page.evaluateJavaScript("'iso'", in: .isolated("cmux-test"))
         #expect(isolated as? String == "iso")
+        let undefinedValue = try await page.evaluateJavaScript("undefined", in: .page)
+        #expect(undefinedValue == nil)
+    }
+
+    @Test func callsAsyncJavaScriptWithArguments() async throws {
+        let page = WebKitBrowserPage(webView: makeWebView())
+        let value = try await page.callAsyncJavaScript("return a + b;", arguments: ["a": 2, "b": 3], in: .page)
+        #expect((value as? NSNumber)?.intValue == 5)
     }
 }
