@@ -58,24 +58,23 @@ import Testing
     /// #20866 review: a person who used the page and then let a widget or the page's script set a
     /// field (a date picker, a Select2 menu, a draft re-rendered through `.value`) still has edits
     /// there, though no trusted input event touched the field.
-    @Test func aPageThePersonClickedWhoseScriptThenSetAFieldKeepsItsPage() async throws {
+    @Test func aPageThePersonUsedWhoseScriptThenSetAFieldKeepsItsPage() async throws {
         let rig = try Rig()
         defer { rig.close() }
-        let page = try await rig.page("clicked", body: """
+        let page = try await rig.page("used", body: """
             <select id="s"><option value="a" selected>A</option><option value="b">B</option></select>
             <div style="height: 2000px"></div>
-            <script>addEventListener('pointerdown', (e) => { window.clicked = e.isTrusted; }, true);</script>
+            <script>addEventListener('keydown', (e) => { window.pressed = e.isTrusted; }, true);</script>
             """)
         rig.window.contentView = page.contentView
-        rig.window.layoutIfNeeded()
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 400, y: 300), modifierFlags: [],
-                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rig.window.windowNumber,
-                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-            rig.window.sendEvent(event)
-        }
-        try await rig.until("the click reached the page") {
-            (try? await page.evaluate("window.clicked === true", world: .page)) == .bool(true)
+        rig.window.makeFirstResponder(page.webView)
+        // A Down arrow on the page: the person used it, and no field changed.
+        let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: rig.window.windowNumber, context: nil,
+                                                 characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
+        page.webView.keyDown(with: down)
+        try await rig.until("the key reached the page") {
+            (try? await page.evaluate("window.pressed === true", world: .page)) == .bool(true)
         }
         _ = try await page.evaluate("document.getElementById('s').value = 'b'; true", world: .page)
         rig.window.contentView = nil
