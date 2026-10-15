@@ -250,7 +250,11 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
             </div>
           ) : undefined;
         return (
-          <fieldset className="acpmux-ask acpmux-permission-surface" aria-label={t("permission.title")} key={group.groupId}>
+          <fieldset
+            className="acpmux-ask acpmux-permission-surface"
+            aria-label={t("permission.title")}
+            key={group.groupId}
+          >
             {group.items.map((item, index) => (
               <AskRow
                 key={item.permissionId}
