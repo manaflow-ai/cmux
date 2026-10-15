@@ -373,9 +373,10 @@ struct BrowserScreen: View {
 
             // Out of the hierarchy on the settled grid (it is invisible there,
             // and accessibility tools list hidden views too).
-            // Under the page's keyboard it is covered: out of the hierarchy
-            // too (accessibilityHidden alone left it in the tree).
-            if zoomState.phase != .overview && !chrome.pageKeyboard {
+            // Under the page's or a terminal's keyboard it is covered: out of
+            // the hierarchy too (accessibilityHidden alone left it in the tree).
+            if zoomState.phase != .overview && !chrome.pageKeyboard
+                && !(tabs.activeTerminal != nil && keyboard > 0 && !chrome.editing) {
             // A (+) start page in flight: a new tab's toolbar, not the old tab's.
             BrowserToolbar(chrome: chrome, tab: creatingTab ? nil : model.activeTab, local: creatingTab ? nil : activeLocalTitle,
                            showsStartPage: showsStartPage, size: size, safeBottom: pageBottom,
