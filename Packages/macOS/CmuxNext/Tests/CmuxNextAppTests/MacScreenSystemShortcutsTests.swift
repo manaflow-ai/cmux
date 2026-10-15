@@ -26,7 +26,7 @@ struct MacScreenSystemShortcutTapTests {
         #expect(!policy.installs(RemoteSystemShortcuts.Conditions()))
     }
 
-    private enum Key {
+    nonisolated enum Key {
         static let space: UInt16 = 0x31
         static let tab: UInt16 = 0x30
         static let grave: UInt16 = 0x32
@@ -48,26 +48,41 @@ struct MacScreenSystemShortcutTapTests {
         static let returnKey: UInt16 = 0x24
     }
 
-    @Test(arguments: [
-        (Key.space, NSEvent.ModifierFlags.command), (Key.space, [.command, .option]), (Key.space, .control),
-        (Key.tab, .command), (Key.tab, [.command, .shift]), (Key.grave, .command),
-        (Key.up, .control), (Key.down, .control), (Key.left, .control), (Key.right, .control),
-        (Key.three, [.command, .shift]), (Key.four, [.command, .shift]), (Key.five, [.command, .shift]),
-        (Key.q, [.control, .command]), (Key.q, .command), (Key.w, .command), (Key.h, .command), (Key.m, .command),
-    ])
-    func takesSystemChords(key: UInt16, modifiers: NSEvent.ModifierFlags) {
-        #expect(policy.takes(keyCode: key, modifiers: modifiers))
+    nonisolated struct Chord: Sendable, CustomTestStringConvertible {
+        let key: UInt16
+        let modifiers: NSEvent.ModifierFlags
+        init(_ key: UInt16, _ modifiers: NSEvent.ModifierFlags) {
+            self.key = key
+            self.modifiers = modifiers
+        }
+        var testDescription: String { "key \(key) modifiers \(modifiers.rawValue)" }
     }
 
-    @Test(arguments: [
+    nonisolated static let systemChords: [Chord] = [
+        Chord(Key.space, .command), Chord(Key.space, [.command, .option]), Chord(Key.space, .control),
+        Chord(Key.tab, .command), Chord(Key.tab, [.command, .shift]), Chord(Key.grave, .command),
+        Chord(Key.up, .control), Chord(Key.down, .control), Chord(Key.left, .control), Chord(Key.right, .control),
+        Chord(Key.three, [.command, .shift]), Chord(Key.four, [.command, .shift]), Chord(Key.five, [.command, .shift]),
+        Chord(Key.q, [.control, .command]), Chord(Key.q, .command), Chord(Key.w, .command), Chord(Key.h, .command),
+        Chord(Key.m, .command),
+    ]
+
+    nonisolated static let otherKeys: [Chord] = [
         // Ordinary typing and editing go through the capture view.
-        (Key.a, NSEvent.ModifierFlags()), (Key.a, .shift), (Key.space, []), (Key.tab, []), (Key.returnKey, []),
-        (Key.up, []), (Key.c, .command),
+        Chord(Key.a, []), Chord(Key.a, .shift), Chord(Key.space, []), Chord(Key.tab, []), Chord(Key.returnKey, []),
+        Chord(Key.up, []), Chord(Key.c, .command),
         // cmux's own chords outside the system list keep the existing rule.
-        (Key.t, .command), (Key.t, [.command, .shift]),
-    ])
-    func passesEverythingElse(key: UInt16, modifiers: NSEvent.ModifierFlags) {
-        #expect(!policy.takes(keyCode: key, modifiers: modifiers))
+        Chord(Key.t, .command), Chord(Key.t, [.command, .shift]),
+    ]
+
+    @Test(arguments: MacScreenSystemShortcutTapTests.systemChords)
+    func takesSystemChords(chord: Chord) {
+        #expect(policy.takes(keyCode: chord.key, modifiers: chord.modifiers))
+    }
+
+    @Test(arguments: MacScreenSystemShortcutTapTests.otherKeys)
+    func passesEverythingElse(chord: Chord) {
+        #expect(!policy.takes(keyCode: chord.key, modifiers: chord.modifiers))
     }
 
     @Test func neverTakesTheReleaseChord() {
