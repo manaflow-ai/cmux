@@ -106,8 +106,8 @@ struct TabZoomState: Equatable, Sendable {
     private var curveTime: Double = 0
     private var curveFirstFrame = false
     /// Frames after the first that step at most one 60 Hz frame: the frames
-    /// that build the grid are long, and stepping their full length put the
-    /// zoom a frame ahead of Safari from t50 on.
+    /// after the one that builds the grid are long too, and stepping their
+    /// full length put the swipe up 17 ms ahead of Safari at t50.
     private var curveWarmup = 0
     private(set) var phase: Phase = .page
 
