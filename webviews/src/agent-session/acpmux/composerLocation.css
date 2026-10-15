@@ -430,15 +430,13 @@
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
 .acpmux-composer-strip .acpmux-location-button,
 .acpmux-composer-strip .acpmux-location-readonly { height: 22px; }
-/* Queued prompts (ComposerQueue.tsx, inside the card) stack above the strip at its insets, so the
-   queue, the strip and the card read as one tab over the card; the strip's top corners square off
-   under the queue and its top hairline gives way to the queue's sides. */
-.acpmux-composer-box > .acpmux-composer-queue {
-  left: var(--acpmux-strip-inset, 18px);
-  right: var(--acpmux-strip-inset, 18px);
-  bottom: calc(100% + 30px);
+/* Queued prompts (ComposerQueue.tsx) stack right above the strip at its insets, so the queue, the
+   strip and the card read as one tab over the card; the strip's top corners square off under the
+   queue and its top hairline gives way to the queue's sides. */
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
+  margin: 0 var(--acpmux-strip-inset, 18px);
 }
-.acpmux-composer:has(> .acpmux-composer-box > .acpmux-composer-queue) > .acpmux-composer-strip {
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;
   box-shadow:
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),

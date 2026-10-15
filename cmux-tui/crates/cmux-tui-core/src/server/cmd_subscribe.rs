@@ -144,6 +144,31 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // An avatar change only to a connection that asked for it in
+                // set-client-info (`participant-avatars-v1`).
+                MuxEvent::Conversation(event)
+                    if event.is_avatar()
+                        && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,
+                        ) =>
+                {
+                    continue;
+                }
+                // A Chief change only to the person's own connection that
+                // asked for it in set-client-info (`chief-events-v1`): never
+                // to a bound agent, which chief.profile.list may refuse.
+                MuxEvent::Conversation(event)
+                    if event.is_chief()
+                        && (event_mux.conversation_principal(client)
+                            != crate::conversation_store::LOCAL_USER
+                            || !event_mux.control_clients.supports_capability(
+                                client,
+                                super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
+                            )) =>
+                {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {

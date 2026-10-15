@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e.
+// cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -92,6 +92,24 @@ pub struct BrowserStateEvent {
     pub surface: T::Id,
     pub title: String,
     pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefChangedEventChange {
+    #[serde(rename = "created")]
+    Created,
+    #[serde(rename = "updated")]
+    Updated,
+    #[serde(rename = "deleted")]
+    Deleted,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefChangedEvent {
+    pub change: ChiefChangedEventChange,
+    pub chief: String,
 }
 
 #[rustfmt::skip]
@@ -481,6 +499,13 @@ pub struct PaneClosedEvent {
     pub pane: T::Id,
     pub screen: T::Id,
     pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParticipantAvatarChangedEvent {
+    pub avatar: Nullable<T::JsonValue>,
+    pub participant: String,
 }
 
 #[rustfmt::skip]
@@ -890,6 +915,7 @@ pub enum Event {
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
+    ChiefChanged(ChiefChangedEvent),
     ClientAttached(ClientAttachedEvent),
     ClientChanged(ClientChangedEvent),
     ClientDetached(ClientDetachedEvent),
@@ -927,6 +953,7 @@ pub enum Event {
     PairingResolved(PairingResolvedEvent),
     PaneAdded(PaneAddedEvent),
     PaneClosed(PaneClosedEvent),
+    ParticipantAvatarChanged(ParticipantAvatarChangedEvent),
     PersonalChanged(PersonalChangedEvent),
     ProgramStatusChanged(ProgramStatusChangedEvent),
     RenderDelta(RenderDeltaEvent),
@@ -976,6 +1003,7 @@ impl Event {
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
+            Self::ChiefChanged(_) => Some("chief-changed"),
             Self::ClientAttached(_) => Some("client-attached"),
             Self::ClientChanged(_) => Some("client-changed"),
             Self::ClientDetached(_) => Some("client-detached"),
@@ -1013,6 +1041,7 @@ impl Event {
             Self::PairingResolved(_) => Some("pairing-resolved"),
             Self::PaneAdded(_) => Some("pane-added"),
             Self::PaneClosed(_) => Some("pane-closed"),
+            Self::ParticipantAvatarChanged(_) => Some("participant-avatar-changed"),
             Self::PersonalChanged(_) => Some("personal-changed"),
             Self::ProgramStatusChanged(_) => Some("program-status-changed"),
             Self::RenderDelta(_) => Some("render-delta"),
@@ -1061,6 +1090,7 @@ impl Event {
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
+            Self::ChiefChanged(_) => Some(&CHIEF_CHANGED_EVENT_METADATA),
             Self::ClientAttached(_) => Some(&CLIENT_ATTACHED_EVENT_METADATA),
             Self::ClientChanged(_) => Some(&CLIENT_CHANGED_EVENT_METADATA),
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
@@ -1098,6 +1128,7 @@ impl Event {
             Self::PairingResolved(_) => Some(&PAIRING_RESOLVED_EVENT_METADATA),
             Self::PaneAdded(_) => Some(&PANE_ADDED_EVENT_METADATA),
             Self::PaneClosed(_) => Some(&PANE_CLOSED_EVENT_METADATA),
+            Self::ParticipantAvatarChanged(_) => Some(&PARTICIPANT_AVATAR_CHANGED_EVENT_METADATA),
             Self::PersonalChanged(_) => Some(&PERSONAL_CHANGED_EVENT_METADATA),
             Self::ProgramStatusChanged(_) => Some(&PROGRAM_STATUS_CHANGED_EVENT_METADATA),
             Self::RenderDelta(_) => Some(&RENDER_DELTA_EVENT_METADATA),
@@ -1185,6 +1216,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("browser-state") => match serde_json::from_value::<BrowserStateEvent>(raw.clone()) {
             Ok(event) => Event::BrowserState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("chief-changed") => match serde_json::from_value::<ChiefChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ChiefChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1481,6 +1520,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("pane-closed") => match serde_json::from_value::<PaneClosedEvent>(raw.clone()) {
             Ok(event) => Event::PaneClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("participant-avatar-changed") => match serde_json::from_value::<ParticipantAvatarChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ParticipantAvatarChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

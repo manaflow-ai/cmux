@@ -63,6 +63,20 @@ impl ConversationRejected {
     pub const CODE: &'static str = "conversation_rejected";
 }
 
+/// The conversation an idempotency key made, on the `idempotency_conflict`
+/// refusal of a create that reused the key with another request (a context
+/// of that [`ConversationRejected`]; its text is the same reason). Given only
+/// to a creator that takes part in it: a Chief brain whose grown DM was also
+/// retitled finds its DM again (hq-6d 2026-10-14), `error_details.conversation`.
+#[derive(Debug)]
+pub struct KeyedConversation(pub String);
+
+impl std::fmt::Display for KeyedConversation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(Reject::IdempotencyConflict.code())
+    }
+}
+
 impl std::fmt::Display for ConversationRejected {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.0.code())
@@ -333,7 +347,17 @@ impl ConversationStore {
             .optional()?;
         if let Some((stored, conversation)) = existing {
             if stored != fingerprint {
-                return Err(rejected(Reject::IdempotencyConflict));
+                let error = rejected(Reject::IdempotencyConflict);
+                // A failed lookup only leaves the detail out: the refusal stays.
+                let takes_part = load_head(&transaction, &conversation)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|head| head.participants.iter().any(|p| p.id == actor));
+                return Err(if takes_part {
+                    error.context(KeyedConversation(conversation))
+                } else {
+                    error
+                });
             }
             let head = load_head(&transaction, &conversation)?
                 .context("created conversation is missing")?;
@@ -788,6 +812,19 @@ pub enum ConversationEvent {
     /// only to a connection that echoed `conversation-runs-v1` in
     /// `set-client-info` (never the remote relay or `conversation.events`).
     Run { conversation: String, run: Value, steps: Vec<Value> },
+    /// A participant's avatar changed (`participant-avatars-v1`): the stored
+    /// reference, or none. Not conversation state (no conversation, no rev);
+    /// `subscribe` delivers it only to a connection that echoed the
+    /// capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Avatar { participant: String, avatar: Option<Value> },
+    /// A Chief was created, edited (a picture too) or deleted
+    /// (`chief-events-v1`, cx-ebm.60.4): its id and `created`, `updated` or
+    /// `deleted`; a client reads the record with `chief.profile.get`. Not
+    /// conversation state; `subscribe` delivers it only to a connection that
+    /// echoed the capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Chief { chief: String, change: &'static str },
 }
 
 impl ConversationEvent {
@@ -827,12 +864,32 @@ impl ConversationEvent {
                 "run": run,
                 "steps": steps,
             }),
+            Self::Avatar { participant, avatar } => json!({
+                "event": "participant-avatar-changed",
+                "participant": participant,
+                "avatar": avatar,
+            }),
+            Self::Chief { chief, change } => json!({
+                "event": "chief-changed",
+                "chief": chief,
+                "change": change,
+            }),
         }
     }
 
     /// Run events go on `subscribe` only to a connection that asked for them.
     pub(crate) const fn is_run(&self) -> bool {
         matches!(self, Self::Run { .. })
+    }
+
+    /// Avatar changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_avatar(&self) -> bool {
+        matches!(self, Self::Avatar { .. })
+    }
+
+    /// Chief changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_chief(&self) -> bool {
+        matches!(self, Self::Chief { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a

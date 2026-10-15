@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e";
+inline constexpr std::string_view kProtocolIrSha256 = "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -277,6 +277,7 @@ struct CloudInboxUnsubscribeRequest;
 struct CloudMuxAckRequest;
 struct CloudMuxSubscribeRequest;
 struct CloudMuxUnsubscribeRequest;
+struct CloudParticipantAvatarGetRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -536,6 +537,7 @@ struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
+struct ChiefChangedEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
@@ -573,6 +575,7 @@ struct PairingRequestedEvent;
 struct PairingResolvedEvent;
 struct PaneAddedEvent;
 struct PaneClosedEvent;
+struct ParticipantAvatarChangedEvent;
 struct PersonalChangedEvent;
 struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
@@ -638,6 +641,7 @@ enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
+enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 enum class KeybindingsChangedEventOrigin;
@@ -1139,6 +1143,18 @@ struct CellPixelSurface {
     Id surface{};
     std::uint16_t width_px{};
     friend bool operator==(const CellPixelSurface&, const CellPixelSurface&) = default;
+};
+
+enum class ChiefChangedEventChange {
+    created,
+    updated,
+    deleted,
+};
+
+struct ChiefChangedEvent {
+    ChiefChangedEventChange change{};
+    std::string chief{};
+    friend bool operator==(const ChiefChangedEvent&, const ChiefChangedEvent&) = default;
 };
 
 struct ChiefInspectRequest {
@@ -1709,6 +1725,12 @@ struct CloudMuxWakeEvent {
     std::uint64_t seq{};
     std::optional<JsonValue> wakes{};
     friend bool operator==(const CloudMuxWakeEvent&, const CloudMuxWakeEvent&) = default;
+};
+
+struct CloudParticipantAvatarGetRequest {
+    Field<std::string> conversation{};
+    std::string participant_id{};
+    friend bool operator==(const CloudParticipantAvatarGetRequest&, const CloudParticipantAvatarGetRequest&) = default;
 };
 
 struct CloudSessionClearRequest {
@@ -3891,6 +3913,12 @@ struct PaneSurfaceResult {
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
+};
+
+struct ParticipantAvatarChangedEvent {
+    std::optional<JsonValue> avatar{};
+    std::string participant{};
+    friend bool operator==(const ParticipantAvatarChangedEvent&, const ParticipantAvatarChangedEvent&) = default;
 };
 
 struct PasteImageRequest {
@@ -7190,6 +7218,12 @@ struct Codec<CloudMuxUnsubscribeRequest> {
 };
 
 template <>
+struct Codec<CloudParticipantAvatarGetRequest> {
+    static Result<Json> encode(const CloudParticipantAvatarGetRequest& value);
+    static Result<CloudParticipantAvatarGetRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudSessionClearRequest> {
     static Result<Json> encode(const CloudSessionClearRequest& value);
     static Result<CloudSessionClearRequest> decode(const Json& value);
@@ -8744,6 +8778,12 @@ struct Codec<BrowserStateEvent> {
 };
 
 template <>
+struct Codec<ChiefChangedEvent> {
+    static Result<Json> encode(const ChiefChangedEvent& value);
+    static Result<ChiefChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<ClientAttachedEvent> {
     static Result<Json> encode(const ClientAttachedEvent& value);
     static Result<ClientAttachedEvent> decode(const Json& value);
@@ -8963,6 +9003,12 @@ template <>
 struct Codec<PaneClosedEvent> {
     static Result<Json> encode(const PaneClosedEvent& value);
     static Result<PaneClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ParticipantAvatarChangedEvent> {
+    static Result<Json> encode(const ParticipantAvatarChangedEvent& value);
+    static Result<ParticipantAvatarChangedEvent> decode(const Json& value);
 };
 
 template <>
@@ -9353,6 +9399,12 @@ template <>
 struct Codec<BrowserStateEventStatus> {
     static Result<Json> encode(const BrowserStateEventStatus& value);
     static Result<BrowserStateEventStatus> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefChangedEventChange> {
+    static Result<Json> encode(const ChiefChangedEventChange& value);
+    static Result<ChiefChangedEventChange> decode(const Json& value);
 };
 
 template <>
