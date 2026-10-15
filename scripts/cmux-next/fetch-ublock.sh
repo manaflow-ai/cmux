@@ -87,7 +87,7 @@ try:
     manifest["key"] = key_b64
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     (root / ".cmux-extension-source.json").write_text(json.dumps({
-        "name": "uBlock Origin", "version": version, "id": ext_id, "license": "GPL-3.0-only",
+        "name": "uBlock Origin", "version": version, "id": ext_id, "license": "GPL-3.0-or-later",
         "zip_url": zip_url, "zip_sha256": zip_sha, "source_url": source_url, "source_sha256": source_sha,
         "manifest_key": "Chrome Web Store public key (stable id)"}, indent=2) + "\n")
     (root / "SOURCE.txt").write_text(

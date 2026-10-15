@@ -23,28 +23,32 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     func folders(resources: URL?, profiles: URL? = nil,
                  fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String] {
         guard adBlockerEnabled, let resources else { return [] }
-        if let profiles, Self.personInstalledAdBlocker(profiles: profiles) { return [] }
         let manifest = resources.appendingPathComponent(Self.adBlockerFolder).appendingPathComponent("manifest.json").path
         let folder = resources.appendingPathComponent(Self.adBlockerFolder).path
         // Chromium splits --load-extension on commas.
         guard fileExists(manifest), !folder.contains(",") else { return [] }
+        if let profiles, Self.personInstalledAdBlocker(profiles: profiles) { return [] }
         return [folder]
     }
 
-    /// True when a Chromium profile under `profiles` records the uBlock Origin
-    /// id at a path that is not a cmux app's built-in copy (installed from a
-    /// CRX or the store, imported, or loaded unpacked by the person). Reads
-    /// `extensions.settings.<id>.path` in Preferences and Secure Preferences.
+    /// True when a Chromium profile under `profiles` holds a uBlock Origin the
+    /// person installed: `extensions.settings.<id>` (Secure Preferences on
+    /// macOS, or Preferences) with a path, a location Chromium loads again at
+    /// start (not command line 8, not component 5 or 10), and a path that is
+    /// not a cmux app's built-in folder (an installed copy has a relative path
+    /// under Extensions/; a copy the person loaded unpacked, its own folder).
     static func personInstalledAdBlocker(profiles: URL, fileManager: FileManager = .default) -> Bool {
         guard let children = try? fileManager.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil) else { return false }
-        for profile in children {
+        let id = Data(adBlockerID.utf8)
+        for profile in children where profile.lastPathComponent.hasPrefix("Profile-") || profile.lastPathComponent == "Default" {
             for name in ["Secure Preferences", "Preferences"] {
-                guard let data = try? Data(contentsOf: profile.appendingPathComponent(name)),
+                guard let data = try? Data(contentsOf: profile.appendingPathComponent(name)), data.range(of: id) != nil,
                       let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let settings = (root["extensions"] as? [String: Any])?["settings"] as? [String: Any],
                       let entry = settings[adBlockerID] as? [String: Any] else { continue }
                 let path = entry["path"] as? String ?? ""
-                if !isBuiltInPath(path) { return true }
+                let location = (entry["location"] as? NSNumber)?.intValue ?? 0
+                if !path.isEmpty, ![5, 8, 10].contains(location), !isBuiltInPath(path) { return true }
             }
         }
         return false

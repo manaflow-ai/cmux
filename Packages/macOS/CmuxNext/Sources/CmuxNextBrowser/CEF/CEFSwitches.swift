@@ -44,13 +44,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if !loaded.isEmpty {
             result.append("load-extension=" + loaded.joined(separator: ","))
         }
-        if !builtInExtensions.isEmpty {
-            // Chromium records a --load-extension copy as unpacked and disables
-            // unpacked extensions while developer mode is off
-            // (DISABLE_UNSUPPORTED_DEVELOPER_EXTENSION). The built-in copy must
-            // stay on without developer mode; the shim merges this into CEF's list.
-            result.append("disable-features=ExtensionDisableUnsupportedDeveloper")
-        }
+        // Chromium records a --load-extension copy as unpacked and disables
+        // unpacked extensions while developer mode is off
+        // (DISABLE_UNSUPPORTED_DEVELOPER_EXTENSION). The built-in uBlock Origin
+        // must stay on without developer mode, and a copy the person loaded
+        // must not turn off with the built-in setting, so the policy is off in
+        // every start. The shim merges this into CEF's list.
+        result.append("disable-features=ExtensionDisableUnsupportedDeveloper")
         result.append(contentsOf: extraSwitches)
         return result
     }

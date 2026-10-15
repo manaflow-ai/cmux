@@ -875,7 +875,7 @@ playwright-core 1.57.0, `LICENSE` from the npm package (Apache License 2.0; show
 
 ## uBlock Origin (built-in content blocker)
 
-- **License:** GNU General Public License v3.0 (GPL-3.0-only)
+- **License:** GNU General Public License v3.0 or later (GPL-3.0-or-later)
 - **Copyright:** Copyright (C) Raymond Hill and the uBlock Origin contributors
 - **Source:** https://github.com/gorhill/uBlock (tag 1.75.0; corresponding source
   https://github.com/gorhill/uBlock/archive/refs/tags/1.75.0.tar.gz, sha256
@@ -885,7 +885,8 @@ The cmux-next app bundles the unmodified uBlock Origin 1.75.0 release build for
 Chromium (uBlock0_1.75.0.chromium.zip, sha256
 393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582) in
 `Contents/Resources/Extensions/ublock-origin`; the only change is the manifest's
-`key` field (the Chrome Web Store extension id). The folder carries the full
+`key` field (the Chrome Web Store extension id; the manifest is rewritten with
+two-space indentation). The folder carries the full
 GPL-3.0 text (`LICENSE.txt`) and `SOURCE.txt`. uBlock Origin is a separate
 program that cmux loads into Chromium; it is not linked into cmux.
 Its bundled libraries keep their own licenses (CodeMirror, csstree, hsluv and

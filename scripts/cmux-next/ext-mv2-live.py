@@ -522,13 +522,20 @@ def phase_ublock(args):
     job = Job(args.label or ("ublock" if args.ubo else "builtin"), extensions=[args.ubo] if args.ubo else [])
     ctx = {}
 
+    def person_load():
+        """The person's own copy: Load Unpacked (Extensions menu action) of `--load-unpacked`."""
+        result = job.call("action.run", {"action": "browser.extensions.loadUnpacked",
+                                         "args": {"path": args.load_unpacked}, "origin": "remote"})
+        job.row("person: Load Unpacked of a uBlock Origin copy", "error" not in result, result)
+        time.sleep(3)
+
     def loaded():
         ubo = None
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline and not ubo:
             ubo = next((e for e in job.extensions_report() if e.get("name") == UBO_NAME), None)
             time.sleep(0.5)
-        if not args.ubo and "false" in Job.config.replace(" ", ""):
+        if not args.ubo and not args.person and "false" in Job.config.replace(" ", ""):
             job.row("builtin-off: with browser.builtInAdBlocker false uBlock Origin does not run",
                     not (ubo and ubo.get("enabled")), ubo or "not listed")
             return "stop"
@@ -767,7 +774,7 @@ def phase_ublock(args):
         job.row("ublock: dashboard loads", bool(ready), {"pane": ready, "url": where, "shot": shot})
         job.window_shot("ublock-window")
 
-    return run_phase(job, [("ublock: loaded", loaded), ("ublock: background", background),
+    return run_phase(job, [*([("person: load", person_load)] if args.load_unpacked else []), ("ublock: loaded", loaded), ("ublock: background", background),
                            ("ublock: ready", ready), ("ublock: network", network),
                            ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
@@ -791,6 +798,8 @@ def main():
     parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
     parser.add_argument("--label", help="artifact folder name (default: the phase)")
+    parser.add_argument("--load-unpacked", help="builtin: first Load Unpacked this folder as the person's own copy")
+    parser.add_argument("--person", action="store_true", help="builtin: the profile holds the person's copy (expect it to run)")
     parser.add_argument("--menu-note", choices=["present", "absent"],
                         help="check the Extensions menu's built-in line (default: present for builtin)")
     parser.add_argument("--config", default="{}", help="cmux.json the app starts with, e.g. {\"browser\": {\"builtInAdBlocker\": false}}")
@@ -801,6 +810,7 @@ def main():
         parser.error("--ubo is required")
     if args.phase == "builtin":
         args.ubo = None
+    args.person = args.person or bool(args.load_unpacked)
     return {"store": phase_store, "baseline": phase_baseline, "ublock": phase_ublock, "builtin": phase_ublock}[args.phase](args)
 
 
