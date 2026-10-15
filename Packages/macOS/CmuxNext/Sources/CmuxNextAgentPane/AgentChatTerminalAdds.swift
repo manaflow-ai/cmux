@@ -7,6 +7,10 @@ import CmuxNextDesign
 public nonisolated struct AgentChatTerminalAdds: Sendable {
     /// The Terminal button's header action.
     public static let terminal = "splitRight"
+    /// What the header's log records for a terminal an add opened: its own button, so toggling and
+    /// the lit set never take it for the Terminal's, while it still lines up and claims a terminal
+    /// split. Turned off, the button toggles the next terminal it opens, right of these.
+    public static let added = "splitRight+"
     /// Whether the toggle is on.
     public let on: Bool
 
@@ -16,6 +20,9 @@ public nonisolated struct AgentChatTerminalAdds: Sendable {
 
     /// Whether a click of header action `id` adds a split instead of toggling the one it opened.
     public func adds(_ id: String) -> Bool { on && id == Self.terminal }
+
+    /// What the header's log records for an opening of header action `id`.
+    public func logged(_ id: String) -> String { adds(id) ? Self.added : id }
 
     /// The buttons that show lit, from those whose last split is open: on, never Terminal, whose
     /// click adds rather than closes.
@@ -32,16 +39,6 @@ public nonisolated struct AgentChatTerminalAdds: Sendable {
             let stale = ids.indices.first { ids[($0 + 1)...].contains(ids[$0]) } ?? 0
             log.remove(at: stale)
         }
-        return log
-    }
-
-    /// `log` after a toggle click on header action `id` forgets its last opening, at `index`. For
-    /// Terminal, the openings adds left before it go too, so with the toggle turned off the next
-    /// click opens a terminal again instead of closing an older one (toggling keeps one per button).
-    public static func forgetting<Entry>(_ index: Int, of id: String, in log: [Entry], id key: (Entry) -> String) -> [Entry] {
-        var log = log
-        log.remove(at: index)
-        if id == terminal { log.removeAll { key($0) == id } }
         return log
     }
 }

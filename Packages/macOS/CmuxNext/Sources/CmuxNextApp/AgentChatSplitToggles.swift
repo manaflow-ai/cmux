@@ -30,7 +30,7 @@ final class AgentChatSplitToggles {
     /// Whether `tab` is the panel header action `id` opens: a terminal, a browser, or a diff page.
     private static func owns(_ id: String, _ tab: TabModel) -> Bool {
         switch id {
-        case "splitRight", splitDown: tab.kind == .pty
+        case "splitRight", splitDown, AgentChatTerminalAdds.added: tab.kind == .pty
         case "splitBrowserRight", preview: tab.kind == .browser
         case changes: tab.page == "diff"
         case files: tab.page == InternalPageID.files.rawValue
@@ -55,7 +55,7 @@ final class AgentChatSplitToggles {
         if let index = opened.lastIndex(where: { $0.id == id }) {
             // A split the user closed is forgotten, so this button's older opening never claims a
             // tab the user makes later.
-            opened = AgentChatTerminalAdds.forgetting(index, of: id, in: opened) { $0.id }
+            opened.remove(at: index)
             if let split = splits[index] { return actions.close(tab: split.id) }
         }
         open(id, cwd: cwd, url: url, chat: chat, tabs: tabs, store: store, actions: actions)
@@ -82,7 +82,7 @@ final class AgentChatSplitToggles {
             .first { Self.beside(chat, $0, in: store) }
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
-        opened.append((id: id, baseline: Set(tabs.map(\.id))))
+        opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
         Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: anchor?.id, actions: actions)
     }
 
