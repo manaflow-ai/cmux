@@ -285,34 +285,41 @@ def compare_tap_zoomout(video):
 
 
 # A 100 pt drag over 1.0 s on GitHub's card (the snapBack input): the card's
-# offset from its slot from its first moving frame (0.5 pt out) and the
-# farthest it gets (the carry past the finger). Safari, mean of 3 runs
-# (re-audit 3 saf-drag-{1,2,3}-c.csv, timed from the same frame):
-# -31.6 / -39.7 / -62.4 pt at +100 / +200 / +500 ms, -103.9 pt at most.
-DRAG_SAFARI = {100: -31.6, 200: -39.7, 500: -62.4, 'min': -103.9}
+# offset from its slot, timed as the re-audits time it (re-audit 5 cx.py and
+# onset.py): from the last frame at rest, at most one 60 Hz frame before the
+# first moving one (0.5 pt out), and the farthest it gets (the carry past the
+# finger). Safari, mean of 3 runs timed the same way (re-audit 3
+# saf-drag-{1,2,3}.csv): -30.1 / -39.0 / -61.5 pt at +100 / +200 / +500 ms,
+# -103.8 pt at most. Timed from the first moving frame instead (round 22),
+# a run that jumped 16 pt in one frame passed while the re-audit's runs that
+# ran 9-12 pt behind were not seen.
+DRAG_SAFARI = {100: -30.1, 200: -39.0, 500: -61.5, 'min': -103.8}
 DRAG_TOLERANCE_PT = 2.0
+# The largest step between two recorded frames in the first 120 ms: Safari
+# 7.4-8.4 pt (it glides over the slop); round 22's runs jumped 15-18 pt.
+DRAG_MAX_STEP_PT = 10.0
 
 
 def compare_drag(video):
     rows = track(video, '1f853c')
     t = np.array([r[0] for r in rows if r[1]])
     off = np.array([r[1]['cx'] for r in rows if r[1]]) - 297.65
-    # From the first moving frame, as Safari's numbers are: the frame
-    # before it is not a time (a recording has no frames while the screen
-    # is still; it was 3-90 ms earlier and put runs 4-8 pt off).
-    k = int(np.argmax(off < -0.5))
-    tt = (t - t[k]) * 1000
+    k = max(1, int(np.argmax(off < -0.5)))
+    t0 = max(t[k - 1], t[k] - 1 / 60)
+    tt = (t - t0) * 1000
     ours = {ms: float(np.interp(ms, tt, off)) for ms in (100, 200, 500)}
     ours['min'] = float(off.min())
-    ok = all(abs(ours[key] - DRAG_SAFARI[key]) <= DRAG_TOLERANCE_PT for key in DRAG_SAFARI)
-    return {'motion': 'drag', 'ours': ours, 'pass': ok}
+    steps = [off[j] - off[j + 1] for j in range(k - 1, len(off) - 1) if tt[j] < 120]
+    step = float(max(steps)) if steps else 0.0
+    ok = all(abs(ours[key] - DRAG_SAFARI[key]) <= DRAG_TOLERANCE_PT for key in DRAG_SAFARI) and step <= DRAG_MAX_STEP_PT
+    return {'motion': 'drag', 'ours': ours, 'max_step_pt': step, 'pass': ok}
 
 
 if __name__ == '__main__':
     if sys.argv[1] == 'drag':
         r = compare_drag(sys.argv[2])
         print('drag: ' + '  '.join(f"{k if k == 'min' else f'+{k}'} {r['ours'][k]:.1f}/{DRAG_SAFARI[k]:.1f} ({r['ours'][k] - DRAG_SAFARI[k]:+.1f})"
-                                   for k in DRAG_SAFARI) + f"  {'PASS' if r['pass'] else 'FAIL'}")
+                                   for k in DRAG_SAFARI) + f"  step {r['max_step_pt']:.1f}/{DRAG_MAX_STEP_PT:.0f}  {'PASS' if r['pass'] else 'FAIL'}")
         sys.exit(0 if r['pass'] else 1)
     if sys.argv[1] == 'tapZoomOut':
         r = compare_tap_zoomout(sys.argv[2])
