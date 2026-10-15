@@ -47,6 +47,18 @@ function row(fields: Parameters<typeof chat>[1] = {}, extra: Partial<NonNullable
   } satisfies AcpmuxSnapshot;
 }
 
+/// Fast mode as Claude Code offers it (off/on), or a speed option with a tier past Fast.
+function speed(current: string, values = ["off", "on"]) {
+  return {
+    id: "fast-mode",
+    name: "Fast mode",
+    category: "model_config",
+    currentValue: current,
+    options: values.map((value) => ({ value })),
+  };
+}
+const ULTRA = ["standard", "fast", "ultrafast"];
+
 const LONG_MODEL = "claude-opus-5-5-1m";
 const longCatalog = CATALOG.map((entry) =>
   entry.id === "claude"
@@ -71,7 +83,12 @@ export default agentPaneEntry({
   height: 300,
   widths: { narrow: 420, normal: 720, wide: 1100 },
   anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-box" }],
-  covers: ["agent-session/acpmux/Composer.tsx#Composer", "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
+  covers: [
+    "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
+    "agent-session/acpmux/FastToggle.tsx#FastToggle",
+    "agent-session/acpmux/FastToggle.tsx#SpeedToggleHost",
+  ],
   variants: {
     "claude-auto": {
       note: "Claude Opus 5.5, Medium and Auto in one evenly spaced left cluster; mic and Send on the right.",
@@ -94,6 +111,18 @@ export default agentPaneEntry({
           groups: [],
         },
       },
+    },
+    "speed-off": {
+      note: "A model with fast mode, off: the muted bolt sits left of the mic; the effort chip reads Medium.",
+      snapshot: row({}, { configOptions: [effort, speed("off")] }),
+    },
+    "speed-fast": {
+      note: "Fast on: the bolt takes the accent ink and the effort chip still reads Medium, with no Fast word.",
+      snapshot: row({}, { configOptions: [effort, speed("on")] }),
+    },
+    "speed-ultrafast": {
+      note: "An option with a tier past Fast, on Ultrafast: the bolt is filled in the accent ink.",
+      snapshot: row({}, { configOptions: [effort, speed("ultrafast", ULTRA)] }),
     },
     queued: {
       note: "A running turn with prompts queued above the field: Stop takes Send's circle, the row keeps its clusters.",
