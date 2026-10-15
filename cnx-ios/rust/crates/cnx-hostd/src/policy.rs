@@ -120,6 +120,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "close-tab-group",
         "save-tab-group",
         "unsave-tab-group",
+        // Saved tab groups: the saved id (and, to reopen, a pane) only
+        // (`creation_fields`, `saved_group_refusal`). Reopen restarts the
+        // saved terminals as the person's login shell in their saved folder,
+        // on this Mac (cnx-ios/SECURITY.md "Reopen Saved Tab Group").
         "delete-saved-tab-group",
         "reopen-saved-tab-group",
         "ack-tab-notifications",
@@ -187,6 +191,11 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
     let extra: &[&'static str] = match command {
         // The tab's recorded launch on this Mac; the phone names only the tab.
         "restart-tab" => return Some(["surface"].into_iter().collect()),
+        // A saved group of this daemon, reopened into one of its panes: the
+        // daemon starts each terminal member as the login shell in the
+        // folder the record holds; the phone names no program, folder or env.
+        "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
+        "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -280,6 +289,11 @@ impl DaemonPolicy {
                     &format!("{command} does not take {names} from a phone"),
                 ));
             }
+        }
+        if (command == "reopen-saved-tab-group" || command == "delete-saved-tab-group")
+            && let Some(why) = saved_group_refusal(&object, command == "reopen-saved-tab-group")
+        {
+            return Verdict::Refuse(error_line(id, "forbidden", &why));
         }
         if command == "set-personal-workspace"
             && let Err(why) = personal_workspace(&object)
@@ -378,6 +392,41 @@ impl DaemonPolicy {
 
 /// `set-personal-workspace` from a phone: a short session id, a workspace key
 /// and a place, nothing else.
+/// Why a saved tab group line is refused, or `None`: `saved` is a short
+/// identifier (the daemon mints `saved_<hex>`), a reopen names its `pane` (a
+/// pane number or a short public id), and `transaction` is 1-128 printable
+/// ASCII characters, as the daemon checks.
+fn saved_group_refusal(object: &Map<String, Value>, reopen: bool) -> Option<String> {
+    if !object.get("saved").and_then(Value::as_str).is_some_and(|saved| short_identifier(saved, 128)) {
+        return Some("a saved tab group is named by its id".into());
+    }
+    if reopen {
+        let pane = match object.get("pane") {
+            Some(Value::Number(number)) => number.is_u64(),
+            Some(Value::String(pane)) => short_identifier(pane, 128),
+            _ => false,
+        };
+        if !pane {
+            return Some("reopen-saved-tab-group needs the pane to reopen it in".into());
+        }
+    }
+    if let Some(transaction) = object.get("transaction") {
+        let ok = transaction.as_str().is_some_and(|text| {
+            (1..=128).contains(&text.len()) && text.bytes().all(|byte| byte.is_ascii_graphic())
+        });
+        if !ok {
+            return Some("transaction is 1-128 printable characters".into());
+        }
+    }
+    None
+}
+
+/// `[A-Za-z0-9._:-]`, 1 to `limit` bytes.
+fn short_identifier(text: &str, limit: usize) -> bool {
+    (1..=limit).contains(&text.len())
+        && text.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+}
+
 fn personal_workspace(object: &Map<String, Value>) -> Result<(), String> {
     if let Some(key) = object
         .keys()
@@ -695,6 +744,44 @@ mod tests {
             br#"{"id":1,"cmd":"restart-tab","surface":12,"env":{"BASH_ENV":"/tmp/x"}}"#,
             br#"{"id":1,"cmd":"restart-tab","tab":12}"#,
             br#"{"id":1,"cmd":"restart-tab","surface":12,"initial_command":"id"}"#,
+        ] {
+            let Verdict::Refuse(answer) = policy().evaluate(line) else {
+                panic!("forwarded {}", String::from_utf8_lossy(line));
+            };
+            assert!(answer.contains("forbidden"), "{answer}");
+        }
+    }
+
+    /// Reopen / Delete Saved Tab Group: the saved id and a pane only; the
+    /// daemon starts each terminal of the record as the login shell in its
+    /// saved folder, so no program, folder, env or host comes from the phone.
+    #[test]
+    fn saved_tab_groups_take_only_the_saved_id_and_a_pane() {
+        for line in [
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"saved_0123abcd","pane":4}"#.as_slice(),
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"saved_0123abcd","pane":"pane_01J","transaction":"tx-1"}"#,
+            br#"{"id":1,"cmd":"delete-saved-tab-group","saved":"saved_0123abcd"}"#,
+            br#"{"id":1,"cmd":"list-saved-tab-groups"}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        for line in [
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"command":"id"}"#.as_slice(),
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"argv":["sh"]}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"cwd":"/"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"env":{"BASH_ENV":"/tmp/x"}}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"terminal_host":"h"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"members":[]}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"origin":"user"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":-1}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":"a b"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"transaction":""}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"../x","pane":4}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":12,"pane":4}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","pane":4}"#,
+            br#"{"id":1,"cmd":"delete-saved-tab-group","saved":"s","cwd":"/"}"#,
+            br#"{"id":1,"cmd":"delete-saved-tab-group"}"#,
         ] {
             let Verdict::Refuse(answer) = policy().evaluate(line) else {
                 panic!("forwarded {}", String::from_utf8_lossy(line));
