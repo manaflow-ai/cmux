@@ -59,7 +59,7 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
     override func viewDidLoad() {
         super.viewDidLoad()
         // Messages' sheet: the elevated system background (28,28,30 dark).
-        view.backgroundColor = UIColor { traits in
+        view.backgroundColor = UIColor.resolving { traits in
             UIColor.systemBackground.resolvedColor(with: traits.modifyingTraits { $0.userInterfaceLevel = .elevated })
         }
         view.accessibilityIdentifier = "conversation.photoDrawer"

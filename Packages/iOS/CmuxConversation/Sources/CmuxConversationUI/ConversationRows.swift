@@ -241,8 +241,9 @@ enum ConversationRowBuilder {
     /// below come from `previous`, and a row below that quotes a message of
     /// the page is rebuilt. `reused` are the indices of rows taken from
     /// `previous` (from `keptFrom` on); of those, `rebuilt` were rebuilt.
-    /// Nil when the change is not such a landing.
-    static func rowsAfterPrepend(store: ConversationStore, previous: [ConversationRow]) -> ConversationPrependRows? {
+    /// `index` finds a row of `previous` by id. Nil when the change is not
+    /// such a landing.
+    static func rowsAfterPrepend(store: ConversationStore, previous: [ConversationRow], index: (String) -> Int?) -> ConversationPrependRows? {
         guard let info = store.info else { return nil }
         let messages = store.messages
         // The first message of the previous rows, and where it is now.
@@ -272,27 +273,31 @@ enum ConversationRowBuilder {
         let reusedStart = rows.count
         rows.append(contentsOf: previous[keepFrom...])
         // A reply below whose quoted message just arrived gains its quote.
+        // The replies are found among the messages under the page (a field
+        // read each), not by copying every reused row's model; each one's
+        // row is where `previous` had it, moved by the splice.
         var pageIDs = Set<String>()
         for message in messages[0..<boundary] { pageIDs.insert(message.id) }
         var rebuilt: [Int] = []
-        var messageIndex: [String: Int]?
-        for index in reusedStart..<rows.count {
-            guard case let .message(model) = rows[index], let replyTo = model.message.replyToID, pageIDs.contains(replyTo) else { continue }
-            if messageIndex == nil {
-                var map: [String: Int] = [:]
-                for (i, message) in messages.enumerated() { map[message.rowID] = i }
-                messageIndex = map
-            }
-            guard let i = messageIndex?[model.rowID] else { return nil }
-            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, limit: i + 1).entries[i]
+        for i in store.messageIndices(from: boundary + 1, replyingTo: pageIDs) {
+            let rowID = messages[i].rowID
+            // A reply the rows on screen do not show yet (a live change
+            // held meanwhile) is not among the reused rows.
+            guard let old = index(rowID) else { continue }
+            let row = reusedStart + old - keepFrom
+            guard old >= keepFrom, row < rows.count else { return nil }
+            // Only a bubble shows the quote (an unsent reply is a notice).
+            guard case let .message(model) = rows[row] else { continue }
+            guard model.rowID == rowID else { return nil }
+            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1)).entries[0]
             var single: [ConversationRow] = []
             var placed = true
             appendRows(for: messages[i], entry: entry, context: context, typingPlaced: &placed, into: &single)
-            guard let replacement = single.first(where: { $0.id == model.rowID }) else { return nil }
-            rows[index] = replacement
-            rebuilt.append(index)
+            guard let replacement = single.first(where: { $0.id == rowID }) else { return nil }
+            rows[row] = replacement
+            rebuilt.append(row)
         }
-        return ConversationPrependRows(rows: rows, reused: reusedStart..<rows.count, keptFrom: keepFrom, rebuilt: rebuilt)
+        return ConversationPrependRows(rows: rows, reused: reusedStart..<rows.count, keptFrom: keepFrom, rebuilt: rebuilt.sorted())
     }
 
     /// The rows `rows(store:)` gives after a live change (an arrival, an
