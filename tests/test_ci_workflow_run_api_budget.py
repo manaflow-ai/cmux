@@ -366,5 +366,49 @@ class HostedQueueRescueCalls(StepHarness):
         self.assertIn("another rescue owns it", out)
 
 
+class CmuxBotTokenWorkflowShape(unittest.TestCase):
+    """High-volume bot jobs use the dedicated installation budget when configured."""
+
+    JOBS = {
+        "ci-queue-janitor.yml": ("sweep",),
+        "ci-failure-attribution.yml": ("attribute",),
+        "ci-compile-attribution.yml": ("analyze", "report", "fix"),
+        "ci-guard-attribution.yml": ("analyze", "report"),
+        "ci-hosted-queue-rescue.yml": ("rescue",),
+        "ci-owned-pool-rescue.yml": ("rescue",),
+        "dogfood-artifact-publish.yml": ("publish", "capture"),
+    }
+    PERMISSIONS = {
+        "permission-actions": "write",
+        "permission-checks": "read",
+        "permission-contents": "read",
+        "permission-issues": "write",
+        "permission-pull-requests": "write",
+    }
+
+    def test_bot_jobs_mint_and_use_the_scoped_app_token(self) -> None:
+        for filename, job_names in self.JOBS.items():
+            document = yaml.safe_load((ROOT / ".github/workflows" / filename).read_text())
+            for job_name in job_names:
+                with self.subTest(workflow=filename, job=job_name):
+                    job = document["jobs"][job_name]
+                    steps = job["steps"]
+                    mint = next(step for step in steps if step.get("id") == "cmux-bot-token")
+                    self.assertEqual(mint["uses"],
+                                     "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
+                    self.assertEqual(mint["if"], "vars.CMUX_BOT_APP_ID != ''")
+                    self.assertTrue(mint["continue-on-error"])
+                    self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+                    self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+                    self.assertEqual({key: mint["with"][key] for key in self.PERMISSIONS}, self.PERMISSIONS)
+
+                    # Every shell step that can call gh receives the App token,
+                    # while the expression keeps forks and rollouts working.
+                    token_envs = [step.get("env", {}).get("GH_TOKEN") for step in steps]
+                    token_envs = [value for value in token_envs if value is not None]
+                    self.assertTrue(token_envs)
+                    self.assertTrue(all("steps.cmux-bot-token.outputs.token" in value for value in token_envs))
+
+
 if __name__ == "__main__":
     unittest.main()
