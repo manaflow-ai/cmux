@@ -75,7 +75,8 @@ final class BrowserEngineRuntime {
                     ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.parent == nil && !($0 is NSPanel) }
             },
             present: { content, icon, window in
-                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
+                // Chromium raised it, so a Chromium page shows in that window.
+                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window, overChromiumPage: true)
             }
         )
         chromiumExtensions = extensions

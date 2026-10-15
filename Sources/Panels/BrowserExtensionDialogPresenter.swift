@@ -21,9 +21,12 @@ struct BrowserExtensionDialogPresenter {
     ///   - content: The dialog content.
     ///   - icon: The extension icon (PNG), when known.
     ///   - window: The browser's window.
+    ///   - overChromiumPage: True when a Chromium page shows in `window` (its
+    ///     page window sits above the parent, so a sheet would be covered).
     /// - Returns: True when the person accepted.
-    func present(_ content: BrowserExtensionPromptContent, icon: Data?, in window: NSWindow) async -> Bool {
-        let dialog = PromptDialogWindow(overPageWindows: Self.hasChromiumPageWindow(window))
+    func present(_ content: BrowserExtensionPromptContent, icon: Data?, in window: NSWindow,
+                 overChromiumPage: Bool) async -> Bool {
+        let dialog = PromptDialogWindow(overPageWindows: overChromiumPage || Self.hasChromiumPageWindow(window))
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 guard !Task.isCancelled else {

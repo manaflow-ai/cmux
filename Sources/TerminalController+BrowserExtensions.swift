@@ -214,7 +214,9 @@ extension TerminalController {
         // socket's own timeout.
         let accepted = await withTaskGroup(of: Bool?.self) { group in
             group.addTask { @MainActor in
-                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
+                await BrowserExtensionDialogPresenter().present(
+                    content, icon: icon, in: window, overChromiumPage: ctx.browserPanel.enginePage != nil
+                )
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(BrowserExtensionControlRequest.consentSeconds))
