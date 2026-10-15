@@ -66,6 +66,19 @@ struct BrowserPermissionPromptReviewFixTests {
         #expect(remembered == BrowserPagePermissionCoordinator.Outcome(.grant, isOneTime: false))
     }
 
+    @Test func onlyAnswersCmuxRemembersStaySavedInTheEngine() async {
+        let queue = BrowserPermissionPromptQueue()
+        let store = BrowserSitePermissionStore(fileURL: nil)
+        let coordinator = BrowserPagePermissionCoordinator(queue: queue, store: { _ in store })
+        let profile = UUID()
+        let geo = BrowserPagePermissionRequest(kinds: [.geolocation], origin: origin)
+        #expect(await coordinator.decideDetailed(geo, profileID: profile, sessionGrants: nil) == .init(.deny, isOneTime: true))
+        #expect(await coordinator.decideDetailed(geo, profileID: profile, sessionGrants: ["camera"]) == .init(.deny, isOneTime: true))
+        store.set(.block, for: [.camera], at: origin)
+        let camera = BrowserPagePermissionRequest(kinds: [.camera], origin: origin)
+        #expect(await coordinator.decideDetailed(camera, profileID: profile, sessionGrants: nil) == .init(.deny, isOneTime: false))
+    }
+
     @Test func panTiltZoomFoldsIntoCameraButAloneIsItsOwnKind() {
         #expect(BrowserChromiumPermissionRequest([.camera, .cameraPanTiltZoom]).pageKinds == [.camera])
         #expect(BrowserChromiumPermissionRequest.cameraPanTiltZoom.pageKinds == [.other("camera-pan-tilt-zoom")])
