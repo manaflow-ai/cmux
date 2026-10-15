@@ -87,6 +87,10 @@ public final class CEFRuntime {
 
     public var isRunning: Bool { state == .ready }
 
+    /// True from the start of `shutdown` on: pages closing now are closing
+    /// for quit, not because a person closed them.
+    public var isShuttingDown: Bool { shutdownSequence != nil || state == .shutDown }
+
     /// The fork's `cmux_cef_api_version`, 0 before CEF runs.
     public var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
