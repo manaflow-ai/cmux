@@ -73,6 +73,18 @@ async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed
   );
 }
 
+/// Picks Threads on the style switch and waits for the save and the check (every look is radios).
+const pickThreads = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=default]:checked"));
+  await ctx.click({ role: "radio", name: "Threads" });
+  await ctx.waitFor(() =>
+    galleryNativeCalls(ctx.document).some(
+      (call) => call.method === "newTab.setTemplate" && call.params?.template === "threads",
+    ),
+  );
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=threads]:checked"));
+};
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
@@ -581,19 +593,34 @@ export default agentPaneEntry({
       },
     },
     "style-switch": {
-      note: "The New Tab style dots (Leo 2026-10-14): one small round dot per style under the page, the current one in the accent and the accent dot sliding to a pick. A pointer over a dot shows its name; a pick shows the picked name for a moment, then fades it, and is saved as tabs.newTabTemplate.",
+      note: "The New Tab style dots with nothing set in Settings > Labs (Leo 2026-10-14, #20473): one small round dot per style under the page, the current one in the accent and the accent dot sliding to a pick. A pointer over a dot shows its name; a pick shows the picked name for a moment, then fades it, and is saved as tabs.newTabTemplate.",
       ready: newTab({ template: "default" }),
       snapshot: noChat(manySessions(4)),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=default]:checked"));
-        await ctx.click({ role: "radio", name: "Threads" });
-        await ctx.waitFor(() =>
-          galleryNativeCalls(ctx.document).some(
-            (call) => call.method === "newTab.setTemplate" && call.params?.template === "threads",
-          ),
-        );
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=threads]:checked"));
-      },
+      play: pickThreads,
+    },
+    "style-switch-hint": {
+      note: "Settings > Labs labs.newTabStyle = hint: a dot per style on a chip, its name as the tooltip, and a pick's name over the dots for about a second.",
+      ready: newTab({ template: "default", styleSwitch: "hint" }),
+      snapshot: noChat(manySessions(4)),
+      play: pickThreads,
+    },
+    "style-switch-dots": {
+      note: "Settings > Labs labs.newTabStyle = dots: the dots as they were before #20127, named by tooltip.",
+      ready: newTab({ template: "default", styleSwitch: "dots" }),
+      snapshot: noChat(manySessions(4)),
+      play: pickThreads,
+    },
+    "style-switch-strip": {
+      note: "Settings > Labs labs.newTabStyle = strip: a 14px sketch of each style's layout, named by tooltip.",
+      ready: newTab({ template: "default", styleSwitch: "strip" }),
+      snapshot: noChat(manySessions(4)),
+      play: pickThreads,
+    },
+    "style-switch-names": {
+      note: "Settings > Labs labs.newTabStyle = names: the five style names of #20336, the current one on a small fill that slides to a pick.",
+      ready: newTab({ template: "default", styleSwitch: "names" }),
+      snapshot: noChat(manySessions(4)),
+      play: pickThreads,
     },
     "no-template-dots": {
       note: "New Tab shows no template dots and no default-kind toggle: the template is set in Settings, and a terminal opens only when picked (Leo 2026-10-12). The host payload is what it sent before, dots on.",
