@@ -7,29 +7,50 @@ import SwiftUI
 /// The page's content view fills the pane. For a Chromium page it is the
 /// placeholder its Chromium window tracks, so the page follows the pane's
 /// frame and visibility.
+///
+/// A Chromium page draws in a child window that takes the keyboard when it
+/// becomes key. The container follows the rule cmux Next uses
+/// (`ChromiumKeyWindowFacts`): a click into the page chooses it, and the pane
+/// asks for panel focus as a click into a WebKit page does; a page window
+/// that became key without a click while cmux wants the keyboard elsewhere
+/// (the address bar, another pane) gives it back to this window.
 struct BrowserEnginePageHost: NSViewRepresentable {
     let page: any BrowserPage
     let isVisible: Bool
     let shouldFocus: Bool
+    /// Called with the page's content view once it is in the container.
+    var onAttach: (NSView) -> Void = { _ in }
+    /// A click into the page chose it.
+    var onPageClicked: () -> Void = {}
+    /// The page went on or off screen (crash recovery restores a page that
+    /// crashed while hidden once it shows).
+    var onVisibilityChange: (Bool) -> Void = { _ in }
 
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView(frame: .zero)
+    func makeNSView(context: Context) -> BrowserEnginePageContainerView {
+        let container = BrowserEnginePageContainerView(frame: .zero)
         container.wantsLayer = true
         attach(page.contentView, to: container)
         return container
     }
 
-    func updateNSView(_ container: NSView, context: Context) {
+    func updateNSView(_ container: BrowserEnginePageContainerView, context: Context) {
         if page.contentView.superview !== container {
             attach(page.contentView, to: container)
         }
+        container.wantsPageFocus = shouldFocus && isVisible
+        container.onPageClicked = onPageClicked
         page.setContentVisible(isVisible)
+        if container.reportedVisible != isVisible {
+            container.reportedVisible = isVisible
+            onVisibilityChange(isVisible)
+        }
         if shouldFocus, isVisible {
             page.setFocused(true)
         }
     }
 
-    static func dismantleNSView(_ container: NSView, coordinator: ()) {
+    static func dismantleNSView(_ container: BrowserEnginePageContainerView, coordinator: ()) {
+        container.onPageClicked = nil
         for subview in container.subviews {
             subview.removeFromSuperview()
         }
@@ -40,5 +61,89 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         content.frame = container.bounds
         content.autoresizingMask = [.width, .height]
         container.addSubview(content)
+        onAttach(content)
+    }
+}
+
+/// The pane's container for a non-WebKit page; watches its Chromium page
+/// window take the keyboard.
+final class BrowserEnginePageContainerView: NSView {
+    /// cmux wants this page to have the keyboard (the pane is focused and the
+    /// address bar is not). When that ends while this pane's page window has
+    /// the keyboard (Cmd-L, a move to another pane), this window takes it
+    /// back so the address bar or the next pane gets the keys.
+    var wantsPageFocus = false {
+        didSet {
+            guard oldValue, !wantsPageFocus else { return }
+            reclaimKeyFromPageWindowIfOverPane()
+        }
+    }
+    var onPageClicked: (() -> Void)?
+    /// The visibility last reported through `onVisibilityChange`.
+    var reportedVisible: Bool?
+    private var keyObserver: (any NSObjectProtocol)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = nil
+        guard window != nil else { return }
+        keyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let keyWindow = note.object as? NSWindow
+            MainActor.assumeIsolated { self?.pageWindowBecameKey(keyWindow) }
+        }
+    }
+
+    deinit {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        }
+    }
+
+    private func pageWindowBecameKey(_ keyWindow: NSWindow?) {
+        guard let keyWindow, let window, keyWindow !== window, keyWindow.isChromiumPageWindow,
+              !isHiddenOrHasHiddenAncestor else { return }
+        let parent: ChromiumKeyWindowFacts.Parent
+        if keyWindow.parent == nil {
+            parent = .none
+        } else {
+            parent = keyWindow.chromiumActingWindow(fallback: nil) === window ? .thisWindow : .other
+        }
+        let paneRect = window.convertToScreen(convert(bounds, to: nil))
+        let center = CGPoint(x: keyWindow.frame.midX, y: keyWindow.frame.midY)
+        let facts = ChromiumKeyWindowFacts(
+            parent: parent,
+            isChromiumPage: true,
+            clicked: Self.isMouseDown(NSApp.currentEvent),
+            overPane: paneRect.contains(center),
+            thisWindowIsActive: NSApp.mainWindow === window
+        )
+        switch facts.decision {
+        case .chosenPage:
+            onPageClicked?()
+        case .unchosenPage where facts.overPane && !wantsPageFocus:
+            // Chromium took the keys for this pane's page on its own.
+            window.makeKey()
+        case .unchosenPage, .devTools, .reapply, .ignore:
+            break
+        }
+    }
+
+    private func reclaimKeyFromPageWindowIfOverPane() {
+        guard let window, let keyWindow = NSApp.keyWindow, keyWindow !== window, keyWindow.isChromiumPageWindow,
+              keyWindow.chromiumActingWindow(fallback: NSApp.mainWindow) === window else { return }
+        let paneRect = window.convertToScreen(convert(bounds, to: nil))
+        guard paneRect.contains(CGPoint(x: keyWindow.frame.midX, y: keyWindow.frame.midY)) else { return }
+        window.makeKey()
+    }
+
+    private static func isMouseDown(_ event: NSEvent?) -> Bool {
+        switch event?.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown: true
+        default: false
+        }
     }
 }

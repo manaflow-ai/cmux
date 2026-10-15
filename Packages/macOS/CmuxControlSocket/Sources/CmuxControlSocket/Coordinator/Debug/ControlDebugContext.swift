@@ -277,6 +277,19 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The full call result.
     func controlDebugBrowserFavicon(params: [String: JSONValue]) -> ControlCallResult
 
+    /// Runs a browser crash-safety debug method (`debug.browser.crashes`,
+    /// `debug.browser.page_status`) for crash-injection tests.
+    ///
+    /// A documented passthrough like ``controlDebugBrowserFavicon(params:)``:
+    /// `debug.browser.page_status` resolves its panel through the shared
+    /// `v2BrowserWithPanel` helper app-side.
+    ///
+    /// - Parameters:
+    ///   - method: The debug method name.
+    ///   - params: The decoded request params.
+    /// - Returns: The full call result.
+    func controlDebugBrowserSafety(method: String, params: [String: JSONValue]) -> ControlCallResult
+
     /// Reveals and focuses the right sidebar for `debug.right_sidebar.focus`.
     ///
     /// - Parameters:

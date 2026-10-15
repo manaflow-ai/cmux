@@ -1,0 +1,128 @@
+import AppKit
+import Testing
+
+@testable import CmuxBrowser
+
+@Suite struct BrowserPageOcclusionPlanTests {
+    @Test func holesAreInContentCoordinatesAndClippedToThePage() {
+        let plan = BrowserPageOcclusionPlan(
+            contentRectInWindow: CGRect(x: 100, y: 50, width: 400, height: 300),
+            overlayRectsInWindow: [
+                CGRect(x: 380, y: 300, width: 200, height: 40), // find bar, partly past the right edge
+                CGRect(x: 0, y: 0, width: 50, height: 50), // outside the page
+            ]
+        )
+        #expect(plan.holes == [CGRect(x: 280, y: 250, width: 120, height: 40)])
+    }
+
+    @Test func nestedHolesAreDroppedButEqualOnesKeepOne() {
+        let plan = BrowserPageOcclusionPlan(
+            contentRectInWindow: CGRect(x: 0, y: 0, width: 400, height: 300),
+            overlayRectsInWindow: [
+                CGRect(x: 0, y: 0, width: 400, height: 300), // crash page
+                CGRect(x: 10, y: 10, width: 100, height: 20), // a bar over it
+                CGRect(x: 0, y: 0, width: 400, height: 300), // the same page twice
+            ]
+        )
+        #expect(plan.holes == [CGRect(x: 0, y: 0, width: 400, height: 300)])
+    }
+
+    @Test func fractionalFramesRoundOutward() {
+        let plan = BrowserPageOcclusionPlan(
+            contentRectInWindow: CGRect(x: 0, y: 0, width: 400, height: 300),
+            overlayRectsInWindow: [CGRect(x: 10.5, y: 10.25, width: 20, height: 20)]
+        )
+        #expect(plan.holes == [CGRect(x: 10, y: 10, width: 21, height: 21)])
+    }
+}
+
+@MainActor
+private final class FakeOcclusionTarget: BrowserPageOcclusionHosting {
+    var pageOcclusionRects: [CGRect] = []
+}
+
+@MainActor
+@Suite(.serialized) struct BrowserPageOverlayCoordinatorTests {
+    private func makeWindow() -> (NSWindow, NSView, NSView) {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        let root = NSView(frame: CGRect(x: 0, y: 0, width: 600, height: 400))
+        window.contentView = root
+        let page = NSView(frame: CGRect(x: 100, y: 0, width: 500, height: 360))
+        root.addSubview(page)
+        return (window, root, page)
+    }
+
+    @Test func occludingOverlayMakesAHoleOnlyForAChildWindowPage() {
+        let (window, root, page) = makeWindow()
+        let anchor = NSView(frame: CGRect(x: 400, y: 300, width: 180, height: 40))
+        root.addSubview(anchor)
+        let coordinator = BrowserPageOverlayCoordinator()
+        let target = FakeOcclusionTarget()
+
+        coordinator.registerOccluding(anchor, id: "find")
+        coordinator.attach(contentView: page, target: nil)
+        #expect(!coordinator.hostsFloatingOverlaysInPanels)
+        #expect(target.pageOcclusionRects.isEmpty)
+
+        coordinator.attach(contentView: page, target: target)
+        #expect(coordinator.hostsFloatingOverlaysInPanels)
+        #expect(target.pageOcclusionRects == [CGRect(x: 300, y: 300, width: 180, height: 40)])
+
+        anchor.isHidden = true
+        coordinator.update()
+        #expect(target.pageOcclusionRects.isEmpty)
+
+        anchor.isHidden = false
+        coordinator.update()
+        #expect(target.pageOcclusionRects.count == 1)
+
+        coordinator.unregisterOccluding(id: "find")
+        #expect(target.pageOcclusionRects.isEmpty)
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func holesFollowThePaneAndClearWhenThePageLeaves() {
+        let (window, root, page) = makeWindow()
+        let anchor = NSView(frame: CGRect(x: 100, y: 0, width: 500, height: 360))
+        root.addSubview(anchor)
+        let coordinator = BrowserPageOverlayCoordinator()
+        let target = FakeOcclusionTarget()
+        coordinator.attach(contentView: page, target: target)
+        coordinator.registerOccluding(anchor, id: "crash")
+        #expect(target.pageOcclusionRects == [CGRect(x: 0, y: 0, width: 500, height: 360)])
+
+        // The pane moves (a split resizes it): the hole follows the page.
+        page.frame = CGRect(x: 200, y: 0, width: 400, height: 360)
+        anchor.frame = page.frame
+        coordinator.update()
+        #expect(target.pageOcclusionRects == [CGRect(x: 0, y: 0, width: 400, height: 360)])
+
+        // Workspace switch: the page is hidden; no hole is left behind.
+        page.isHidden = true
+        coordinator.update()
+        #expect(target.pageOcclusionRects.isEmpty)
+
+        page.isHidden = false
+        coordinator.detach()
+        #expect(target.pageOcclusionRects.isEmpty)
+        #expect(!coordinator.hostsFloatingOverlaysInPanels)
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func swappingTheTargetClearsTheOldOne() {
+        let (window, root, page) = makeWindow()
+        let anchor = NSView(frame: CGRect(x: 150, y: 10, width: 50, height: 50))
+        root.addSubview(anchor)
+        let coordinator = BrowserPageOverlayCoordinator()
+        let first = FakeOcclusionTarget()
+        let second = FakeOcclusionTarget()
+        coordinator.registerOccluding(anchor, id: "bar")
+        coordinator.attach(contentView: page, target: first)
+        #expect(!first.pageOcclusionRects.isEmpty)
+        coordinator.attach(contentView: page, target: second)
+        #expect(first.pageOcclusionRects.isEmpty)
+        #expect(second.pageOcclusionRects == [CGRect(x: 50, y: 10, width: 50, height: 50)])
+        withExtendedLifetime(window) {}
+    }
+}
