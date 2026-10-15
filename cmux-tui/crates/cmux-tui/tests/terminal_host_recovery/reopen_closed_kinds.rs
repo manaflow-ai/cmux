@@ -958,6 +958,111 @@ fn a_closed_pane_reopens_in_its_split() {
     assert_eq!(ids, vec![back["tab_resource_id"].clone()], "{screen}");
 }
 
+/// Reopen `members` (every member when None) of closed group `closed`.
+fn reopen_members(
+    harness: &RecoveryHarness,
+    closed: &str,
+    members: Option<serde_json::Value>,
+    key: &str,
+) -> serde_json::Value {
+    let mut params = serde_json::json!({"machine":"current","session":"current","closed":closed});
+    if let Some(members) = members {
+        params["members"] = members;
+    }
+    resource_request(&harness.socket, key, "closed.reopen", params, Some(key))["value"].clone()
+}
+
+#[test]
+fn a_closed_pane_reopened_in_parts_comes_back_as_one_split() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-pane-parts");
+    app.send(serde_json::json!({"cmd":"split","pane":pane,"dir":"right","cols":80,"rows":24}));
+    let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
+    let split = panes
+        .iter()
+        .find(|candidate| candidate["id"].as_u64() != Some(pane))
+        .expect("the split made a pane");
+    let split_id = split["resource_id"].as_str().expect("the pane has an id").to_string();
+    app.send(serde_json::json!({"cmd":"new-tab","pane":split["id"]}));
+    let before = closed_list(&harness, "pane-parts-closed-1").len();
+    resource_request(
+        &harness.socket,
+        "pane-parts-close",
+        "pane.close",
+        serde_json::json!({"machine":"current","session":"current","pane":split_id}),
+        Some("pane-parts-close"),
+    );
+    let closed = closed_list(&harness, "pane-parts-closed-2");
+    assert_eq!(closed.len(), before + 1, "{closed:?}");
+    assert_eq!(closed[0]["member_count"], 2, "{}", closed[0]);
+    let id = closed[0]["id"].as_str().expect("the closed item has an id").to_string();
+    // One tab now, the other in a later reopen: both land in one pane.
+    let first = reopen_members(&harness, &id, Some(serde_json::json!([0])), "pane-parts-1");
+    let rest = reopen_members(&harness, &id, None, "pane-parts-2");
+    let mut reopened = first["tab_ids"].as_array().cloned().unwrap_or_default();
+    reopened.extend(rest["tab_ids"].as_array().cloned().unwrap_or_default());
+    assert_eq!(reopened.len(), 2, "{first} {rest}");
+    let screen = kinds_workspace(&mut app)["screens"][0].clone();
+    let layout = &screen["layout"];
+    assert_eq!((layout["type"].as_str(), layout["dir"].as_str()), (Some("split"), Some("right")));
+    assert_eq!(layout["a"]["pane"].as_u64(), Some(pane), "{layout}");
+    let home = layout["b"]["pane"].as_u64().expect("one pane split off the neighbor");
+    let home = screen["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate["id"].as_u64() == Some(home))
+        .unwrap_or_else(|| panic!("the reopened pane is not listed: {screen}"));
+    let tabs = home["tabs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|tab| tab["tab_resource_id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(tabs, reopened, "{screen}");
+}
+
+#[test]
+fn a_closed_pane_never_splits_a_neighbor_in_another_workspace() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-pane-elsewhere");
+    app.send(serde_json::json!({"cmd":"split","pane":pane,"dir":"down","cols":80,"rows":24}));
+    let workspace = kinds_workspace(&mut app);
+    let screen = workspace["screens"][0].clone();
+    let split = screen["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate["id"].as_u64() != Some(pane))
+        .and_then(|candidate| candidate["resource_id"].as_str())
+        .expect("the split made a pane")
+        .to_string();
+    resource_request(
+        &harness.socket,
+        "pane-elsewhere-close",
+        "pane.close",
+        serde_json::json!({"machine":"current","session":"current","pane":split}),
+        Some("pane-elsewhere-close"),
+    );
+    let closed = closed_list(&harness, "pane-elsewhere-closed");
+    let id = closed[0]["id"].as_str().expect("the close was recorded").to_string();
+    // The neighbor's screen moves to a workspace of its own.
+    app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
+                                "cols":80,"rows":24}));
+    app.send(serde_json::json!({"cmd":"move-screen","screen":screen["id"],"new_workspace":true}));
+    let reopened = reopen_members(&harness, &id, None, "pane-elsewhere-reopen");
+    assert_eq!(reopened["workspace_id"], workspace["resource_id"], "{reopened}");
+    let tree = app.send(serde_json::json!({"cmd":"list-workspaces"}));
+    let moved = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().cloned().unwrap_or_default())
+        .find(|candidate| candidate["resource_id"] == screen["resource_id"])
+        .unwrap_or_else(|| panic!("the moved screen is not listed: {tree}"));
+    assert_eq!(moved["layout"]["type"], "leaf", "{moved}");
+}
+
 #[test]
 fn a_closed_terminal_reopens_as_a_tab() {
     let _exclusive = exclusive_process_test();
