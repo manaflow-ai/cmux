@@ -44,6 +44,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if !loaded.isEmpty {
             result.append("load-extension=" + loaded.joined(separator: ","))
         }
+        if !builtInExtensions.isEmpty {
+            // Chromium records a --load-extension copy as unpacked and disables
+            // unpacked extensions while developer mode is off
+            // (DISABLE_UNSUPPORTED_DEVELOPER_EXTENSION). The built-in copy must
+            // stay on without developer mode; the shim merges this into CEF's list.
+            result.append("disable-features=ExtensionDisableUnsupportedDeveloper")
+        }
         result.append(contentsOf: extraSwitches)
         return result
     }
