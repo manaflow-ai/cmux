@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -10,12 +11,12 @@ import { SubagentStatusList, subagentStatus, waitingSubagents } from "./Subagent
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
 
-/// What the chat has produced so far, as a card at the pane's top right, over the transcript and
-/// never over the composer. It is not a popover: a click elsewhere leaves it in place, and only its
-/// own close button or the header's summary button hides it. Folded, it keeps its header line,
-/// with the subagents' live counts. Its state is per chat (cardState.ts). The summary is read
-/// from the transcript only while the card is open, so a live turn pays nothing for it otherwise.
-/// A subagent row shows that subagent (`subagents.onOpen`).
+/// What the chat has produced so far: a card pinned under the header's summary button (cardState.ts
+/// says how it sits beside or over the chat). A press elsewhere never closes it; its close button,
+/// the header's summary button and Escape do. Its head counts the subagents live. Its
+/// first row opens a new terminal or a new browser beside the chat, as the chat menu's New terminal
+/// and New browser do (`actions`). The summary is read from the transcript only while it shows, so a live turn
+/// pays nothing for it otherwise. A subagent row shows that subagent (`subagents.onOpen`).
 export function SummaryCard({
   card,
   rows,
@@ -24,6 +25,7 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  actions,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -44,18 +46,29 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
+  /// New terminal and New browser beside the chat; none where the pane opens no split.
+  actions?: { terminal?: () => void; browser?: () => void };
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
   const shown = card.shown;
-  const open = shown && !card.collapsed;
   const views = subagents.views;
   const agents = useMemo(() => (shown ? [...subagentsIn(rows, views).values()] : []), [shown, rows, views]);
   const asks = subagents.asks;
   const waiting = useMemo(() => (shown ? waitingSubagents(asks, views) : new Set<string>()), [shown, asks, views]);
   const galleryRow = useRef<HTMLElement | null>(null);
-  const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
-  const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
+  const summary = useMemo(() => (shown ? sessionSummary(rows) : undefined), [shown, rows]);
+  const galleryCount = useMemo(() => (shown ? chatGallery(rows).length : 0), [shown, rows]);
+  const panel = useRef<HTMLElement>(null);
+  const close = card.close;
+  // Escape closes it (the gallery's own Escape first). Focus in the card goes to the header's
+  // button; focus elsewhere (the composer) stays where it is.
+  useEscapeCloses(shown && !gallery, () => {
+    const inside = panel.current?.contains(document.activeElement) ?? false;
+    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
+    close();
+    if (inside) button?.focus();
+  });
   if (!shown) return null;
   const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
   const counts = [
@@ -65,30 +78,26 @@ export function SummaryCard({
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
   const title = t("summary.open");
-  const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   return (
     <>
-      <aside className="acpmux-summary-card" aria-label={title} data-collapsed={card.collapsed || undefined}>
+      <aside
+        ref={panel}
+        id={card.id}
+        className="acpmux-summary-card"
+        aria-label={title}
+        data-placement={card.push ? "push" : "over"}
+      >
         <div className="acpmux-summary-card__head">
-          <button
-            type="button"
-            className="acpmux-summary-card__fold"
-            aria-expanded={!card.collapsed}
-            title={foldLabel}
-            onClick={() => card.fold(!card.collapsed)}
-          >
-            <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-            <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-            {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
-          </button>
+          <span className="acpmux-summary-card__title">{t("summary.title")}</span>
+          {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
           <button
             type="button"
             className="acpmux-summary-card__close"
             aria-label={t("summary.close")}
             title={t("summary.close")}
             onClick={(event) => {
-              // The button goes with the card: focus moves to the header's summary button.
-              const pane = event.currentTarget.closest(".acpmux-stage");
+              // The button goes with the panel: focus moves to the header's summary button.
+              const pane = event.currentTarget.closest(".acpmux-shell");
               card.close();
               pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
             }}
@@ -98,6 +107,22 @@ export function SummaryCard({
         </div>
         {summary && (
           <div className="acpmux-summary-card__body">
+            {(actions?.terminal || actions?.browser) && (
+              <div className="acpmux-summary-actions">
+                {actions.terminal && (
+                  <button type="button" className="acpmux-summary-action" onClick={actions.terminal}>
+                    <Icon name="terminal" size={14} />
+                    <span>{t("chatMenu.newTerminal")}</span>
+                  </button>
+                )}
+                {actions.browser && (
+                  <button type="button" className="acpmux-summary-action" onClick={actions.browser}>
+                    <Icon name="browser" size={14} />
+                    <span>{t("chatMenu.newBrowser")}</span>
+                  </button>
+                )}
+              </div>
+            )}
             {/* The subagents first: they are what the card follows while a turn runs. */}
             {agents.length > 0 && (
               <SubagentStatusList
