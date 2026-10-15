@@ -231,6 +231,21 @@ describe("revokeFounderPurchaseAccess", () => {
     expect(log.slice(0, 3)).toEqual(["lease:start", "revoke", "lease:end"]);
   });
 
+  test("reconciles cmuxPlan inside the same lease as the revocation", async () => {
+    const rows = [founderRow()];
+    const { app, target, common } = setup(rows, { cmuxPlan: "pro" });
+    const log: string[] = [];
+    const update = target.update.bind(target);
+    target.update = async (options) => {
+      log.push("metadata:update");
+      await update(options);
+    };
+    await revokeFounderPurchaseAccess({ ...common, withFreshUser: directMutation(app, log) });
+    // One lease, and the mirror write happens before it is released.
+    expect(log).toEqual(["lease:start", "metadata:update", "lease:end"]);
+    expect(target.clientReadOnlyMetadata).toEqual({});
+  });
+
   test("reports the revoked rows as soon as they commit, even if a later step fails", async () => {
     const rows = [founderRow()];
     const { common } = setup(rows, { cmuxPlan: "pro" });
