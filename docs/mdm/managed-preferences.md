@@ -30,12 +30,16 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.barPosition` | string | `"top"` | `top`, `bottom` | Tab Bar Position. Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane. |
 | `tabs.barOrder` | string | `"aboveToolbar"` | `aboveToolbar`, `belowToolbar` | Tab Bar and Browser Toolbar. In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it. |
 | `tabs.toolbarButtons` | array | `[]` | `splitRight`, `splitDown`, `openDiffViewer`, `file.open`, `agentPane.searchChats`, `toggleSplitZoom` | Tab Bar Buttons. Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back. |
+| `appearance.metrics.tabMaxWidth` | real |  | 120 to 320 | Maximum Tab Width. Widest a tab gets when the strip has room. |
+| `appearance.metrics.tabMinActiveWidth` | real |  | 32 to 200 | Minimum Selected Tab Width. When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide. |
+| `appearance.metrics.tabMinInactiveWidth` | real |  | 16 to 120 | Minimum Tab Width. Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum. |
+| `appearance.metrics.tabPinnedWidth` | real |  | 24 to 120 | Pinned Tab Width. Width of a pinned tab. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
 | `tabs.cmdWClosesPinnedTabs` | boolean | `false` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
-| `tabs.tabBar.terminal` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Terminal Panes. Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette. |
-| `tabs.tabBar.browser` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Browser Panes. Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette. |
-| `tabs.tabBar.agent` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Agent Chats. Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette. |
+| `tabs.tabBar.terminal` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Terminal Panes. Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette. |
+| `tabs.tabBar.browser` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Browser Panes. Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette. |
+| `tabs.tabBar.agent` | string | `"auto"` | `auto`, `always`, `never` | Tab Bar in Agent Chats. Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette. |
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
 | `app.quitBehavior` | string | `"ask"` | `ask`, `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |

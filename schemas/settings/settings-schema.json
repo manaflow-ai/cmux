@@ -32,6 +32,10 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
+              "appearance.metrics.tabMaxWidth",
+              "appearance.metrics.tabMinActiveWidth",
+              "appearance.metrics.tabMinInactiveWidth",
+              "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
               "tabs.tabBar.terminal",
@@ -2042,6 +2046,255 @@
     },
     {
       "accepts" : [
+        120,
+        320,
+        220
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabMaxWidth.help",
+        "text" : "Widest a tab gets when the strip has room."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabMaxWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "max",
+        "maximum",
+        "wide",
+        "tabMaxWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabMaxWidth"
+      ],
+      "range" : {
+        "max" : 320,
+        "min" : 120,
+        "placeholder" : 200,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -80,
+        520,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabMaxWidth",
+        "text" : "Maximum Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        32,
+        200,
+        116
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabMinActiveWidth.help",
+        "text" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabMinActiveWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "min",
+        "minimum",
+        "selected",
+        "active",
+        "crowded",
+        "narrow",
+        "tabMinActiveWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabMinActiveWidth"
+      ],
+      "range" : {
+        "max" : 200,
+        "min" : 32,
+        "placeholder" : 56,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -136,
+        368,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabMinActiveWidth",
+        "text" : "Minimum Selected Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        16,
+        120,
+        68
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabMinInactiveWidth.help",
+        "text" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabMinInactiveWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "min",
+        "minimum",
+        "inactive",
+        "crowded",
+        "narrow",
+        "scroll",
+        "tabMinInactiveWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabMinInactiveWidth"
+      ],
+      "range" : {
+        "max" : 120,
+        "min" : 16,
+        "placeholder" : 32,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -88,
+        224,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabMinInactiveWidth",
+        "text" : "Minimum Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        24,
+        120,
+        72
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabPinnedWidth.help",
+        "text" : "Width of a pinned tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabPinnedWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "pinned",
+        "pin",
+        "tabPinnedWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabPinnedWidth"
+      ],
+      "range" : {
+        "max" : 120,
+        "min" : 24,
+        "placeholder" : 64,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -72,
+        216,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabPinnedWidth",
+        "text" : "Pinned Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -2229,7 +2482,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.terminal",
@@ -2305,7 +2558,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.browser",
@@ -2381,7 +2634,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.agent",
@@ -23997,7 +24250,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fc56c4fea858de0e8912bfab9adf86bb9257dc12d1863f26beaa423157c7dd63",
+  "schema_hash" : "371b199b20202d3937c045a7088a880d2606e16f54183abb49de7f23887a832f",
   "sections" : [
     {
       "id" : "general",
