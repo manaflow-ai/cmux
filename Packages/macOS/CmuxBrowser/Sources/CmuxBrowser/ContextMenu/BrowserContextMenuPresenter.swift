@@ -117,7 +117,8 @@ public struct BrowserContextMenuPresenter {
         case .screenshotSection:
             String(localized: "browser.contextMenu.screenshotSection", defaultValue: "Screenshot Section")
         case .moveTabToNewWorkspace:
-            String(localized: "browser.contextMenu.moveTabToNewWorkspace", defaultValue: "Move Tab to New Workspace")
+            // This key lives in the CmuxBrowser catalog; the other rows' keys are the app's.
+            String(localized: "browser.contextMenu.moveTabToNewWorkspace", defaultValue: "Move Tab to New Workspace", bundle: .module)
         case .toggleFocusMode(let isActive):
             isActive
                 ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")

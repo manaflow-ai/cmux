@@ -1584,6 +1584,8 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
         .accessibilityLabel(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools"))
+        // Chromium panels expose whether DevTools are open (the pressed fill); WebKit is unchanged.
+        .accessibilityAddTraits(panel.enginePage != nil && panel.isEngineDevToolsOpen ? .isSelected : [])
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
