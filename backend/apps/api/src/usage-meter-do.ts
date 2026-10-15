@@ -7,7 +7,7 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 import type { IncludedMode } from "./billing-catalog.ts"
 import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
-import { mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
+import { MIRROR_DEADLINE_MS, mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
 import { currentBillable, ensureBillingTables, markBillable, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
@@ -79,7 +79,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     }
     ensureUserTables(ctx.storage.sql)
     ensureBillingTables(ctx.storage.sql)
-    ensureCreditTables(ctx.storage.sql)
+    ensureCreditTables(ctx.storage)
   }
 
   /** The usage sync saw this team on a billable subscription (a usage item) whose period ends at `periodEnd` (s), with its included amount. */
@@ -277,7 +277,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       const { connectMysql } = await import("./mysql-connect.ts")
       const c = await connectMysql(this.env.PS_MYSQL!, { timeoutMs: 5_000 })
       client = c
-      const r = await mirrorCredits(this.ctx.storage, entity, c)
+      // One deadline for the whole run, so a hung query never holds the alarm (hold expiry, outbox) for long.
+      const deadline = Date.now() + MIRROR_DEADLINE_MS
+      const bounded = { query: (q: string, v?: Array<unknown>) => Promise.race([c.query(q, v), new Promise<never>((_, reject) => setTimeout(() => reject(Object.assign(new Error("mirror deadline"), { code: "MIRROR_DEADLINE" })), Math.max(0, deadline - Date.now())))]) }
+      const r = await mirrorCredits(this.ctx.storage, entity, bounded)
       if (r.entries > 0) console.log(JSON.stringify({ msg: "credits.mirror", team: entity, entries: r.entries, version: r.version }))
     } catch (e) {
       const err = (e as { code?: unknown; errno?: unknown } | null) ?? {}
@@ -429,7 +432,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter != 'model.spend_usd' AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
-    expireCreditHolds(this.ctx.storage, now)
+    expireCreditHolds(this.ctx.storage, now, this.mirrorOn())
     expireUserReservations(this.ctx.storage, now, utcMonth(now))
     const team = this.boundRow()?.entity
     if (this.mirrorOn() && team) await this.runMirror(team, now)

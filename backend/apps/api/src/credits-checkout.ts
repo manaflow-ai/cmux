@@ -76,7 +76,7 @@ export const createCheckout = async (env: Env, key: string, origin: string, team
   const meta = { app: "cmux", kind: CREDITS_KIND, team, by }
   // One payment-service customer per team: reuse the one the team's first paid top-up made.
   const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
-  const customer = await meter.creditCustomer(team, "test")
+  const customer = await meter.creditCustomer(team, stripeKeyMode(key) === "live" ? "live" : "test")
   const form: Record<string, string> = {
     mode: "payment",
     ...(customer ? { customer } : { customer_creation: "always" }),
@@ -89,7 +89,7 @@ export const createCheckout = async (env: Env, key: string, origin: string, team
     client_reference_id: team,
     ...Object.fromEntries(Object.entries(meta).flatMap(([k, v]) => [[`metadata[${k}]`, v], [`payment_intent_data[metadata][${k}]`, v]]))
   }
-  const s = (await stripeFetch(key, "POST", "/v1/checkout/sessions", form, once ? `cmux-credits:${team}:${cents}:${once.slice(-32)}:${Math.floor(now / 600_000)}` : `cmux-credits:${crypto.randomUUID()}`)) as { id: string; url: string }
+  const s = (await stripeFetch(key, "POST", "/v1/checkout/sessions", form, once ? `cmux-credits:${team}:${cents}:${customer ?? "new"}:${once.slice(-32)}:${Math.floor(now / 600_000)}` : `cmux-credits:${crypto.randomUUID()}`)) as { id: string; url: string }
   return { id: s.id, url: s.url }
 }
 

@@ -40,6 +40,13 @@ export const creditMirrorCases = async (db: mysql.Connection, team: string) => {
   await apply(db, mirrorStatements(team, [], { balance: 499_985_000, held: 0, version: 7, last_seq: 2, changed_at: t0 + 3000 }, [{ mode: "test", customer: "cus_test_other", at: t0 + 3000 }]))
   const [customers] = (await db.query("SELECT mode, customer_id FROM team_billing_customer WHERE team_id = ?", [team])) as any
   expect(customers).toEqual([{ mode: "test", customer_id: "cus_test_mirror1" }])
+  // A seq another key already has (a DO whose storage was reset) fails loudly; nothing is written.
+  const clash = entry(1, "grant:after-reset", "grant", 1, t0 + 5000)
+  const [[q, v]] = mirrorStatements(team, [clash], null, [])
+  await expect(db.query(q, v)).rejects.toThrow()
+  // A value too long for its column fails loudly too (not truncated).
+  const [[q2, v2]] = mirrorStatements(team, [{ ...entry(9, "grant:long-reason", "grant", 1, t0 + 6000), reason: "x".repeat(300) }], null, [])
+  await expect(db.query(q2, v2)).rejects.toThrow()
   // The ledger sums to the balance the DO reported.
   const [[sum]] = (await db.query("SELECT CAST(SUM(micros) AS SIGNED) AS s FROM credit_ledger WHERE team_id = ?", [team])) as any
   expect(Number(sum.s)).toBe(499_985_000)

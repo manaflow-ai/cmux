@@ -251,7 +251,7 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
       // It is back: both entries go in seq order, with the balance at the state's version.
       const r = await mirrorCredits(storage, team, ok)
       expect(r.entries).toBe(2)
-      expect(sent[0]![0]).toMatch(/^INSERT IGNORE INTO credit_ledger /)
+      expect(sent[0]![0]).toMatch(/^INSERT INTO credit_ledger .* ON DUPLICATE KEY UPDATE `entry_key` = IF\(`entry_key` = VALUES\(`entry_key`\), `entry_key`, NULL\)$/)
       expect(sent[0]![1].filter((_, i) => i % 12 === 1)).toEqual(["grant:m1", "charge:brain-m:task-1:0"])
       expect(sent[0]![1].filter((_, i) => i % 12 === 11)).toEqual([1, 2])
       expect(sent[1]![0]).toMatch(/^INSERT INTO credit_balance /)
