@@ -31034,8 +31034,7 @@
                 "personal"
               ]
             },
-            "default": "session",
-            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the personal sidebar order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
+            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the sidebar order. Absent: the sidebar order with the sidebar document (sidebar-doc-v1), else the session order. With the document the sidebar order is the document's order of this machine's workspaces (Pinned first, group members in place, unplaced ones where workspaces.newPlacement puts a new one); without it, the personal order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
           }
         },
         "extra": false
