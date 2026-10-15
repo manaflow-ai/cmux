@@ -35,7 +35,7 @@ export interface HeaderState {
   readonly lit: readonly string[];
   /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
   readonly floatingChat: boolean;
-  /// Debug Settings' Side sessions (/btw) is on (`agent.sideSessions`): the composer offers `/btw`
+  /// Debug Settings' Side sessions (/btw) is on (`agentPane.debug.sideSessions`): the composer offers `/btw`
   /// (aside/sideSessions.ts). Anything but `true` is off, so an app that never sends it keeps it off.
   readonly sideSessions: boolean;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
