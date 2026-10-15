@@ -11495,6 +11495,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         lastError = MobileShellConnectionError.invalidResponse
                         continue routeLoop
                     }
+                    // The serialized store write can suspend while another
+                    // pairing attempt takes ownership of the connection. Do
+                    // not let this superseded attempt schedule work or send
+                    // post-connect RPCs through its retired client.
+                    guard isConnectCurrent() else {
+                        await client.disconnect()
+                        return nil
+                    }
                     // The connect seam guarantees identity recovery for an
                     // anonymous (v2 QR) ticket on every supported runtime, not
                     // just push-event ones: when the event-listener task starts,
