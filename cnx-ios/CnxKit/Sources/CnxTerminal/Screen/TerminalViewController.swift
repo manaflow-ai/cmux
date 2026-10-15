@@ -963,8 +963,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         document = next
         documentTotal = max(0, documentTotal - rows)
         settingOffset = true
-        setContentHeight(next.contentHeight(cellHeight: cell.height))
+        // The offset first: following, the page is at the end, and a shorter
+        // content size set first clamps the offset to the new end, after
+        // which the shift moved it up a second time.
         if shiftY != 0 { scrollView.contentOffset.y += shiftY }
+        setContentHeight(next.contentHeight(cellHeight: cell.height))
         settingOffset = false
         place(atRow: presentedTop)
         selection.shiftRows(by: -rows)
@@ -1122,13 +1125,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func scrollbarReported(total: Int, offset: Int, visible: Int) {
+        let previous = scrollbar
+        // The new report first: the shift below scrolls the page, and the
+        // viewport check it runs must see Ghostty's viewport in the new
+        // numbering (in the old one, a followed end looked far below the
+        // rows on screen and was asked to move into the scrollback).
+        scrollbar = (total, offset, visible)
         if !model.isTUI, !replayGate.isReplaying,
-           let pruned = TerminalHistoryPrune.prunedRows(previousTotal: scrollbar.total, previousOffset: scrollbar.offset,
+           let pruned = TerminalHistoryPrune.prunedRows(previousTotal: previous.total, previousOffset: previous.offset,
                                                          total: total, offset: offset, requestedTop: viewportTop,
                                                          rows: max(1, surfaceRows)) {
             historyPruned(pruned)
         }
-        scrollbar = (total, offset, visible)
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
         updateDocument()

@@ -14,6 +14,15 @@ struct TerminalHistoryPrune {
     /// by far more than the history shrank.
     static func prunedRows(previousTotal: Int, previousOffset: Int, total: Int, offset: Int,
                            requestedTop: Int, rows: Int) -> Int? {
+        // Following (VERIFY-round8 claim 1b): the viewport is the active area
+        // before and after, so it moved with the end, not with the rows. The
+        // frame on screen (the old end) is the total's shrink higher in the
+        // new numbering: that is how far everything held moves up, so the
+        // page shows the same frame at the same place until the next present
+        // (the rows appended meanwhile are not in that frame yet).
+        if previousOffset == previousTotal - rows, offset == total - rows, total < previousTotal, total > rows {
+            return previousTotal - total
+        }
         guard previousOffset == requestedTop, total < previousTotal, total > rows,
               previousOffset < previousTotal - rows else { return nil }
         let pruned = previousOffset - offset
