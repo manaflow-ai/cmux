@@ -352,7 +352,8 @@ def s1350(sim, mac, j, agent, name):
     time.sleep(2.5)
     shot = tq.shot(f"{name}-grid")
     texts = [t for x, y, w, h, t in sim.ocr()]
-    prompt = any("Ask Codex" in t or "context left" in t for t in texts)
+    # The card's text is small: OCR often loses the "A" under the cursor block.
+    prompt = any(k in t for t in texts for k in ("Ask Codex", "Codex to do", "context left", "Worked for"))
     rows_seen = [t for t in texts if t.startswith("#00")]
     cards0 = sorted(e.label for e in sim.find(kind="Button") if (e.label or "").startswith("e2e-"))
     # + -> New Claude Chat (refused by the Mac's cwd policy).
@@ -361,7 +362,8 @@ def s1350(sim, mac, j, agent, name):
     labels, menu, menu_labels = [], None, []
     menu = open_claude_item(sim, menu_labels)
     if menu:
-        sim.tap_el(menu); touch("tap")
+        if menu != "refused":
+            sim.tap_el(menu); touch("tap")
         t_end = time.time() + 4
         while time.time() < t_end:
             labels.append((round(time.time() - t0, 2), sorted(e.label for e in sim.find(kind="Button")
@@ -404,6 +406,10 @@ def open_claude_item(sim, seen):
             agent = [l for l in ls if "Agent Chat" in l]
             if claude:
                 return sim.find(label=claude[0])[0]
+            refusal = [l for l in ls if "allow agent chats" in l or "Can't start" in l]
+            if refusal:
+                # This build's (+) "New" starts the agent chat at once; the Mac refused it.
+                return "refused"
             if agent:
                 sim.tap_el(sim.find(label=agent[0])[0]); touch("tap")
                 el = sim.wait(contains="Claude", timeout=4)
