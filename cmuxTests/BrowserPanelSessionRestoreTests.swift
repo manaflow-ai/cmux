@@ -289,7 +289,7 @@ struct BrowserPanelSessionRestoreTests {
         let sourceBrowser = try #require(source.newBrowserSurface(
             inPane: sourcePane,
             url: URL(string: "about:blank"),
-            focus: false
+            focus: true
         ))
         let snapshot = source.sessionSnapshot(includeScrollback: false)
 
