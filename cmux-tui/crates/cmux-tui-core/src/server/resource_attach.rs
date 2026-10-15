@@ -937,10 +937,7 @@ fn with_internal_request_id(
         .and_then(Value::as_str)
         .unwrap_or("no cause given")
         .to_owned();
-    eprintln!(
-        "cmux-tui: internal failure in {} (Request ID {id}): {cause}",
-        operation.wire_name()
-    );
+    eprintln!("cmux-tui: internal failure in {} (Request ID {id}): {cause}", operation.wire_name());
     if let Some(details) = error.details.as_object_mut() {
         let extra = details.entry("extra").or_insert_with(|| Value::Object(Default::default()));
         if let Some(extra) = extra.as_object_mut() {
