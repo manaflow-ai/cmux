@@ -4802,6 +4802,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     hasher.combine(0)
                 case .notifications:
                     hasher.combine(1)
+                case .home:
+                    hasher.combine(2)
                 }
 
                 if let window = liveRoute.window {
@@ -14512,6 +14514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .home: return "home"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -15398,6 +15401,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            matchConfiguredShortcut(event: event, action: .agentInbox) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
+            return true
+        }
+
+        // Open Chief. When chief.enabled is off the shortcut is not consumed,
+        // so the keystroke still reaches the focused surface.
+        if matchConfiguredShortcut(event: event, action: .openChief),
+           openChiefHome(
+               preferredWindow: preferredMainWindowContextForShortcutRouting(event: event)?.window,
+               source: "shortcut.openChief"
+           ) {
             return true
         }
 

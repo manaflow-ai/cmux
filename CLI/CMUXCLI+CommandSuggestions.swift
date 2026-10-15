@@ -69,6 +69,7 @@ extension CMUXCLI {
         "browser-status",
         "capabilities",
         "capture-pane",
+        "chief",
         "claude-hook",
         "claude-teams",
         "clear-history",

@@ -609,6 +609,7 @@ extension Workspace {
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
         var coderouterGuideSnapshot: SessionCoderouterGuidePanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
+        var chiefSnapshot: SessionChiefPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -826,6 +827,11 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             notificationsPanelSnapshot = SessionNotificationsPanelSnapshot()
+        case .chief:
+            guard let chiefPanel = panel as? ChiefPanel else { return nil }
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            chiefSnapshot = SessionChiefPanelSnapshot(conversationID: chiefPanel.conversationID?.rawValue)
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -867,7 +873,8 @@ extension Workspace {
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
             coderouterGuide: coderouterGuideSnapshot,
-            notificationsPanel: notificationsPanelSnapshot
+            notificationsPanel: notificationsPanelSnapshot,
+            chief: chiefSnapshot
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -2371,6 +2378,11 @@ extension Workspace {
                   let notificationsPanel = newNotificationsSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: notificationsPanel.id)
             return notificationsPanel.id
+        case .chief:
+            guard let chiefSnapshot = snapshot.chief,
+                  let chiefPanel = restoreChiefSurface(inPane: paneId, snapshot: chiefSnapshot) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: chiefPanel.id)
+            return chiefPanel.id
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:

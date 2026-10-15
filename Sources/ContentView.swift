@@ -993,6 +993,8 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
+    /// Set the first time Chief Home is shown in this window; Home stays mounted after that.
+    @State private var hasMountedChiefHome = false
     var observedWindow: NSWindow? { observedWindowReference.window }
     @State private var workspaceSwitchPortalSignalRouter = WorkspaceSwitchPortalSignalRouter()
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
@@ -1705,6 +1707,7 @@ struct ContentView: View {
             sessionIndexStore: sessionIndexStore,
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
+            isChiefHomeSelected: sidebarSelectionState.selection == .home,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
@@ -1820,17 +1823,22 @@ struct ContentView: View {
         }
         let mountedWorkspaceIdSet = Set(presentationMountedIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
+        // Chief Home covers the content area without unmounting workspaces:
+        // terminals live in the window portal above SwiftUI, so the selected
+        // workspace must also report itself hidden and input-inactive.
+        let isShowingWorkspaces = sidebarSelectionState.selection != .home
 
         return ZStack {
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
+                    let isPresentedWorkspace = isSelectedWorkspace && isShowingWorkspaces
                     // Never retain a live source workspace as a loading cover:
                     // that makes mount ownership depend on a later frame signal.
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: isSelectedWorkspace,
-                        isWorkspaceInputActive: isSelectedWorkspace,
+                        isWorkspaceVisible: isPresentedWorkspace,
+                        isWorkspaceInputActive: isPresentedWorkspace,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: isSelectedWorkspace ? 2 : 0,
@@ -1854,6 +1862,16 @@ struct ContentView: View {
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
+
+            // Mounted on first entry, then kept so Chief's scroll position and
+            // draft survive leaving and re-entering Home.
+            if hasMountedChiefHome || !isShowingWorkspaces {
+                ChiefHomeRepresentable(isActive: !isShowingWorkspaces)
+                    .opacity(isShowingWorkspaces ? 0 : 1)
+                    .allowsHitTesting(!isShowingWorkspaces)
+                    .accessibilityHidden(isShowingWorkspaces)
+                    .zIndex(isShowingWorkspaces ? 0 : 3)
+            }
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
@@ -2747,6 +2765,11 @@ struct ContentView: View {
             }
             reconcileMountedWorkspaceIds(selectedId: authoritativeSelection)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+            // Any workspace switch (shortcut, palette, socket, notification
+            // open, new workspace) leaves Chief Home for the workspace.
+            if sidebarSelectionState.selection == .home {
+                sidebarSelectionState.selection = .tabs
+            }
             guard let authoritativeSelection else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [authoritativeSelection]
@@ -2755,6 +2778,30 @@ struct ContentView: View {
                 }
             }
             updateTitlebarText()
+        })
+
+        view = AnyView(view.onChange(of: sidebarSelectionState.selection) { oldValue, newValue in
+            ChiefHomeNavigation.selectionDidChange(
+                from: oldValue,
+                to: newValue,
+                window: observedWindow,
+                tabManager: tabManager,
+                markHomeMounted: { hasMountedChiefHome = true }
+            )
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .cmuxOpenChiefHome)) { notification in
+            guard ChiefHomeNavigation.notification(
+                notification, targets: observedWindow, sidebarSelectionState: sidebarSelectionState
+            ) else { return }
+            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState).open()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .cmuxToggleChiefHome)) { notification in
+            guard ChiefHomeNavigation.notification(
+                notification, targets: observedWindow, sidebarSelectionState: sidebarSelectionState
+            ) else { return }
+            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState).toggle()
         })
 
         view = AnyView(view.onChange(of: showModifierHoldHints) { _, _ in
@@ -2821,8 +2868,13 @@ struct ContentView: View {
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
-            sidebarSelectionState.selection = .tabs
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { notification in
+            // The post is app-wide; only a workspace of this window leaves its Chief Home.
+            let focusedTabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            if sidebarSelectionState.selection != .home
+                || focusedTabId.map({ id in tabManager.tabs.contains { $0.id == id } }) ?? true {
+                sidebarSelectionState.selection = .tabs
+            }
             scheduleTitlebarTextRefresh()
         })
 
@@ -11361,6 +11413,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
+            && lhs.isChiefHomeSelected == rhs.isChiefHomeSelected
             && lhs.chromeBackgroundColor.isEqual(rhs.chromeBackgroundColor)
     }
 
@@ -11369,6 +11422,8 @@ struct VerticalTabsSidebar: View, Equatable {
     let sessionIndexStore: SessionIndexStore
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
+    /// Chief Home is the window's content: the Home row is selected and no workspace row is.
+    var isChiefHomeSelected: Bool = false
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let windowId: UUID
@@ -11987,6 +12042,19 @@ struct VerticalTabsSidebar: View, Equatable {
                     onSendFeedback: onSendFeedback
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .overlay(alignment: .top) {
+            // Pinned above every list implementation, in the band
+            // SidebarWorkspaceListMetrics reserves below the titlebar.
+            if isPresented {
+                SidebarChiefHomeRow(
+                    isSelected: isChiefHomeSelected,
+                    settings: tabItemSettings,
+                    globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+                    onSelect: { selection = selection == .home ? .tabs : .home }
+                )
+                .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
             }
         }
         .accessibilityIdentifier("Sidebar")
@@ -15306,7 +15374,7 @@ struct VerticalTabsSidebar: View, Equatable {
             index: index,
             workspaceCount: renderContext.workspaceCount,
             workspace: workspaceSnapshot,
-            isActive: tabManager.selectedTabId == tab.id,
+            isActive: tabManager.selectedTabId == tab.id && !isChiefHomeSelected,
             isMultiSelected: selectedTabIds.contains(tab.id),
             hasUserCustomTitle: tab.effectiveCustomTitleSource == .user,
             hasCustomTitle: tab.hasCustomTitle,
@@ -18394,4 +18462,6 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
 enum SidebarSelection {
     case tabs
     case notifications
+    /// Chief Home fills the content area; workspaces stay mounted but hidden and input-inactive.
+    case home
 }

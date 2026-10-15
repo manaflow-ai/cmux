@@ -1,0 +1,102 @@
+import CmuxFoundation
+import CmuxSettings
+import SwiftUI
+
+/// Settings card for Chief, the Home agent (`chief.*`).
+///
+/// One card, laid out like a provider block: an on/off row, then the harness
+/// picker and the model and effort fields. The harness rows stay visible while
+/// Chief is off so search results always land on a row.
+@MainActor
+struct ChiefSettingsCard: View {
+    @State private var enabledModel: DefaultsValueModel<Bool>
+    @State private var harnessModel: DefaultsValueModel<String>
+    @State private var modelModel: DefaultsValueModel<String>
+    @State private var effortModel: DefaultsValueModel<String>
+    private let controlWidth: CGFloat
+
+    init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, controlWidth: CGFloat) {
+        _enabledModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.chief.enabled))
+        _harnessModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.chief.harness))
+        _modelModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.chief.model))
+        _effortModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.chief.effort))
+        self.controlWidth = controlWidth
+    }
+
+    var body: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("chief.enabled"),
+                String(localized: "settings.automation.chief", defaultValue: "Chief", bundle: .module),
+                subtitle: enabledModel.current
+                    ? String(localized: "settings.automation.chief.subtitleOn", defaultValue: "Home and Open Chief are shown.", bundle: .module)
+                    : String(localized: "settings.automation.chief.subtitleOff", defaultValue: "Home and Chief entry points are hidden.", bundle: .module)
+            ) {
+                Toggle("", isOn: Binding(get: { enabledModel.current }, set: { enabledModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsChiefEnabledToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("chief.harness"),
+                String(localized: "settings.automation.chief.harness", defaultValue: "Chief Harness", bundle: .module),
+                subtitle: String(localized: "settings.automation.chief.harness.subtitle", defaultValue: "The agent Chief runs on.", bundle: .module),
+                controlWidth: controlWidth
+            ) {
+                Picker("", selection: Binding(get: { harnessSelection }, set: { harnessModel.set($0.rawValue) })) {
+                    ForEach(ChiefHarness.allCases, id: \.self) { harness in
+                        Text(Self.displayName(for: harness)).tag(harness)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsChiefHarnessPicker")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("chief.model"),
+                String(localized: "settings.automation.chief.model", defaultValue: "Chief Model", bundle: .module),
+                subtitle: String(localized: "settings.automation.chief.model.subtitle", defaultValue: "Leave empty to use the harness default.", bundle: .module)
+            ) {
+                TextField(
+                    String(localized: "settings.automation.chief.default.placeholder", defaultValue: "Harness default", bundle: .module),
+                    text: Binding(get: { modelModel.current }, set: { modelModel.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsChiefModelField")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("chief.effort"),
+                String(localized: "settings.automation.chief.effort", defaultValue: "Chief Effort", bundle: .module),
+                subtitle: String(localized: "settings.automation.chief.effort.subtitle", defaultValue: "Reasoning effort, such as low, medium, or high. Leave empty to use the harness default.", bundle: .module)
+            ) {
+                TextField(
+                    String(localized: "settings.automation.chief.default.placeholder", defaultValue: "Harness default", bundle: .module),
+                    text: Binding(get: { effortModel.current }, set: { effortModel.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsChiefEffortField")
+            }
+        }
+        .task {
+            startSettingsObservation([enabledModel, harnessModel, modelModel, effortModel])
+        }
+    }
+
+    private var harnessSelection: ChiefHarness {
+        ChiefHarness(rawValue: harnessModel.current) ?? .defaultHarness
+    }
+
+    private static func displayName(for harness: ChiefHarness) -> String {
+        switch harness {
+        case .claude:
+            return String(localized: "settings.automation.chief.harness.claude", defaultValue: "Claude Code", bundle: .module)
+        case .codex:
+            return String(localized: "settings.automation.chief.harness.codex", defaultValue: "Codex", bundle: .module)
+        }
+    }
+}

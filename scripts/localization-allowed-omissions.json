@@ -5140,5 +5140,70 @@
         ]
       }
     }
+  },
+  "menu.view.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "command.openChief.subtitle": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.claude": {
+    "source": "Claude Code",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.codex": {
+    "source": "Codex",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   }
 }

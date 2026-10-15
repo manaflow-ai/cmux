@@ -226,6 +226,14 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "chief": [
+                    "enabled": ChiefCatalogSection().enabled.defaultValue,
+                    "harness": ChiefCatalogSection().harness.defaultValue,
+                    "model": ChiefCatalogSection().model.defaultValue,
+                    "effort": ChiefCatalogSection().effort.defaultValue,
+                ],
+            ],
+            [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
                     "defaultZoomLevel": BrowserZoomSettings.defaultLevel,

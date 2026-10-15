@@ -72,7 +72,17 @@ enum RightSidebarChromeMetrics {
 }
 
 enum SidebarWorkspaceListMetrics {
-    static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    /// Top of the pinned Chief Home row, just below the titlebar band.
+    static let homeRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    /// One-line navigation row height (the macOS medium sidebar row).
+    static let homeRowHeight: CGFloat = 28
+    /// Space between the Home row and the first workspace row; the list's
+    /// top fade runs through it.
+    static let homeRowBottomGap: CGFloat = 8
+    static let firstRowTopOffset: CGFloat = homeRowTopOffset + homeRowHeight + homeRowBottomGap
+    /// Scrolled workspace rows are fully hidden above this line, so they never
+    /// draw behind the titlebar controls or the Home row.
+    static let topScrimClearHeight: CGFloat = homeRowTopOffset + homeRowHeight
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
@@ -81,7 +91,7 @@ enum SidebarWorkspaceListMetrics {
     /// which left the first row partly transparent at rest; over a light
     /// terminal-matched backdrop that washed out the selected row's top.
     static let topScrimHeight: CGFloat = firstRowTopOffset
-    static let bottomScrimHeight: CGFloat = firstRowTopOffset + 20
+    static let bottomScrimHeight: CGFloat = homeRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
         rowOuterHorizontalPadding + rowContentHorizontalPadding

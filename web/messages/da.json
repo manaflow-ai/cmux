@@ -2258,6 +2258,13 @@
               "enabled": "Når et eksternt tmux-arbejdsområde er valgt, starter “Nyt arbejdsområde” en tmux-session på arbejdsområdets vært."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Hjem-agenten: om den vises, og hvilken harness, model og indsats den bruger.",
+          "enabled": "Vis Hjem-rækken og Chief-indgange. Når false, skjules Hjem-rækken, genvejen Åbn Chief, menupunktet og kommandopalettens poster.",
+          "harness": "Agent-harness, som Chief kører på: claude (Claude Code) eller codex (Codex).",
+          "model": "Model, der sendes til harnessen. Lad stå tom for at bruge harnessens standard.",
+          "effort": "Ræsonneringsindsats, der sendes til harnessen, f.eks. low, medium eller high. Lad stå tom for at bruge harnessens standard."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

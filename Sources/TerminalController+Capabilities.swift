@@ -325,6 +325,12 @@ extension TerminalController {
             "agent.message.mark_read",
             "agent.message.poll",
             "agent.message.settings",
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.stop",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
@@ -488,6 +494,7 @@ extension TerminalController {
         }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
+        methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
 
