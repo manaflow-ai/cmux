@@ -13,26 +13,38 @@ use serde_json::{Value, json};
 
 use super::*;
 
+/// An acpmux config with the test agent as `fake` (the default) and, when
+/// `doomed`, as `doomed` too.
+fn acpmux_config(doomed: bool) -> Value {
+    let harness = json!({"argv": ["python3", FAKE_AGENT], "family": "fake"});
+    let mut harnesses = json!({"fake": harness});
+    if doomed {
+        harnesses["doomed"] = harness;
+    }
+    json!({"harnesses": harnesses, "defaultHarness": "fake"})
+}
+
 /// A machine whose acpmux runs the test agent, its work folder trusted.
 fn machine(name: &str) -> Daemon {
-    let config = json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
-        "defaultHarness": "fake",
-    });
-    let daemon = Daemon::start_with(name, None, Some(config));
+    let daemon = Daemon::start_with(name, None, Some(acpmux_config(true)));
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
-    // The acpmux the daemon reaches, started now (the app starts it at launch).
-    let started = Command::new(bin())
-        .args(["acp", "daemon", "start"])
+    acpmux_daemon(&daemon, "start");
+    daemon
+}
+
+/// `cmux acp daemon <action>` for the acpmux the daemon reaches (the app
+/// starts it at launch).
+fn acpmux_daemon(daemon: &Daemon, action: &str) {
+    let done = Command::new(bin())
+        .args(["acp", "daemon", action])
         .env("HOME", daemon.dir.join("home"))
         .env("ACPMUX_HOME", daemon.dir.join("acpmux"))
         .env_remove("ACPMUX_SOCKET")
         .output()
         .unwrap();
-    assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
-    daemon
+    assert!(done.status.success(), "{action}: {}", String::from_utf8_lossy(&done.stderr));
 }
 
 /// A new workspace of the daemon, in the UUID form the app hands chats.
@@ -78,10 +90,7 @@ impl Acp {
     }
 
     fn call(&mut self, method: &str, params: Value) -> Value {
-        let id = self.next;
-        self.next += 1;
-        let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        let id = self.send(method, params);
         loop {
             let mut line = String::new();
             assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "acpmux closed");
@@ -91,15 +100,30 @@ impl Acp {
             }
         }
     }
+
+    /// Sends a request without waiting for its answer; its id.
+    fn send(&mut self, method: &str, params: Value) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        id
+    }
 }
 
 /// A chat started as the app starts one in `workspace` (none: a chat that
 /// runs in no workspace of this daemon).
 fn chat(daemon: &Daemon, workspace: Option<&str>) -> String {
+    chat_of(daemon, workspace, "fake")
+}
+
+/// `chat`, run by acpmux harness `harness`.
+fn chat_of(daemon: &Daemon, workspace: Option<&str>, harness: &str) -> String {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
-    let mut params = json!({"cwd": work.to_str().unwrap(), "mcpServers": []});
+    let mut params = json!({"cwd": work.to_str().unwrap(), "mcpServers": [],
+                            "_meta": {"acpmux": {"harness": harness}}});
     if let Some(workspace) = workspace {
-        params["_meta"] = json!({"acpmux": {"env": {"CMUX_WORKSPACE_ID": workspace}}});
+        params["_meta"]["acpmux"]["env"] = json!({"CMUX_WORKSPACE_ID": workspace});
     }
     let created = Acp::connect(daemon).call("session/new", params);
     created["result"]["sessionId"]
@@ -133,8 +157,12 @@ fn cmux(daemon: &Daemon, caller: Option<&str>) -> Command {
 /// `cmux --json agents chat <args>`: its exit status and JSON (stdout, else
 /// stderr).
 fn agents_chat(daemon: &Daemon, caller: Option<&str>, args: &[&str]) -> (Option<i32>, Value) {
-    let output =
-        cmux(daemon, caller).args(["--json", "agents", "chat"]).args(args).output().unwrap();
+    chat_json(cmux(daemon, caller), args)
+}
+
+/// `command --json agents chat <args>`, as `agents_chat`.
+fn chat_json(mut command: Command, args: &[&str]) -> (Option<i32>, Value) {
+    let output = command.args(["--json", "agents", "chat"]).args(args).output().unwrap();
     let text = if output.stdout.is_empty() { &output.stderr } else { &output.stdout };
     let value = serde_json::from_slice(text).unwrap_or_else(|_| {
         json!({"unparsed": String::from_utf8_lossy(text),
@@ -223,6 +251,11 @@ fn items_of<'a>(items: &'a [Value], role: &str) -> Vec<&'a Value> {
     items.iter().filter(|item| item["role"] == role).collect()
 }
 
+/// The tool item of tool call `id`.
+fn tool_item<'a>(items: &'a [Value], id: &str) -> Option<&'a Value> {
+    items.iter().find(|item| item["tool"]["id"] == id)
+}
+
 #[test]
 fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     let daemon = machine("chat-send");
@@ -298,7 +331,8 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     assert!(own[0].get("origin").is_none(), "the person's prompt has no agent origin: {next}");
     let calls = items_of(later, "tool");
     assert_eq!(calls.len(), 1, "{next}");
-    assert_eq!(calls[0]["text"], "ls", "{next}");
+    // A harness's title can quote the tool's input; a read never shows it.
+    assert_eq!(calls[0]["text"], "", "{next}");
     assert_eq!(calls[0]["tool"]["kind"], "read", "{next}");
     assert_eq!(calls[0]["tool"]["status"], "completed", "{next}");
 }
@@ -306,6 +340,9 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
 #[test]
 fn a_chat_send_refuses_its_own_chat_unknown_or_unscoped_chats_and_bad_text() {
     let daemon = machine("chat-refuse");
+    // A workspace of another cmux session.
+    let other = Daemon::start_with("chat-refuse-other", None, None);
+    let other_workspace = workspace(&other);
     let workspace = workspace(&daemon);
     let sender = chat(&daemon, Some(&workspace));
     let receiver = chat(&daemon, Some(&workspace));
@@ -352,11 +389,45 @@ fn a_chat_send_refuses_its_own_chat_unknown_or_unscoped_chats_and_bad_text() {
     assert_eq!(results[0]["structuredContent"]["error"]["code"], "chat.own_chat");
     assert_eq!(results[1]["structuredContent"]["error"]["code"], "chat.out_of_scope");
 
+    // The text is one argument, or follows --: a flag in unquoted text is
+    // never taken as cmux's own (`--session other`).
+    let (code, split) = agents_chat(
+        &daemon,
+        Some(&sender),
+        &["send", &receiver, "run", "it", "--session", "other"],
+    );
+    assert_eq!(code, Some(2), "{split}");
+    assert_eq!(error_of(&split)["code"], "usage.invalid", "{split}");
+    let (code, words) = agents_chat(&daemon, Some(&sender), &["send", &receiver, "two", "words"]);
+    assert_eq!(code, Some(2), "{words}");
+
+    // The caller's own chat named by its name or an id prefix, and a caller
+    // that only acpmux names (ACPMUX_SESSION_ID).
+    let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": sender}));
+    let name = info["result"]["name"].as_str().unwrap_or_else(|| panic!("{info}")).to_owned();
+    for own_name in [name.as_str(), &sender[..8]] {
+        let (code, own) =
+            agents_chat(&daemon, Some(&sender), &["send", own_name, "--", "hello me"]);
+        assert_eq!(code, Some(3), "{own_name}: {own}");
+        assert_eq!(error_of(&own)["code"], "chat.own_chat", "{own_name}: {own}");
+    }
+    let mut acpmux_agent = cmux(&daemon, None);
+    acpmux_agent.env("ACPMUX_SESSION_ID", &sender);
+    let (code, own) = chat_json(acpmux_agent, &["send", &sender, "--", "hello me"]);
+    assert_eq!(code, Some(3), "{own}");
+    assert_eq!(error_of(&own)["code"], "chat.own_chat", "{own}");
+
+    // A chat in a workspace of another cmux session is out of scope.
+    let foreign = chat(&daemon, Some(&other_workspace));
+    let (code, outside) = agents_chat(&daemon, Some(&sender), &["send", &foreign, "--", "hi"]);
+    assert_eq!(code, Some(3), "{outside}");
+    assert_eq!(error_of(&outside)["code"], "chat.out_of_scope", "{outside}");
+
     // Nothing was sent anywhere.
     let (code, page) = agents_chat(&daemon, None, &["read", &receiver]);
     assert_eq!(code, Some(0), "{page}");
     assert_eq!(page["items"], json!([]), "a refused send reaches no chat: {page}");
-    for chat in [&sender, &elsewhere] {
+    for chat in [&sender, &elsewhere, &foreign] {
         let events = Acp::connect(&daemon).call("_acpmux/events", json!({"sessionId": chat}));
         let prompts = events["result"]["events"]
             .as_array()
@@ -366,4 +437,128 @@ fn a_chat_send_refuses_its_own_chat_unknown_or_unscoped_chats_and_bad_text() {
             .count();
         assert_eq!(prompts, 0, "{chat} got a prompt: {events}");
     }
+
+    // One key is one message: the same key with other text is refused.
+    let keyed = |text: &str| {
+        agents_chat(
+            &daemon,
+            Some(&sender),
+            &["--idempotency-key", "chat-conflict", "send", &receiver, "--", text],
+        )
+    };
+    let (code, first) = keyed("first");
+    assert_eq!(code, Some(0), "{first}");
+    let (code, conflict) = keyed("second");
+    assert_eq!(code, Some(3), "{conflict}");
+    assert_eq!(error_of(&conflict)["code"], "idempotency.conflict", "{conflict}");
+}
+
+#[test]
+fn a_read_holds_back_a_running_tool_call_and_never_shows_tool_titles() {
+    let daemon = machine("chat-tools");
+    let workspace = workspace(&daemon);
+    let reader = chat(&daemon, Some(&workspace));
+    let worker = chat(&daemon, Some(&workspace));
+    let gate = daemon.dir.join("gate");
+    assert!(Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    // Two tool calls run at once; the second ends while the first runs on.
+    let mut person = Acp::connect(&daemon);
+    person.send(
+        "session/prompt",
+        json!({"sessionId": worker, "prompt": [{"type": "text",
+               "text": format!("parallel-tools: {}", gate.display())}]}),
+    );
+    let page = read_until(&daemon, &reader, json!({"target": worker}), |items| {
+        tool_item(items, "fast-1").is_some_and(|fast| fast["tool"]["status"] == "completed")
+    });
+    let items = page["items"].as_array().unwrap();
+    let slow = tool_item(items, "slow-1").unwrap_or_else(|| panic!("{page}"));
+    assert_eq!(slow["tool"]["status"], "pending", "{page}");
+    assert_eq!(slow["partial"], true, "a running tool call is not finished: {page}");
+    assert!(tool_item(items, "fast-1").unwrap().get("partial").is_none(), "{page}");
+    let next_after = page["next_after"].as_u64().unwrap();
+    assert!(
+        next_after < slow["id"].as_u64().unwrap(),
+        "next_after never passes a running item: {page}"
+    );
+    // A harness titles a call with its input (a command, a path): a read
+    // shows only the call's kind and status.
+    for item in items_of(items, "tool") {
+        assert_eq!(item["text"], "", "{page}");
+    }
+    assert!(!page.to_string().contains("fake-secret"), "{page}");
+    assert!(!page.to_string().contains("secret-notes"), "{page}");
+
+    fs::write(&gate, "go").unwrap();
+    let next =
+        read_until(&daemon, &reader, json!({"target": worker, "after": next_after}), |items| {
+            items.iter().any(|item| item["role"] == "turn_end")
+        });
+    let later = next["items"].as_array().unwrap();
+    let slow = tool_item(later, "slow-1").unwrap_or_else(|| panic!("read again whole: {next}"));
+    assert_eq!(slow["tool"]["status"], "completed", "{next}");
+    assert!(slow.get("partial").is_none(), "{next}");
+    assert!(!next.to_string().contains("fake-secret"), "{next}");
+    drop(person);
+}
+
+#[test]
+fn a_read_moves_past_a_long_run_of_events_with_no_items() {
+    let daemon = machine("chat-thoughts");
+    let workspace = workspace(&daemon);
+    let thinker = chat(&daemon, Some(&workspace));
+    // More thought chunks than one read scans, then the answer.
+    let prompted = Acp::connect(&daemon).call(
+        "session/prompt",
+        json!({"sessionId": thinker, "prompt": [{"type": "text", "text": "thoughts: 10500"}]}),
+    );
+    assert!(prompted.get("error").is_none(), "{prompted}");
+
+    let mut after = 0;
+    let mut items = Vec::new();
+    for _ in 0..6 {
+        let (code, page) =
+            agents_chat(&daemon, None, &["read", &thinker, "--after", &after.to_string()]);
+        assert_eq!(code, Some(0), "{page}");
+        items.extend(page["items"].as_array().cloned().unwrap_or_default());
+        if items.iter().any(|item| item["role"] == "turn_end") {
+            break;
+        }
+        assert_eq!(page["has_more"], true, "{page}");
+        after = page["next_after"].as_u64().unwrap_or_else(|| panic!("{page}"));
+    }
+    assert!(
+        items.iter().any(|item| item["role"] == "turn_end"),
+        "the reads never got past the thoughts: {items:?}"
+    );
+    let answers = items_of(&items, "assistant");
+    assert_eq!(answers.len(), 1, "{items:?}");
+    assert_eq!(answers[0]["text"], "thought through", "{items:?}");
+}
+
+#[test]
+fn a_chat_send_that_cannot_reach_its_chat_fails_with_its_receipt() {
+    let daemon = machine("chat-undelivered");
+    let workspace = workspace(&daemon);
+    let sender = chat(&daemon, Some(&workspace));
+    let doomed = chat_of(&daemon, Some(&workspace), "doomed");
+    // acpmux restarts without the chat's harness: the chat stays, but no
+    // prompt can start its agent, so acpmux refuses one.
+    acpmux_daemon(&daemon, "shutdown");
+    fs::write(daemon.dir.join("acpmux/config.json"), acpmux_config(false).to_string()).unwrap();
+    acpmux_daemon(&daemon, "start");
+
+    let (code, receipt) =
+        agents_chat(&daemon, Some(&sender), &["send", &doomed, "--", "are you there"]);
+    assert_eq!(code, Some(1), "{receipt}");
+    assert_eq!(receipt["action"], "chat.send", "{receipt}");
+    assert_eq!(receipt["result"]["state"], "failed", "{receipt}");
+    assert!(receipt["result"]["message_id"].is_string(), "{receipt}");
+
+    let (_, results) =
+        mcp(&daemon, &sender, &[("agents_chat_send", json!({"target": doomed, "text": "there?"}))]);
+    assert_eq!(results[0]["isError"], true, "{}", results[0]);
+    let receipt = &results[0]["structuredContent"];
+    assert_eq!(receipt["result"]["state"], "failed", "{receipt}");
+    assert!(receipt["result"]["message_id"].is_string(), "{receipt}");
 }
