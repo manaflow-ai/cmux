@@ -27,6 +27,8 @@ final class DesktopNotifier: NSObject {
         var attachment: Data?
         /// The banner takes a typed reply (`notify --reply`).
         var reply = false
+        /// The banner answers an agent chat's permission prompt (Allow once, Deny).
+        var approval = false
     }
 
     /// Banner clicked: the notification id and its tab's surface handle.

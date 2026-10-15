@@ -46,6 +46,12 @@ final class NotificationCenterService {
     /// Agent permission prompts to the person's feed, while
     /// `feed.agentPermissionPrompts` is on (cx-aocz).
     @ObservationIgnored var permissionBridge: AcpmuxPermissionFeedBridge?
+    /// Reads and answers agent chat prompts for approval banners (cx-kz6m0.2); tests stand in.
+    @ObservationIgnored var approvalAnswerer: (any AgentApprovalAnswering)?
+    /// This Mac's `install:<id>`: only a chat whose session runs here gets Allow once and Deny.
+    @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
+    /// Approval banners posted this launch, by banner id: what Allow once or Deny answers.
+    @ObservationIgnored var approvalBanners: [String: (approval: AgentApproval, tab: String)] = [:]
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
