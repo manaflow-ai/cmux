@@ -5,7 +5,7 @@ their own icons though"). Regression: after #20492 and 217687e89d5f rows drew th
 their agent's brand mark.
 
 Launches the tagged app itself (no activation, a scratch cmux.json, an isolated Chief home) and
-builds: terminal (plain), claude (a Claude Code session in its terminal), codex (a Codex session),
+builds: terminal (plain), claude (Claude Code reports working in its terminal), codex (the same for Codex),
 web (a browser tab in front with a favicon), custom icon (`workspace update --icon`), and a pinned
 workspace with a Claude session (a pinned tile). Tab rows are listed. For compact, comfortable,
 expanded and minimal it writes `debug.sidebar_rows` and a window shot ($NX_CAPTURE) and checks the
@@ -184,7 +184,8 @@ def agent(name, source):
     new_workspace(name)
     terminal = focused_terminal()
     check(bool(terminal), f"{name}: the workspace has a terminal")
-    cli("agent", "hook", "emit", "--source", source, "--event", "SessionStart", "--terminal", terminal or "")
+    # The agent reports working in its terminal: the tab carries the agent's brand (TabModel.agentBrand).
+    cli("agent", "report", "--terminal", terminal or "", "--state", "working", "--source", source)
 
 
 def workspace_rows(state):
@@ -219,7 +220,7 @@ try:
     new_workspace("custom icon")
     cli("workspace", "current", "update", "--icon", "\U0001F680")
     pinned = new_workspace("pinned claude")
-    cli("agent", "hook", "emit", "--source", "claude", "--event", "SessionStart", "--terminal", focused_terminal() or "")
+    cli("agent", "report", "--terminal", focused_terminal() or "", "--state", "working", "--source", "claude")
     action("palette.toggleWorkspacePin", target={"kind": "workspace", "id": pinned})
     check(bool(wait(lambda: any(str(i.get("ref", "")).endswith(":" + str(pinned)) for i in sidebar().get("items") or []), 10)),
           "pinned: the workspace shows in the pinned band")
