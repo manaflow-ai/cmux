@@ -409,3 +409,26 @@ async fn throughput_probe() {
         connected.link.close("done");
     }
 }
+
+/// Like the backend (team-hub.ts), the fake keeps one socket per device: a
+/// second socket for the same device closes the first with 4000 "replaced",
+/// so a client can tell its warm socket is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_socket_for_a_device_replaces_the_first() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let device = uuid::Uuid::new_v4().to_string();
+    let first = SignalingClient::connect(&server.base_url, "user:alice", "team", &device).await.unwrap();
+    let mut events = first.events();
+    let _second = SignalingClient::connect(&server.base_url, "user:alice", "team", &device).await.unwrap();
+    let reason = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(cnx_link::signaling::SignalingEvent::Disconnected(reason)) = events.recv().await {
+                return reason;
+            }
+        }
+    })
+    .await
+    .expect("the first socket closes");
+    assert!(reason.contains("4000") && reason.contains("replaced"), "{reason}");
+    assert!(first.closed_reason().is_some());
+}
