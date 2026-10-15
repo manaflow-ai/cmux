@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import Observation
 import QuartzCore
 
 /// Group header (Lawrence 2026-10-11, cx-qno.22: the solid color bar is
@@ -18,17 +19,18 @@ import QuartzCore
 /// the group editor (cx-rcby, Lawrence 2026-10-08); a right-click shows the
 /// group's full menu (cx-a9h6); the chevron and the rest of the row collapse.
 final class GroupHeaderRowView: SidebarRowView {
-    private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
+    let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = NSImageView()
     private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
-    private let pill = CALayer()
+    /// The band (`SidebarGroupHeaderStyle.band` and `.wash`), or minimal mode's hairline.
+    let pill = CALayer()
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
-    private let dot = CALayer()
+    let dot = CALayer()
     /// The more button (the pack's three-dot action.more): the group editor, as a click on the
     /// name (cx-rcby, Lawrence 2026-10-08); its More Group Actions row has the full menu.
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
@@ -173,13 +175,33 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
+    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz); a change
+    /// lays the header out and paints it again.
+    private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        guard !observesLook else { return read() }
+        observesLook = true
+        return withObservationTracking(read) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesLook = false
+                self?.needsLayout = true
+                self?.needsDisplay = true
+            }
+        }
+    }
+
+    /// One observation of the look is registered at a time.
+    private var observesLook = false
+
     override func updateLayer() {
         performWithTheme {
             // The solid bar in the group's color (Lawrence 2026-10-11); hover,
             // the open editor and a drop take tonal steps over it.
             let tokens = themeTokens
             if thin { return paintThin(tokens) }
-            let chip = tint.headerChip
+            let look = look
+            if look.style != .band { return paintQuiet(tokens, look) }
+            let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
             if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
             if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
@@ -205,6 +227,42 @@ final class GroupHeaderRowView: SidebarRowView {
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
             CATransaction.commit()
         }
+    }
+
+    /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
+    /// the group's color as the dot where its line starts; `wash` adds a faint tint behind the name.
+    /// Hover, the open editor and a drop take the row's own fill, as minimal mode's header does.
+    private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
+        let line = tint.lineRGB(themed: look.themed)
+        let ink = look.style == .tinted
+            ? ThemeTokens.readable(line, over: tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast).nsColor
+            : tokens.textPrimary.nsColor
+        name.textColor = ink
+        glyph.symbolInk = ink
+        let quiet = tokens.textSecondary.nsColor
+        pin.contentTintColor = quiet
+        chevron.contentTintColor = quiet
+        moreButton.tintOverride = quiet
+        addButton.tintOverride = quiet
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dot.isHidden = false
+        dot.backgroundColor = line.nsColor.cgColor
+        pill.borderWidth = 0
+        layer?.borderColor = tokens.focusRing.nsColor.cgColor
+        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
+        guard look.style == .wash else {
+            pill.backgroundColor = nil
+            return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
+        }
+        // The wash covers the row, so its states step over the wash, as the band's do.
+        var fill = tint.headerWash(themed: look.themed)
+        if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
+        if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
+        ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
+        paintFill(nil)
     }
 
     /// Minimal mode's header: the name and glyphs in secondary ink, the bar a hairline, and the
@@ -295,7 +353,9 @@ final class GroupHeaderRowView: SidebarRowView {
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
         pin.isHidden = !pinned
         pin.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
-        pill.isHidden = renaming
+        let style: SidebarGroupHeaderStyle = thin ? .band : look.style
+        // The name and the color line only: no bar (cx-7yywz).
+        pill.isHidden = renaming || style == .line || style == .tinted
         if thin {
             // Minimal mode: a hairline from the name to the trailing controls.
             let text = ceil((name.stringValue as NSString).size(withAttributes: [.font: name.font ?? SidebarStyle.subtitleFont]).width)
