@@ -5289,9 +5289,7 @@
     "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde.",
     "signedOutNotice": "No has iniciado sesión. Inicia sesión para ver tu plan actual o restaurar una compra existente.",
     "signedOutSignIn": "Iniciar sesión",
-    "manageInAppStore": "Gestionar en el App Store",
-    "proTrialBadge": "Prueba de Pro",
-    "proTrialLimits": "Tu prueba de Pro incluye 1 Cloud VM con 2 vCPU y 4 GB de RAM, y 20 horas de VM. Pro completo empieza cuando termina la prueba."
+    "manageInAppStore": "Gestionar en el App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5546,5 +5544,9 @@
     "unavailableTitle": "No pudimos confirmar tu inicio de sesión",
     "unavailableBody": "Nuestro proveedor de inicio de sesión está ocupado. Espera unos segundos y vuelve a abrir la invitación. No necesitas iniciar sesión de nuevo.",
     "retry": "Reintentar"
+  },
+  "billingTrial": {
+    "badge": "Prueba de Pro",
+    "limits": "Tu prueba de Pro incluye 1 Cloud VM con 2 vCPU y 4 GB de RAM, y 20 horas de VM. Pro completo empieza cuando termina la prueba."
   }
 }

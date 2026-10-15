@@ -2119,9 +2119,7 @@
     "priceMonthlyNote": "月払いは${amount}/月",
     "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
     "manageInAppStore": "App Store で管理",
-    "resumePlan": "{plan} を再開",
-    "proTrialBadge": "Pro トライアル",
-    "proTrialLimits": "Pro トライアルには、2 vCPU と 4 GB RAM の Cloud VM 1 台と 20 VM 時間が含まれます。トライアル終了後に Pro のすべてが使えるようになります。"
+    "resumePlan": "{plan} を再開"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -7389,5 +7387,9 @@
     "dbUpdated": "データベース: {time}",
     "noOwner": "cmux の所有者なし",
     "none": "なし。"
+  },
+  "billingTrial": {
+    "badge": "Pro トライアル",
+    "limits": "Pro トライアルには、2 vCPU と 4 GB RAM の Cloud VM 1 台と 20 VM 時間が含まれます。トライアル終了後に Pro のすべてが使えるようになります。"
   }
 }

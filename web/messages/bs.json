@@ -5290,9 +5290,7 @@
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu",
-    "proTrialBadge": "Pro probni period",
-    "proTrialLimits": "Vaš Pro probni period uključuje 1 Cloud VM sa 2 vCPU i 4 GB RAM-a te 20 VM sati. Puni Pro počinje kada probni period završi."
+    "manageInAppStore": "Upravljajte u App Storeu"
   },
   "platforms": {
     "macos": "macOS",
@@ -5547,5 +5545,9 @@
     "unavailableTitle": "Nismo mogli potvrditi vašu prijavu",
     "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
     "retry": "Pokušaj ponovo"
+  },
+  "billingTrial": {
+    "badge": "Pro probni period",
+    "limits": "Vaš Pro probni period uključuje 1 Cloud VM sa 2 vCPU i 4 GB RAM-a te 20 VM sati. Puni Pro počinje kada probni period završi."
   }
 }

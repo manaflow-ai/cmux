@@ -278,7 +278,7 @@ export function AppPricingContent({
         ctaLabel={pricing.pro.cta}
         badge={
           isProCurrent ? (
-            <CurrentPlanBadge>{snapshot.trial ? pricing.proTrialBadge : pricing.currentPlan}</CurrentPlanBadge>
+            <CurrentPlanBadge>{snapshot.trial ? enMessages.billingTrial.badge : pricing.currentPlan}</CurrentPlanBadge>
           ) : null
         }
         action={proAction === "checkout" ? undefined : (
@@ -291,7 +291,7 @@ export function AppPricingContent({
           />
         )}
       >
-        {isProCurrent && snapshot.trial ? <p className="mt-5 text-sm">{pricing.proTrialLimits}</p> : null}
+        {isProCurrent && snapshot.trial ? <p className="mt-5 text-sm">{enMessages.billingTrial.limits}</p> : null}
         <p className="mt-5 text-sm font-medium">{pricing.pro.featuresLead}</p>
         <FeatureList items={proFeatures} />
       </ProPlanCard>

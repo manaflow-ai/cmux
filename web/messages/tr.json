@@ -5288,9 +5288,7 @@
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet",
-    "proTrialBadge": "Pro denemesi",
-    "proTrialLimits": "Pro denemeniz 2 vCPU ve 4 GB RAM'li 1 Cloud VM ile 20 VM saati içerir. Tam Pro, deneme bittiğinde başlar."
+    "manageInAppStore": "App Store'da yönet"
   },
   "platforms": {
     "macos": "macOS",
@@ -5545,5 +5543,9 @@
     "unavailableTitle": "Oturum açmanız doğrulanamadı",
     "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
     "retry": "Tekrar dene"
+  },
+  "billingTrial": {
+    "badge": "Pro denemesi",
+    "limits": "Pro denemeniz 2 vCPU ve 4 GB RAM'li 1 Cloud VM ile 20 VM saati içerir. Tam Pro, deneme bittiğinde başlar."
   }
 }

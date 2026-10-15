@@ -5292,9 +5292,7 @@
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
     "signedOutSignIn": "Se connecter",
-    "manageInAppStore": "Gérer dans l’App Store",
-    "proTrialBadge": "Essai Pro",
-    "proTrialLimits": "Votre essai Pro comprend 1 Cloud VM avec 2 vCPU et 4 Go de RAM, et 20 heures de VM. Pro complet commence à la fin de l'essai."
+    "manageInAppStore": "Gérer dans l’App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5549,5 +5547,9 @@
     "unavailableTitle": "Impossible de confirmer votre connexion",
     "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
     "retry": "Réessayer"
+  },
+  "billingTrial": {
+    "badge": "Essai Pro",
+    "limits": "Votre essai Pro comprend 1 Cloud VM avec 2 vCPU et 4 Go de RAM, et 20 heures de VM. Pro complet commence à la fin de l'essai."
   }
 }

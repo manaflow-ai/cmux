@@ -5290,9 +5290,7 @@
     "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi.",
     "signedOutNotice": "Non hai effettuato l'accesso. Accedi per vedere il piano attuale o ripristinare un acquisto esistente.",
     "signedOutSignIn": "Accedi",
-    "manageInAppStore": "Gestisci nell’App Store",
-    "proTrialBadge": "Prova Pro",
-    "proTrialLimits": "La tua prova Pro include 1 Cloud VM con 2 vCPU e 4 GB di RAM, e 20 ore VM. Pro completo inizia alla fine della prova."
+    "manageInAppStore": "Gestisci nell’App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5547,5 +5545,9 @@
     "unavailableTitle": "Impossibile confermare l'accesso",
     "unavailableBody": "Il nostro servizio di accesso è occupato. Attendi qualche secondo, poi riapri l'invito. Non devi accedere di nuovo.",
     "retry": "Riprova"
+  },
+  "billingTrial": {
+    "badge": "Prova Pro",
+    "limits": "La tua prova Pro include 1 Cloud VM con 2 vCPU e 4 GB di RAM, e 20 ore VM. Pro completo inizia alla fine della prova."
   }
 }

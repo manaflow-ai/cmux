@@ -5287,9 +5287,7 @@
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
     "signedOutSignIn": "Logg inn",
-    "manageInAppStore": "Administrer i App Store",
-    "proTrialBadge": "Pro-prøveperiode",
-    "proTrialLimits": "Pro-prøveperioden din inkluderer 1 Cloud VM med 2 vCPU-er og 4 GB RAM, og 20 VM-timer. Full Pro starter når prøveperioden slutter."
+    "manageInAppStore": "Administrer i App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5544,5 +5542,9 @@
     "unavailableTitle": "Vi kunne ikke bekrefte innloggingen din",
     "unavailableBody": "Innloggingstjenesten vår er opptatt. Vent noen sekunder, og åpne invitasjonen igjen. Du trenger ikke å logge inn på nytt.",
     "retry": "Prøv igjen"
+  },
+  "billingTrial": {
+    "badge": "Pro-prøveperiode",
+    "limits": "Pro-prøveperioden din inkluderer 1 Cloud VM med 2 vCPU-er og 4 GB RAM, og 20 VM-timer. Full Pro starter når prøveperioden slutter."
   }
 }

@@ -5290,9 +5290,7 @@
     "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde.",
     "signedOutNotice": "Você não iniciou sessão. Entre para ver seu plano atual ou restaurar uma compra existente.",
     "signedOutSignIn": "Entrar",
-    "manageInAppStore": "Gerenciar na App Store",
-    "proTrialBadge": "Teste do Pro",
-    "proTrialLimits": "Seu teste do Pro inclui 1 Cloud VM com 2 vCPUs e 4 GB de RAM, e 20 horas de VM. O Pro completo começa quando o teste termina."
+    "manageInAppStore": "Gerenciar na App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5547,5 +5545,9 @@
     "unavailableTitle": "Não foi possível confirmar seu login",
     "unavailableBody": "Nosso provedor de login está ocupado. Aguarde alguns segundos e abra o convite novamente. Você não precisa entrar novamente.",
     "retry": "Tentar novamente"
+  },
+  "billingTrial": {
+    "badge": "Teste do Pro",
+    "limits": "Seu teste do Pro inclui 1 Cloud VM com 2 vCPUs e 4 GB de RAM, e 20 horas de VM. O Pro completo começa quando o teste termina."
   }
 }

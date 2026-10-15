@@ -5290,9 +5290,7 @@
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten",
-    "proTrialBadge": "Pro-Testversion",
-    "proTrialLimits": "Deine Pro-Testversion umfasst 1 Cloud VM mit 2 vCPUs und 4 GB RAM sowie 20 VM-Stunden. Das volle Pro beginnt, wenn die Testversion endet."
+    "manageInAppStore": "Im App Store verwalten"
   },
   "platforms": {
     "macos": "macOS",
@@ -5547,5 +5545,9 @@
     "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
     "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
     "retry": "Erneut versuchen"
+  },
+  "billingTrial": {
+    "badge": "Pro-Testversion",
+    "limits": "Deine Pro-Testversion umfasst 1 Cloud VM mit 2 vCPUs und 4 GB RAM sowie 20 VM-Stunden. Das volle Pro beginnt, wenn die Testversion endet."
   }
 }

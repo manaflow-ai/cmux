@@ -5290,9 +5290,7 @@
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
     "signedOutSignIn": "Zaloguj się",
-    "manageInAppStore": "Zarządzaj w App Store",
-    "proTrialBadge": "Wersja próbna Pro",
-    "proTrialLimits": "Twoja wersja próbna Pro obejmuje 1 Cloud VM z 2 vCPU i 4 GB RAM oraz 20 godzin VM. Pełny plan Pro zaczyna się po zakończeniu wersji próbnej."
+    "manageInAppStore": "Zarządzaj w App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5547,5 +5545,9 @@
     "unavailableTitle": "Nie udało się potwierdzić logowania",
     "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
     "retry": "Spróbuj ponownie"
+  },
+  "billingTrial": {
+    "badge": "Wersja próbna Pro",
+    "limits": "Twoja wersja próbna Pro obejmuje 1 Cloud VM z 2 vCPU i 4 GB RAM oraz 20 godzin VM. Pełny plan Pro zaczyna się po zakończeniu wersji próbnej."
   }
 }

@@ -5289,9 +5289,7 @@
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
     "signedOutSignIn": "登入",
-    "manageInAppStore": "在 App Store 中管理",
-    "proTrialBadge": "Pro 試用",
-    "proTrialLimits": "Pro 試用包含 1 台配備 2 個 vCPU 與 4 GB 記憶體的 Cloud VM，以及 20 個 VM 小時。試用結束後開始完整的 Pro。"
+    "manageInAppStore": "在 App Store 中管理"
   },
   "platforms": {
     "macos": "macOS",
@@ -5546,5 +5544,9 @@
     "unavailableTitle": "無法確認你的登入",
     "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
     "retry": "重試"
+  },
+  "billingTrial": {
+    "badge": "Pro 試用",
+    "limits": "Pro 試用包含 1 台配備 2 個 vCPU 與 4 GB 記憶體的 Cloud VM，以及 20 個 VM 小時。試用結束後開始完整的 Pro。"
   }
 }
