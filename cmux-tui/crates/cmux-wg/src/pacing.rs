@@ -482,32 +482,43 @@ impl Pacer {
     /// documentation). `Err` holds the earliest time a queued packet may
     /// leave.
     pub(crate) fn pop(&mut self, now: Instant) -> Result<Option<Vec<u8>>, Instant> {
+        self.pop_classified(now).map(|popped| popped.map(|(packet, _)| packet))
+    }
+
+    /// [`pop`](Self::pop), with the class the packet left in: packets the
+    /// stack emitted that are not TCP, interactive datagrams and connections
+    /// are [`Priority::Interactive`], paced bulk connections and bulk
+    /// datagrams [`Priority::Bulk`].
+    pub(crate) fn pop_classified(
+        &mut self,
+        now: Instant,
+    ) -> Result<Option<(Vec<u8>, Priority)>, Instant> {
         if let Some(packet) = self.other.pop_front() {
             self.queued -= 1;
-            return Ok(Some(packet));
+            return Ok(Some((packet, Priority::Interactive)));
         }
         if let Some(packet) = self.interactive.pop_front() {
-            return Ok(Some(packet));
+            return Ok(Some((packet, Priority::Interactive)));
         }
         if let Some(packet) = self.pop_connection(now, true) {
-            return Ok(Some(packet));
+            return Ok(Some((packet, Priority::Interactive)));
         }
         self.expire_media(now);
         if let Some((_, packet)) = self.media.pop_front() {
-            return Ok(Some(packet));
+            return Ok(Some((packet, Priority::Media)));
         }
         let datagram_turn = self.bulk_lead > 0;
         if !datagram_turn && let Some(packet) = self.pop_connection(now, false) {
             self.charge_bulk(packet.len());
-            return Ok(Some(packet));
+            return Ok(Some((packet, Priority::Bulk)));
         }
         if let Some(packet) = self.pop_bulk_datagram(now) {
             self.charge_bulk_datagram(packet.len());
-            return Ok(Some(packet));
+            return Ok(Some((packet, Priority::Bulk)));
         }
         if datagram_turn && let Some(packet) = self.pop_connection(now, false) {
             self.charge_bulk(packet.len());
-            return Ok(Some(packet));
+            return Ok(Some((packet, Priority::Bulk)));
         }
         let bulk_free = self.bulk_next_free.filter(|_| !self.bulk.is_empty());
         let earliest = self

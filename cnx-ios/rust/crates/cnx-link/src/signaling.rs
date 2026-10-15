@@ -167,17 +167,21 @@ impl RelayFrame {
     }
 }
 
-/// How a relay frame is queued on the signaling socket (strict priority,
-/// highest first; see `send_queue`). Only the WireGuard datagram's outer
-/// shape is visible here: its type and length.
+/// How a relay frame is queued on the signaling socket (highest first; see
+/// `send_queue`). The tunnel names the class of what its pacer sends
+/// ([`SignalingClient::send_relay_as`]); otherwise [`relay_class`] infers
+/// it from the WireGuard datagram's outer shape, its type and length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RelayClass {
     /// The "your UDP reaches me" marker, handshake messages, keepalives.
     Control,
     /// Small data datagrams: keystrokes, TCP ACKs, small requests.
     Input,
-    /// Full-size data datagrams: output, files, video. Dropped first.
+    /// Bulk data (large output, files), or full-size data of no known class.
+    /// Shares the socket with [`RelayClass::Media`] by bytes; both drop.
     Bulk,
+    /// Media datagrams (the media lane's RTP: browser and screen video).
+    Media,
 }
 
 /// Encrypted data datagrams up to this size are [`RelayClass::Input`]: a
@@ -481,10 +485,15 @@ impl SignalingClient {
     }
 
     /// Send one WireGuard datagram through the backend relay, queued by its
-    /// [`RelayClass`]: behind every signal, and dropped (oldest first) when
-    /// its class is past its bound.
+    /// [`RelayClass`] (inferred from its shape): behind every signal, and
+    /// dropped (oldest first) when its class is past its bound.
     pub fn send_relay(&self, frame: &RelayFrame) -> Result<(), SignalingError> {
-        self.shared.out.push_relay(frame.encode(), frame.class())
+        self.send_relay_as(frame, frame.class())
+    }
+
+    /// [`send_relay`](Self::send_relay) in a class the sender knows.
+    pub fn send_relay_as(&self, frame: &RelayFrame, class: RelayClass) -> Result<(), SignalingError> {
+        self.shared.out.push_relay(frame.encode(), class)
     }
 
     /// Relay frames of `class` dropped because the socket could not keep up.

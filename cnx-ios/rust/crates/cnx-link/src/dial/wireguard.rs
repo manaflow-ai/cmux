@@ -35,7 +35,9 @@ use zeroize::Zeroizing;
 
 use super::{DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind};
 use crate::api::stun_servers;
-use crate::signaling::{RelayFrame, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient};
+use crate::signaling::{
+    RelayClass, RelayFrame, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, relay_class,
+};
 use crate::timing::Timeline;
 
 #[path = "wireguard_roam.rs"]
@@ -344,8 +346,16 @@ fn turn_targets(endpoints: &[String], options: &DialOptions) -> Vec<SocketAddr> 
         .collect()
 }
 
-/// Sends one datagram through the backend relay.
-type RelaySend = Box<dyn Fn(&[u8]) + Send + Sync>;
+/// Sends one datagram through the backend relay, queued in its class.
+type RelaySend = Box<dyn Fn(&[u8], RelayClass) + Send + Sync>;
+
+/// The relay class of a datagram the tunnel's pacer sent in `priority`.
+/// Handshake messages, keepalives and anything not WireGuard data keep the
+/// class their shape gives (control).
+fn relay_class_of(datagram: &[u8], _priority: cmux_wg::Priority) -> RelayClass {
+    // RED: the size heuristic, as before.
+    relay_class(datagram)
+}
 
 /// The peer's endpoints this side may use.
 fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> {
@@ -663,7 +673,7 @@ impl HybridUnderlay {
             tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
         }
         for datagram in recent {
-            self.transmit(&datagram);
+            self.transmit(&datagram, relay_class(&datagram));
         }
     }
 
@@ -790,7 +800,7 @@ impl HybridUnderlay {
 }
 
 impl HybridUnderlay {
-    fn transmit(&mut self, datagram: &[u8]) {
+    fn transmit(&mut self, datagram: &[u8], class: RelayClass) {
         if self.direct_only() && self.last_direct.is_some_and(|last| last.elapsed() > DIRECT_STALE) {
             // Nothing came back on the route for a while: offer the relay
             // again (and the peer's marker re-confirms the route if it works).
@@ -802,13 +812,13 @@ impl HybridUnderlay {
             if !self.send_on(route, datagram) {
                 self.direct = None;
                 self.demote("send refused");
-                (self.relay_out)(datagram);
+                (self.relay_out)(datagram, class);
                 return;
             }
             self.maybe_spray(datagram, route);
             return;
         }
-        (self.relay_out)(datagram);
+        (self.relay_out)(datagram, class);
         match self.direct {
             Some(route) => {
                 if !self.send_on(route, datagram) {
@@ -842,7 +852,13 @@ impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
         self.drain_control();
         self.record(datagram);
-        self.transmit(datagram);
+        self.transmit(datagram, relay_class(datagram));
+    }
+
+    fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
+        self.drain_control();
+        self.record(datagram);
+        self.transmit(datagram, relay_class_of(datagram, priority));
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
@@ -948,7 +964,7 @@ impl Underlay for HybridUnderlay {
             self.last_direct = Some(now);
             if self.last_marker.is_none_or(|last| now.duration_since(last) >= MARKER_INTERVAL) {
                 self.last_marker = Some(now);
-                (self.relay_out)(&REACHABLE_MARKER);
+                (self.relay_out)(&REACHABLE_MARKER, RelayClass::Control);
             }
             self.publish_path();
         } else if origin.path == RELAY_PATH
@@ -1020,14 +1036,14 @@ fn start_tunnel(
     // now: a roam can move it to a new one.
     let current = Arc::new(Mutex::new(signaling.clone()));
     let relay_signaling = Arc::clone(&current);
-    let relay_out = Box::new(move |datagram: &[u8]| {
+    let relay_out = Box::new(move |datagram: &[u8], class: RelayClass| {
         let frame = RelayFrame {
             session_id: session_uuid,
             peer: peer_uuid,
             datagram: Bytes::copy_from_slice(datagram),
         };
         let client = relay_signaling.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        let _ = client.send_relay(&frame);
+        let _ = client.send_relay_as(&frame, class);
     });
     let (relay_tx, relay_rx) = mpsc::unbounded_channel();
     let (path_tx, path_rx) = watch::channel(LinkPath::Relay);
@@ -1344,5 +1360,26 @@ mod tests {
         assert_eq!(path_of(None, &peer_relayed), LinkPath::Relay);
         // An older phone lists no relayed addresses: the label stays as before.
         assert_eq!(path_of(udp(relayed), &HashSet::new()), LinkPath::Direct);
+    }
+
+    /// What the tunnel's pacer knows decides the relay class, not the size:
+    /// a full-size segment of an interactive connection (terminal output)
+    /// is input, media is media, and handshakes and keepalives stay control.
+    #[test]
+    fn relay_classes_follow_the_pacer() {
+        use cmux_wg::Priority;
+        let data = |len: usize| {
+            let mut datagram = vec![0u8; len];
+            datagram[0] = 4;
+            datagram
+        };
+        assert_eq!(relay_class_of(&data(1312), Priority::Interactive), RelayClass::Input);
+        assert_eq!(relay_class_of(&data(1312), Priority::Media), RelayClass::Media);
+        assert_eq!(relay_class_of(&data(1312), Priority::Bulk), RelayClass::Bulk);
+        assert_eq!(relay_class_of(&data(96), Priority::Bulk), RelayClass::Bulk);
+        assert_eq!(relay_class_of(&data(32), Priority::Media), RelayClass::Control, "keepalive");
+        let mut initiation = vec![0u8; 148];
+        initiation[0] = 1;
+        assert_eq!(relay_class_of(&initiation, Priority::Bulk), RelayClass::Control);
     }
 }

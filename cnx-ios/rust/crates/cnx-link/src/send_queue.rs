@@ -11,7 +11,9 @@
 //!    and keepalives (they confirm and keep the route);
 //! 3. relay input: small data datagrams (keystrokes, TCP ACKs, small
 //!    requests);
-//! 4. relay bulk: full-size data datagrams (terminal output, files, video).
+//! 4. relay bulk (large transfers) and media (video): they share what is
+//!    left by bytes, whichever sent fewer bytes goes next, so neither
+//!    starves the other.
 //!
 //! Relay classes are bounded by bytes. Past its bound a class drops its
 //! oldest frame: relay frames are datagrams, and what they carry (TCP in the
@@ -34,6 +36,7 @@ use crate::signaling::{RelayClass, SignalingError};
 pub(crate) const CONTROL_BYTES: usize = 16 * 1024;
 pub(crate) const INPUT_BYTES: usize = 64 * 1024;
 pub(crate) const BULK_BYTES: usize = 256 * 1024;
+pub(crate) const MEDIA_BYTES: usize = 256 * 1024;
 
 /// A message that is not a relay frame.
 #[derive(Debug, PartialEq, Eq)]
@@ -69,10 +72,21 @@ impl Class {
     }
 }
 
+impl Queues {
+    /// Bulk or media, whichever sent fewer bytes while both waited.
+    fn pop_bulk_or_media(&mut self) -> Option<Vec<u8>> {
+        // RED: strict order, bulk before media.
+        let _ = self.bulk_lead;
+        self.relay[2..].iter_mut().find_map(Class::pop)
+    }
+}
+
 #[derive(Default)]
 struct Queues {
     signals: VecDeque<Signal>,
-    relay: [Class; 3],
+    relay: [Class; 4],
+    /// Bytes bulk sent minus bytes media sent while both had frames queued.
+    bulk_lead: i64,
     /// Close requested: what is still queued is not sent.
     closing: bool,
     /// The writer is gone: nothing is accepted any more.
@@ -84,6 +98,7 @@ fn index(class: RelayClass) -> usize {
         RelayClass::Control => 0,
         RelayClass::Input => 1,
         RelayClass::Bulk => 2,
+        RelayClass::Media => 3,
     }
 }
 
@@ -92,6 +107,7 @@ fn limit(class: RelayClass) -> usize {
         RelayClass::Control => CONTROL_BYTES,
         RelayClass::Input => INPUT_BYTES,
         RelayClass::Bulk => BULK_BYTES,
+        RelayClass::Media => MEDIA_BYTES,
     }
 }
 
@@ -162,7 +178,8 @@ impl SendQueue {
         if queues.closing {
             return Some(None);
         }
-        queues.relay.iter_mut().find_map(Class::pop).map(|frame| Some(Message::Binary(frame.into())))
+        let frame = queues.relay[..2].iter_mut().find_map(Class::pop).or_else(|| queues.pop_bulk_or_media());
+        frame.map(|frame| Some(Message::Binary(frame.into())))
     }
 
     fn finish(&self) {
@@ -284,6 +301,31 @@ mod tests {
             }
         }
         assert_eq!(last, Some(1999));
+    }
+
+    #[test]
+    fn bulk_and_media_share_the_socket_by_bytes() {
+        let queue = SendQueue::default();
+        for _ in 0..100 {
+            queue.push_relay(vec![0xB0; 1200], RelayClass::Bulk).unwrap();
+            queue.push_relay(vec![0x3D; 600], RelayClass::Media).unwrap();
+        }
+        let (mut bulk, mut media) = (0usize, 0usize);
+        for _ in 0..60 {
+            match queue.pop() {
+                Some(Some(Message::Binary(frame))) if frame[0] == 0xB0 => bulk += frame.len(),
+                Some(Some(Message::Binary(frame))) if frame[0] == 0x3D => media += frame.len(),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        // Neither class starves the other: their bytes stay within a frame.
+        assert!(bulk.abs_diff(media) <= 1200, "bulk {bulk} bytes, media {media} bytes");
+        // Media is bounded and drops its oldest like bulk.
+        for _ in 0..1000 {
+            queue.push_relay(vec![0x3D; 1200], RelayClass::Media).unwrap();
+        }
+        assert!(queue.queued_bytes(RelayClass::Media) <= MEDIA_BYTES);
+        assert!(queue.dropped(RelayClass::Media) > 0);
     }
 
     #[tokio::test]
