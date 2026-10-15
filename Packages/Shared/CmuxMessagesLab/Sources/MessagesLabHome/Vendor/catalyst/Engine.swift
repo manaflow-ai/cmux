@@ -209,6 +209,13 @@ enum Reducer {
             break
         case let .setNotice(text):
             s.ui.notice = text
+        case let .cmuxSetAttachment(id, a):  // cmux
+            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
+                  let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
+            else { break } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+        case let .cmuxNotice(text):  // cmux
+            s.ui.cmuxNotice = text
         }
         return nil
     }
@@ -313,13 +320,6 @@ extension Reducer {
             if let m = s.message(id) { w.update(m) } else if var m = w.message(id) { m.status = st; w.update(m) }
         default:
             break
-        case let .cmuxSetAttachment(id, a):  // cmux
-            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
-                  let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
-            else { break } // cmux: checked
-            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
-        case let .cmuxNotice(text):  // cmux
-            s.ui.cmuxNotice = text
         }
     }
 }
