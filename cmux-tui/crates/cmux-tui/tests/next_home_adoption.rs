@@ -474,7 +474,13 @@ fn a_running_pre_update_daemon_is_stopped_before_the_adoption() {
     assert!(pid > 0, "the pre-update daemon did not start\n{}", text(&started));
     let launch = cli_as(NEXT, Some("cmux-next"), &home, &["__adopt-build-homes"]);
     let mut wrong = Vec::new();
+    // The daemon lets go of its lock before its process ends: give it up to 15 s.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     // SAFETY: kill with signal 0 only checks that the process exists.
+    while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // SAFETY: as above.
     if unsafe { libc::kill(pid, 0) } == 0 {
         wrong.push(format!("the pre-update daemon (pid {pid}) still runs"));
     }
