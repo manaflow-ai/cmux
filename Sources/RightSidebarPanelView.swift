@@ -50,7 +50,18 @@ extension RightSidebarMode {
             guard let action = mode.shortcutAction,
                   allowingAction(action),
                   mode.isAvailable(),
-                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+                  KeyboardShortcutSettings.shortcutBindings(for: action).contains(where: { binding in
+                      binding.shortcut.matches(event: event)
+                          && (AppDelegate.shared.map { app in
+                              binding.whenClause.evaluate(
+                                  app.shortcutWhenClauseContext(
+                                      for: action,
+                                      clause: binding.whenClause,
+                                      event: event
+                                  )
+                              )
+                          } ?? true)
+                  }) else {
                 continue
             }
             return mode

@@ -106,6 +106,64 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, primaryURL.path)
     }
 
+    func testKeybindingsAllowMultipleKeysAndPerBindingWhenClauses() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "bindings": { "focusRightSidebar": "cmd+shift+l" },
+                "keybindings": [
+                  { "key": "cmd+l", "action": "focusRightSidebar", "when": "terminalFocus" },
+                  { "key": "cmd+shift+l", "action": "focusRightSidebar" },
+                  { "key": ["ctrl+b", "c"], "action": "newSurface", "when": "!sidebarFocus" }
+                ]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.configuredBindings(for: .focusRightSidebar),
+            [
+                ConfiguredShortcutBinding(
+                    shortcut: StoredShortcut(key: "l", command: true, shift: false, option: false, control: false),
+                    whenClause: .atom(.terminalFocus)
+                ),
+                ConfiguredShortcutBinding(
+                    shortcut: StoredShortcut(key: "l", command: true, shift: true, option: false, control: false),
+                    whenClause: .always
+                ),
+            ]
+        )
+        XCTAssertEqual(
+            store.configuredBindings(for: .newSurface)?.first?.shortcut,
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+        XCTAssertEqual(
+            store.configuredBindings(for: .newSurface)?.first?.whenClause,
+            .not(.atom(.sidebarFocus))
+        )
+        XCTAssertEqual(
+            store.override(for: .focusRightSidebar),
+            StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
+        )
+
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        defer { KeyboardShortcutSettings.settingsFileStore = originalStore }
+        KeyboardShortcutSettings.settingsFileStore = store
+        XCTAssertEqual(KeyboardShortcutSettings.shortcutBindings(for: .focusRightSidebar).count, 2)
+    }
+
     func testLegacySettingsShortcutBindingsParseWithoutRuntimeConflictLookup() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.resetAll()

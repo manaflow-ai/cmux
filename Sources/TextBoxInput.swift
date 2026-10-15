@@ -4900,10 +4900,12 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func textBoxShortcut(_ event: NSEvent, matches action: KeyboardShortcutSettings.Action) -> Bool {
-        guard KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
-            return false
+        if let appDelegate = AppDelegate.shared {
+            return appDelegate.matchConfiguredShortcut(event: event, action: action)
         }
-        return AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        return KeyboardShortcutSettings.shortcutBindings(for: action).contains {
+            $0.shortcut.matches(event: event) && $0.whenClause == .always
+        }
     }
 
     private func handleStandardEditShortcut(_ event: NSEvent) -> Bool {
