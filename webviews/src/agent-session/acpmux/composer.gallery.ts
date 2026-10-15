@@ -434,7 +434,7 @@ export default agentPaneEntry({
       ),
     },
     "queued-long": {
-      note: "Many queued prompts, one too long for its two lines: the rows scroll, the cut-off one shows a tooltip on hover and opens whole on click.",
+      note: 'Many queued prompts fold: the next two show, then one "3 more queued" row. The cut-off one shows a tooltip on hover and opens whole on click.',
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -454,6 +454,23 @@ export default agentPaneEntry({
         // check; a text target can resolve to the row or a parent in the gallery driver.
         await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q2"] .acpmux-queued-text' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
+    },
+    "queued-long-open": {
+      note: 'Play: "3 more queued" opens the whole queue in place, in order, and reads Show less; it closes back the same way.',
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "Check every caller of the fetch helper for its own retries" },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-queue-fold" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 5);
       },
     },
     "queued-send-remove": {

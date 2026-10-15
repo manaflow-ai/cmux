@@ -292,3 +292,36 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-kind[data-kind="steer"] {
   color: var(--agent-accent);
 }
+
+/* A long queue's fold (ComposerQueue.tsx): one quiet line under the rows it shows, its text at the
+   prompts' edge, "N more queued" or "Show less". It opens and closes at once: no motion. */
+.acpmux-queue-more {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  min-width: 0;
+  padding: 1px 8px 1px 12px;
+  box-sizing: border-box;
+}
+.acpmux-queue-fold {
+  grid-column: 2 / -1;
+  justify-self: start;
+  height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--acpmux-composer-dim);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-queue-fold:hover {
+  background: var(--agent-control-hover);
+  color: var(--agent-text);
+}
+.acpmux-queue-fold:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1px;
+}
