@@ -4,7 +4,6 @@
 import os
 import sys
 import time
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -20,7 +19,7 @@ def _must(cond: bool, msg: str) -> None:
         raise cmuxError(msg)
 
 
-def _data_url(html: str) -> str:
+def _page_url(html: str) -> str:
     return local_html_url(html, "comprehensive")
 
 
@@ -159,7 +158,7 @@ def main() -> int:
         if sref:
             _ = c._call("browser.url.get", {"surface_id": sref})
 
-        probe_url = _data_url("<!doctype html><html><body><button id='probe'>P</button></body></html>")
+        probe_url = _page_url("<!doctype html><html><body><button id='probe'>P</button></body></html>")
         c._call("browser.navigate", {"surface_id": target, "url": probe_url})
         _wait_with_fallback(
             c,
