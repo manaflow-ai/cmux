@@ -257,8 +257,8 @@ public struct BrowserPageAutomation {
         if let error = error as? BrowserEngineError {
             switch error {
             case .javaScript(let message): return .javaScript(message)
-            case .pageClosed: return .pageUnavailable
-            case .unavailable: return .pageUnavailable
+            case .pageClosed: return .pageUnavailable(nil)
+            case .unavailable(_, let reason): return .pageUnavailable(reason)
             case .unsupported(let operation): return .unsupported(operation)
             }
         }

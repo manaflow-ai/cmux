@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxTerminal
@@ -644,7 +645,8 @@ extension DockSplitStore {
         let browser = makeBrowserPanel(
             url: nil,
             preferredProfileID: browserSnapshot.profileID,
-            transparentBackground: browserSnapshot.transparentBackground ?? false
+            transparentBackground: browserSnapshot.transparentBackground ?? false,
+            engineChoice: BrowserPanel.restoredEngineChoice(browserSnapshot.engine)
         )
         guard attachSessionRestoredPanel(browser, snapshot: snapshot, inPane: paneId) != nil else {
             return nil
@@ -680,7 +682,8 @@ extension DockSplitStore {
             preferredProfileID: browserSnapshot.profileID,
             renderInitialNavigation: false,
             chromeVisibility: browserSnapshot.chromeVisibility ?? .visible,
-            transparentBackground: browserSnapshot.transparentBackground ?? false
+            transparentBackground: browserSnapshot.transparentBackground ?? false,
+            engineChoice: BrowserPanel.restoredEngineChoice(browserSnapshot.engine)
         )
         browser.adoptStableSurfaceId(deferredPanel.stableSurfaceIdentity.id)
         panels[deferredPanel.id] = browser

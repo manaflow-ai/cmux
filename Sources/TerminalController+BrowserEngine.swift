@@ -28,29 +28,38 @@ extension TerminalController {
         return (engine, nil)
     }
 
-    /// Why a WebKit panel is not on the engine the app prefers, when the
-    /// preferred engine (`CMUX_BROWSER_ENGINE`, then `browser.engine`) is
-    /// another one that cannot open now; nil when the panel has the preferred
-    /// engine. A panel opened with an explicit `--engine webkit` reports the
-    /// same reason while the preferred engine is unavailable.
+    /// Why a WebKit panel is not on the engine it wanted (`CMUX_BROWSER_ENGINE`,
+    /// an inherited engine or `browser.engine` named one that could not open,
+    /// or its Chromium runtime failed to start); nil otherwise, including for
+    /// an explicit `--engine webkit`.
     @MainActor
-    func v2BrowserEngineFallbackReason(
-        _ panel: BrowserPanel,
-        runtime: BrowserEngineRuntime = .shared
-    ) -> BrowserEngineUnavailableReason? {
-        guard panel.engineKind == .webkit,
-              case .open(let choice) = runtime.resolve(requested: nil) else {
-            return nil
-        }
-        return choice.fallback
+    func v2BrowserEngineFallbackReason(_ panel: BrowserPanel) -> BrowserEngineUnavailableReason? {
+        // The panel records why it is WebKit although Chromium was wanted
+        // (at creation or after a start failure).
+        panel.activeEngineKind == .webkit ? panel.engineFallbackReason : nil
     }
 
     /// The `engine` (and, after a fallback, `engine_fallback_reason`) fields
     /// browser results carry, so a script can tell which engine it drives.
     @MainActor
-    func v2BrowserEngineFields(_ panel: BrowserPanel) -> [String: Any] {
-        var fields: [String: Any] = ["engine": panel.engineKind.rawValue]
-        if let reason = v2BrowserEngineFallbackReason(panel) {
+    func v2BrowserEngineFields(
+        _ panel: BrowserPanel,
+        requested: BrowserEngineKind? = nil,
+        runtime: BrowserEngineRuntime = .shared
+    ) -> [String: Any] {
+        var fields: [String: Any] = ["engine": panel.activeEngineKind.rawValue]
+        if let requested, requested != panel.activeEngineKind {
+            // An explicit engine that resolved but then could not create the
+            // page (its runtime failed to start) renders WebKit: say why,
+            // never report the requested engine.
+            let reason = panel.engineFallbackReason
+                ?? runtime.availability(for: requested).unavailableReason
+                ?? .startFailed("page creation failed")
+            fields["engine_fallback_reason"] = reason.code
+            if let detail = reason.detail {
+                fields["engine_fallback_detail"] = detail
+            }
+        } else if let reason = v2BrowserEngineFallbackReason(panel) {
             fields["engine_fallback_reason"] = reason.code
         }
         return fields
@@ -137,17 +146,69 @@ extension TerminalController {
     /// The socket error for an engine-page automation failure.
     nonisolated func v2EngineAutomationError(_ error: any Error, surfaceId: UUID) -> V2CallResult {
         let code: String
+        let data: [String: Any] = ["surface_id": surfaceId.uuidString]
         switch error as? BrowserAutomationPageError {
         case .javaScript: code = "js_error"
-        case .pageUnavailable: code = "unavailable"
+        case .pageUnavailable(let reason):
+            return v2EnginePageUnavailable(reason, surfaceId: surfaceId)
         case .unsupported: code = "not_supported"
         default: code = "internal_error"
         }
+        return .err(code: code, message: Self.v2EngineAutomationMessage(error), data: data)
+    }
+
+    /// The one error every browser command returns when a Chromium surface's
+    /// page cannot run: `engine_unavailable`, with the engine's reason
+    /// (`notBundled`, `startFailed` with its detail, `shutDown`) when it has
+    /// one, or `pageClosed` when only this page is gone.
+    nonisolated func v2EnginePageUnavailable(
+        _ reason: BrowserEngineUnavailableReason?,
+        surfaceId: UUID?
+    ) -> V2CallResult {
+        var data: [String: Any] = [
+            "surface_id": surfaceId.map { $0.uuidString as Any } ?? NSNull(),
+            "engine": BrowserEngineKind.chromium.rawValue,
+            "reason": reason?.code ?? "pageClosed",
+        ]
+        if let detail = reason?.detail {
+            data["detail"] = detail
+        }
         return .err(
-            code: code,
-            message: Self.v2EngineAutomationMessage(error),
-            data: ["surface_id": surfaceId.uuidString]
+            code: "engine_unavailable",
+            message: BrowserAutomationPageError.pageUnavailable(reason).message,
+            data: data
         )
+    }
+
+    /// Thread-local side channel: a script-backed command on an engine page
+    /// records here that the page could not run, so the socket-worker
+    /// dispatcher can answer `engine_unavailable` instead of the command's
+    /// own `js_error` wrapping. Each command runs synchronously on one
+    /// worker thread.
+    private static let v2EngineUnavailableThreadKey = "cmux.automation.engineUnavailable"
+
+    nonisolated func v2RecordEnginePageUnavailable(_ reason: BrowserEngineUnavailableReason?, surfaceId: UUID?) {
+        Thread.current.threadDictionary[Self.v2EngineUnavailableThreadKey] = V2EngineUnavailableRecord(
+            reason: reason,
+            surfaceId: surfaceId
+        )
+    }
+
+    /// Rewrites a failed command's error to `engine_unavailable` when its
+    /// engine page could not run during the command; clears the record.
+    nonisolated func v2ApplyEnginePageUnavailable(_ result: V2CallResult) -> V2CallResult {
+        let dictionary = Thread.current.threadDictionary
+        guard let record = dictionary[Self.v2EngineUnavailableThreadKey] as? V2EngineUnavailableRecord else {
+            return result
+        }
+        dictionary.removeObject(forKey: Self.v2EngineUnavailableThreadKey)
+        guard case .err = result else { return result }
+        return v2EnginePageUnavailable(record.reason, surfaceId: record.surfaceId)
+    }
+
+    /// Clears a stale record before a command runs.
+    nonisolated func v2ClearEnginePageUnavailable() {
+        Thread.current.threadDictionary.removeObject(forKey: Self.v2EngineUnavailableThreadKey)
     }
 
     /// The error for an engine-page operation that did not finish in time.
@@ -185,7 +246,7 @@ extension TerminalController {
             message: String(
                 localized: "cli.browser.engine.error.chromiumUnavailable",
                 defaultValue: "The Chromium browser engine is not available"
-            ),
+            ) + " (\(reason.code))",
             data: data
         )
     }
@@ -201,5 +262,16 @@ extension TerminalController {
             ),
             data: ["engine": engine.rawValue]
         )
+    }
+}
+
+/// An engine page that could not run during the current socket command.
+private final class V2EngineUnavailableRecord {
+    let reason: BrowserEngineUnavailableReason?
+    let surfaceId: UUID?
+
+    init(reason: BrowserEngineUnavailableReason?, surfaceId: UUID?) {
+        self.reason = reason
+        self.surfaceId = surfaceId
     }
 }
