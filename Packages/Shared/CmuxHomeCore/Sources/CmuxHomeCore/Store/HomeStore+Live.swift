@@ -11,6 +11,19 @@ extension HomeStore {
         case .changed: live = liveBook.shown
         case .resync: requestLive(conversation)
         }
+        // A run record names the reply's key (Cloud: Run.turn): a reply that came first ends the run now.
+        if case .run = event { settleLive(conversation) }
+    }
+
+    /// Ends every live run of `conversation` whose reply is already in the mirror.
+    func settleLive(_ conversation: ConversationID) {
+        var changed = false
+        for (key, turn) in liveBook.turns(in: conversation) {
+            if let reply = mirror.message(clientID: turn, in: conversation), reply.author == key.author {
+                changed = liveBook.end(key) || changed
+            }
+        }
+        if changed { live = liveBook.shown }
     }
 
     /// The running Chief run `id` shows (`live`), nil when none.
@@ -18,9 +31,13 @@ extension HomeStore {
 
     /// Asks the owner for its `run.live` snapshot (it arrives as an event).
     func requestLive(_ conversation: ConversationID) {
+        guard liveRequests.insert(conversation).inserted else { return }
         let owner = self.source
         // task-owner: one snapshot request; ends with its reply
-        Task { await owner.requestLive(of: conversation) }
+        Task { [weak self] in
+            await owner.requestLive(of: conversation)
+            self?.liveRequests.remove(conversation)
+        }
     }
 
     /// The conversation's Chief: a frame from an owner that does not stamp

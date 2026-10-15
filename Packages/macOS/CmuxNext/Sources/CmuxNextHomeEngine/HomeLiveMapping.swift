@@ -37,10 +37,8 @@ nonisolated struct HomeLiveMapping {
     }
 
     func event(_ changed: ConversationRunChanged) -> HomeLiveEvent {
-        let rows = (changed.steps ?? []).map(\.id).filter { $0.hasPrefix("talk:") || $0.hasPrefix("thought:") }
-        return .run(HomeLiveRunChange(conversation: ConversationID(changed.conversation), author: author(changed.run.author),
-                                      run: changed.run.id, turn: changed.run.turn.map { IdempotencyKey($0) },
-                                      status: changed.run.status, finishedSteps: rows))
+        .run(HomeLiveRunChange(conversation: ConversationID(changed.conversation), author: author(changed.run.author),
+                               run: changed.run.id, turn: changed.run.turn.map { IdempotencyKey($0) }, status: changed.run.status))
     }
 
     private static func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }

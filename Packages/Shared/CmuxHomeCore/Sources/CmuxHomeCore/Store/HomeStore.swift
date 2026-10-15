@@ -43,6 +43,8 @@ public final class HomeStore {
     /// What each conversation shows of its running Chief run (`chief-live-v1`).
     public internal(set) var live: [ConversationID: HomeLiveRun] = [:]
     @ObservationIgnored var liveBook = HomeLiveBook()
+    /// Conversations whose `run.live` request is out (one at a time).
+    @ObservationIgnored var liveRequests: Set<ConversationID> = []
 
     @ObservationIgnored public let source: any HomeSource
     @ObservationIgnored var mirror = HomeMirror()

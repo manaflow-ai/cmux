@@ -92,9 +92,8 @@ public struct ConversationLive: Decodable, Sendable, Hashable {
 }
 
 /// `conversation-run-changed` (local) and `cloud-conversation-run-changed`
-/// (Cloud): a run after an append. Home reads only what ends live text: the
-/// run's status, its reply key (`turn`) and the talk or thought steps whose
-/// rows came (a row is the whole text, so later deltas for it are dropped).
+/// (Cloud): a run after an append. Home reads only the run's status and its
+/// reply key (`turn`); the steps are not decoded.
 public struct ConversationRunChanged: Decodable, Sendable, Hashable {
     public struct Run: Decodable, Sendable, Hashable {
         public var id: String
@@ -103,12 +102,7 @@ public struct ConversationRunChanged: Decodable, Sendable, Hashable {
         public var status: String
     }
 
-    public struct Step: Decodable, Sendable, Hashable {
-        public var id: String
-    }
-
     public var conversation: String
     public var run: Run
-    public var steps: [Step]?
     public var account: String?
 }

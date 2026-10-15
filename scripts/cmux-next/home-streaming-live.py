@@ -355,6 +355,9 @@ def live_frames(conversation, session):
     talk(" in place.", final=True)
     text += " in place."
     check("after-join", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
+    # The step's final frame ends the line (the reply is written), before the reply lands.
+    check("line-gone-at-final", lambda: drive("texts").get("statusLine") is None)
+    time.sleep(1)  # let the rows settle after the line left (a measured position, not a sync point)
     before = chief_bubble()
     incoming_before = len([r for r in drive("rows").get("rows", []) if r.get("kind") == "text" and not r.get("outgoing")])
     # The reply (client_msg_id = the run's turn), then the run's end.

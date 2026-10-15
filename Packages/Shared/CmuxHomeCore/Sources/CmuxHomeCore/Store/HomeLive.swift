@@ -11,8 +11,7 @@ public enum HomeLiveEvent: Hashable, Sendable {
     /// `run.live`: the owner's text so far and activity of every running run
     /// of the conversation; it replaces what the client kept.
     case snapshot(conversation: ConversationID, runs: [HomeLiveRunSnapshot])
-    /// A run record changed (`conversation-run-changed`): its reply key, its
-    /// status, and the talk or thought steps whose rows came.
+    /// A run record changed (`conversation-run-changed`): its reply key and status.
     case run(HomeLiveRunChange)
 
     var conversation: ConversationID {
@@ -111,17 +110,13 @@ public struct HomeLiveRunChange: Hashable, Sendable {
     public var turn: IdempotencyKey?
     /// `running`, `done`, `failed` or `cancelled` (TRAJECTORIES.md Run.status).
     public var status: String
-    /// Talk and thought steps whose rows came: their text is whole, later deltas are dropped.
-    public var finishedSteps: [String]
 
-    public init(conversation: ConversationID, author: ParticipantID, run: String, turn: IdempotencyKey?,
-                status: String, finishedSteps: [String]) {
+    public init(conversation: ConversationID, author: ParticipantID, run: String, turn: IdempotencyKey?, status: String) {
         self.conversation = conversation
         self.author = author
         self.run = run
         self.turn = turn
         self.status = status
-        self.finishedSteps = finishedSteps
     }
 }
 

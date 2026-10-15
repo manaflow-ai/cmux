@@ -8,8 +8,12 @@ import Foundation
 ///   one is a repeat; a jump, or text of a step this client never saw from
 ///   0, asks the owner again (`resync`) and the `run.live` answer replaces
 ///   the conversation's runs; a `seq` 0 for a known step restarts its text;
-/// - a step whose row came drops later deltas but keeps its text on screen
-///   until the reply lands, so the bubble never shrinks before the message;
+/// - a step's `final` frame ends it: later deltas are dropped, a talk step
+///   keeps its text on screen until the reply lands (the bubble never shrinks
+///   before the message), and the activity line goes (the reply is written);
+///   a snapshot no longer lists an ended step, so its text is kept from here;
+/// - a snapshot never takes a step back: a step this client holds at the same
+///   or a later `seq` with the snapshot's text as its start stays;
 /// - its posted reply (same author, `client_msg_id` = the run's turn) ends
 ///   it; a run that ends `done` with reply text keeps that text (no activity)
 ///   until its reply lands, so the bubble never leaves before the message
@@ -83,18 +87,23 @@ struct HomeLiveBook {
                 guard let author = resolve(entry.author) else { continue }
                 let key = Key(conversation: conversation, author: author, run: entry.run)
                 guard !ended.contains(key) else { continue }
+                let old = runs[key]
                 var run = Run(activity: entry.activity, touched: touch())
-                run.done = runs[key]?.done ?? []
-                for step in entry.steps {
-                    // A finished step keeps the text this client already shows.
-                    if run.done.contains(step.step), let kept = runs[key]?.steps[step.step] {
-                        run.steps[step.step] = kept
-                    } else if !run.done.contains(step.step) {
-                        run.steps[step.step] = Step(isTalk: step.isTalk, seq: step.seq, text: Self.capped(step.text))
+                run.done = old?.done ?? []
+                // Ended steps the owner freed keep the text this client holds, in their order.
+                for id in old?.order ?? [] where run.done.contains(id) {
+                    guard let kept = old?.steps[id] else { continue }
+                    run.steps[id] = kept
+                    run.order.append(id)
+                }
+                for step in entry.steps where !run.done.contains(step.step) {
+                    let fresh = Step(isTalk: step.isTalk, seq: step.seq, text: Self.capped(step.text))
+                    if let held = old?.steps[step.step], held.seq >= step.seq, held.text.hasPrefix(fresh.text) {
+                        run.steps[step.step] = held // an older answer than the deltas this client applied
                     } else {
-                        continue
+                        run.steps[step.step] = fresh
                     }
-                    run.order.append(step.step)
+                    if !run.order.contains(step.step) { run.order.append(step.step) }
                 }
                 next[key] = run
             }
@@ -120,12 +129,9 @@ struct HomeLiveBook {
                 && other != key && runs[other]?.awaitingReply == true {
                 changed = end(other) || changed
             }
-            guard var run = runs[key] else { return changed ? .changed : .ignored }
-            let finished = change.finishedSteps.filter { !run.done.contains($0) }
-            guard !finished.isEmpty else { return changed ? .changed : .ignored }
-            run.done.formUnion(finished)
-            runs[key] = run
-            return changed ? .changed : .ignored // the text stays as it is until the reply lands
+            // Step rows end nothing: the local Chief writes an open talk row while the step still
+            // streams; a step ends with its `final` frame.
+            return changed ? .changed : .ignored
         }
     }
 
@@ -153,11 +159,14 @@ struct HomeLiveBook {
             // Joined mid-step: the snapshot has the text before this frame.
             return .resync
         }
-        // A thought has no row on Cloud: its final frame ends it.
-        if delta.isFinal, !delta.isTalk {
-            run.steps[delta.step] = nil
-            run.order.removeAll { $0 == delta.step }
+        if delta.isFinal {
             run.done.insert(delta.step)
+            if delta.isTalk {
+                run.activity = nil // the reply is written: no line moves the rows when it lands
+            } else {
+                run.steps[delta.step] = nil
+                run.order.removeAll { $0 == delta.step }
+            }
         }
         run.touched = touch()
         runs[key] = run
@@ -176,7 +185,12 @@ struct HomeLiveBook {
 
     private func turn(of key: Key) -> IdempotencyKey { turns[key] ?? IdempotencyKey(key.run) }
 
-    private mutating func end(_ key: Key) -> Bool {
+    /// Every live run of `conversation` with the key its reply will carry.
+    func turns(in conversation: ConversationID) -> [(Key, IdempotencyKey)] {
+        runs.keys.filter { $0.conversation == conversation }.map { ($0, turn(of: $0)) }
+    }
+
+    mutating func end(_ key: Key) -> Bool {
         let had = runs.removeValue(forKey: key) != nil
         turns[key] = nil
         remember(key)
