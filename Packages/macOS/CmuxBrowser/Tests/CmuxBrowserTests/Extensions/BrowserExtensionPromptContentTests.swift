@@ -27,7 +27,7 @@ struct BrowserExtensionPromptContentTests {
         #expect(none.permissionsHeading != some.permissionsHeading)
     }
 
-    @Test(arguments: [BrowserExtensionOperation.loadUnpacked, .enable, .run, .command])
+    @Test(arguments: [BrowserExtensionOperation.loadUnpacked, .enable, .run, .command, .options, .openManagement])
     func automationConsentNamesRequesterAndTarget(_ operation: BrowserExtensionOperation) {
         let content = BrowserExtensionPromptContent(automation: operation, name: "/Users/me/my-ext")
         #expect(content.target == "/Users/me/my-ext")

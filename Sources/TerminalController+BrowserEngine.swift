@@ -75,11 +75,14 @@ extension TerminalController {
 
     /// The refusal for scripting, input, cookies or screenshots on a page an
     /// agent may not drive: a Chromium internal page (settings, passwords,
-    /// extensions, DevTools) the person opened in the panel. Nil when the
-    /// agent may drive it, and always for WebKit panels.
+    /// extensions, DevTools) the person opened in the panel, or a page an
+    /// enabled third-party extension of the panel's profile can reach (a
+    /// password manager's autofill could hand the agent a password;
+    /// `BrowserExtensionAgentAccess`). Nil when the agent may drive it, and
+    /// always for WebKit panels.
     @MainActor
     func v2EngineAgentRefusal(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
-        guard !panel.agentMayDriveCurrentPage else { return nil }
+        guard !panel.agentMayDriveCurrentPage else { return v2ExtensionAgentRefusal(panel, surfaceId: surfaceId) }
         return .err(
             code: "agent_refused",
             message: String(
@@ -89,6 +92,26 @@ extension TerminalController {
             data: [
                 "surface_id": surfaceId.uuidString,
                 "url": panel.currentURL?.absoluteString ?? "",
+            ]
+        )
+    }
+
+    /// The refusal for a page that enabled extensions of the panel's profile can reach.
+    @MainActor
+    private func v2ExtensionAgentRefusal(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
+        let blockers = panel.extensionAutomationBlockers()
+        guard !blockers.isEmpty else { return nil }
+        return .err(
+            code: "agent_refused",
+            message: String(
+                localized: "browser.automation.error.extensionAccessRefused",
+                defaultValue: "Agents can't drive a page that an enabled extension can read. Use a browser profile without extensions for agent work, or turn the extension off."
+            ),
+            data: [
+                "surface_id": surfaceId.uuidString,
+                "url": panel.currentURL?.absoluteString ?? "",
+                "reason": "extension_host_access",
+                "extensions": blockers.map(\.name),
             ]
         )
     }

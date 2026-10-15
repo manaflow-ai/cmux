@@ -65,10 +65,10 @@ public struct BrowserExtensionControlRequest: Equatable, Sendable {
             } else {
                 self.init(method: "browser.extension.load", params: ["path": path], responseTimeout: consent)
             }
-        case "enable", "run", "reload":
+        case "enable", "run", "reload", "options":
             try needs(1)
             self.init(method: "browser.extension.\(verb)", params: ["extension": arguments[0]], responseTimeout: consent)
-        case "disable", "remove", "pin", "unpin", "options":
+        case "disable", "remove", "pin", "unpin":
             try needs(1)
             self.init(method: "browser.extension.\(verb)", params: ["extension": arguments[0]], responseTimeout: Self.quickSeconds)
         case "move":
@@ -82,7 +82,9 @@ public struct BrowserExtensionControlRequest: Equatable, Sendable {
                       responseTimeout: consent)
         case "webstore", "manage":
             try needs(0)
-            self.init(method: "browser.extension.open_page", params: ["page": verb], responseTimeout: Self.quickSeconds)
+            // The extensions page needs the person's consent; the Web Store does not.
+            self.init(method: "browser.extension.open_page", params: ["page": verb],
+                      responseTimeout: verb == "manage" ? consent : Self.quickSeconds)
         default:
             throw .unknownVerb(verb)
         }

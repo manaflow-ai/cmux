@@ -26,7 +26,8 @@ extension TerminalController {
         "browser.extension.options": .options,
         "browser.extension.run": .run,
         "browser.extension.command": .command,
-        "browser.extension.open_page": .openPage,
+        // open_page with page=manage is .openManagement (see v2BrowserExtensionOperation).
+        "browser.extension.open_page": .openWebStore,
     ]
 
     /// How long a consent sheet may wait for the person before the request times out.
@@ -34,9 +35,11 @@ extension TerminalController {
 
     /// Runs one `browser.extension.*` method; waits on the socket worker.
     nonisolated func v2BrowserExtensionOnSocketWorker(id: Any?, method: String, params: [String: Any]) -> String {
-        guard let operation = Self.v2BrowserExtensionMethods[method] else {
+        guard let mapped = Self.v2BrowserExtensionMethods[method] else {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
+        let isWebStore = (params["page"] as? String) == BrowserExtensionPage.webStore.rawValue
+        let operation: BrowserExtensionOperation = mapped == .openWebStore && !isWebStore ? .openManagement : mapped
         // Reload may need consent (a disabled extension), so it gets the consent window too.
         let mayAsk = BrowserExtensionAutomationPolicy().decision(for: operation) != .allow || operation == .reload
         let timeout = mayAsk ? Self.v2BrowserExtensionConsentTimeout + 5 : BrowserExtensionControlRequest.quickSeconds - 5
@@ -85,11 +88,17 @@ extension TerminalController {
                 "actions": host.extensionActions.map(\.id),
             ]))
         }
-        if operation == .openPage {
+        if operation == .openWebStore || operation == .openManagement {
             let raw = (params["page"] as? String) ?? BrowserExtensionPage.management.rawValue
             guard let page = BrowserExtensionPage(rawValue: raw) else {
                 return v2BrowserExtensionError("invalid_params", String(
                     localized: "cli.browser.extension.error.page", defaultValue: "page must be webstore or manage"))
+            }
+            if policy.decision(for: operation) == .requiresConsent {
+                let content = BrowserExtensionPromptContent(automation: operation, name: page.url.absoluteString)
+                guard await v2BrowserExtensionConsent(content, ctx: ctx, host: host) else {
+                    return v2BrowserExtensionDeclined()
+                }
             }
             ctx.browserPanel.openExtensionPage(page, focus: false)
             return .ok(v2BrowserPanelFields(ctx, adding: ["url": page.url.absoluteString]))
@@ -143,7 +152,7 @@ extension TerminalController {
             let command = store.commands.first { $0.extensionID == info.id && $0.name == name }
                 ?? BrowserExtensionCommand(extensionID: info.id, name: name, keyCode: 0, modifiers: 0)
             accepted = !name.isEmpty && store.run(command, in: host.extensionTab)
-        case .list, .openPage, .loadUnpacked, .installPacked:
+        case .list, .openWebStore, .openManagement, .loadUnpacked, .installPacked:
             accepted = false
         }
         guard accepted else {

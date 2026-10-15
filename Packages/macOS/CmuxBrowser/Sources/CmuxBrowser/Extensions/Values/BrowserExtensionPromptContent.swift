@@ -101,7 +101,7 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
         permissions: [BrowserExtensionInstallPrompt.Permission] = []
     ) {
         target = name
-        targetIsCode = operation == .loadUnpacked
+        targetIsCode = operation == .loadUnpacked || operation == .openManagement
         targetDetail = detail
         self.permissions = permissions
         permissionsHeading = Self.heading(hasPermissions: !permissions.isEmpty)
@@ -119,6 +119,18 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
             requester = String(localized: "browser.extension.consent.enableRequester",
                                defaultValue: "A cmux CLI command wants to turn on this extension.", bundle: .module)
             acceptTitle = String(localized: "browser.extension.prompt.enable", defaultValue: "Enable", bundle: .module)
+        case .options:
+            title = String(localized: "browser.extension.consent.optionsTitle",
+                           defaultValue: "Open the options of \u{201C}\(name)\u{201D}?", bundle: .module)
+            requester = String(localized: "browser.extension.consent.optionsRequester",
+                               defaultValue: "A cmux CLI command wants to open this extension's options page, where its settings and access can be changed.", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.consent.open", defaultValue: "Open", bundle: .module)
+        case .openManagement:
+            title = String(localized: "browser.extension.consent.manageTitle",
+                           defaultValue: "Open the extensions page?", bundle: .module)
+            requester = String(localized: "browser.extension.consent.manageRequester",
+                               defaultValue: "A cmux CLI command wants to open the extensions page, where extensions can be added, turned on and given access.", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.consent.open", defaultValue: "Open", bundle: .module)
         default:
             title = String(localized: "browser.extension.consent.runTitle",
                            defaultValue: "Run \u{201C}\(name)\u{201D} on this page?", bundle: .module)

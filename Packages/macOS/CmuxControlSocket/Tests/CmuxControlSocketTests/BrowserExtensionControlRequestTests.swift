@@ -19,11 +19,12 @@ struct BrowserExtensionControlRequestTests {
     @Test
     func consentVerbsOutwaitTheAppsSheet() throws {
         for request in [try parse("load", "ext"), try parse("enable", "x"), try parse("run", "x"),
-                        try parse("reload", "x"), try parse("command", "x", "go")] {
+                        try parse("reload", "x"), try parse("command", "x", "go"), try parse("options", "x"),
+                        try parse("manage")] {
             #expect(request.responseTimeout > BrowserExtensionControlRequest.consentSeconds, "\(request.method)")
         }
         for request in [try parse("disable", "x"), try parse("remove", "x"), try parse("pin", "x"),
-                        try parse("unpin", "x"), try parse("options", "x"), try parse("webstore")] {
+                        try parse("unpin", "x"), try parse("webstore")] {
             #expect(request.responseTimeout == BrowserExtensionControlRequest.quickSeconds, "\(request.method)")
         }
     }

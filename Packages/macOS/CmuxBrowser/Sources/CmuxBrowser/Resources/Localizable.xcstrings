@@ -3069,6 +3069,301 @@
           }
         }
       }
+    },
+    "browser.extension.consent.optionsTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the options of “%@”?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionen von „%@“ öffnen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les options de « %@ » ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد فتح خيارات ”%@“؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Abrir las opciones de «%@»?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要開啟「%@」的選項嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要打开“%@”的选项吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’의 옵션을 여시겠습니까?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」のオプションを開きますか？"
+          }
+        }
+      }
+    },
+    "browser.extension.consent.optionsRequester": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cmux CLI command wants to open this extension's options page, where its settings and access can be changed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein cmux-CLI-Befehl möchte die Optionsseite dieser Erweiterung öffnen, auf der ihre Einstellungen und ihr Zugriff geändert werden können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une commande de la CLI cmux veut ouvrir la page d’options de cette extension, où ses réglages et ses accès peuvent être modifiés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد أمر من واجهة سطر أوامر cmux فتح صفحة خيارات هذه الإضافة، حيث يمكن تغيير إعداداتها وصلاحيات وصولها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un comando de la CLI de cmux quiere abrir la página de opciones de esta extensión, donde se pueden cambiar sus ajustes y su acceso."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個 cmux CLI 指令想要開啟此擴充功能的選項頁面，該頁面可變更其設定和存取權。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个 cmux CLI 命令想要打开此扩展程序的选项页面，该页面可以更改其设置和访问权限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLI 명령이 이 확장 프로그램의 옵션 페이지를 열려고 합니다. 이 페이지에서 설정과 접근 권한을 변경할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLI のコマンドがこの拡張機能のオプションページを開こうとしています。このページでは設定やアクセス権を変更できます。"
+          }
+        }
+      }
+    },
+    "browser.extension.consent.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
+      }
+    },
+    "browser.extension.consent.manageTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the extensions page?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erweiterungsseite öffnen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir la page des extensions ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد فتح صفحة الإضافات؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Abrir la página de extensiones?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要開啟擴充功能頁面嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要打开扩展程序页面吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확장 프로그램 페이지를 여시겠습니까?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能ページを開きますか？"
+          }
+        }
+      }
+    },
+    "browser.extension.consent.manageRequester": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cmux CLI command wants to open the extensions page, where extensions can be added, turned on and given access."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein cmux-CLI-Befehl möchte die Erweiterungsseite öffnen, auf der Erweiterungen hinzugefügt, eingeschaltet und mit Zugriff ausgestattet werden können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une commande de la CLI cmux veut ouvrir la page des extensions, où l’on peut ajouter des extensions, les activer et leur donner des accès."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد أمر من واجهة سطر أوامر cmux فتح صفحة الإضافات، حيث يمكن إضافة الإضافات وتشغيلها ومنحها صلاحيات الوصول."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un comando de la CLI de cmux quiere abrir la página de extensiones, donde se pueden añadir, activar y dar acceso a extensiones."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個 cmux CLI 指令想要開啟擴充功能頁面，該頁面可新增、開啟擴充功能並授予存取權。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个 cmux CLI 命令想要打开扩展程序页面，该页面可以添加、开启扩展程序并授予访问权限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLI 명령이 확장 프로그램 페이지를 열려고 합니다. 이 페이지에서 확장 프로그램을 추가하고 켜고 접근 권한을 줄 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLI のコマンドが拡張機能ページを開こうとしています。このページでは拡張機能の追加、オン、アクセス権の付与ができます。"
+          }
+        }
+      }
     }
   }
 }
