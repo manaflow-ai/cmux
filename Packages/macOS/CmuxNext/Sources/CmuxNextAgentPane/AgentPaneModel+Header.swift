@@ -159,10 +159,9 @@ extension AgentPaneModel {
         }
     }
 
-    /// New side chat's view part: opens `fork` beside the chat, in the chat's one side pane. acpmux
-    /// already tagged it the chat's side chat (`_acpmux/side` or `_acpmux/btw`, sent by the page,
-    /// cx-jlzsf). `fork` must be a session this pane made (its fork's or side session's reply put
-    /// it in the pane's scope), never the chat itself.
+    /// New side chat's view part: opens `fork` in the chat's one side pane, tagged its side chat by
+    /// acpmux (`_acpmux/side` or `_acpmux/btw`, cx-jlzsf). `fork` must be a session this pane made (its
+    /// reply put it in the pane's scope), never the chat itself.
     private func openSideChat(_ fork: String) async -> [String: Any] {
         guard let sessionId, newTab == nil, fork != sessionId, transport.sessions.contains(fork), let header else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
