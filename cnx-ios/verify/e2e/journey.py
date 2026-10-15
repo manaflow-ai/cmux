@@ -471,7 +471,10 @@ class Journey:
 
     def s_workspace_list(self):
         self.back_to_list()
-        mac = [w["name"] for w in self.mac.cmux("workspace", "list", json_out=True)]
+        # The Mac's home workspace (daemon kind "home") is never a row on the phone: the
+        # phone shows it as Home (DaemonTree.homeWorkspaces), not in the workspace list.
+        listed = self.mac.cmux("workspace", "list", json_out=True)
+        mac = [w["name"] for w in listed if w.get("kind") != "home" and not (w.get("kind") is None and w["name"] == "Home")]
         deadline = time.time() + 20
         phone = []
         while time.time() < deadline:
