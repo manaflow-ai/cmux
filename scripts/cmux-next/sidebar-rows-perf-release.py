@@ -400,7 +400,9 @@ def main_thread_profile(trace):
     """Main-thread Time Profiler samples of the trace: top inclusive and leaf frames."""
     inclusive, leaf, total = {}, {}, 0
     # Below -[NSViewBackingLayer display] (AppKit's drawRect/updateLayer) and CA's layer display: what draws.
-    under = {"-[NSViewBackingLayer display]": {}, "CA::Layer::display_if_needed(CA::Transaction*)": {}}
+    under = {"-[NSViewBackingLayer display]": {}, "CA::Layer::display_if_needed(CA::Transaction*)": {},
+             "-[NSView translateOriginToPoint:]": {}, "-[NSView _postBoundsChangeNotification]": {}, "FrameBatcher.drain()": {},
+             "-[NSView layoutSubtreeIfNeeded]": {}, "CA::Context::commit_transaction(CA::Transaction*, double, double*)": {}}
     under_total = dict.fromkeys(under, 0)
     try:
         for cells, ids in export_table(trace, "time-profile"):
