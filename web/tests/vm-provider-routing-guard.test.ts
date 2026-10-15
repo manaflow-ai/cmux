@@ -63,6 +63,11 @@ function machine(options: { newLauncher?: boolean } = {}): Machine {
   writeFileSync(path.join(etc, "agent-auth.sh"), options.newLauncher ? "cmux_codex_user_key_provider=cmux-openai-key\n" : "# 2026-10-13 launcher\n");
   writeFileSync(path.join(bin, "cmux"), GUEST_CMUX_SHIM);
   chmodSync(path.join(bin, "cmux"), 0o755);
+  // Every machine has the daemon, and the shim refuses daemon verbs (`env`
+  // among them) without one. `env` never calls it, so a stand-in is enough;
+  // without it the result depends on whether the host has a cmux-tui on PATH.
+  writeFileSync(path.join(bin, "cmux-tui"), "#!/bin/sh\nexit 0\n");
+  chmodSync(path.join(bin, "cmux-tui"), 0o755);
   const codex = path.join(home, ".codex/config.toml");
   writeFileSync(codex, `model_provider = "cmux"\n\n[model_providers.cmux]\nname = "cmux"\nbase_url = "${ORIGIN}/v1"\nenv_key = "OPENAI_API_KEY"\n`);
   return {
