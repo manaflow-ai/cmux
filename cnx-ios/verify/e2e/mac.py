@@ -219,7 +219,11 @@ class Mac:
         deadline = time.time() + timeout
         while time.time() < deadline:
             pids = self.main_pids()
-            if pids and self.cmux("app", "ping", check=False, timeout=5).returncode == 0:
+            try:
+                answered = bool(pids) and self.cmux("app", "ping", check=False, timeout=5).returncode == 0
+            except subprocess.TimeoutExpired:  # a cold first launch can take longer than one ping
+                answered = False
+            if answered:
                 self.pid = pids[0]
                 break
             time.sleep(0.5)
