@@ -118,7 +118,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
         badgeSize = TabTunables.badgeSize.value
-        minActiveTabWidth = chrome.minActiveWidth
+        // Never narrower than the active tab's icon and close button need (comfortable density).
+        minActiveTabWidth = max(chrome.minActiveWidth, contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset)
         closeMinContentsWidth = TabTunables.closeMinContentsWidth.value
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
