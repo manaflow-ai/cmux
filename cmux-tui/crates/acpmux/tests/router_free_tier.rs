@@ -643,3 +643,50 @@ fn free_tier_a_first_attestation_reaches_the_api_as_base64url() {
     assert_eq!(attest.2["attestation"], "-_-_YXR0ZXN0YXRpb24");
     drop(relay);
 }
+
+#[test]
+fn free_tier_an_app_that_leaves_before_the_provider_line_leaves_no_provider_and_no_token() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        ("/v1/inference/free/attest".into(), vec![token_answer("free-token-early")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("early");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    // A live provider first, with a free token.
+    let held = provider(&dir, &origin, false, Arc::default());
+    assert_eq!(chat(port, &key).0, 200);
+    assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "active");
+
+    // A new app registers and closes before it reads the provider line (it quit at that moment).
+    let mut early = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
+    let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true});
+    early.write_all(format!("{register}\n").as_bytes()).unwrap();
+    early.shutdown(std::net::Shutdown::Both).unwrap();
+    drop(early);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let free = loop {
+        let free = admin(&dir, json!({"op": "status"})).unwrap()["free"].clone();
+        if free["provider"] == false || Instant::now() >= deadline {
+            break free;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(free["provider"], false, "{free}");
+    assert_eq!(free["state"], "off", "{free}");
+    // The old token went with its provider: the next request is not forwarded with it.
+    let forwarded =
+        api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count();
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["error"]["code"], "router.no_upstream");
+    assert_eq!(
+        api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count(),
+        forwarded
+    );
+    held.shutdown(std::net::Shutdown::Both).unwrap();
+    drop(relay);
+}
