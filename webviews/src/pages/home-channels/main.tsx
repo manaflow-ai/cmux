@@ -22,6 +22,7 @@ import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
+import { ComposerEdit, hostEdit } from "./composerEdit";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "../../agent-session/acpmux/conversation/conversation.css";
@@ -59,15 +60,19 @@ export function mountDaemonHomeChannelsPage(
   document.title = strings.t("page.title");
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   const carry = new PendingCarry();
+  // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
+  const edit = client ? hostEdit(client) : undefined;
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <DaemonGate source={source} strings={strings}>
-        {(daemon, _pages, owner) => (
-          <div className="hc-daemon">
-            <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
-          </div>
-        )}
-      </DaemonGate>
+      <ComposerEdit.Provider value={edit}>
+        <DaemonGate source={source} strings={strings}>
+          {(daemon, _pages, owner) => (
+            <div className="hc-daemon">
+              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
+            </div>
+          )}
+        </DaemonGate>
+      </ComposerEdit.Provider>
     </UiProvider>,
   );
 }

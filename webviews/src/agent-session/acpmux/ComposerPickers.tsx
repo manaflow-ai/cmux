@@ -19,6 +19,7 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
+import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -37,7 +38,6 @@ export const PICKER_LABELS = {
   effort: "picker.effort",
   plan: "picker.plan",
   build: "picker.build",
-  planHint: "picker.planHint",
   fullAccessWarning: "picker.fullAccessWarning",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
@@ -442,9 +442,10 @@ export function ComposerPickers({
     defaulted || unreported
       ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
       : (model?.name ?? summary?.model ?? starting);
-  // Until the session reports its options (a new chat, an agent still starting), the effort and
-  // the access controls draw what this harness's chats last showed (chipMemory.ts), never grey
-  // bars; the session's values then replace them in place (cx-ncc.58, Leo 2026-10-13).
+  // Until the session reports its options (a new chat, an agent still starting), the effort chip
+  // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
+  // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
+  // place (cx-ncc.58, Leo 2026-10-13).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
   // The agent's own level ("default") names the level it resolves to: the running model's default
@@ -461,19 +462,32 @@ export function ComposerPickers({
       : undefined;
   // An unresolved level is not remembered: the next chat would paint it as a pick.
   const effortShown = effortChoice || ultracodeOn ? effortLabel : undefined;
-  const shownMode = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0]) : undefined;
-  const modeLabel = shownMode?.name;
-  const modeId = shownMode?.id;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start), so Reasoning never goes missing.
   const startEffort = awaiting ? snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort : undefined;
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
   const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
+  // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
+  // the chat in (`_acpmux/start_mode`: its kept answer on the first frame, then the one asked for),
+  // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
+  // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
+  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
+  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
+  // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
+  // place: this folder's profile or preset may start the chat in another mode, so it names none.
+  const startModeName = startMode?.borrowed
+    ? t(PICKER_LABELS.mode)
+    : startMode
+      ? (startMode.name ??
+        harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)
+          ?.name ??
+        startMode.modeId)
+      : undefined;
   useEffect(() => {
-    if (!awaiting && chipHarness && summary?.sessionId && (effortShown || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortShown, mode: modeLabel, modeId });
-  }, [awaiting, chipHarness, summary?.sessionId, effortShown, modeLabel, modeId]);
+    if (!awaiting && chipHarness && summary?.sessionId && effortShown)
+      rememberLastChips(chipHarness, { effort: effortShown });
+  }, [awaiting, chipHarness, summary?.sessionId, effortShown]);
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -551,8 +565,8 @@ export function ComposerPickers({
         />
       )}
       {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
-      {modes.length === 0 && lastChips?.mode && (
-        <PendingChip kind="mode" label={lastChips.mode} modeId={lastChips.modeId} />
+      {modes.length === 0 && startMode && startModeName && (
+        <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
       {modes.length > 0 && (
         <AccessMenu
@@ -582,7 +596,6 @@ export function ComposerPickers({
             type="button"
             className="acpmux-plan"
             aria-pressed={planning}
-            title={t(PICKER_LABELS.planHint)}
             onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
           >
             {planning ? <PlanIcon /> : <BuildIcon />}
@@ -646,7 +659,9 @@ function AccessMenu({
     if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
   }, [current, optimistic, sessionId]);
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
-  const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
+  // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
+  // and every mode, the first included, is a pick.
+  const value = optimisticMode ?? current ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
   const pick = (next: string) => {
     setOptimistic({ sessionId, modeId: next });

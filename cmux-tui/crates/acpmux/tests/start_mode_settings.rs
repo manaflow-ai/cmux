@@ -127,7 +127,7 @@ impl Client {
 }
 
 #[tokio::test]
-async fn the_settings_file_chooses_and_an_unreadable_one_never_gives_full_access() {
+async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_access_unreadable() {
     let dir = home("settings", json!({}));
     let settings = dir.join("cmux-next.json");
     // JSONC as the app writes it: an inline comment and a trailing comma.
@@ -141,6 +141,12 @@ async fn the_settings_file_chooses_and_an_unreadable_one_never_gives_full_access
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    // `_acpmux/start_mode` answers from the same setting, and says so.
+    let r =
+        app.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+    assert_eq!(r["result"]["modeId"], "ask", "{r}");
+    assert_eq!(r["result"]["level"], "ask", "{r}");
+    assert_eq!(r["result"]["source"], "settings", "{r}");
     // Read at each new chat.
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");

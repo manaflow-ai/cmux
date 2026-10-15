@@ -22,6 +22,8 @@ import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { questionFromPermission } from "./question/model";
+import { isNotification, typedRequest } from "./protocol/client";
+import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -37,6 +39,7 @@ import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
+import { type StartMode, startModeChanged } from "./startMode";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -146,9 +149,6 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
-/// An agent's offer of a parallel chat and its answer (cx-807da): transcript on acpmux that has
-/// them (`paging.rs`); asked for by kind too, so an older acpmux's attach still brings them.
-const OFFER_KINDS = ["session_offer", "session_offer_decision"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -971,10 +971,13 @@ export class AcpmuxDirectClient {
         kind: String(notification.params?.update?.sessionUpdate ?? ""),
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
-    } else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
-    else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
+    } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
+    else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
+    // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
+    // chats ask acpmux again (startMode.ts).
+    else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -1112,6 +1115,14 @@ export class AcpmuxDirectClient {
       level,
       ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
     });
+  }
+
+  /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
+  /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
+  /// when Claude stops it. A Claude that never answers fails it after 10 s.
+  stopSubagent(subagentSessionId: string): Promise<unknown> {
+    if (!this.selectedSessionId) return Promise.reject(new Error());
+    return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId }, 10_000);
   }
 
   /// Reads the selected session's durable composer draft from acpmux.
@@ -1273,7 +1284,9 @@ export class AcpmuxDirectClient {
       limit: 400,
       // The most opening a chat downloads, however large its tool output (a remote session's open).
       maxBytes: OPEN_PAGE_BYTES,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS, ...OFFER_KINDS],
+      // At most 8 kinds: a remote cmux-tui before cx-kpd0v refuses more. Session offers come with
+      // "transcript" (acpmux paging.rs, since offers exist).
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
       eventStream: true,
       visible,
     });
@@ -1348,8 +1361,9 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
-  private sessionChanged(params: any): void {
-    const session = params?.session;
+  private sessionChanged(params: SessionChanged): void {
+    // Only a purge carries the id alone; every other change carries the whole summary.
+    const session = params?.session as SessionSummary | undefined;
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
@@ -1364,11 +1378,7 @@ export class AcpmuxDirectClient {
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
-      if (session.queue)
-        this.queue = session.queue.map((entry: any) => ({
-          id: String(entry.promptId),
-          prompt: String(entry.prompt ?? entry.preview ?? ""),
-        }));
+      if (session.queue) this.queue = session.queue.map((entry) => ({ id: entry.promptId, prompt: entry.prompt }));
     }
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
@@ -2228,7 +2238,7 @@ export class AcpmuxDirectClient {
             (reply) => reply?.ticket,
             () => undefined,
           );
-    await this.request("_acpmux/permission_respond", {
+    await typedRequest((method, params) => this.request(method, params), "_acpmux/permission_respond", {
       sessionId,
       permissionId,
       ...(optionId === undefined ? {} : { optionId }),
@@ -2391,6 +2401,23 @@ export class AcpmuxDirectClient {
     void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch((error: unknown) => {
       this.routeTrustRefusal(error);
     });
+  }
+  /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
+  /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
+  async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
+    try {
+      const answer = (await this.request("_acpmux/start_mode", cwd ? { harness, cwd } : { harness })) as {
+        modeId?: unknown;
+        name?: unknown;
+      } | null;
+      if (typeof answer?.modeId !== "string" || !answer.modeId) return undefined;
+      return {
+        modeId: answer.modeId,
+        ...(typeof answer.name === "string" && answer.name ? { name: answer.name } : {}),
+      };
+    } catch {
+      return undefined;
+    }
   }
   /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
   /// same path as an adopt on connect, so a trust refusal asks the question (the trust route).
