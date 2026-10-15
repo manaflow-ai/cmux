@@ -61,7 +61,7 @@ struct TerminalFrameCover: Equatable {
 /// places itself (`surfacePresented`) before the page moves in the same
 /// transaction. A wait that outlives its display-frame fallback keeps the
 /// old frame until `maxWait`; only then does the page move regardless (the
-/// blank watch recovers from there).
+/// page goes only as far as that frame's rows reach).
 struct TerminalScrollGate {
     /// The longest a move waits for its frame (T-SCROLL-09: the bottom within 400 ms of the tap).
     static let maxWait: TimeInterval = 0.3
@@ -93,8 +93,27 @@ struct TerminalScrollGate {
         return min(max(target, frame.lowerBound), high)
     }
 
-    /// A wait reached its display-frame limit: move now?
+    /// A wait reached its display-frame limit: move now? Only to rows the
+    /// frame on screen covers, however long the wait (qa11 wt-fling-c/d: the
+    /// forced move at `maxWait` showed 3 black frames). Past `maxWait` the
+    /// page goes to the frame's rows nearest the target (`fallbackOffset`).
     static func fallbackMoves(covered: Bool, waited: TimeInterval) -> Bool {
-        covered || waited >= maxWait
+        covered
+    }
+
+    /// The offset a viewport request is made for: while a move waits, its
+    /// target's rows (qa11 wt-fling-c/d: a report or an inset change asked
+    /// again for the reader's rows after the end was asked for, and that
+    /// frame then replaced the end's under a page already at the end).
+    static func requestOffset(awaiting: Bool, current: CGFloat, target: CGFloat?) -> CGFloat {
+        guard awaiting, let target else { return current }
+        return target
+    }
+
+    /// Past `maxWait`: the offset nearest `target` whose rows the frame on
+    /// screen (`frame`, content y) shows, so the page makes progress without
+    /// leaving the rows it has.
+    static func fallbackOffset(frame: Range<CGFloat>, target: CGFloat, viewport: CGFloat) -> CGFloat {
+        min(max(target, frame.lowerBound), max(frame.lowerBound, frame.upperBound - viewport))
     }
 }

@@ -1425,8 +1425,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// both sides, once the visible rows come within half a margin of the
     /// requested viewport's edges. The surface itself moves only when a frame
     /// for the new viewport is presented (`surfacePresented`).
-    private func updateViewport(visibleMinY: CGFloat, force: Bool = false) {
+    private func updateViewport(visibleMinY requested: CGFloat, force: Bool = false) {
         guard !model.isTUI, cell.height > 0, surfaceRows > 0 else { return }
+        // A move waiting for its frame asks only for its target's rows (qa11
+        // wt-fling-c/d: a report or an inset change asked again for the
+        // reader's rows, and that frame came after the end's).
+        let visibleMinY = TerminalScrollGate.requestOffset(awaiting: followAwaitsPresent, current: requested,
+                                                           target: followAwaitsPresent ? pendingTarget : nil)
         let maxTop = max(0, scrollbar.total - surfaceRows)
         let visibleTop = originRow + Int(floor(max(0, visibleMinY) / cell.height))
         let visibleBottom = originRow + Int(ceil((max(0, visibleMinY) + view.bounds.height) / cell.height))
@@ -1585,13 +1590,26 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             self.followFallbackTicks += 1
             guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
+            let waited = CACurrentMediaTime() - (self.awaitStarted ?? CACurrentMediaTime())
             if self.followAwaitsPresent, let target = self.pendingTarget,
-               !TerminalScrollGate.fallbackMoves(covered: self.targetCovered(target),
-                                                 waited: CACurrentMediaTime() - (self.awaitStarted ?? 0)) {
+               !TerminalScrollGate.fallbackMoves(covered: self.targetCovered(target), waited: waited) {
                 // The frame for the target is not in yet (fast output, a
                 // busy renderer): the page keeps the frame it has rather
-                // than move to rows it does not cover (V8 claim 1a). Ask
-                // again for the viewport and a frame, and check next frame.
+                // than move to rows it does not cover (V8 claim 1a, qa11
+                // wt-fling-c/d: never, however long). Past the maximum wait
+                // it goes as far as the frame's rows reach. Ask again for the
+                // viewport and a frame, and check next frame.
+                if waited >= TerminalScrollGate.maxWait, let document = self.document {
+                    let y = TerminalScrollGate.fallbackOffset(frame: self.surface.frame.minY..<self.surface.frame.maxY,
+                                                              target: target, viewport: self.view.bounds.height)
+                    if abs(y - self.scrollView.contentOffset.y) > 0.5, y >= -self.scrollView.contentInset.top,
+                       y <= document.contentHeight(cellHeight: self.cell.height) {
+                        self.settingOffset = true
+                        self.scrollView.contentOffset.y = y
+                        self.settingOffset = false
+                        self.updateBottomFade()
+                    }
+                }
                 if self.followFallbackTicks % 6 == 0 {
                     self.updateViewport(visibleMinY: target, force: true)
                     self.surface.setNeedsTerminalDraw()
