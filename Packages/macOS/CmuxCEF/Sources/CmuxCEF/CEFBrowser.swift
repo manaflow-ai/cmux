@@ -391,13 +391,17 @@ public final class CEFBrowser {
         }
     }
 
+    /// SetFocus makes the page window key, and cmux's key-window handling can
+    /// focus a page again before it returns; the shared gate defers that
+    /// request until this one is done (`ChromiumFocusReentrancyGate`).
     private func grantFocus(_ id: Int32) {
-        // SetFocus can make cmux's window key, whose handler focuses this
-        // page again before SetFocus returns; the outer grant already does it.
-        guard !isGrantingFocus else { return }
-        isGrantingFocus = true
-        defer { isGrantingFocus = false }
-        runtime.shim?.setFocus(id, 1)
+        ChromiumFocusReentrancyGate.shared.runOrDefer { [weak self] in
+            // A deferred grant runs later: only if this page still wants it.
+            guard let self, self.pendingFocus, self.browserID == id, self.hostView.isPresented else { return }
+            self.isGrantingFocus = true
+            defer { self.isGrantingFocus = false }
+            self.runtime.shim?.setFocus(id, 1)
+        }
     }
 
     public func setZoom(_ factor: Double) {
