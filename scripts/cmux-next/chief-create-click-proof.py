@@ -12,8 +12,8 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 3. New Chief through the page with ONE REAL pointer click on Create Chief while cmux is inactive (debug.focus
    deactivate; the window stays in place). Immediately before the click the proof asserts that cmux is not active, no
    cmux window is key and the window server's front app is another app; else it sends no click. The Chief is created
-   on the owner (chief list), the page shows no "needs a verified cmux app connection". The Settings page does not
-   accept the first mouse (its browsing-data Clear acts on one click); the Home page does.
+   on the owner (chief list), the page shows no "needs a verified cmux app connection". Only the Home page accepts
+   the first mouse: Settings (its browsing-data Clear acts on one click) and History (no setting) do not.
 4. The owner restarts while the page is open: page relay calls during and after the restart answer within the relay
    deadline (16 s, checked at 18 s), and a second real
    click on Create Chief makes a Chief on the new owner (no page call left in flight).
@@ -541,8 +541,14 @@ try:
     # The answer is the view's own and depends only on the page it shows, so the page need not have painted.
     settings = until(lambda: (lambda s: s if "accepts_first_mouse" in s else None)(
         res(rpc("debug.page", {"page": "cmux.settings", "action": "state"}, 30)) or {}), 60) or {}
+    # History sets nothing: the fail-closed default (only Home Channels opts in).
+    R["open_history"] = rpc("action.run", {"id": "history.show", "wait": True}, 30)
+    history = until(lambda: (lambda s: s if "accepts_first_mouse" in s else None)(
+        res(rpc("debug.page", {"page": "cmux.history", "action": "state"}, 30)) or {}), 60) or {}
     check("settings_page_refuses_first_mouse_home_accepts", home_fm is True and settings.get("accepts_first_mouse") is False,
           {"home_channels": home_fm, "settings": settings.get("accepts_first_mouse"), "settings_painted": settings.get("painted")})
+    check("page_without_setting_refuses_first_mouse", history.get("accepts_first_mouse") is False,
+          {"history": history.get("accepts_first_mouse"), "history_state": json.dumps(history)[:300]})
 finally:
     app_pid = app.pid
     shutdown_all(app)
