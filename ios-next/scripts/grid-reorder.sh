@@ -4,8 +4,8 @@
 #
 #   CMUX_NEXT_IOS_HOST=mini-cmux15 ios-next/scripts/grid-reorder.sh [--slot S] [--runs N] [DIR...]
 #
-# DIR is left (GitHub onto cmux's slot), right (cmux onto GitHub's) or down
-# (GitHub onto zsh's); all three by default. Each run launches the Tabs app
+# DIR is left (GitHub onto cmux's slot), right (cmux onto GitHub's), down
+# (GitHub onto zsh's) or up (Hacker News onto cmux's); all four by default. Each run launches the Tabs app
 # on the mock host (5 tabs), opens the grid, long-presses the card and drags
 # it in steps that pause long enough for the long press (the re-audit's
 # input: about 200 pt over 6 s in 6 steps), and releases. Halfway through
@@ -16,7 +16,7 @@
 set -uo pipefail
 slot="tabs"; runs=3; dirs=()
 while [[ $# -gt 0 ]]; do case "$1" in --slot) slot="$2"; shift 2 ;; --runs) runs="$2"; shift 2 ;; *) dirs+=("$1"); shift ;; esac; done
-[[ ${#dirs[@]} -eq 0 ]] && dirs=(left right down)
+[[ ${#dirs[@]} -eq 0 ]] && dirs=(left right down up)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="$HERE/remote-ios.sh"
 HOST="${CMUX_NEXT_IOS_HOST:-aziz-other-macbook}"
@@ -30,6 +30,7 @@ for d in "${dirs[@]}"; do
     left)  s="297 250"; e="100 250"; c="1f853c"; want="terminal: debounce|cmux|Hacker News|zsh|top" ;;
     right) s="104 250"; e="300 250"; c="5b59e4"; want="terminal: debounce|cmux|Hacker News|zsh|top" ;;
     down)  s="297 250"; e="297 540"; c="1f853c"; want="cmux|Hacker News|zsh|terminal: debounce|top" ;;
+    up)    s="104 540"; e="104 250"; c="fa6500"; want="Hacker News|cmux|terminal: debounce|zsh|top" ;;
     *) echo "unknown direction $d" >&2; exit 2 ;;
   esac
   read -r sx sy <<<"$s"; read -r ex ey <<<"$e"
