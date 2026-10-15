@@ -174,6 +174,7 @@ impl Translator {
                                 launched: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
                                 announced: false,
+                                output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
@@ -589,14 +590,17 @@ impl Translator {
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
                     announced: false,
+                    output: None,
                 });
                 shell.task = task.map(str::to_owned).or(shell.task.take());
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 shell.background |= backgrounded(line.get("is_backgrounded"));
                 return running(&tool, shell);
             }
             "task_updated" => {
                 let shell = shells.get_mut(&tool)?;
                 shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 // Claude Code may send no notification after `stop_task`: a
                 // stopped task ends here. A completed or failed one waits
                 // for its notification, which carries the summary.
@@ -607,7 +611,8 @@ impl Translator {
             "task_notification" => {}
             _ => return None,
         }
-        let shell = shells.remove(&tool).filter(|s| s.background)?;
+        let mut shell = shells.remove(&tool).filter(|s| s.background)?;
+        shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
         let state = match status {
             Some("failed") => "failed",
             Some("killed" | "stopped") => "stopped",
@@ -750,15 +755,20 @@ fn todo_plan(input: &Value) -> Option<Value> {
     Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }
 
-/// A `background_task_update` for one shell.
+/// A `background_task_update` for one shell, with its `outputFile` once
+/// Claude named it (`hub/processes.rs` tails it).
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
-    json!({
+    let mut update = json!({
         "sessionUpdate": "background_task_update",
         "taskId": shell.task.as_deref().unwrap_or(""),
         "toolCallId": tool,
         "command": shell.command,
         "state": state,
-    })
+    });
+    if let Some(output) = &shell.output {
+        update["outputFile"] = json!(output);
+    }
+    update
 }
 
 /// The `running` update of a shell Claude runs in the background now, once
