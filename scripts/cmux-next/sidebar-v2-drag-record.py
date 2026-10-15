@@ -41,6 +41,8 @@ parser.add_argument("--stress", type=int, default=0, help="extra workspaces befo
 parser.add_argument("--hz", type=float, default=120)
 parser.add_argument("--scenarios", default="1,2,3,4,5")
 parser.add_argument("--trace", action="store_true", help="record an Animation Hitches trace (xctrace) over the drags")
+parser.add_argument("--ticking", type=int, default=0,
+                    help="of the --stress workspaces, this many get a terminal whose program reports OSC 7501 every 250 ms during the drags (agent load)")
 parser.add_argument("--setup-only", action="store_true", help="after the setup: window snapshot + debug.sidebar_rows dump, no drags")
 opts = parser.parse_args()
 WANTED = set(opts.scenarios.split(","))
@@ -354,6 +356,28 @@ def trace_stop(handle):
     print(f"TRACE {json.dumps(summary)}", flush=True)
 
 
+def start_ticks(seconds=180, tick_ms=250):
+    """Each T..-tick terminal's program reports OSC 7501 working/idle every `tick_ms` for `seconds` (sidebar-rows-perf-live.py)."""
+    terms = []
+    try:
+        data = json.loads(cli("--json", "terminal", "list"))
+        for item in (data.get("terminals") if isinstance(data, dict) else data) or []:
+            ident = next((v for v in item.values() if isinstance(v, str) and v.startswith("term_")), None)
+            if ident and "-tick" in json.dumps(item):
+                terms.append(ident)
+    except (ValueError, AttributeError):
+        pass
+    count = int(seconds * 1000 / tick_ms)
+    loop = (f"i=0; while [ $i -lt {count} ]; do if [ $((i % 2)) = 0 ]; then s=working; else s=idle; fi; "
+            f"printf '\\033]7501;state=%s\\033\\\\' $s; sleep {tick_ms / 1000}; i=$((i + 1)); done; printf '\\033]7501;state=idle\\033\\\\'\n")
+    for term in terms:
+        cli("terminal", term, "write", "--text", loop)
+    TRACE["ticking_terminals"] = len(terms)
+    print("ticking terminals started:", len(terms), flush=True)
+    if not terms:
+        fail_harness("--ticking: no T..-tick terminal found in `terminal list`")
+
+
 def ptys_in_use():
     return sum(1 for name in os.listdir("/dev") if name.startswith("ttys") and name[4:5].isdigit())
 
@@ -407,14 +431,21 @@ try:
     # --empty: no terminal per stress workspace (hitch11 started ~790 terminal hosts and used every PTY on the host).
     ptys_before = ptys_in_use()
     print("PTYs in use before the stress setup:", ptys_before, flush=True)
-    for index in range(opts.stress):
+    ticking = min(opts.ticking, 60, opts.stress)  # about one PTY each: never more than 60
+    empties = opts.stress - ticking
+    for index in range(empties):
         reply = cli("workspace", "create", "--empty", "--name", f"S{index:04d}")
         if index == 0:
             print("first stress create:", reply[:200], flush=True)
         if index == 20 and ptys_in_use() - ptys_before > 5:
             fail_harness(f"stress workspaces still start terminals (PTYs {ptys_before} -> {ptys_in_use()} after 20 creates)")
+    # The ticking ones last: the list is newest first, so they sit at its top, on screen during the drags.
+    for index in range(ticking):
+        cli("workspace", "create", "--name", f"T{index:02d}-tick")
     if opts.stress:
-        wait(lambda: f"S{opts.stress - 1:04d}" in json.dumps(window().get("rows", [])) or None, 600)
+        last = f"T{ticking - 1:02d}-tick" if ticking else f"S{empties - 1:04d}"
+        wait(lambda: last in json.dumps(window().get("rows", [])) or None, 600)
+        print("PTYs in use after the stress setup:", ptys_in_use(), f"({ticking} ticking terminals)", flush=True)
         # The new workspaces scrolled the list to its end, so Alpha and the Pinned tiles have no on-screen frame (hitch7
         # failed on a None tile frame): wheel the list back to its top before the drags.
         # New workspaces go to the list's top (newest first) and the Pinned tiles are a block at the very top of the
@@ -458,6 +489,8 @@ try:
     # The cua-driver session starts after the setup: a 1000-workspace setup outlived its idle TTL (hitch10: "session has ended").
     if opts.real_pointer or opts.trace:
         Target.find()
+    if ticking:
+        start_ticks()
     trace = trace_start()
 
     # 1. A workspace row into Pinned tiles (between the two tiles).
