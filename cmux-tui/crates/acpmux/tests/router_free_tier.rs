@@ -697,6 +697,7 @@ fn free_tier_an_app_that_leaves_before_the_provider_line_leaves_no_provider_and_
         api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count(),
         forwarded
     );
-    held.shutdown(std::net::Shutdown::Both).unwrap();
+    // The relay closed the replaced provider already; on macOS a shutdown of it is ENOTCONN.
+    drop(held);
     drop(relay);
 }
