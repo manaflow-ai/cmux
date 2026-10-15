@@ -63,6 +63,17 @@ public final class DesignSettings {
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
+    /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
+    /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
+    public var hoverCardsEnabled = true {
+        didSet {
+            guard hoverCardsEnabled != oldValue else { return }
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
+        }
+    }
+    /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
+    /// Chrome's tab hover card delay at its default tab width (`HoverCardTiming.chromeDelay`).
+    public var hoverCardDelay: Duration = HoverCardTiming.chromeDelay
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -94,9 +105,24 @@ public final class DesignSettings {
     public var statusIndicator = StatusIndicatorSettings()
     /// cmux's terminal font override (`terminal.fontFamily` in cmux.json),
     /// so chrome that imitates the terminal (the braille status indicator)
-    /// draws in it. Nil (no override; a font set only in the Ghostty config
-    /// is not read) uses the system monospaced font.
-    public var terminalFontFamily: String?
+    /// draws in it. Nil (no override) uses the system monospaced font there;
+    /// pages use `effectiveTerminalFontFamily`, which also reads the Ghostty config.
+    public var terminalFontFamily: String? {
+        didSet { repaintIfTerminalFaceChanged(from: oldValue ?? terminalConfigFontFamily) }
+    }
+    /// The Ghostty config files' own `font-family` (`GhosttyConfigFontFamily`), the terminal's
+    /// face when cmux.json sets none.
+    public var terminalConfigFontFamily: String? {
+        didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
+    }
+    /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
+    /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
+    public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
+    /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
+    /// repaints, so every page resends its theme.
+    private func repaintIfTerminalFaceChanged(from before: String?) {
+        if effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
+    }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or

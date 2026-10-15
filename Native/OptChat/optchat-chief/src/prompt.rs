@@ -140,15 +140,25 @@ pub fn chief_system_text(user: Option<&str>, tools: &Tools, profile_tool: bool) 
         Tools::Cli(chief) if profile_tool => format!(
             "{}\n- Your profile: `{chief} profile` prints your record and what you may\n  \
 change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
-`{{\"avatar_path\": \"/abs/pic.png\"}}` sets your picture.",
-            cli_instructions(chief)
+`{{\"avatar_path\": \"/abs/pic.png\"}}` sets your picture.{}",
+            cli_instructions(chief),
+            chiefs_line(chief)
         ),
-        Tools::Cli(chief) => cli_instructions(chief),
+        Tools::Cli(chief) => format!("{}{}", cli_instructions(chief), chiefs_line(chief)),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
         Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
         None => format!("{base}\n\n{cmux}\n"),
     }
+}
+
+/// The launcher line for the `chiefs` tool (a Claude harness finds the tool
+/// in its MCP list, with the grant).
+fn chiefs_line(chief: &str) -> String {
+    format!(
+        "\n- Other Chiefs: with the person's chiefs tool, `{chief} chiefs '{{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}}'`\n  \
+makes a Chief and `\"action\": \"update\"` edits one, within your own grant (`{chief} chiefs` lists them)."
+    )
 }
 
 /// The cmux section for a harness without the `optchat` MCP server: the

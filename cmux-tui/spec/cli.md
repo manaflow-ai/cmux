@@ -924,10 +924,11 @@ sets the group's icon (one emoji, an SF Symbol name, or a stored
 `image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
 or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
-workspaces in the sidebar order. `workspace list` without `--order` (or with
-`--order session`) lists the session's workspace order, the same order as
-`topology.workspaces`: creation order unless a workspace was moved, not the
-sidebar order. The app's `snapshot.get` `windows[].workspaces` lists the order
+workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
+`workspace list` without `--order` also lists the sidebar order (one order
+with the sidebar). `--order session` (and, without the
+document, no `--order`) lists the session's workspace order, the same order as
+`topology.workspaces`: creation order unless a workspace was moved. The app's `snapshot.get` `windows[].workspaces` lists the order
 each window shows.
 
 ## Raw access

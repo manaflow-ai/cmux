@@ -131,6 +131,9 @@ final class WorkspaceRowView: SidebarRowView {
         configure(last.0, row: last.1, badgeStyle: last.2)
     }
 
+    /// Its configure sets everything the reset clears again, or the list does (hover, selection, callbacks).
+    override class var keepsContentOnReturn: Bool { true }
+
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isSecondarySelected = false
@@ -185,10 +188,12 @@ final class WorkspaceRowView: SidebarRowView {
         iconKind = shown.icon
         title.stringValue = ws.title
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
-        subtitle.font = SidebarStyle.subtitleFont
-        subtitle.stringValue = row.detail ?? ""
+        subtitle.setFont(SidebarStyle.subtitleFont)
+        subtitle.setString(row.detail ?? "")
         hasSubtitle = row.detail != nil
-        (isExpanded, timeText, timeLabel.stringValue, metaLabel.stringValue) = (shown.expanded, shown.trailingText, shown.trailingText ?? "", shown.meta ?? "")
+        (isExpanded, timeText) = (shown.expanded, shown.trailingText)
+        timeLabel.setString(shown.trailingText ?? "")
+        metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
@@ -206,9 +211,9 @@ final class WorkspaceRowView: SidebarRowView {
         disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed
         disclosureButton.label = row.tabDisclosure == .expanded ? Strings.hideTabs : Strings.showTabs
         disclosureButton.setAccessibilityExpanded(row.tabDisclosure == .expanded)
-        tabCount.stringValue = row.tabCount.map(String.init) ?? ""
+        tabCount.setString(row.tabCount.map(String.init) ?? "")
         badgeText = shown.badge
-        prBadge.stringValue = shown.badge ?? ""
+        prBadge.setString(shown.badge ?? "")
         progress = shown.progress
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
@@ -263,12 +268,12 @@ final class WorkspaceRowView: SidebarRowView {
     override func updateLayer() {
         performWithTheme {
             title.textColor = Palette.textPrimary
-            subtitle.textColor = Palette.textSecondary; [timeLabel, metaLabel].forEach { $0.textColor = Palette.textTertiary }
-            tabCount.textColor = Palette.textTertiary
-            mutedMark.contentTintColor = Palette.textTertiary
-            prBadge.textColor = Palette.textSecondary
+            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
+            tabCount.setColor(Palette.textTertiary)
+            mutedMark.setTint(Palette.textTertiary)
+            prBadge.setColor(Palette.textSecondary)
             let waits = if case .waiting = activityState { true } else { false }
-            agentMark.contentTintColor = waits ? Palette.attention : Palette.textSecondary
+            agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil
@@ -406,7 +411,9 @@ final class WorkspaceRowView: SidebarRowView {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
-        needsDisplay = true
+        // No needsDisplay here: `updateLayer` reads no layout value, and configure, hover, selection,
+        // drop target and appearance changes mark display themselves. Each display costs AppKit a
+        // contents-scale walk to the window (perf round 4: the top display frames while scrolling).
     }
 }
 
