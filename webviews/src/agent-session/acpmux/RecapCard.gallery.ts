@@ -29,7 +29,7 @@ export default agentPaneEntry({
   // Labs only (preview features) until it ships.
   experimental: true,
   height: 520,
-  covers: ["agent-session/acpmux/RecapCard.tsx", "agent-session/acpmux/recap.ts"],
+  covers: ["agent-session/acpmux/RecapCard.tsx"],
   variants: {
     "recap-card": {
       note: "The turn ends asking to open a PR: Yes, open PR (⌘↩), Not now and ×.",
