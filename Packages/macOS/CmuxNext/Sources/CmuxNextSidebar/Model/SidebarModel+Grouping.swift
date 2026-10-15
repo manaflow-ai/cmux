@@ -6,6 +6,12 @@ extension SidebarModel {
     public var groupsByFolder: Bool { grouping.by == .folder }
     /// Group by Status (Labs): rows sit under Needs you, Working, Done and No agent.
     public var groupsByStatus: Bool { grouping.by == .status }
+    /// Group by Status's elbow children (`SidebarGrouping.elbowsChildren`); the App sets it from
+    /// the Labs flag `labs.sidebarStatusElbow`.
+    public var elbowsChildren: Bool {
+        get { grouping.elbowsChildren }
+        set { grouping.elbowsChildren = newValue }
+    }
 
     /// A Group by Status header's click: fold or unfold its rows. Needs you never folds.
     public func toggleStatusBucket(_ bucket: SidebarStatusBucket) {
@@ -21,10 +27,13 @@ extension SidebarModel {
     }
 
     /// Whether `new` (the patched `old`) changes which rows the list draws. The active row keeps
-    /// its status bucket while it stays active (`SidebarGrouping.held`): a patch, not a move.
+    /// its status bucket while it stays active (`SidebarGrouping.held`): a patch, not a move. With
+    /// elbow children, a new parent moves the row.
     func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace) -> Bool {
         if groupsByFolder && old.folder != new.folder { return true }
         if groupsByStatus {
+            // Elbow children: a row that gains, loses or changes its parent moves under it.
+            if grouping.elbowsChildren && old.parentWorkspace != new.parentWorkspace { return true }
             let before = settledGrouping().bucket(old)
             if before != SidebarStatusBucket(new) {
                 guard new.id == activeWorkspaceID else { return true }

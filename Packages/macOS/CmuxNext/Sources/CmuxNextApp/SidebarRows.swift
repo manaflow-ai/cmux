@@ -45,13 +45,22 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(sections)
+        model.setSections(SidebarAgentLink.linking(sections))
     }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
+    /// A row whose agent sessions changed (`SidebarAgentLink`) may be another row's parent: all shown again.
     func patch(_ changed: [SidebarWorkspace]) {
+        let relinks = SidebarAgentLink.relinks(changed, in: live)
         live = SidebarSection.patching(changed, in: live)
-        if !model.patchWorkspaces(changed) { show() }
+        if relinks { return show() }
+        let parents = SidebarAgentLink.parents(in: live)
+        let linked = changed.map { row in
+            var row = row
+            row.parentWorkspace = parents[row.id]
+            return row
+        }
+        if !model.patchWorkspaces(linked) { show() }
     }
 
     /// Folds or opens `group` at once and keeps that look until `body`

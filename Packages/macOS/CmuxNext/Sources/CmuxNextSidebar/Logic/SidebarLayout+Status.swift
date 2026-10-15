@@ -13,18 +13,17 @@ nonisolated extension SidebarLayout {
     ) -> [SidebarRow] {
         let machines = sections.filter { $0.machine != nil }
         guard let first = machines.first else { return [] }
-        var buckets: [SidebarStatusBucket: [(ws: SidebarWorkspace, section: SidebarSection, index: Int)]] = [:]
+        var members: [Member] = []
         for section in machines {
             for (index, node) in section.nodes.enumerated() {
-                let members: [SidebarWorkspace] = switch node {
+                let workspaces: [SidebarWorkspace] = switch node {
                 case let .workspace(ws): [ws]
                 case let .group(group): group.workspaces
                 }
-                for ws in members where visible(ws) {
-                    buckets[o.grouping.bucket(ws), default: []].append((ws, section, index))
-                }
+                for ws in workspaces where visible(ws) { members.append(Member(ws: ws, section: section, index: index)) }
             }
         }
+        let buckets = bucketed(members, options: o)
         var rows: [SidebarRow] = []
         for bucket in SidebarStatusBucket.allCases {
             guard let members = buckets[bucket] else { continue }
@@ -37,7 +36,8 @@ nonisolated extension SidebarLayout {
             y += m.groupHeaderHeight + m.rowSpacing
             if collapsed { continue }
             for member in members {
-                let content = o.rowContent(member.ws, machine: machineLabel(member.section, options: o))
+                var content = o.rowContent(member.ws, machine: machineLabel(member.section, options: o))
+                content.elbow = member.elbow
                 let h = m.height(for: content)
                 rows.append(SidebarRow(
                     key: .workspace(member.ws.id), y: y, height: h, section: member.section.id,
@@ -63,7 +63,60 @@ nonisolated extension SidebarLayout {
     }
 }
 
+/// Elbow children (`SidebarGrouping.elbowsChildren`): a child agent session's row sits directly
+/// under its parent row, in the parent's bucket whatever its own status, so the tree reads top
+/// to bottom (its own status still shows on the row). A child of a child follows it the same way.
+/// A row whose parent is not listed (filtered out, another list) stays in its own bucket.
+nonisolated extension SidebarLayout {
+    struct Member {
+        var ws: SidebarWorkspace
+        var section: SidebarSection
+        var index: Int
+        /// Drawn with the elbow connector under its parent.
+        var elbow = false
+    }
+
+    /// `members` (in list order) under their buckets, children after their parents with elbows on.
+    static func bucketed(_ members: [Member], options o: SidebarLayoutOptions) -> [SidebarStatusBucket: [Member]] {
+        var buckets: [SidebarStatusBucket: [Member]] = [:]
+        guard o.elbowsChildren else {
+            for member in members { buckets[o.grouping.bucket(member.ws), default: []].append(member) }
+            return buckets
+        }
+        let listed = Set(members.map(\.ws.id))
+        var children: [WorkspaceID: [Member]] = [:]
+        var roots: [Member] = []
+        for member in members {
+            if let parent = member.ws.parentWorkspace, parent != member.ws.id, listed.contains(parent) {
+                children[parent, default: []].append(member)
+            } else {
+                roots.append(member)
+            }
+        }
+        var placed: Set<WorkspaceID> = []
+        func place(_ member: Member, elbow: Bool, in bucket: SidebarStatusBucket) {
+            guard placed.insert(member.ws.id).inserted else { return }
+            var member = member
+            member.elbow = elbow
+            buckets[bucket, default: []].append(member)
+            for child in children[member.ws.id] ?? [] { place(child, elbow: true, in: bucket) }
+        }
+        for root in roots { place(root, elbow: false, in: o.grouping.bucket(root.ws)) }
+        // Rows whose parents name each other in a loop: the first in list order leads.
+        for member in members where !placed.contains(member.ws.id) {
+            place(member, elbow: false, in: o.grouping.bucket(member.ws))
+        }
+        return buckets
+    }
+}
+
 nonisolated extension SidebarLayoutOptions {
+    /// Group by Status's elbow children; the model's `SidebarGrouping.elbowsChildren`.
+    public var elbowsChildren: Bool {
+        get { grouping.elbowsChildren }
+        set { grouping.elbowsChildren = newValue }
+    }
+
     /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the
     /// row's disclosure.
     func listsTabs(_ ws: SidebarWorkspace) -> Bool {
