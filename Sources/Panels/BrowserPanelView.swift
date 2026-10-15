@@ -997,7 +997,8 @@ struct BrowserPanelView: View {
         // Keep browser find usable when the browser is still in the empty new-tab
         // state (no WKWebView mounted yet). WebView-backed cases are hosted
         // in AppKit by WindowBrowserPortal to avoid layering/clipping issues.
-        if !panel.shouldRenderWebView, let searchState = panel.searchState {
+        // Chromium pages mount the find bar over the page itself (`engineFindOverlayView`).
+        if !panel.shouldRenderWebView, panel.enginePage == nil, let searchState = panel.searchState {
             BrowserSearchOverlay(
                 panelId: panel.id,
                 searchState: searchState,
@@ -1009,6 +1010,27 @@ struct BrowserPanelView: View {
                 onPrevious: { panel.findPrevious() },
                 onClose: { panel.hideFind() },
                 onFieldDidFocus: { panel.noteFindFieldFocused() }
+            )
+        }
+    }
+
+    /// The find bar over a Chromium page: the same card as WebKit's (design spec §6), its frame a
+    /// hole in the page window.
+    @ViewBuilder
+    private var engineFindOverlayView: some View {
+        if let searchState = panel.searchState {
+            BrowserSearchOverlay(
+                panelId: panel.id,
+                searchState: searchState,
+                focusRequestGeneration: panel.searchFocusRequestGeneration,
+                canApplyFocusRequest: { generation in
+                    canApplyBrowserFindFieldFocusRequest(generation)
+                },
+                onNext: { panel.findNext() },
+                onPrevious: { panel.findPrevious() },
+                onClose: { panel.hideFind() },
+                onFieldDidFocus: { panel.noteFindFieldFocused() },
+                pageOverlays: panel.pageOverlays
             )
         }
     }
@@ -1220,6 +1242,16 @@ struct BrowserPanelView: View {
                     // immediately before the trailing More affordance.
                     browserActiveModeButtonWithShortcutHint
                     browserScreenshotCopiedIndicator
+                    if panel.enginePage != nil {
+                        // Chromium panels only (design spec §7); WebKit keeps today's row.
+                        BrowserZoomChip(
+                            model: panel.zoomIndicator,
+                            metrics: chromeMetrics,
+                            zoomIn: { _ = panel.zoomInResult() },
+                            zoomOut: { _ = panel.zoomOutResult() },
+                            reset: { _ = panel.resetZoomResult() }
+                        )
+                    }
                     if activeToolbarMode != .design {
                         BrowserDesignModeToolbarButton(
                             controller: panel.designModeController,
@@ -1891,6 +1923,7 @@ struct BrowserPanelView: View {
                         }
                     }
                 )
+                .overlay(engineFindOverlayView)
             } else if panel.shouldAttachWebViewInUI {
                 WebViewRepresentable(
                     panel: panel,

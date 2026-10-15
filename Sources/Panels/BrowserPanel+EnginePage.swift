@@ -93,6 +93,7 @@ extension BrowserPanel {
     func startEnginePageEvents() {
         guard let enginePage, enginePageEventsTask == nil else { return }
         enginePage.uiDelegate = nil
+        attachEnginePageFeatures()
         applyEnginePageState(enginePage.state)
         let events = enginePage.events
         enginePageEventsTask = Task { @MainActor [weak self] in

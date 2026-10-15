@@ -1,4 +1,5 @@
 public import CmuxBrowser
+public import CoreGraphics
 
 /// Native find: the panel's find bar drives Chromium's own find through the page's session.
 extension CEFBrowserPage: BrowserPageNativeFinding {
@@ -23,5 +24,14 @@ extension CEFBrowserPage: BrowserPageContextMenuCustomizing {
     public var contextMenuHost: (any BrowserContextMenuHosting)? {
         get { features.contextMenuHost }
         set { features.contextMenuHost = newValue }
+    }
+}
+
+/// Overlay holes: the panel's overlays (find bar, permission bar, crash page) plus the DevTools
+/// divider become holes in the page and DevTools windows.
+extension CEFBrowserPage: BrowserPageOcclusionHosting {
+    public var pageOcclusionRects: [CGRect] {
+        get { features.chromeOcclusionRects }
+        set { features.chromeOcclusionRects = newValue }
     }
 }
