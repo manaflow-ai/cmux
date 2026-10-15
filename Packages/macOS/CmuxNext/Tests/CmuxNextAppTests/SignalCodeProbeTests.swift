@@ -16,7 +16,8 @@ nonisolated private let probeHandler: @convention(c) (Int32, UnsafeMutablePointe
         pc = mc.pointee.__ss.__pc
     }
     #endif
-    let line = "PROBE signal=\(signal) si_code=\(code) esr=0x\(String(esr, radix: 16)) ec=0x\(String(esr >> 26, radix: 16)) pc=0x\(String(pc, radix: 16))\n"
+    let blocked = { var m = sigset_t(); pthread_sigmask(SIG_BLOCK, nil, &m); return m }()
+    let line = "PROBE main=\(pthread_main_np()) mask=0x\(String(blocked, radix: 16)) signal=\(signal) si_code=\(code) esr=0x\(String(esr, radix: 16)) ec=0x\(String(esr >> 26, radix: 16)) pc=0x\(String(pc, radix: 16))\n"
     _ = line.withCString { Darwin.write(probeDescriptor, $0, strlen($0)) }
     _exit(0)
 }
@@ -52,35 +53,35 @@ nonisolated enum SignalProbe {
 
 struct SignalCodeProbeTests {
     @Test func brk() async {
-        await #expect(processExitsWith: .success) { SignalProbe.arm("brk"); fatalError("probe") }
+        await #expect(processExitsWith: .success) { await MainActor.run { SignalProbe.arm("brk"); fatalError("probe") } }
         SignalProbe.report("brk")
     }
     @Test func raiseTrap() async {
-        await #expect(processExitsWith: .success) { SignalProbe.arm("raiseTrap"); raise(SIGTRAP); _exit(3) }
+        await #expect(processExitsWith: .success) { await MainActor.run { SignalProbe.arm("raiseTrap"); raise(SIGTRAP); _exit(3) } }
         SignalProbe.report("raiseTrap")
     }
     @Test func raiseSegv() async {
-        await #expect(processExitsWith: .success) { SignalProbe.arm("raiseSegv"); raise(SIGSEGV); _exit(3) }
+        await #expect(processExitsWith: .success) { await MainActor.run { SignalProbe.arm("raiseSegv"); raise(SIGSEGV); _exit(3) } }
         SignalProbe.report("raiseSegv")
     }
     @Test func pthreadKillBus() async {
-        await #expect(processExitsWith: .success) { SignalProbe.arm("pthreadKillBus"); pthread_kill(pthread_self(), SIGBUS); _exit(3) }
+        await #expect(processExitsWith: .success) { await MainActor.run { SignalProbe.arm("pthreadKillBus"); pthread_kill(pthread_self(), SIGBUS); _exit(3) } }
         SignalProbe.report("pthreadKillBus")
     }
     @Test func killSelfSegv() async {
-        await #expect(processExitsWith: .success) { SignalProbe.arm("killSelfSegv"); kill(getpid(), SIGSEGV); _exit(3) }
+        await #expect(processExitsWith: .success) { await MainActor.run { SignalProbe.arm("killSelfSegv"); kill(getpid(), SIGSEGV); _exit(3) } }
         SignalProbe.report("killSelfSegv")
     }
     @Test func realSegv() async {
-        await #expect(processExitsWith: .success) { SignalProbe.arm("realSegv"); SignalProbe.badAccess(); _exit(3) }
+        await #expect(processExitsWith: .success) { await MainActor.run { SignalProbe.arm("realSegv"); SignalProbe.badAccess(); _exit(3) } }
         SignalProbe.report("realSegv")
     }
     @Test func abortCall() async {
-        await #expect(processExitsWith: .success) { SignalProbe.arm("abort"); abort() }
+        await #expect(processExitsWith: .success) { await MainActor.run { SignalProbe.arm("abort"); abort() } }
         SignalProbe.report("abort")
     }
     @Test func killFromOtherThreadWhileSpinning() async {
-        await #expect(processExitsWith: .success) {
+        await #expect(processExitsWith: .success) { await MainActor.run {
             SignalProbe.arm("spin")
             let target = pthread_self()
             var thread: pthread_t?
@@ -93,7 +94,7 @@ struct SignalCodeProbeTests {
             var x: UInt64 = 1
             while true { x = x &* 6364136223846793005 &+ 1; if x == 0 { break } }
             _exit(3)
-        }
+        } }
         SignalProbe.report("spin")
     }
 }
