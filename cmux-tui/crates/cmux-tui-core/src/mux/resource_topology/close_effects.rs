@@ -463,7 +463,7 @@ impl Mux {
         }
         drop(effects.removed);
         for target in effects.targets {
-            self.emit(MuxEvent::SurfaceExited(target));
+            self.emit(MuxEvent::SurfaceExited(target, effects.end.clone()));
         }
         self.emit(MuxEvent::TreeChanged);
         if effects.selection_resync {

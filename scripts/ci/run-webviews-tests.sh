@@ -7,7 +7,8 @@
 # jsdom globals). A process per file keeps that leak inside one file, and a
 # wall-clock timeout per file names a stuck file instead of hanging the job.
 #
-# CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120).
+# CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120); a file may declare more
+# with a `// cmux-web-test-timeout: SECONDS` header line.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 #
@@ -59,6 +60,16 @@ run_with_timeout() {
   fi
 }
 
+# file_limit FILE DEFAULT: the seconds FILE may run. A file whose own tests need more than the
+# default names its limit on a header line (first 20 lines), `// cmux-web-test-timeout: SECONDS`
+# (editor-page: 24 browser tests in two engines, about 115 s on the CI runner, were killed at
+# 120 s mid-WebKit). The longer of the two wins, so a declared limit never shortens the default.
+file_limit() {
+  local declared
+  declared="$(head -n 20 "$1" 2> /dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1)"
+  if [ -n "$declared" ] && [ "$declared" -gt "$2" ]; then echo "$declared"; else echo "$2"; fi
+}
+
 if [ "${1:-}" = --one-cached ]; then
   # xargs -n 3 appends FILE CACHE SEED after the fixed arguments.
   exec bash "$0" --one "$4" "$2" "$3" "$5" "${6:-}"
@@ -66,7 +77,7 @@ fi
 if [ "${1:-}" = --one ]; then
   # Worker: run one file, write its log and status into the results directory. A dev server
   # file gets a Vite cache of its own (CMUX_VITE_CACHE_DIR), a copy of a warm one when given.
-  file="$2" results="$3" timeout_seconds="$4" cache="${5:-}" seed="${6:-}"
+  file="$2" results="$3" timeout_seconds="$(file_limit "$2" "$4")" cache="${5:-}" seed="${6:-}"
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
   if [ -n "$cache" ]; then
@@ -202,6 +213,6 @@ done < <(sort -k2 "$results/summary")
 
 echo "### webviews tests: $count files, $failed failed or timed out"
 while read -r result file _; do
-  [ "$result" = PASS ] || echo "$result $file (limit ${timeout_seconds}s)"
+  [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
 done < <(sort -k2 "$results/summary")
 [ "$failed" -eq 0 ]

@@ -36,6 +36,9 @@ pub mod harness_config;
 pub mod harness_health;
 pub mod harness_limits;
 pub mod hub;
+#[cfg(windows)]
+mod job;
+pub mod launch_policy;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;

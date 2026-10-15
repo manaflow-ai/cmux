@@ -22,6 +22,8 @@ import os
 /// consecutive drops (reset only after a connection stays up for
 /// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
 /// the loop waits for the daemon socket to change or `retryWake` to fire.
+/// After `retry.socketRetries` failures that a new socket woke (a daemon
+/// that dies on connect) only `retryWake` does.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -322,10 +324,16 @@ public actor DaemonConnection {
     private func reconnectLoop() async {
         // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
         while !Task.isCancelled {
-            // A drop or a failed attempt: space the next one (events only past the budget).
+            // A drop or a failed attempt: space the next one (events only past the budget;
+            // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
             wake.rebaseline()
             let delay = pacer.failed()
-            guard await wake.awaitWake(delay: delay, clock: clock) != .cancelled else { break }
+            if pacer.socketFailures == pacer.policy.socketRetries {
+                logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
+            }
+            let cause = await wake.awaitWake(delay: delay, clock: clock, socket: pacer.wakesOnSocket)
+            guard cause != .cancelled else { break }
+            pacer.woke(cause)
             if isClosedPhase { break }
             do {
                 _ = try await connectOnce()
