@@ -600,6 +600,102 @@
       "title" : "Window Style",
       "type" : "string"
     },
+    "appearance.colorTransition.bezierX1" : {
+      "default" : 0.42,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierX2" : {
+      "default" : 0.58,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY1" : {
+      "default" : 0,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY2" : {
+      "default" : 1,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.colorSpace" : {
+      "default" : "oklab",
+      "description" : "OKLab blends with even lightness. sRGB mixes the red, green and blue channels.",
+      "enum" : [
+        "oklab",
+        "srgb"
+      ],
+      "title" : "Color Blend Space",
+      "type" : "string"
+    },
+    "appearance.colorTransition.curve" : {
+      "default" : "easeOut",
+      "description" : "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.",
+      "enum" : [
+        "easeOut",
+        "easeInOut",
+        "linear",
+        "spring",
+        "cubicBezier"
+      ],
+      "title" : "Color Change Curve",
+      "type" : "string"
+    },
+    "appearance.colorTransition.duration" : {
+      "default" : 200,
+      "description" : "How long a color change takes. 0 changes colors at once.",
+      "maximum" : 2000,
+      "minimum" : 0,
+      "title" : "Color Change Duration",
+      "type" : "number"
+    },
+    "appearance.colorTransition.enabled" : {
+      "default" : true,
+      "description" : "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.",
+      "title" : "Animate Color Changes",
+      "type" : "boolean"
+    },
+    "appearance.colorTransition.reduceMotion" : {
+      "default" : "crossfade",
+      "description" : "What color changes do while Reduce Motion is on in macOS.",
+      "enum" : [
+        "crossfade",
+        "instant",
+        "full"
+      ],
+      "title" : "With Reduce Motion",
+      "type" : "string"
+    },
+    "appearance.colorTransition.springDamping" : {
+      "default" : 1,
+      "description" : "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.",
+      "maximum" : 2,
+      "minimum" : 0.1,
+      "title" : "Spring Damping",
+      "type" : "number"
+    },
+    "appearance.colorTransition.springResponse" : {
+      "default" : 0.3,
+      "description" : "Seconds a spring color change takes to reach its new colors.",
+      "maximum" : 2,
+      "minimum" : 0.05,
+      "title" : "Spring Response",
+      "type" : "number"
+    },
     "appearance.density" : {
       "default" : "compact",
       "description" : "appearance.density",
