@@ -24,13 +24,21 @@ Code:
    cross-platform question needs two experiments and two reports.
 2. **Sticky bucketing per user.** The unit is the cmux account. Its
    `distinct_id` is the account's user id. The server records the first
-   variant served to each user in `paywall_assignments`. The user keeps that
-   variant when the optimizer changes the traffic split, and when the flag
-   is unavailable. The only exception is the kill switch: when the flag is
-   off, everyone gets control. The analysis counts each person once, in the
-   variant of their first exposure.
+   variant and the copy served to each user in `paywall_assignments`. The
+   user keeps both when the optimizer changes the traffic split, when the
+   copy in the flag is edited, and when the flag is unavailable. The only
+   exception is the kill switch: when the flag is off, everyone gets
+   control. The analysis counts each person once, in the variant of their
+   first exposure.
+   - A copy edit therefore reaches only new users. To test new copy, add a
+     new variant key. Do not edit an exposed variant: the optimizer logs
+     every edit as `copy_changed`, and that arm then holds two versions.
 3. **Exposure is the server's `$feature_flag_called` event.** It is recorded
-   when the server serves a variant. It carries `paywall_experiment`,
+   when the server serves a variant (at most once per user, variant and UTC
+   day). The app fetches the config when the plans screen opens, and also
+   from the Settings plan row. So an exposure means "loaded the paywall
+   config", which can happen without seeing the paywall. This dilutes all
+   arms equally and does not bias the comparison. It carries `paywall_experiment`,
    `paywall_variant`, `paywall_layout`, `paywall_platform`,
    `paywall_channel`, `paywall_internal` and `paywall_sticky`.
 4. **Exclusions.** These groups never enter the analysis:
@@ -43,14 +51,19 @@ Code:
    Internal accounts still get variants, so that staff can check them.
 5. **Sample-ratio-mismatch (SRM) check.** Every run compares the first
    exposures since the last allocation change with that allocation, using a
-   chi-square goodness-of-fit test. If p < 0.001, or if anyone is first
-   exposed to a variant at 0%, the optimizer stops all changes, records
-   `srm_halt` and reports. Traffic stays frozen until a person explains the
-   mismatch.
+   chi-square goodness-of-fit test. The window starts 15 minutes after the
+   change, because flag evaluations are cached for a few minutes. First
+   exposures served from a sticky assignment are not counted.
+   - If p < 0.001, or if anyone is first exposed to a variant at 0%, the
+     optimizer stops all changes, records `srm_halt` once and reports the
+     halt daily.
+   - Traffic stays frozen until a person explains the mismatch and runs
+     `scripts/paywall-optimizer/clear-srm.ts`. That command records
+     `srm_cleared` and restarts the window.
 6. **Change log.** Every change is appended to `paywall_experiment_changes`
    with a timestamp, the actor and the reason. Changes are: variant created,
-   variant retired, copy changed, invalid payload, allocation changed and SRM
-   halt. Each run is stored in `paywall_experiment_runs` with its snapshot and
+   variant retired, copy changed, invalid payload, allocation changed, SRM
+   halt and SRM cleared. Each run is stored in `paywall_experiment_runs` with its snapshot and
    its daily markdown report. Staff can read both through
    `GET /api/billing/paywall/variants?experiment=<key>`.
 7. **Who may change traffic.** The cron writes splits only when

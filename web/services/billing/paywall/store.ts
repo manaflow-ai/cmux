@@ -20,7 +20,9 @@ export type PaywallChangeKind =
   | "copy_changed"
   | "payload_invalid"
   | "allocation_changed"
-  | "srm_halt";
+  | "srm_halt"
+  /** A person explained an SRM halt; the SRM window restarts here. */
+  | "srm_cleared";
 
 export type PaywallChange = {
   readonly experiment: string;
@@ -42,7 +44,10 @@ export type PaywallRun = {
 
 export type PaywallAssignmentStore = {
   readonly assignment: (userId: string, experiment: string) => Promise<PaywallAssignment | null>;
-  /** Records the served variant; `assigned_at` keeps the first assignment of that variant. */
+  /**
+   * Records a serve. The first serve stores the variant and its copy; later
+   * serves keep both (assignment is sticky) and only move `served_at`.
+   */
   readonly recordServed: (userId: string, experiment: string, variant: string, payload: unknown) => Promise<void>;
 };
 
@@ -70,12 +75,7 @@ export function databasePaywallAssignmentStore(db: () => Db = cloudDb): PaywallA
         .values({ userId, experiment, variant, payload })
         .onConflictDoUpdate({
           target: [paywallAssignments.userId, paywallAssignments.experiment],
-          set: {
-            variant,
-            payload,
-            servedAt: sql`now()`,
-            assignedAt: sql`case when ${paywallAssignments.variant} = ${variant} then ${paywallAssignments.assignedAt} else now() end`,
-          },
+          set: { servedAt: sql`now()` },
         });
     },
   };

@@ -67,7 +67,7 @@ export const IOS_PAYWALL_V1_SEED: readonly SeedVariant[] = [
       subheadline: "Both include up to 5 Cloud VMs. Max shares 80 vCPUs and 160 GB RAM for bigger builds.",
       bullets: [
         "Pro: 20 vCPUs and 40 GB RAM to share",
-        "Max: one VM can have up to 32 vCPUs and 64 GB RAM",
+        "Max: a single VM can have up to 32 vCPUs and 64 GB RAM",
         "Both: the iOS app, email support and unlimited workspaces",
       ],
       highlightedPlanId: null,
