@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -129,12 +130,12 @@ final class SidebarBridge {
         sameTurn.observe(listsRows: true, {
             // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
             let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
-            feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
+            feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar, SidebarAgentLink.nests] as [AnyHashable])
             let (sections, launching, failed) = Self.liveSections(
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
-                tabTitle: Self.tabTitle(services), rows: feed.rowSource)
+                tabTitle: Self.tabTitle(services), rows: SidebarMapping.linkingAgents(feed.rowSource))
             return ((sections, services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
         }) { [weak self] value in

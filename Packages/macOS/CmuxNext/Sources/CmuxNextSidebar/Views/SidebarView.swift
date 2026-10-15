@@ -351,7 +351,7 @@ public final class SidebarView: NSView {
             collapsedSections = model.collapsedLayoutSections
             look = SidebarSectionTunables.currentLook
             drawsLines = Borders.drawsLines
-            preferences = design.sidebarSections
+            preferences = design.sidebarSections.withStatusDebugToggles()
             suppressedApps = model.suppressedApps
             metrics = .standard
             fontSize = Typography.body.pointSize
