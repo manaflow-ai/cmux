@@ -877,5 +877,23 @@
     "arguments": [
       2
     ]
+  },
+  "cli.vm.clone.setup.doneDetail.one": {
+    "source": "%ld step in terminal %@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.setup.confirm.one": {
+    "source": "Run %1$ld setup command from %2$@ on %3$@? It runs with your Cloud Secrets. [y/N] ",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.new.plan.freeWindow.short": {
+    "source": "Free for %d days",
+    "arguments": [
+      1
+    ]
   }
 }
