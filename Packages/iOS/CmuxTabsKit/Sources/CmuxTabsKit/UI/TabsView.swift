@@ -709,8 +709,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
             guard !chrome.swiping, activeID != nil else { return }
             zoomTabId = activeID
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
-            zoomDriver.beginInteraction()
+            // Safari's page follows its swipe-up curve in time (by finger travel
+            // alone it dropped 98 pt in the first frame, cmux-next re-audit 3 D7).
+            zoomDriver.startSwipeUp()
+            return
         }
+        // The finger turned back down: the swipe takes over interactively.
+        if zoomState.playingSwipeUp, velocity < -50 { zoomDriver.beginInteraction() }
         guard zoomState.phase == .interactive else { return }
         zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
     }

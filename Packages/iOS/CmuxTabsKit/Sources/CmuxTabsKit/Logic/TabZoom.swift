@@ -104,6 +104,7 @@ struct TabZoomState: Equatable, Sendable {
     private(set) var curve: SafariCurve?
     private var curveFrom: Double = 0
     private var curveTime: Double = 0
+    private var curveFirstFrame = false
     private(set) var phase: Phase = .page
 
     init(overview: Bool = false) {
@@ -163,7 +164,23 @@ struct TabZoomState: Equatable, Sendable {
         curve = c
         curveFrom = time > 0 ? (target == 1 ? 0 : 1) : progress
         curveTime = time
+        curveFirstFrame = true
     }
+
+    /// A swipe up on the bar began: the page goes to the grid along Safari's
+    /// swipe-up curve in time (Safari's page moves on its own clock while the
+    /// finger travels; a swipe that turns back down takes over interactively).
+    mutating func startSwipeUp() {
+        guard phase == .page else { return }
+        animate(to: 1, spring: .release, keepVelocity: 0)
+        play(.swipeUp)
+        // Ours shows the swipe's first frame about half a frame sooner than
+        // Safari (measured with the same input).
+        curveTime = -0.5 / 60
+    }
+
+    /// Whether the swipe-up curve is running.
+    var playingSwipeUp: Bool { phase == .animating && curve == .swipeUp }
 
     /// A swipe up on the bar ended: the grid follows Safari's swipe-up curve
     /// on from where the finger left the page (its progress on that curve).
@@ -263,7 +280,10 @@ struct TabZoomState: Equatable, Sendable {
     mutating func step(_ dt: Double) -> Bool {
         guard phase == .animating, dt > 0 else { return false }
         if let c = curve {
-            curveTime += dt
+            // The first frame of a curve advances one 60 Hz frame however long
+            // the frame that started it took (it built the grid).
+            curveTime += curveFirstFrame ? 1.0 / 60 : dt
+            curveFirstFrame = false
             let p = c.value(at: curveTime)
             let next = curveFrom + (target - curveFrom) * p
             velocity = (next - progress) / dt
