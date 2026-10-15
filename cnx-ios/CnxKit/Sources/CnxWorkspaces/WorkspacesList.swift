@@ -54,6 +54,12 @@ public struct WorkspacesList: View {
     /// Set Icon… › Emoji…: the workspace and the typed emoji.
     @State private var iconEmoji: Workspace?
     @State private var emojiText = ""
+    /// Move Workspace to New Group: the workspace; Rename Group… and Delete
+    /// Group: the group. One name field for both.
+    @State private var newGroupFor: Workspace?
+    @State private var renamingGroup: GroupTarget?
+    @State private var deletingGroup: GroupTarget?
+    @State private var groupNameText = ""
     /// The rows' status gutter (32 pt at Large), for the separator inset.
     @Environment(\.dynamicTypeSize) private var typeSize
     private var gutter: CGFloat { WorkspaceRow.scaled(WorkspaceRow.gutter, typeSize) }
@@ -162,6 +168,28 @@ public struct WorkspacesList: View {
                     .disabled(WorkspaceIcon.emoji(emojiText) == nil)
             } message: { _ in
                 Text("One emoji.")
+            }
+            .alert("Move Workspace to New Group", isPresented: isPresented($newGroupFor), presenting: newGroupFor) { ws in
+                TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
+                }
+            }
+            .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { target in
+                TextField("Name", text: $groupNameText)
+                    .submitLabel(.done)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
+                    .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .confirmationDialog(deletingGroup.map { "Delete \u{201C}\($0.group.displayName)\u{201D}?" } ?? "",
+                                isPresented: isPresented($deletingGroup), titleVisibility: .visible, presenting: deletingGroup) { target in
+                Button("Delete Group", role: .destructive) {
+                    withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(target.group, on: target.macID) }
+                }
+            } message: { target in
+                Text("Its workspaces stay open on \(mac(target.macID).map(displayName) ?? "the Mac").")
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
@@ -302,7 +330,16 @@ public struct WorkspacesList: View {
                         // The Mac's sidebar order when the phone knows it, else newest first.
                         SectionTitle(title: inbox.isMacOrder ? "Workspaces" : "Recent")
                     }
-                    ForEach(inbox.recent) { row($0, inbox) }
+                    ForEach(inbox.recentSections) { section in
+                        if let group = section.group {
+                            groupHeader(group, section: section)
+                            if !group.isCollapsed {
+                                ForEach(section.workspaces) { row($0, inbox) }
+                            }
+                        } else {
+                            ForEach(section.workspaces) { row($0, inbox) }
+                        }
+                    }
                 }
             }
             ForEach(inbox.folds) { fold in
@@ -400,6 +437,134 @@ public struct WorkspacesList: View {
             }
         }
         .accessibilityIdentifier("workspace.row.\(ws.id)")
+    }
+
+    /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
+    /// unfolds it (Collapse / Expand Workspace Group, on the Mac too); hold it
+    /// for the Mac's group actions.
+    private func groupHeader(_ group: MacWorkspaceGroup, section: RecentSection) -> some View {
+        let canEdit = section.workspaces.first.map { creator.canGroup($0) } ?? false
+        return Button {
+            guard canEdit else { return }
+            theme.haptics.selection()
+            withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: section.macID, !group.isCollapsed) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(theme.type.meta.weight(.semibold))
+                    .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
+                    .foregroundStyle(theme.colors.label2)
+                Circle()
+                    .fill(WorkspaceSwatch.color(stored: group.color) ?? theme.colors.label3)
+                    .frame(width: 8, height: 8)
+                Text(group.displayName)
+                    .font(theme.type.meta.weight(.semibold))
+                    .foregroundStyle(theme.colors.label)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if group.isCollapsed {
+                    Text("\(section.workspaces.count)")
+                        .font(theme.type.meta)
+                        .foregroundStyle(theme.colors.label2)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 20))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .contextMenu {
+            if canEdit { groupMenu(group, macID: section.macID) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityValue(group.isCollapsed ? "Collapsed, \(section.workspaces.count) workspaces" : "Expanded")
+        .accessibilityActions {
+            if canEdit {
+                Button("Rename Group…") { startRenameGroup(group, macID: section.macID) }
+                Button("Delete Group") { deletingGroup = GroupTarget(group: group, macID: section.macID) }
+            }
+        }
+        .accessibilityIdentifier("workspace.group.\(group.id)")
+    }
+
+    /// The Mac's group menu (its group header's actions that make sense on a
+    /// phone): Rename Group…, Set Workspace Group Color…, Collapse / Expand
+    /// Workspace Group, then Ungroup Workspaces and Delete Group.
+    @ViewBuilder private func groupMenu(_ group: MacWorkspaceGroup, macID: String) -> some View {
+        Section(group.displayName) {
+            Button("Rename Group…", systemImage: "pencil.line") { startRenameGroup(group, macID: macID) }
+            Menu {
+                ForEach(WorkspaceColor.allCases, id: \.self) { color in
+                    Button {
+                        creator.setGroupColor(group, on: macID, color)
+                    } label: {
+                        if WorkspaceColor(stored: group.color) == color {
+                            Label(color.title, systemImage: "checkmark")
+                        } else {
+                            Label { Text(color.title) } icon: { WorkspaceSwatch.image(color) }
+                        }
+                    }
+                }
+            } label: {
+                Label("Set Workspace Group Color…", systemImage: "paintpalette")
+            }
+            Button(group.isCollapsed ? "Expand Workspace Group" : "Collapse Workspace Group",
+                   systemImage: group.isCollapsed ? "chevron.down" : "chevron.right") {
+                withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: macID, !group.isCollapsed) }
+            }
+        }
+        Section {
+            Button("Ungroup Workspaces", systemImage: "rectangle.stack.badge.minus") {
+                withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(group, on: macID) }
+            }
+            Button("Delete Group", systemImage: "trash", role: .destructive) {
+                deletingGroup = GroupTarget(group: group, macID: macID)
+            }
+        }
+    }
+
+    private func startRenameGroup(_ group: MacWorkspaceGroup, macID: String) {
+        groupNameText = group.name
+        renamingGroup = GroupTarget(group: group, macID: macID)
+    }
+
+    /// The Mac's row menu folder Group: Move Workspace to Group… (its groups,
+    /// then Move Workspace to New Group) and Remove Workspace from Group.
+    @ViewBuilder private func groupFolder(_ ws: Workspace) -> some View {
+        if creator.canGroup(ws) {
+            let choices = creator.groupChoices(for: ws)
+            Menu {
+                Menu {
+                    ForEach(choices) { group in
+                        Button {
+                            withAnimation(theme.motion.smooth.animation) { creator.place(ws, in: group) }
+                        } label: {
+                            if let color = WorkspaceColor(stored: group.color) {
+                                Label { Text(group.displayName) } icon: { WorkspaceSwatch.image(color) }
+                            } else {
+                                Text(group.displayName)
+                            }
+                        }
+                    }
+                    if !choices.isEmpty { Divider() }
+                    Button("Move Workspace to New Group", systemImage: "folder.badge.plus") {
+                        groupNameText = ""
+                        newGroupFor = ws
+                    }
+                } label: {
+                    Label("Move Workspace to Group…", systemImage: "folder.badge.questionmark")
+                }
+                if ws.group != nil {
+                    Button("Remove Workspace from Group", systemImage: "folder.badge.minus") {
+                        withAnimation(theme.motion.smooth.animation) { creator.place(ws, in: nil) }
+                    }
+                }
+            } label: {
+                Label("Group", systemImage: "folder")
+            }
+        }
     }
 
     /// Asks before closing, in a popover pointing at the row (Mail).
@@ -558,6 +723,7 @@ public struct WorkspacesList: View {
             } label: {
                 Label("Options", systemImage: "ellipsis.circle")
             }
+            groupFolder(ws)
             if order.count > 1 {
                 Menu {
                     Button("Move Workspace Up", systemImage: "arrow.up") {
@@ -920,6 +1086,13 @@ struct SectionTitle: View {
             .listRowBackground(Color.clear)
             .accessibilityAddTraits(.isHeader)
     }
+}
+
+/// A Mac workspace group the person is renaming or deleting.
+struct GroupTarget: Identifiable {
+    var group: MacWorkspaceGroup
+    var macID: String
+    var id: String { "\(macID)-\(group.id)" }
 }
 
 /// A bulk close waiting for the person's answer.
