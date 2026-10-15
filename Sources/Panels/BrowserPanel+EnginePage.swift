@@ -95,7 +95,8 @@ extension BrowserPanel {
         guard let enginePage, enginePageEventsTask == nil else { return }
         syncAgentNavigationGuard()
         ChromiumHelperCrashWatch.startIfNeeded()
-        enginePage.uiDelegate = nil
+        enginePageDelegate.panel = self
+        enginePage.uiDelegate = enginePageDelegate
         applyEnginePageState(enginePage.state)
         let events = enginePage.events
         enginePageEventsTask = Task { @MainActor [weak self] in
