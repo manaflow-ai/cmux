@@ -103,6 +103,9 @@ pub enum FreeState {
     NotVerified,
     ServiceOff,
     Backoff,
+    /// The app's key-id store (the Mac's Keychain) refused access: no lease
+    /// until the provider registers again or the setting changes.
+    StoreFailed,
 }
 
 /// Whether `origin` (an origin string, any trailing slash) is a known cmux API
@@ -189,6 +192,13 @@ enum LeaseError {
     Network,
     /// The provider left or did not answer in time.
     Gone,
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn unix_now() -> u64 {
@@ -423,7 +433,7 @@ impl FreeTier {
         if !enabled {
             inner.token = None;
             Self::set_state(inner, FreeState::Off, None);
-        } else if registered || inner.state == FreeState::Off {
+        } else if registered || matches!(inner.state, FreeState::Off | FreeState::StoreFailed) {
             // A new provider registration asks again after any refusal state.
             Self::set_state(inner, FreeState::Idle, None);
         }
@@ -492,7 +502,9 @@ impl FreeTier {
             FreeState::UsedThisMonth if inner.until_ms.is_some_and(|until| until > now_ms) => {
                 Err(refusal(inner.state))
             }
-            FreeState::Unsupported | FreeState::NotVerified => Err(refusal(inner.state)),
+            FreeState::Unsupported | FreeState::NotVerified | FreeState::StoreFailed => {
+                Err(refusal(inner.state))
+            }
             FreeState::ServiceOff | FreeState::Backoff
                 if inner.retry_at.is_some_and(|at| at > Instant::now()) =>
             {
@@ -540,6 +552,7 @@ impl FreeTier {
                 let state = match &error {
                     LeaseError::App(code) if code == "unsupported" => FreeState::Unsupported,
                     LeaseError::App(code) if code == "disabled" => FreeState::Off,
+                    LeaseError::App(code) if code == "store_failed" => FreeState::StoreFailed,
                     LeaseError::Server(_, code) if code == "free.not_configured" => {
                         inner.retry_at = Some(Instant::now() + SERVICE_OFF_RETRY);
                         FreeState::ServiceOff
@@ -559,8 +572,15 @@ impl FreeTier {
                         FreeState::Backoff
                     }
                 };
+                // Backoff names its retry time, so a reader can wait for it (no fixed sleep).
                 let until = match state {
                     FreeState::UsedThisMonth => Some(next_month_ms(now)),
+                    FreeState::Backoff => Some(
+                        unix_now_ms()
+                            + inner.retry_at.map_or(0, |at| {
+                                at.saturating_duration_since(Instant::now()).as_millis() as u64
+                            }),
+                    ),
                     _ => None,
                 };
                 tracing::info!(
@@ -596,7 +616,7 @@ impl FreeTier {
                     let body = json!({
                         "key_id": field(&reply, "key_id")?,
                         "challenge": challenge,
-                        "assertion": field(&reply, "assertion")?,
+                        "assertion": base64url(&field(&reply, "assertion")?),
                     });
                     match self.post_token(origin, "/v1/inference/free/token", &body).await {
                         // The grant's month ended (or the key is unknown): a fresh key, because
@@ -635,7 +655,7 @@ impl FreeTier {
             let body = json!({
                 "platform": platform,
                 "key_id": field(&reply, "key_id")?,
-                "attestation": field(&reply, "attestation")?,
+                "attestation": base64url(&field(&reply, "attestation")?),
                 "device_token": field(&reply, "device_token")?,
                 "challenge": challenge,
             });
@@ -732,7 +752,8 @@ impl Provider {
         };
         if let Some(code) = reply.get("error").and_then(Value::as_str) {
             let code = match code {
-                "unsupported" | "invalid_key" | "disabled" | "refused" | "busy" => code,
+                "unsupported" | "invalid_key" | "disabled" | "refused" | "busy"
+                | "store_failed" => code,
                 _ => "failed",
             };
             return Err(LeaseError::App(code.to_owned()));
@@ -742,6 +763,13 @@ impl Provider {
 }
 
 /// A string field of a provider reply: base64 text, bounded.
+/// The same bytes as unpadded base64url. The token route decodes only base64url
+/// (home-core device-proof b64u), so a standard-base64 proof from the app would
+/// be refused there and every renewal would fall back to a fresh key.
+fn base64url(value: &str) -> String {
+    value.trim_end_matches('=').replace('+', "-").replace('/', "_")
+}
+
 fn field(reply: &Value, name: &str) -> Result<String, LeaseError> {
     let value = reply.get(name).and_then(Value::as_str).ok_or(LeaseError::App("failed".into()))?;
     if value.is_empty()
@@ -772,6 +800,11 @@ fn refusal(state: FreeState) -> Box<Response<Body>> {
             StatusCode::SERVICE_UNAVAILABLE,
             "free.unavailable",
             "Free AI access is not available now. Sign in to use AI models.",
+        ),
+        FreeState::StoreFailed => (
+            StatusCode::UNAUTHORIZED,
+            "free.store_failed",
+            "This Mac's Keychain refused access. Sign in to use AI models.",
         ),
         FreeState::Off => {
             (StatusCode::UNAUTHORIZED, "free.sign_in_required", "Sign in to use AI models.")

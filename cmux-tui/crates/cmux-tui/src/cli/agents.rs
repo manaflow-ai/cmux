@@ -20,13 +20,18 @@ pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
+mod events;
 mod wait;
 
+pub(super) use events::{
+    DEFAULT_LIMIT as DEFAULT_EVENTS_LIMIT, DEFAULT_TIMEOUT_SECONDS as DEFAULT_EVENTS_SECONDS,
+    KINDS as EVENT_KINDS, MAX_LIMIT as MAX_EVENTS_LIMIT, MAX_TIMEOUT_SECONDS as MAX_EVENTS_SECONDS,
+};
 pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|wait|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -38,6 +43,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if command_args.get(1).map(String::as_str) == Some("doctor") {
         return Some(super::agents_doctor::run(&global, &command_args[2..]));
     }
+    // `agents events` prints one line per event for a person.
+    let lines = global.output == OutputMode::Human
+        && command_args.get(1).map(String::as_str) == Some("events");
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
@@ -52,7 +60,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let Err(error) = normalize_qualified_targets(&mut global, &mut command_args[1..]) {
         return Some(print_usage(&global, &error.0));
     }
-    Some(run(global, &command_args[1..]))
+    Some(run(global, &command_args[1..], lines))
 }
 
 /// Routes a `<session>:<id>` target to its session (`global.session`) and
@@ -102,7 +110,7 @@ fn normalize_qualified_target(
     Ok(())
 }
 
-fn run(global: GlobalArgs, args: &[String]) -> i32 {
+fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     if args.is_empty() || args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
         println!("{HELP}");
         return 0;
@@ -131,6 +139,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         Ok(value) if matches!(command, AgentCommand::Wait(_)) && value["matched"] == false => {
             wire::print_local_success(&value, global.output).max(1)
         }
+        // The cursor goes to stderr, so stdout is only the events.
+        Ok(value) if lines => {
+            print!("{}", events::human_lines(&value));
+            eprintln!("next_after={}", value["next_after"].as_str().unwrap_or_default());
+            0
+        }
         Ok(value) => wire::print_local_success(&value, global.output),
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
@@ -144,6 +158,7 @@ pub(super) enum AgentCommand {
     Resource { action: String, args: Vec<String> },
     App { action: String, args: Vec<String> },
     Wait(wait::WaitRequest),
+    Events(events::EventsRequest),
 }
 
 /// Why an agent action answered without a receipt.
@@ -216,6 +231,7 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                 .collect(),
         }),
         ["wait", rest @ ..] => wait::parse(rest).map(AgentCommand::Wait),
+        ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
@@ -286,6 +302,7 @@ pub(super) fn execute<B: Backend>(
             (action, run_app(backend, action, args, idempotency_key, origin)?)
         }
         AgentCommand::Wait(request) => return wait::run(backend, session, request),
+        AgentCommand::Events(request) => return events::run(backend, session, request),
     };
     Ok(receipt(backend, session, action, result, key))
 }

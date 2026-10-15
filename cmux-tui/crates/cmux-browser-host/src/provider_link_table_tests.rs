@@ -12,6 +12,7 @@ fn announce(url: &str) -> TabAnnounce {
         url: url.into(),
         title: "A".into(),
         visible: true,
+        input_scale: 1.0,
     }
 }
 

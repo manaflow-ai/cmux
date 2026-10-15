@@ -255,6 +255,26 @@
             }
           },
           {
+            "key" : "settings.group.colorTransition",
+            "rows" : [
+              "appearance.colorTransition.enabled",
+              "appearance.colorTransition.duration",
+              "appearance.colorTransition.curve",
+              "appearance.colorTransition.springResponse",
+              "appearance.colorTransition.springDamping",
+              "appearance.colorTransition.bezierX1",
+              "appearance.colorTransition.bezierY1",
+              "appearance.colorTransition.bezierX2",
+              "appearance.colorTransition.bezierY2",
+              "appearance.colorTransition.colorSpace",
+              "appearance.colorTransition.reduceMotion"
+            ],
+            "title" : {
+              "key" : "settings.group.colorTransition",
+              "text" : "Color Changes"
+            }
+          },
+          {
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.backdropArt",
@@ -644,7 +664,8 @@
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
               "browser.omnibar.cornerRadius",
-              "browser.omnibar.shadow"
+              "browser.omnibar.shadow",
+              "browser.omnibar.backgroundOpacity"
             ],
             "title" : {
               "key" : "settings.group.addressBar",
@@ -20394,7 +20415,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "transparent",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -20682,6 +20703,64 @@
       "title" : {
         "key" : "settings.browser.omnibar.shadow",
         "text" : "Address Bar Shadow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity.help",
+        "text" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.backgroundOpacity",
+      "keywords" : [
+        "opacity",
+        "transparency",
+        "background",
+        "translucent",
+        "address bar",
+        "omnibox"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "backgroundOpacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity",
+        "text" : "Address Bar Opacity"
       },
       "validation" : "portable"
     },
@@ -24440,7 +24519,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "4b78a8f967b219ee2e32257f4f323f24a60b844f0acd319456e8757718568c37",
+  "schema_hash" : "acaad8b6bb00e5d0908bbe1b86b875f1accd909ef48fc898982d36667671b8a0",
   "sections" : [
     {
       "id" : "general",
