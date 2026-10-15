@@ -95,6 +95,7 @@
       "targets": [
         "CmuxNextAgentActivity",
         "CmuxNextBridge",
+        "CmuxNextDaemon",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
