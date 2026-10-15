@@ -860,6 +860,10 @@ final class SessionIndexStore: ObservableObject {
         /// user/assistant lines seen in the head window. Only an exact
         /// message count when the head window covered the whole file.
         var headMessageLines: Int = 0
+        /// Whether the tail window held a `custom-title` line. When it did
+        /// not and the head was capped, a newer name may sit between the
+        /// two windows.
+        var tailSawCustomTitle = false
     }
 
     struct ClaudeSessionRoot: Hashable {
@@ -990,6 +994,7 @@ final class SessionIndexStore: ObservableObject {
             let type = obj["type"] as? String
             if let name = claudeCustomTitle(from: obj) {
                 latestCustomTitle = name
+                out.tailSawCustomTitle = true
             }
             if type == "pr-link", let number = obj["prNumber"] as? Int,
                let url = obj["prUrl"] as? String {
@@ -1023,6 +1028,34 @@ final class SessionIndexStore: ObservableObject {
             out.model = String(m[..<bracket])
         }
         return out
+    }
+
+    /// How far back from the end of a transcript the between-windows scan
+    /// for a `custom-title` line looks. Bounds the cost for the few
+    /// transcripts that run to hundreds of megabytes.
+    nonisolated static let customTitleScanByteCap = 16 * 1024 * 1024
+
+    /// The latest `custom-title` line in the last `customTitleScanByteCap`
+    /// bytes of a transcript, for a session named between the head and tail
+    /// windows. Searches the mapped file backwards for the record marker, so
+    /// a name near the end costs one short scan; nil when there is none.
+    nonisolated static func lastClaudeCustomTitle(url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let marker = Data("\"custom-title\"".utf8)
+        let scanStart = max(data.startIndex, data.endIndex - customTitleScanByteCap)
+        var searchEnd = data.endIndex
+        while searchEnd > scanStart,
+              let hit = data.range(of: marker, options: .backwards, in: scanStart..<searchEnd) {
+            let lineStart = data[data.startIndex..<hit.lowerBound].lastIndex(of: 0x0a)
+                .map { $0 + 1 } ?? data.startIndex
+            let lineEnd = data[hit.upperBound...].firstIndex(of: 0x0a) ?? data.endIndex
+            if let object = try? JSONSerialization.jsonObject(with: data[lineStart..<lineEnd]) as? [String: Any],
+               let name = claudeCustomTitle(from: object) {
+                return name
+            }
+            searchEnd = lineStart
+        }
+        return nil
     }
 
     /// The name carried by a Claude Code `custom-title` transcript line
@@ -1801,8 +1834,15 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
+                    var parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
+                    // A session named a few turns in and then used for a while
+                    // keeps its name between the two windows; the mtime cache
+                    // makes this one scan per change to the file.
+                    if !parsed.tailSawCustomTitle, head.utf8.count >= headByteCap,
+                       let name = lastClaudeCustomTitle(url: candidate.url) {
+                        parsed.title = name.isEmpty ? parsed.title : name
+                    }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     // The head window is the whole file only when it came back
                     // under the byte cap; otherwise the count is partial and
