@@ -231,7 +231,11 @@ final class ChiefApprovalCardView: NSView {
                     let c = ChiefOptionButton(option: "", style: .chevron)
                     c.target = self
                     c.action = #selector(showMore(_:))
-                    c.setAccessibilityLabel(CmuxStrings.approvalMoreOptions)
+                    // The chevron is the approval's "Always Allow" action, rather than a
+                    // generic overflow menu. Name the rule in AX so VoiceOver users can
+                    // choose the same scoped rule that the tooltip exposes visually.
+                    c.setAccessibilityLabel(a.alwaysAllowPrefix.map(CmuxStrings.approvalAlwaysAllow)
+                                            ?? CmuxStrings.approvalMoreOptions)
                     c.toolTip = a.alwaysAllowPrefix.map(CmuxStrings.approvalAlwaysAllow)
                     c.setAccessibilityIdentifier("ChiefApprovalOption.More")
                     addSubview(c)
