@@ -28,14 +28,13 @@ const RECHECK: Duration = Duration::from_secs(1);
 /// A burst of events checks once.
 const MIN_CHECK_GAP: Duration = Duration::from_millis(200);
 /// The fields of a dialog that `--target` may name.
-const DIALOG_IDS: [&str; 8] = [
+const DIALOG_IDS: [&str; 7] = [
     "request_id",
     "workstream_id",
     "session_id",
     "agent_session",
     "terminal_id",
     "tab_id",
-    "surface_id",
     "source",
 ];
 
