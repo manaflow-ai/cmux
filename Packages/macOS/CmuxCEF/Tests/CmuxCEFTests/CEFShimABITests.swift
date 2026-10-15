@@ -185,3 +185,12 @@ import Testing
         #expect(switches.useMockKeychain)
     }
 }
+
+@Suite struct CEFPageBackgroundTests {
+    /// Unstyled pages paint on white in both appearances, like Chrome and WebKit.
+    @MainActor @Test func pageCanvasDefaultsToOpaqueWhite() {
+        let runtime = CEFRuntime(layout: nil)
+        #expect(runtime.backgroundColorARGB == 0xFFFF_FFFF)
+        #expect(CEFRuntime.defaultPageBackgroundARGB >> 24 == 0xFF)
+    }
+}

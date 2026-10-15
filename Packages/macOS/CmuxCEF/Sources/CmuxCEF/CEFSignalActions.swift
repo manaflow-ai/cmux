@@ -7,10 +7,8 @@ import Darwin
 /// `CefInitialize` and puts them back right after, whether it succeeded or
 /// not, so starting Chromium changes nothing about how cmux handles signals.
 struct CEFSignalActions {
-    /// Fatal signals a crash reporter catches, plus the quit and pipe signals
-    /// the app may handle itself.
-    static let signals: [Int32] = [SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV, SIGSYS, SIGTRAP,
-                                   SIGPIPE, SIGINT, SIGHUP, SIGTERM]
+    /// Every catchable signal (SIGKILL and SIGSTOP cannot be caught).
+    static let signals: [Int32] = (Int32(1)..<Int32(NSIG)).filter { $0 != SIGKILL && $0 != SIGSTOP }
 
     private var saved: [(Int32, sigaction)] = []
 
