@@ -6139,7 +6139,7 @@
               [
                 "Source model",
                 "Free and open source GPL app",
-                "Open source AGPL with commercial licensing available"
+                "Open source under Apache-2.0"
               ],
               [
                 "Best fit",
@@ -6168,7 +6168,7 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "Is Herdr open source?",
-          "faqA1": "Yes. Herdr is open source under AGPL with commercial licensing available.",
+          "faqA1": "Yes. Herdr is open source under the Apache License 2.0.",
           "faqQ2": "When is Herdr a better fit?",
           "faqA2": "Use Herdr when you want a terminal-native multiplexer that runs inside another terminal, stays alive over SSH, and works well from remote or small-screen terminal clients.",
           "faqQ3": "When is cmux a better fit?",

@@ -4477,7 +4477,7 @@
               [
                 "Quellmodell",
                 "Kostenlose und Open-Source-GPL-App",
-                "Open Source AGPL mit kommerzieller Lizenz verfügbar"
+                "Open Source unter Apache-2.0"
               ],
               [
                 "Beste Passform",
@@ -4506,7 +4506,7 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "Ist Herdr Open Source?",
-          "faqA1": "Ja. Herdr ist Open Source unter AGPL mit kommerzieller Lizenzierung.",
+          "faqA1": "Ja. Herdr ist Open Source unter der Apache License 2.0.",
           "faqQ2": "Wann passt Herdr besser?",
           "faqA2": "Verwenden Sie Herdr, wenn Sie einen terminal-nativen Multiplexer benötigen, der in einem anderen Terminal ausgeführt wird, über SSH aktiv bleibt und gut von Remote- oder Terminal-Clients mit kleinem Bildschirm aus funktioniert.",
           "faqQ3": "Wann passt cmux besser?",

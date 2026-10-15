@@ -4475,7 +4475,7 @@
               [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
-                "Açık kaynak AGPL ve ticari lisans mevcut"
+                "Apache-2.0 kapsamında açık kaynak"
               ],
               [
                 "En uygun",
@@ -4504,7 +4504,7 @@
           ],
           "faqTitle": "SSS",
           "faqQ1": "Herdr açık kaynak mı?",
-          "faqA1": "Evet. Herdr, AGPL kapsamında ticari lisanslamaya sahip açık kaynaktır.",
+          "faqA1": "Evet. Herdr, Apache License 2.0 kapsamında açık kaynaktır.",
           "faqQ2": "Herdr ne zaman daha uygun olur?",
           "faqA2": "Başka bir terminalin içinde çalışan, SSH üzerinde canlı kalan ve uzak veya küçük ekranlı terminal istemcilerinden iyi çalışan, terminale özgü bir çoklayıcı istiyorsanız Herdr kullanın.",
           "faqQ3": "cmux ne zaman daha uygun olur?",

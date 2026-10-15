@@ -4633,7 +4633,7 @@
               [
                 "Source",
                 "App GPL gratuite et open source",
-                "Open source AGPL avec licence commerciale"
+                "Open source sous Apache-2.0"
               ],
               [
                 "Meilleur usage",
@@ -4662,7 +4662,7 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "Herdr est-il open source ?",
-          "faqA1": "Oui. Herdr est open source sous AGPL avec licence commerciale disponible.",
+          "faqA1": "Oui. Herdr est open source sous Apache License 2.0.",
           "faqQ2": "Quand Herdr convient-il mieux ?",
           "faqA2": "Quand vous voulez un multiplexeur dans un autre terminal, vivant via SSH et adapté aux clients distants ou petits écrans.",
           "faqQ3": "Quand cmux convient-il mieux ?",
