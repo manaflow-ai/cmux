@@ -24,3 +24,16 @@ struct TerminalHistoryPrune {
         return pruned
     }
 }
+
+/// The rows of the frame on screen (the surface's viewport, placed at
+/// `presentedTop`). A scroll whose visible rows it does not cover would show
+/// the page's black background until Ghostty presents a frame for them
+/// (VERIFY-round5 V5-1), so it waits for that frame.
+struct TerminalFrameCover: Equatable {
+    var presentedTop: Int
+    var surfaceRows: Int
+
+    func covers(visibleTop: Int, visibleBottom: Int) -> Bool {
+        visibleTop >= presentedTop && visibleBottom <= presentedTop + surfaceRows
+    }
+}

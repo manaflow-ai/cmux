@@ -550,6 +550,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             updateViewport(visibleMinY: scrollView.contentOffset.y)
             return
         }
+        // A move whose rows the frame on screen does not show (Jump to
+        // bottom from deep history, a restore) waits for the frame that
+        // does; moved at once, the page was black for a frame (V5-1).
+        if !forceScroll, freezeView == nil, document != nil, surfaceRows > 0, abs(scrollView.contentOffset.y - target) > 0.5,
+           !TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows)
+               .covers(visibleTop: originRow + Int(floor(max(0, target) / cell.height)),
+                       visibleBottom: originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height))) {
+            followAwaitsPresent = true
+            armFollowFallback(ticks: 6)
+            updateViewport(visibleMinY: target)
+            return
+        }
+        forceScroll = false
         followAwaitsPresent = false
         if abs(scrollView.contentOffset.y - target) > 0.5 {
             settingOffset = true
@@ -1379,17 +1392,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var followAwaitsPresent = false
     private var followFallback: CADisplayLink?
     private var followFallbackTicks = 0
+    private var followFallbackLimit = 2
+    /// The fallback moves the page even if no frame covers it yet.
+    private var forceScroll = false
 
-    private func armFollowFallback() {
+    private func armFollowFallback(ticks: Int = 2) {
+        followFallbackLimit = max(ticks, followFallback == nil ? 0 : followFallbackLimit)
         guard followFallback == nil else { return }
         followFallbackTicks = 0
         let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
             guard let self else { return }
             self.followFallbackTicks += 1
-            guard self.followFallbackTicks >= 2 || !self.followAwaitsPresent else { return }
+            guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
             self.followFallback?.invalidate()
             self.followFallback = nil
-            if self.followAwaitsPresent { self.applyScroll() }
+            if self.followAwaitsPresent {
+                self.forceScroll = true
+                self.applyScroll()
+                self.forceScroll = false
+            }
         }, selector: #selector(DisplayLinkProxy.step))
         link.add(to: .main, forMode: .common)
         followFallback = link
