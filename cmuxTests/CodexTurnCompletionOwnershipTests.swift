@@ -139,6 +139,7 @@ struct CodexTurnCompletionOwnershipTests {
             environment: memoryEnvironment
         )
         harness.support.assertSuccessfulHook(memoryResult)
+        #expect(harness.handled.wait(timeout: .now() + 5) == .success)
 
         let memoryCommands = Array(harness.context.state.snapshot().dropFirst(beforeMemoryStart))
         let allCommands = harness.context.state.snapshot()
