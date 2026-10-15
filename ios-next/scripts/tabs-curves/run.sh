@@ -53,10 +53,12 @@ for m in "${motions[@]}"; do
       fling)    g="swipe --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 0.12" ;;
       twoToOne) g="tap -x 178 -y 137" ;;
       lastTab)  g="tap -x 320 -y 137" ;;
-      # Tabs, then GitHub's card 150 ms into the zoom-out (one AXe session:
-      # a second process starts about 230 ms later, after the zoom-out).
+      # Tabs, then GitHub's card inside the zoom-out (one AXe session: a
+      # second process starts about 230 ms later, after the zoom-out). The
+      # zoom-out starts 250-370 ms after the first tap, so 0.3 s lands the
+      # second tap in it; when the card opens does not depend on it.
       tapZoomOut)
-        ssh "$HOST" "printf 'tap -x 344 -y 816\\nsleep 0.15\\ntap -x 297 -y 250\\n' > /tmp/tc-tapzoomout.steps"
+        ssh "$HOST" "printf 'tap -x 344 -y 816\\nsleep 0.3\\ntap -x 297 -y 250\\n' > /tmp/tc-tapzoomout.steps"
         g="batch --file /tmp/tc-tapzoomout.steps" ;;
     esac
     name="$m"
@@ -69,7 +71,12 @@ for m in "${motions[@]}"; do
       esac
     fi
     ssh "$HOST" "rm -f /tmp/tc.mp4; (xcrun simctl io $U recordVideo --codec=h264 --force /tmp/tc.mp4 >/dev/null 2>&1 & echo \$! > /tmp/tc.pid); sleep 1.5; (axe $g --udid $U || ~/nx-ios/axe/axe $g --udid $U) >/dev/null 2>&1; sleep 1.8; kill -INT \$(cat /tmp/tc.pid); while kill -0 \$(cat /tmp/tc.pid) 2>/dev/null; do sleep 0.2; done"
-    scp -q "$HOST:/tmp/tc.mp4" "$OUT/$name-$i.mp4"
+    rm -f "$OUT/$name-$i.mp4"
+    if ! scp -q "$HOST:/tmp/tc.mp4" "$OUT/$name-$i.mp4"; then
+      # No recording (another simctl recording holds the simulator): fail,
+      # never re-check an older video.
+      printf 'run %d %s: no recording  FAIL\n' "$i" "$name"; fail=1; continue
+    fi
     printf 'run %d ' "$i"; python3 "$HERE/check.py" "$name" "$OUT/$name-$i.mp4" || fail=1
   done
 done
