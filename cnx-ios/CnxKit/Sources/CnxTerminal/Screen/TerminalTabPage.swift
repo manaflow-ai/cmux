@@ -128,15 +128,16 @@ public struct TerminalTabCard: View {
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
                 let started = model.controller?.started == true
-                switch TerminalCardContent.choose(sessionStarted: started,
-                                                  connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                  hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText) {
+                let content = TerminalCardContent.choose(sessionStarted: started,
+                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText)
+                switch content {
                 case .connecting:
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,
                                            showsLabel: !isReattaching)
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
-                case .snapshot:
+                case .snapshot, .savedFrame:
                     if let image = model.snapshot {
                     let scale = geo.size.width / max(1, image.size.width)
                     // The card ends 12 pt under the composer: the toolbar's band below it is blank.
@@ -150,6 +151,9 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
+                        // A frame from an earlier launch stands in, dimmed like a page
+                        // that is not live, until the Mac's screen arrives (T-TABS-01).
+                        .opacity(content.isCurrent ? 1 : 0.55)
                     }
                 case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {

@@ -1,13 +1,19 @@
 import CoreGraphics
+import Foundation
 
 /// What a terminal tab's grid card shows.
 public enum TerminalCardContent: Equatable, Sendable {
     /// The connecting placeholder over the last frame (the session started).
     case connecting
-    /// The page's snapshot (or a saved frame).
+    /// The page's snapshot (the session started in this launch).
     case snapshot
     /// The Mac's screen as text, fetched for a tab not opened in this launch.
     case screenText
+    /// A frame saved in an earlier launch, for a tab not opened in this
+    /// launch, until the Mac's screen arrives: drawn dimmed, never as the
+    /// current screen (VERIFY-round8 Claim 8: old Codex output shown while
+    /// the Mac had moved on).
+    case savedFrame
     /// The static labeled placeholder.
     case placeholder
 
@@ -19,7 +25,39 @@ public enum TerminalCardContent: Equatable, Sendable {
         // Not opened in this launch: a saved frame may be from long ago (or a
         // blank first frame); the Mac's screen now is the truth.
         if let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
-        return hasSnapshot ? .snapshot : .placeholder
+        return hasSnapshot ? .savedFrame : .placeholder
+    }
+
+    /// Whether the card stands for the terminal's screen now.
+    public var isCurrent: Bool {
+        switch self {
+        case .snapshot, .screenText: true
+        case .connecting, .savedFrame, .placeholder: false
+        }
+    }
+}
+
+/// When a grid card of a tab not opened in this launch asks the Mac for its
+/// screen (`read-screen`): at most every `interval` per tab while cards are
+/// rebuilt, always when the grid opens (T-TABS-01: the first grid open after
+/// a launch showed a card asked for before the link was up), and again at
+/// the next build after a read that brought nothing.
+public struct TerminalCardScreenRefresh: Sendable {
+    public static let interval: Double = 3
+    private var asked: [String: Date] = [:]
+
+    public init() {}
+
+    /// Whether to ask now; records the ask.
+    public mutating func begin(_ id: String, now: Date, gridOpening: Bool = false) -> Bool {
+        if !gridOpening, let last = asked[id], now.timeIntervalSince(last) < Self.interval { return false }
+        asked[id] = now
+        return true
+    }
+
+    /// The read brought nothing (no link yet, or a failure).
+    public mutating func failed(_ id: String) {
+        asked[id] = nil
     }
 }
 
