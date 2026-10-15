@@ -693,6 +693,9 @@ def main():
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
+            # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
+            if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
+                result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
