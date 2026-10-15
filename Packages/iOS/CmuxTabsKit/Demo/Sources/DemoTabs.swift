@@ -162,7 +162,7 @@ final class DemoTabs: TabsDataSource {
     func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let url = webPages[tab.id]?.webView.url else { return [] }
         return [[
-            TabsKitMenuItem(title: "Copy Link", systemImage: "doc.on.doc") { UIPasteboard.general.url = url },
+            TabsKitMenuItem(title: "Copy Link", systemImage: "link") { UIPasteboard.general.url = url },
             TabsKitMenuItem(title: "Duplicate Tab", systemImage: "plus.square.on.square") { [weak self] in
                 guard let self, let i = self.order.firstIndex(of: tab.id) else { return }
                 let id = self.addWebPage(url)
@@ -172,6 +172,18 @@ final class DemoTabs: TabsDataSource {
     }
 
     var supportsReordering: Bool { true }
+
+    /// Pinned tabs come first in `order` (Safari's pinned area).
+    private(set) var pinnedTabIDs: Set<String> = []
+    var supportsPinning: Bool { true }
+
+    func setPinned(_ ids: [String], _ pinned: Bool) {
+        for id in ids { if pinned { pinnedTabIDs.insert(id) } else { pinnedTabIDs.remove(id) } }
+        let pins = order.filter { pinnedTabIDs.contains($0) }
+        order = pins + order.filter { !pinnedTabIDs.contains($0) }
+    }
+
+    func links(for ids: [String]) -> [URL] { ids.compactMap { webPages[$0]?.webView.url } }
 
     func moveTab(_ id: String, to index: Int) {
         guard let from = order.firstIndex(of: id) else { return }

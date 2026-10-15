@@ -101,6 +101,16 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// Groups of items above Close Tab and Close Other Tabs in a card's
     /// long-press menu (Safari: Copy Link, Duplicate Tab). Default none.
     func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]]
+    /// Pinned tabs (Safari's pinned area above the grid): list them first in
+    /// `tabs`. With `supportsPinning` the card menu offers Pin / Unpin Tab
+    /// and Select Tabs offers Pin N Tabs.
+    var pinnedTabIDs: Set<TabsKitTab.ID> { get }
+    var supportsPinning: Bool { get }
+    /// Pin or unpin tabs (move pinned ones to the front of `tabs`).
+    func setPinned(_ ids: [TabsKitTab.ID], _ pinned: Bool)
+    /// The links Select Tabs' Copy N Links puts on the pasteboard; empty
+    /// hides the item.
+    func links(for ids: [TabsKitTab.ID]) -> [URL]
     /// True when cards can be dragged to a new slot (long press, then move).
     var supportsReordering: Bool { get }
     /// A dragged card moved to `index` in `tabs`: reorder `tabs`.
@@ -147,6 +157,10 @@ extension TabsDataSource {
     public func isContentReady(_ id: TabsKitTab.ID) -> Bool { true }
     public func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
     public var supportsReordering: Bool { false }
+    public var pinnedTabIDs: Set<TabsKitTab.ID> { [] }
+    public var supportsPinning: Bool { false }
+    public func setPinned(_ ids: [TabsKitTab.ID], _ pinned: Bool) {}
+    public func links(for ids: [TabsKitTab.ID]) -> [URL] { [] }
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {}
     public var notice: String? { nil }
     public func clearNotice() {}
