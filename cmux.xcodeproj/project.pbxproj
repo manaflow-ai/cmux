@@ -907,6 +907,11 @@
 		06A7D527A380A87E00C122EE /* CloudNotificationLocalDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */; };
 		0E06E7885C78B752A9AB83E2 /* CloudNotificationSyncHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE060F2CFED4B9FF6EB09FFF /* CloudNotificationSyncHub.swift */; };
 		B71758C265B0439845140478 /* CloudNotificationSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */; };
+		BC3A358B3BEE7DBEB4B67FA0 /* CloudOpenRepositoryCLIParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82251E72C4BE1B42ECD2E7BC /* CloudOpenRepositoryCLIParityTests.swift */; };
+		2FAF4AC508DBFE8EE10ACFB0 /* CloudOpenRepositoryCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F97D5D2985109A7E278396 /* CloudOpenRepositoryCommand.swift */; };
+		906CBCE645C20119A53B721F /* CloudOpenRepositorySheetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF350A14E80CC5EBA7935B2 /* CloudOpenRepositorySheetModel.swift */; };
+		ED1C26282879A86D7711C007 /* CloudOpenRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6258AC4DE00147FED54B26E /* CloudOpenRepositoryTests.swift */; };
+		EC956EE8BAE1B992494BB695 /* CloudOpenRepositoryURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74BA6CA8CDE22CF9722CFF72 /* CloudOpenRepositoryURLRequest.swift */; };
 		7C98953CC5230654F2A4D628 /* CloudOperationDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01095305A629F0014A3872CE /* CloudOperationDetailsView.swift */; };
 		287771C476C483CE2E40E0F6 /* CloudOperationRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B7B816D0E6DDD18F2D66C77 /* CloudOperationRecorderTests.swift */; };
 		A12480000000000000000005 /* CloudPaneCreationFailureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */; };
@@ -5665,6 +5670,11 @@
 		D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNotificationLocalDelivery.swift; sourceTree = "<group>"; };
 		BE060F2CFED4B9FF6EB09FFF /* CloudNotificationSyncHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncHub.swift; sourceTree = "<group>"; };
 		64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncTests.swift; sourceTree = "<group>"; };
+		82251E72C4BE1B42ECD2E7BC /* CloudOpenRepositoryCLIParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOpenRepositoryCLIParityTests.swift"; sourceTree = "<group>"; };
+		C4F97D5D2985109A7E278396 /* CloudOpenRepositoryCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositoryCommand.swift; sourceTree = "<group>"; };
+		6FF350A14E80CC5EBA7935B2 /* CloudOpenRepositorySheetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositorySheetModel.swift; sourceTree = "<group>"; };
+		C6258AC4DE00147FED54B26E /* CloudOpenRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOpenRepositoryTests.swift"; sourceTree = "<group>"; };
+		74BA6CA8CDE22CF9722CFF72 /* CloudOpenRepositoryURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositoryURLRequest.swift; sourceTree = "<group>"; };
 		01095305A629F0014A3872CE /* CloudOperationDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOperationDetailsView.swift"; sourceTree = "<group>"; };
 		7B7B816D0E6DDD18F2D66C77 /* CloudOperationRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOperationRecorderTests.swift"; sourceTree = "<group>"; };
 		A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPaneCreationFailureStore.swift"; sourceTree = "<group>"; };
@@ -10178,6 +10188,9 @@
 				7F49BAE5A073F851180CE741 /* CloudDebugSecretsProbe.swift */,
 				B62F009F05DFB2335A48D473 /* CloudDebugSecretsProbe+Perform.swift */,
 				BED0802D52F8551E692690D9 /* CloudDebugGettingStartedProbe.swift */,
+				C4F97D5D2985109A7E278396 /* CloudOpenRepositoryCommand.swift */,
+				74BA6CA8CDE22CF9722CFF72 /* CloudOpenRepositoryURLRequest.swift */,
+				6FF350A14E80CC5EBA7935B2 /* CloudOpenRepositorySheetModel.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -14059,6 +14072,8 @@
 				1037ED0063D789B1E1CDC7BE /* CloudDebugProbeTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
 				26891A8D685106E1BB4961B7 /* CloudPortSharePlanTests.swift */,
+				82251E72C4BE1B42ECD2E7BC /* CloudOpenRepositoryCLIParityTests.swift */,
+				C6258AC4DE00147FED54B26E /* CloudOpenRepositoryTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15346,6 +15361,9 @@
 				BA58F9063D707FC2BB8D31F7 /* CloudNewMachineButton.swift in Sources */,
 				06A7D527A380A87E00C122EE /* CloudNotificationLocalDelivery.swift in Sources */,
 				0E06E7885C78B752A9AB83E2 /* CloudNotificationSyncHub.swift in Sources */,
+				2FAF4AC508DBFE8EE10ACFB0 /* CloudOpenRepositoryCommand.swift in Sources */,
+				906CBCE645C20119A53B721F /* CloudOpenRepositorySheetModel.swift in Sources */,
+				EC956EE8BAE1B992494BB695 /* CloudOpenRepositoryURLRequest.swift in Sources */,
 				7C98953CC5230654F2A4D628 /* CloudOperationDetailsView.swift in Sources */,
 				A12480000000000000000005 /* CloudPaneCreationFailureStore.swift in Sources */,
 				A12480000000000000000003 /* CloudPaneCreationFailureView.swift in Sources */,
@@ -18343,6 +18361,8 @@
 				E0AB5F18239F64CBC2B24AEA /* CloudNotificationDismissParityHarness.swift in Sources */,
 				4EFC91B414CF5D9FEA440819 /* CloudNotificationDismissParityTests.swift in Sources */,
 				B71758C265B0439845140478 /* CloudNotificationSyncTests.swift in Sources */,
+				BC3A358B3BEE7DBEB4B67FA0 /* CloudOpenRepositoryCLIParityTests.swift in Sources */,
+				ED1C26282879A86D7711C007 /* CloudOpenRepositoryTests.swift in Sources */,
 				287771C476C483CE2E40E0F6 /* CloudOperationRecorderTests.swift in Sources */,
 				C12537000000000000000215 /* CloudPaneCreationRetryTests.swift in Sources */,
 				CB32AB7B7AB792F21B5C5B36 /* CloudPlacementCoordinatorTests.swift in Sources */,
