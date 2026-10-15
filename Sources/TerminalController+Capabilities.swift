@@ -342,6 +342,7 @@ extension TerminalController {
             "surface.ports_kick",
             "surface.read_text",
             "surface.input_state",
+            "surface.wait_text_change",
             "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",

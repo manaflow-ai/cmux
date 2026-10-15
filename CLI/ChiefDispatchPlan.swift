@@ -356,3 +356,26 @@ enum ChiefDispatchScreenReading: Equatable {
         line.lowercased().contains("shift+tab to cycle") || line.hasPrefix("⏵⏵")
     }
 }
+
+/// One `surface.wait_text_change` reply, read for `--wait-working`.
+struct ChiefDispatchWaitStep: Equatable {
+    /// What the terminal showed in this reply.
+    let reading: ChiefDispatchScreenReading
+    /// The revision to wait after next, from the reply.
+    let revision: String?
+    /// The wait is over: the agent is working, the app answered without a
+    /// change (its deadline passed), or the reply has no revision to wait on.
+    let isFinal: Bool
+
+    static func read(_ payload: [String: Any], agent: ChiefDispatchAgent) -> ChiefDispatchWaitStep {
+        let reading = ChiefDispatchScreenReading.read(payload["text"] as? String ?? "", agent: agent)
+        let revision = (payload["revision"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let working = if case .working = reading { true } else { false }
+        let unchanged = payload["changed"] as? Bool == false
+        return ChiefDispatchWaitStep(
+            reading: reading,
+            revision: revision,
+            isFinal: working || unchanged || revision == nil
+        )
+    }
+}

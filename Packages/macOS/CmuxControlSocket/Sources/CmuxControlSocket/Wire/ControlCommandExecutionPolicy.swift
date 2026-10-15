@@ -204,6 +204,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // export in one short `v2MainSync` hop (`cmux send` asks it before
         // typing). App-side for the same reason as `surface.read_text`.
         "surface.input_state",
+        // `surface.wait_text_change` parks until the terminal prints, then
+        // rereads it through the `surface.read_text` worker body. Waiting on
+        // the main actor would freeze the app for the whole timeout.
+        "surface.wait_text_change",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.

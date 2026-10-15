@@ -163,4 +163,40 @@ struct CLIChiefDispatchPlanTests {
             == .blocked(reason: "agent_not_found"))
         #expect(ChiefDispatchScreenReading.read("user@mac app % ", agent: .codex) == .pending)
     }
+
+    // MARK: Waiting on surface.wait_text_change
+
+    @Test func aChangedScreenWithoutTheAgentWorkingWaitsAfterItsRevision() {
+        let step = ChiefDispatchWaitStep.read(
+            ["text": "user@mac app % ", "revision": "r1", "changed": true], agent: .codex
+        )
+        #expect(step == ChiefDispatchWaitStep(reading: .pending, revision: "r1", isFinal: false))
+    }
+
+    @Test func theWorkingRowEndsTheWait() {
+        let step = ChiefDispatchWaitStep.read(
+            ["text": "• Working (3s • esc to interrupt)", "revision": "r2", "changed": true], agent: .codex
+        )
+        #expect(step.reading == .working("• Working (3s • esc to interrupt)"))
+        #expect(step.isFinal)
+    }
+
+    @Test func anUnchangedReplyIsTheAppsDeadlineAndKeepsTheLastReading() {
+        let trust = "Do you trust the files in this folder?\n❯ 1. Yes, proceed"
+        let step = ChiefDispatchWaitStep.read(["text": trust, "revision": "r3", "changed": false], agent: .claude)
+        #expect(step.reading == ChiefDispatchScreenReading.read(trust, agent: .claude))
+        #expect(step.isFinal)
+    }
+
+    @Test func aBlockingScreenThatChangedKeepsWaitingForSomeoneToAnswerIt() {
+        let trust = "Do you trust the files in this folder?\n❯ 1. Yes, proceed"
+        let step = ChiefDispatchWaitStep.read(["text": trust, "revision": "r4", "changed": true], agent: .claude)
+        #expect(!step.isFinal, "a trust prompt may still be answered before the deadline")
+        #expect(step.revision == "r4")
+    }
+
+    @Test func aReplyWithoutARevisionCannotBeWaitedAfter() {
+        #expect(ChiefDispatchWaitStep.read(["text": ""], agent: .codex).isFinal)
+        #expect(ChiefDispatchWaitStep.read(["text": "", "revision": ""], agent: .codex).isFinal)
+    }
 }

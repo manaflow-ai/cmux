@@ -17,6 +17,8 @@ extension CMUXCLI {
 
         The task is passed to the agent as one argument and never through a shell, so
         quotes, $ and newlines arrive unchanged. --prompt-file - reads it from stdin.
+        The task is the agent's last command-line argument, so `ps` and other tools
+        on this Mac can show it while the agent runs. Keep secrets out of it.
 
         Options:
           --agent codex|claude   Default codex, started as `codex --yolo`; claude starts as `claude`.
@@ -156,10 +158,13 @@ extension CMUXCLI {
         }
     }
 
-    /// Reads the new terminal until the agent shows it is working, stops at a
-    /// screen a person must answer, or the deadline passes. Terminal output
-    /// has no change event on the socket, so this rereads on a short fixed
-    /// interval, bounded by the caller's `--timeout`.
+    /// Watches the new terminal until the agent shows it is working, or the
+    /// deadline passes. Each `surface.wait_text_change` call returns once the
+    /// screen differs from the last one this loop read; the app wakes it on
+    /// the terminal's output, so nothing here polls or sleeps. A screen a
+    /// person must answer (trust, sign-in) is kept as the last reading but
+    /// does not end the wait, since someone may answer it before the
+    /// deadline.
     private func waitForChiefDispatchAgent(
         agent: ChiefDispatchAgent,
         workspaceID: String,
@@ -169,16 +174,34 @@ extension CMUXCLI {
     ) throws -> ChiefDispatchScreenReading {
         var params: [String: Any] = ["workspace_id": workspaceID]
         if let surfaceID { params["surface_id"] = surfaceID }
-        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
+        var revision: String?
         var last = ChiefDispatchScreenReading.pending
         while true {
-            // A terminal that is still being created answers with an error; read again.
-            if let payload = try? client.sendV2(method: "surface.read_text", params: params) {
-                last = ChiefDispatchScreenReading.read(payload["text"] as? String ?? "", agent: agent)
-                if case .working = last { return last }
+            let remaining = max(.zero, clock.now.duration(to: deadline))
+            let remainingMilliseconds = remaining.components.seconds * 1_000
+                + remaining.components.attoseconds / 1_000_000_000_000_000
+            var request = params
+            request["timeout_ms"] = remainingMilliseconds
+            if let revision { request["after_revision"] = revision }
+            let payload: [String: Any]
+            do {
+                // Leave the app room to answer at its own deadline.
+                payload = try client.sendV2(
+                    method: "surface.wait_text_change",
+                    params: request,
+                    responseTimeout: TimeInterval(remainingMilliseconds) / 1_000 + 10
+                )
+            } catch {
+                // A terminal that never became readable, or a closed one:
+                // report what was last seen (pending reads as a timeout).
+                return last
             }
-            guard Date() < deadline else { return last }
-            Thread.sleep(forTimeInterval: min(0.5, max(0, deadline.timeIntervalSinceNow)))
+            let step = ChiefDispatchWaitStep.read(payload, agent: agent)
+            last = step.reading
+            if step.isFinal || remainingMilliseconds == 0 { return last }
+            revision = step.revision
         }
     }
 
