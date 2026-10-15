@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Every size the strip uses, derived from the CmuxNextDesign density tokens
 /// (`Metrics`, 2 pt grid). Plain data so layout math is testable with fixed
