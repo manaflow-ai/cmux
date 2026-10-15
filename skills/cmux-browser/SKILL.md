@@ -181,9 +181,10 @@ combination exceeds WKWebView render limits.
 ## Limits (WKWebView)
 
 Offline emulation, trace/screencast recording, network route
-interception/mocking, and low-level raw input injection return `not_supported`;
-they depend on Chrome/CDP-only APIs. Use `click`, `fill`, `press`, `scroll`,
-`wait`, and `snapshot` instead.
+interception/mocking, and touch input return `not_supported`; they depend on
+Chrome/CDP-only APIs. Use `click`, `fill`, `press`, `scroll`, `wait`, and
+`snapshot` instead. `input mouse` and `input keyboard` work and send trusted
+native events (see the commands reference).
 
 ## Troubleshooting `js_error`
 

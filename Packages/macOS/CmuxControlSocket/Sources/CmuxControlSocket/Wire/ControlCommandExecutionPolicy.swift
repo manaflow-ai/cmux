@@ -346,6 +346,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.addinitscript",
         "browser.addscript",
         "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
+        // Native input waits for WebKit to process the events.
+        "browser.input_mouse", "browser.input_keyboard",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so

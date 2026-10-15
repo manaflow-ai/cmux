@@ -2141,6 +2141,8 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
+    /// Where `browser.input_mouse` left the pointer in this panel.
+    let browserRawInputPointer = BrowserRawInputPointerState()
     var webViewDidRequestClose: (() -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]

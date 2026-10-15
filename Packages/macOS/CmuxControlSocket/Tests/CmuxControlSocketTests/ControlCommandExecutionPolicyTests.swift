@@ -81,6 +81,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.errors.list", "browser.state.save", "browser.state.load",
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
             "browser.design_mode.set", "browser.design_mode.status",
+            "browser.input_mouse", "browser.input_keyboard",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
