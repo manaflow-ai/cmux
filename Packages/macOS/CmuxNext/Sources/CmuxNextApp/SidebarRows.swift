@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -45,14 +46,14 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(SidebarAgentLinks.nests ? SidebarAgentLink.linking(sections) : sections)
+        model.setSections(SidebarMapping.nestsAgentRows ? SidebarAgentLink.linking(sections) : sections)
     }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
     /// A row whose agent sessions changed (`SidebarAgentLink`) may be another row's parent: all shown again.
-    /// With rows not nesting (`SidebarAgentLinks.nests`), a patch costs only the changed rows.
+    /// With rows not nesting (`SidebarMapping.nestsAgentRows`), a patch costs only the changed rows.
     func patch(_ changed: [SidebarWorkspace]) {
-        let nests = SidebarAgentLinks.nests
+        let nests = SidebarMapping.nestsAgentRows
         let relinks = nests && SidebarAgentLink.relinks(changed, in: live)
         live = SidebarSection.patching(changed, in: live)
         if relinks { return show() }

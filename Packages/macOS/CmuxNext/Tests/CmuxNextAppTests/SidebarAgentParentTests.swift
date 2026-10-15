@@ -1,4 +1,5 @@
 import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
@@ -67,7 +68,7 @@ struct SidebarAgentParentTests {
             lanes.lanes[lane.id] = lane
         }
         let sections = SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
-                                                      rowSource: SidebarAgentLinks.linking(nil, lanes: lanes, turns: turns))
+                                                      rowSource: SidebarMapping.linkingAgents(nil, lanes: lanes, turns: turns))
         let model = SidebarModel(sections: [])
         SidebarRows(model: model).show(sections)
         return model.sections.flatMap(\.workspaces)
