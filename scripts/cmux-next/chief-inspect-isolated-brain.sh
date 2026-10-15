@@ -7,6 +7,12 @@
 #
 # usage: chief-inspect-isolated-brain.sh APP OUT_DIR
 set -euo pipefail
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny; the
+# brain host does not start then. Submit the job with `nx-remote --allow-agents`.
+if [[ "$(printf %s "${ACPMUX_AGENT_LAUNCH:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')" == deny || "${CMUX_AGENTS_DISABLED:-}" == 1 ]]; then
+  echo "chief-inspect-isolated-brain.sh: this Chief proof needs agents; submit the job with \`nx-remote --allow-agents\`" >&2
+  exit 1
+fi
 APP="$1" OUT="$2"
 BIN="$APP/Contents/Resources/bin"
 # Short: the tools and daemon sockets must fit sun_path.

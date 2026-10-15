@@ -266,7 +266,9 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "retry_after_ms": retry_after_ms,
             "reservation_id": reservation_id,
         }),
-        MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
+        MuxEvent::SurfaceExited(id, end) => {
+            json!({"event": "surface-exited", "surface": id, "end": end.as_deref()})
+        }
         MuxEvent::SizeStateChanged { surface, runtime, state } => {
             size_state_event_json(*surface, *runtime, state, None)
         }
