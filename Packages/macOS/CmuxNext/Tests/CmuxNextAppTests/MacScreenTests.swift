@@ -266,3 +266,139 @@ struct MacScreenRelayChangeTests {
         #expect(!MacScreenPane.reconnectsOnRelayChange(streaming: true, failed: false, visible: true, gateOpen: true, stoppedByPerson: true))
     }
 }
+
+/// Mac Screen is its own page tab kind (`InternalPageID.macScreen`), not a
+/// browser page: its route names only the record ("home", "mac:<id>"), a
+/// restored tab rebuilds it and waits for Connect, and the title follows the Mac.
+@MainActor
+struct MacScreenPageTabTests {
+    private func makePages() -> (MacScreenPages, MacScreenStore) {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let store = MacScreenStore(file: file, secrets: MemoryMacScreenSecrets())
+        return (MacScreenPages(store: store), store)
+    }
+
+    /// Makes `key`'s view and waits until its screen (or home page) is in.
+    private func show(_ key: String, in pages: MacScreenPages) async throws -> MacScreenTab {
+        _ = pages.makeView(for: key)
+        let tab = try #require(pages.tab(key))
+        await tab.loading?.value
+        return tab
+    }
+
+    @Test func routesNameTheRecordAndNeverTheSecret() throws {
+        let (pages, store) = makePages()
+        let pairing = VNCPairing.generate(name: "Studio", kind: "stream")
+        let mac = try store.add(link: pairing.link.absoluteString).get()
+        pages.prepare("home-tab", record: MacScreenRecord(macID: nil), byPerson: true)
+        pages.prepare("mac-tab", record: MacScreenRecord(macID: mac.id), byPerson: true)
+        #expect(pages.route(for: "home-tab") == "home")
+        let route = try #require(pages.route(for: "mac-tab"))
+        #expect(route == "mac:\(mac.id.uuidString)")
+        #expect(!route.contains(pairing.secret) && !route.contains(pairing.room))
+        #expect(MacScreenPages.record(route: route) == MacScreenRecord(macID: mac.id))
+        #expect(MacScreenPages.record(route: "home") == MacScreenRecord(macID: nil))
+        #expect(MacScreenPages.record(route: "mac:not-a-uuid") == nil)
+        #expect(MacScreenPages.record(route: "/Users/someone") == nil)
+    }
+
+    /// A tab restored on its route (relaunch, Reopen Closed) shows that Mac
+    /// behind the Connect card: only a person's open connects at once.
+    @Test func restoredMacTabWaitsForConnect() async throws {
+        let (pages, store) = makePages()
+        let mac = try store.add(link: VNCPairing.generate(name: "Studio", kind: "stream").link.absoluteString).get()
+        pages.restore("mac:\(mac.id.uuidString)", for: "restored")
+        let restored = try await show("restored", in: pages)
+        #expect(restored.pane?.model.gate == .confirm)
+        #expect(pages.title(for: "restored") == "Studio")
+        pages.prepare("person", record: MacScreenRecord(macID: mac.id), byPerson: true)
+        let opened = try await show("person", in: pages)
+        #expect(opened.pane?.model.gate == .open)
+        pages.tabClosed("restored")
+        pages.tabClosed("person")
+        #expect(pages.tab("restored") == nil && pages.tab("person") == nil)
+    }
+
+    @Test func restoredTabOfAForgottenMacSaysItIsNotPaired() async throws {
+        let (pages, _) = makePages()
+        pages.restore("mac:\(UUID().uuidString)", for: "gone")
+        let tab = try await show("gone", in: pages)
+        #expect(tab.pane?.model.gate == .missing)
+        pages.tabClosed("gone")
+    }
+
+    @Test func homeTabAndUnknownRoutesShowTheHomePage() async throws {
+        let (pages, _) = makePages()
+        pages.restore("not a route", for: "odd")
+        let tab = try await show("odd", in: pages)
+        #expect(tab.record == MacScreenRecord(macID: nil))
+        #expect(tab.pane == nil)
+        #expect(pages.title(for: "odd") == "Mac Screen")
+        pages.tabClosed("odd")
+    }
+
+    /// Renaming the Mac retitles its tab at once; forgetting it ends the tab's session.
+    @Test func renameRetitlesAndForgetEndsTheTab() async throws {
+        let (pages, store) = makePages()
+        let mac = try store.add(link: VNCPairing.generate(name: "Studio", kind: "stream").link.absoluteString).get()
+        var retitled: [String] = []
+        pages.events.titleChanged = { retitled.append($0) }
+        pages.prepare("tab", record: MacScreenRecord(macID: mac.id), byPerson: true)
+        let tab = try await show("tab", in: pages)
+        store.rename(mac.id, to: "Office")
+        #expect(pages.title(for: "tab") == "Office")
+        #expect(retitled.contains("tab"))
+        store.forget(mac.id)
+        #expect(tab.pane?.model.gate == .missing)
+        pages.tabClosed("tab")
+    }
+
+    /// Connect on the home page shows the Mac in the same tab, confirmed by the person.
+    @Test func homeConnectShowsTheMacInThisTab() async throws {
+        let (pages, store) = makePages()
+        let mac = try store.add(link: VNCPairing.generate(name: "Studio", kind: "stream").link.absoluteString).get()
+        pages.prepare("tab", record: MacScreenRecord(macID: nil), byPerson: false)
+        _ = try await show("tab", in: pages)
+        pages.show(MacScreenRecord(macID: mac.id), in: "tab", byPerson: true)
+        let tab = try #require(pages.tab("tab"))
+        await tab.loading?.value
+        #expect(tab.record == MacScreenRecord(macID: mac.id))
+        #expect(tab.pane?.model.gate == .open)
+        pages.tabClosed("tab")
+    }
+
+    /// The tab's content view takes the keyboard for its screen's input surface.
+    @Test func focusGoesToTheInputSurface() async throws {
+        let (pages, store) = makePages()
+        let mac = try store.add(link: VNCPairing.generate(name: "Studio", kind: "stream").link.absoluteString).get()
+        pages.prepare("tab", record: MacScreenRecord(macID: mac.id), byPerson: true)
+        let tab = try await show("tab", in: pages)
+        let pane = try #require(tab.pane)
+        #expect(tab.view.focusTarget === pane.focusTarget)
+        pages.tabClosed("tab")
+    }
+
+    /// The tab is shown while its view is in a window and not hidden.
+    @Test func visibilityFollowsTheView() throws {
+        let view = MacScreenTabView()
+        var seen: [Bool] = []
+        view.onVisibilityChange = { seen.append($0) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [], backing: .buffered, defer: true)
+        let parent = NSView(frame: window.contentLayoutRect)
+        window.contentView = parent
+        parent.addSubview(view)
+        #expect(view.isShown)
+        parent.isHidden = true
+        #expect(!view.isShown)
+        parent.isHidden = false
+        #expect(view.isShown)
+        view.removeFromSuperview()
+        #expect(!view.isShown)
+        #expect(seen == [true, false, true, false])
+    }
+
+    /// A cmux://mac-screen address is no browser page any more: the browser hands it to the page tab.
+    @Test func macScreenAddressIsNotABrowserAppPage() {
+        #expect(!TabContentCache.isAppPage(MacScreenRecord.homeURL))
+    }
+}
