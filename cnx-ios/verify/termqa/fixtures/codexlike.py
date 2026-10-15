@@ -38,6 +38,7 @@ def live(working, elapsed, hint):
     lines.append("\x1b[2m╰" + "─" * 40 + "╯\x1b[0m")
     if hint:
         lines.append("\x1b[2m  ⏎ send   ⇧⏎ newline   ⌃T transcript\x1b[0m")
+        lines.append("\x1b[2m  ⌃C quit   ⌃J newline\x1b[0m")
     lines.append("\x1b[2m  100% context left\x1b[0m")
     return lines
 
@@ -52,7 +53,14 @@ def redraw(new_rows, working, elapsed, hint):
         buf.append(row + "\r\n")
     lines = live(working, elapsed, hint)
     buf.append("\r\n".join(lines))
-    live_rows = len(lines) - 1
+    # Like Codex, the cursor then sits in the prompt box, so the footer rows
+    # (which come and go) are below the cursor.
+    prompt = next(i for i, l in enumerate(lines) if "Ask Codex" in l)
+    below = len(lines) - 1 - prompt
+    if below:
+        buf.append(f"\x1b[{below}A")
+    buf.append("\x1b[31G")
+    live_rows = prompt
     out.write("".join(buf))
     out.flush()
 
@@ -79,5 +87,6 @@ try:
         time.sleep(1 / idle_hz)
 finally:
     redraw([], False, 0, False)
+    out.write("\x1b[J")
     out.write(f"\r\nCODEXLIKE-END rows={n}\r\n")
     out.flush()
