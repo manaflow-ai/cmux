@@ -94,6 +94,11 @@ extension BrowserPanel {
         _ reason: BrowserEngineUnavailableReason?,
         runtime: BrowserEngineRuntime
     ) -> BrowserEngineUnavailableReason? {
+#if DEBUG
+        if let reason {
+            cmuxDebugLog("browser.engine.fallback at_open reason=\(reason.code) detail=\(reason.detail ?? "")")
+        }
+#endif
         guard let reason, runtime.fallbackNotices.recordFallback(reason) else { return nil }
         return reason
     }
@@ -168,14 +173,18 @@ extension BrowserPanel {
             webViewDidRequestClose?()
         case .devToolsVisibilityChanged(let open):
             isEngineDevToolsOpen = open
-        case .navigationFailed(let url, _, _, _):
+        case .navigationFailed(let url, let code, _, _):
             // A Chromium runtime that failed to start reports it as a failed
             // load: the panel opens the page in WebKit instead of staying blank.
             if let enginePage, let reason = engineRuntime.availability(for: enginePage.engineKind).unavailableReason {
                 fallBackToWebKit(reason: reason)
                 return
             }
-            finishEngineNavigation(failure: "navigation failed")
+            // ERR_ABORTED (-3) is a load that a newer one (a reload, the
+            // next navigation) replaced: it must not fail the newer load's wait.
+            if code != Self.engineAbortedErrorCode {
+                finishEngineNavigation(failure: "navigation failed")
+            }
             applyEnginePageNavigationFailure(url: url)
         default:
             break
@@ -206,22 +215,21 @@ extension BrowserPanel {
     ///
     /// A person's Back and Forward follow the engine (Chromium skips entries
     /// a page added without a user gesture, as Chrome's back button does).
-    /// Automation steps exactly one entry, as `history.back()` would, through
-    /// the DevTools Protocol when the engine has it, so a script's own
-    /// navigations are not skipped.
+    /// Automation steps exactly one entry, as `history.back()` does, so a
+    /// script's own navigations are not skipped.
     func goEngineHistory(_ page: any BrowserPage, offset: Int, dialogOwner: BrowserDialogOwner) {
-        guard dialogOwner == .automation, page.capabilities.contains(.devToolsProtocol) else {
+        guard dialogOwner == .automation else {
             offset < 0 ? page.goBack() : page.goForward()
             return
         }
+        // `history.go` steps exactly one entry, including entries the page
+        // added without a gesture, which the engine's own Back skips.
         Task { @MainActor [weak page] in
             guard let page else { return }
-            guard let historyData = try? await page.sendDevToolsProtocolMessage(method: "Page.getNavigationHistory", params: nil),
-                  let entryID = BrowserPanel.historyEntryID(in: historyData, offset: offset),
-                  let params = try? JSONSerialization.data(withJSONObject: ["entryId": entryID]),
-                  (try? await page.sendDevToolsProtocolMessage(method: "Page.navigateToHistoryEntry", params: params)) != nil else {
+            do {
+                _ = try await page.evaluateJavaScript("history.go(\(offset)); true", in: .page)
+            } catch {
                 offset < 0 ? page.goBack() : page.goForward()
-                return
             }
         }
     }
@@ -236,6 +244,9 @@ extension BrowserPanel {
         guard entries.indices.contains(target) else { return nil }
         return entries[target]["id"] as? Int
     }
+
+    /// Chromium's `net::ERR_ABORTED`: a load replaced by a newer one.
+    static let engineAbortedErrorCode = -3
 
     /// A load the engine page started, as automation's navigation identity.
     private final class EngineNavigationToken {}
