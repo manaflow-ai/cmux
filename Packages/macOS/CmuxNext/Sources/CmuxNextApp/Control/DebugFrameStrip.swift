@@ -105,7 +105,7 @@ enum DebugFrameStrip {
         }
         WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
         let motion = progress.fields(moving: intermediate, tabs: MotionTravelSummary("tabs.travel", after: sentTime)).mapValues(JSONValue.number)
-        return .object(motion.merging([
+        let report: [String: JSONValue] = [
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
             "content_intermediate": .number(Double(contentIntermediate)), "desync": .number(Double(desync)),
@@ -113,7 +113,8 @@ enum DebugFrameStrip {
             "settled_ms": settledAt.map { .number($0.rounded()) } ?? .null, "first_change_ms": firstChange.map { .number($0.rounded()) } ?? .null,
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
-        ]) { first, _ in first })
+        ]
+        return .object(report.merging(motion) { first, _ in first })
     }
 
     /// `gesture: "drag_new"`: drags the focused strip's first tab right in 12 steps, one per frame
