@@ -32,6 +32,9 @@
 
 use super::*;
 
+/// The mark on a watchers' harness-feed payload that is a start-mode notice.
+pub(crate) const START_MODE_NOTE: &str = "startModeChanged";
+
 /// The cmux setting that chooses the start mode of a new chat.
 pub const SETTING: &str = "agents.defaultPermissionMode";
 
@@ -67,50 +70,106 @@ impl DefaultMode {
     }
 
     /// acpmux config.json's `defaultPermissionMode` when it names one, else
-    /// the setting as the settings file holds it now. No file or no key is
-    /// full access (Lawrence's default). A file that does not parse, or a
-    /// value this build does not know, is `Standard`: a person's opt-out
-    /// that acpmux cannot read never becomes full access.
-    pub(crate) fn resolve(configured: Option<&str>) -> Self {
+    /// the setting as the settings file holds it now, and which of them
+    /// chose. No file or no key is full access (Lawrence's default). A file
+    /// that does not parse, or a value this build does not know, is
+    /// `Standard`: a person's opt-out that acpmux cannot read never becomes
+    /// full access.
+    pub(crate) fn resolve(configured: Option<&str>) -> (Self, Source) {
         if let Some(value) = configured {
-            return Self::parse(value).unwrap_or_else(|| {
+            let level = Self::parse(value).unwrap_or_else(|| {
                 tracing::warn!(value, "config.json defaultPermissionMode: unknown value; new chats keep the harness's own mode");
                 Self::Standard
             });
+            return (level, Source::Config);
         }
         match crate::user_settings::read() {
-            crate::user_settings::Settings::Missing => Self::FullAccess,
+            crate::user_settings::Settings::Missing => (Self::FullAccess, Source::Default),
             crate::user_settings::Settings::Unreadable(why) => {
                 tracing::warn!(
                     "{SETTING}: the settings file cannot be read ({why}); new chats keep the harness's own mode"
                 );
-                Self::Standard
+                (Self::Standard, Source::Settings)
             }
             crate::user_settings::Settings::Parsed(doc) => {
                 match crate::user_settings::value(&doc, SETTING) {
-                    None | Some(Value::Null) => Self::FullAccess,
-                    Some(v) => v.as_str().and_then(Self::parse).unwrap_or_else(|| {
-                        tracing::warn!(
-                            "{SETTING}: unknown value {v}; new chats keep the harness's own mode"
-                        );
-                        Self::Standard
-                    }),
+                    None | Some(Value::Null) => (Self::FullAccess, Source::Default),
+                    Some(v) => {
+                        let level = v.as_str().and_then(Self::parse).unwrap_or_else(|| {
+                            tracing::warn!(
+                                "{SETTING}: unknown value {v}; new chats keep the harness's own mode"
+                            );
+                            Self::Standard
+                        });
+                        (level, Source::Settings)
+                    }
                 }
             }
         }
     }
 }
 
+/// What chose a start level: the person's latest pick, config.json, the
+/// cmux setting, or nothing (full access).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Source {
+    Pick,
+    Config,
+    Settings,
+    Default,
+}
+
+impl Source {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Pick => "pick",
+            Self::Config => "config",
+            Self::Settings => "settings",
+            Self::Default => "default",
+        }
+    }
+}
+
+/// The level a new chat starts at: the latest pick (config.json
+/// `lastPermissionMode`), else `DefaultMode::resolve`.
+fn start_level(picked: Option<&str>, configured: Option<&str>) -> (DefaultMode, Source) {
+    match picked.and_then(DefaultMode::parse) {
+        Some(level) => (level, Source::Pick),
+        None => DefaultMode::resolve(configured),
+    }
+}
+
+/// Whether acpmux sets a start mode on a new chat at all (module docs):
+/// `plain` is a chat that is not an adopted conversation, a preset's or a
+/// folder profile's; never a remote-origin chat, a handoff that keeps the
+/// harness's mode, or a profile that pins its mode. `session/new` and
+/// `_acpmux/start_mode` both decide with this.
+pub(super) fn mode_eligible(
+    plain: bool,
+    remote: bool,
+    keep_harness_mode: bool,
+    profile: &HarnessProfile,
+) -> bool {
+    plain && !remote && !keep_harness_mode && !profile_sets_mode(profile)
+}
+
 /// The mode ids a session's harness offers.
 fn available(meta: &crate::store::SessionMeta) -> Vec<String> {
+    offered(meta).into_iter().map(|(id, _)| id).collect()
+}
+
+/// The modes a session's harness offers: id and name.
+fn offered(meta: &crate::store::SessionMeta) -> Vec<(String, Option<String>)> {
     meta.modes
         .as_ref()
         .and_then(|m| m.get("availableModes"))
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|m| m.get("id").and_then(Value::as_str))
-        .map(str::to_owned)
+        .filter_map(|m| {
+            let id = m.get("id").and_then(Value::as_str)?;
+            Some((id.to_owned(), m.get("name").and_then(Value::as_str).map(str::to_owned)))
+        })
         .collect()
 }
 
@@ -210,16 +269,99 @@ impl Hub {
         if offered.is_empty() {
             return None;
         }
+        let (level, _) = self.start_level().await;
+        mode_for(level, &crate::web_modes::family_of(&meta), &offered)
+            .filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+    }
+
+    /// The level new chats start at now, and what chose it.
+    async fn start_level(&self) -> (DefaultMode, Source) {
         let (picked, configured) = {
             let cfg = self.config.read().await;
             (cfg.last_permission_mode.clone(), cfg.default_permission_mode.clone())
         };
-        let level = match picked.as_deref().and_then(DefaultMode::parse) {
-            Some(level) => level,
-            None => DefaultMode::resolve(configured.as_deref()),
+        start_level(picked.as_deref(), configured.as_deref())
+    }
+
+    /// `_acpmux/start_mode`: the mode a plain new chat on `harness` (or the
+    /// preset) in `cwd` would start in, by the rules `new_session` applies
+    /// (`mode_eligible`, `start_level`, `mode_for`), for a connection of
+    /// this origin (`remote`: a remote-origin chat gets none). Read only.
+    /// `modeId` is null when acpmux would set no mode: the chat is not
+    /// eligible, the level keeps the harness's own mode, or the harness's
+    /// modes are not known yet (no chat of it in this daemon, and not
+    /// acpmux's own Claude backend).
+    pub async fn start_mode_answer(
+        &self,
+        harness: Option<String>,
+        preset: Option<String>,
+        cwd: Option<std::path::PathBuf>,
+        remote: bool,
+    ) -> Result<Value, RpcError> {
+        // A remote-origin connection's chats get no start mode: it is told so
+        // before its cwd, preset or harness is resolved, so the answer never
+        // reveals this Mac's folders, profiles or settings.
+        if remote {
+            return Ok(
+                json!({"harness": null, "modeId": null, "name": null, "level": null, "source": null}),
+            );
+        }
+        // As session/new: harness discovery and launcher checks finish first.
+        self.wait_startup().await;
+        let (agent, profile, eligible) = {
+            let cfg = self.config.read().await;
+            let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
+            let plain = r.preset_name.is_none() && r.folder_root.is_none();
+            let eligible = r.profile.kind != crate::config::HarnessKind::Terminal
+                && mode_eligible(plain, remote, false, &r.profile);
+            (r.agent, r.profile, eligible)
         };
-        mode_for(level, &crate::web_modes::family_of(&meta), &offered)
-            .filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+        let none =
+            json!({"harness": agent, "modeId": null, "name": null, "level": null, "source": null});
+        if !eligible {
+            return Ok(none);
+        }
+        let family = crate::config::derive_family(&agent, &profile);
+        let modes = self.known_modes(&agent, &profile);
+        let ids: Vec<String> = modes.iter().map(|(id, _)| id.clone()).collect();
+        let (level, source) = self.start_level().await;
+        let mode = mode_for(level, &family, &ids);
+        let name = mode
+            .as_ref()
+            .and_then(|m| modes.iter().find(|(id, _)| id == m))
+            .and_then(|(_, n)| n.clone());
+        Ok(json!({
+            "harness": agent,
+            "modeId": mode,
+            "name": name,
+            "level": level.as_str(),
+            "source": source.as_str(),
+        }))
+    }
+
+    /// The modes harness profile `agent` offers, as its newest chat in this
+    /// daemon reported them, else acpmux's own Claude backend's list.
+    fn known_modes(&self, agent: &str, profile: &HarnessProfile) -> Vec<(String, Option<String>)> {
+        let all: Vec<Arc<Session>> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        let of_agent: Vec<Arc<Session>> = all
+            .into_iter()
+            .filter(|s| s.meta.lock().unwrap_or_else(|e| e.into_inner()).harness == agent)
+            .collect();
+        let reported = newest_first(of_agent)
+            .iter()
+            .map(|s| offered(&s.meta.lock().unwrap_or_else(|e| e.into_inner())))
+            .find(|m| !m.is_empty());
+        reported.unwrap_or_else(|| {
+            if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+                crate::claude_stdio::MODES
+                    .iter()
+                    .map(|(id, name)| ((*id).to_owned(), Some((*name).to_owned())))
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        })
     }
 
     /// `session/set_mode` from a client. From the app pane (`pick`), once
@@ -264,5 +406,15 @@ impl Hub {
         if let Err(e) = cfg.save() {
             tracing::warn!("mode pick not saved to config.json: {e}");
         }
+        drop(cfg);
+        self.start_mode_changed();
+    }
+
+    /// Tells local watchers a new chat's start mode may have changed
+    /// (`_acpmux/start_mode_changed`), so a pending chat asks again. It
+    /// rides the watchers' harness feed (`server/harness_admin.rs`
+    /// `watch_note`), marked `START_MODE_NOTE`.
+    pub(super) fn start_mode_changed(&self) {
+        self.send_harness_change(json!({ (START_MODE_NOTE): true }));
     }
 }

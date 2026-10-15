@@ -364,7 +364,7 @@ pub struct Terminal {
     prompt_semantic: PromptSemanticTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
-    callbacks: Box<Callbacks>,
+    hooks: Box<callbacks::Hooks>,
     cursor_override: CursorOverrideTracker,
     palette_override: Box<PaletteOverrideTracker>,
     color_overrides: ColorOverrideTracker,
@@ -473,7 +473,7 @@ impl Terminal {
             mouse_mode_change_detector: MouseModeChangeDetector::default(),
             vt_boundary: VtBoundaryTracker::default(),
             prompt_semantic: PromptSemanticTracker::default(),
-            callbacks: Box::new(callbacks),
+            hooks: Box::new(callbacks::Hooks::new(callbacks, cols.max(1), rows.max(1))),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
             color_overrides: ColorOverrideTracker::default(),
@@ -481,9 +481,9 @@ impl Terminal {
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
-        // SAFETY: `callbacks` is heap-pinned for the terminal's lifetime and
+        // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
-        unsafe { callbacks::install(raw, &mut term.callbacks) };
+        unsafe { callbacks::install(raw, &mut term.hooks) };
         term.mouse_mode_bits = term.current_mouse_mode_bits();
         term.mouse_mode_signature = term.mouse_mode_probe.signature(term.raw);
         Ok(term)
@@ -1017,6 +1017,12 @@ impl Terminal {
                 cell_height_px,
             )
         })?;
+        self.hooks.size = sys::GhosttySizeReportSize {
+            rows: rows.max(1),
+            columns: cols.max(1),
+            cell_width: cell_width_px,
+            cell_height: cell_height_px,
+        };
         self.bump_history_epoch();
         self.reset_history_anchor();
         if reflows {

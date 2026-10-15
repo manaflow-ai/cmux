@@ -78,7 +78,11 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
         "{identity}"
     );
     assert!(
-        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "browser-fit-v1"),
+        ["browser-fit-v1", "browser-fit-width-v1"].iter().all(|cap| identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == cap)),
         "{identity}"
     );
 
@@ -235,7 +239,7 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
     assert_eq!(fit["mode"], "fit", "{fit}");
     assert_eq!(
         fit["fit"],
-        serde_json::json!({"aspect": "16:9", "aspect_width": 16, "aspect_height": 9,
+        serde_json::json!({"value": "16:9", "aspect": "16:9", "aspect_width": 16, "aspect_height": 9,
                            "min_width": 1024, "max_width": 1920})
     );
     assert!(fit.get("device").is_none(), "a fit names no device: {fit}");
@@ -266,6 +270,21 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
         refused(&server, &["tab", &browser, "emulate", "--orientation", "portrait"])
             .contains("emulates no device")
     );
+    // Fit as Desktop (1280): a fixed layout width (min = max = 1280) in
+    // place of the 16:9 fit; only one fit is on a tab at a time.
+    let fixed = ok(&server, &["tab", &browser, "emulate", "--fit", "1280"]);
+    let fixed = find(&fixed, "emulation").expect("result shows extra.emulation").clone();
+    assert_eq!(fixed["mode"], "fit", "{fixed}");
+    assert_eq!(
+        fixed["fit"],
+        serde_json::json!({"value": "1280", "aspect": "16:9", "aspect_width": 16, "aspect_height": 9,
+                           "min_width": 1280, "max_width": 1280})
+    );
+    let trimmed = ok(&server, &["tab", &browser, "emulate", "--fit", " 1280 "]);
+    assert_eq!(find(&trimmed, "emulation"), Some(&fixed));
+    assert_eq!(emulation(&server, &browser).as_ref(), Some(&fixed));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "99999"]).contains("1280"));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "300"]).contains("1280"));
     // A device again replaces the fit.
     ok(&server, &["tab", &browser, "emulate", "--device", "Kiosk"]);
 

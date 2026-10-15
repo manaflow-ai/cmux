@@ -58,11 +58,15 @@ const onBranch = (branch: string) =>
   });
 
 // A Claude chat as Leo's app shows it (2026-10-13): the agent names its model with the vendor
-// ("Claude Opus 5.5"), the access mode is the default, nothing used yet, on this Mac.
+// ("Claude Opus 5.5"), the access mode is the default, nothing used yet, on this Mac. Nothing is
+// sent yet, so the location strip shows (locationRow.ts).
 function footerChat(mode: "default" | "full-access") {
   const base = chat(finished);
   return {
     ...base,
+    rows: [],
+    queue: [],
+    isWorking: false,
     catalog: CATALOG.map((entry) =>
       entry.id === "claude"
         ? {
@@ -75,6 +79,7 @@ function footerChat(mode: "default" | "full-access") {
     ),
     summary: {
       ...base.summary!,
+      turnCount: 0,
       usage: { used: 0, size: 200_000 },
       modes: {
         currentModeId: mode,
@@ -711,6 +716,41 @@ export default agentPaneEntry({
         if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("slash command pick lost prompt focus");
         if (!ctx.find(prompt).textContent?.includes(`${command} `))
           throw new Error("slash command pick did not update prompt");
+      },
+    },
+    "slash-menu-skills-and-input": {
+      note: "Play: the shared slash picker combines harness commands, skills and prompts; Shift-Enter keeps editing and Enter sends.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "review", description: "Review the current changes", source: "agent" },
+          { name: "$cmux-browser", description: "Use cmux browser controls", source: "skill" },
+          { name: "daily-plan", description: "Plan the next work block", source: "prompt" },
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("/");
+        // cmux's own commands (at least /import) share the menu, so find the fixture rows by name.
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        const label = (name: string) => row(name)?.querySelector(".acpmux-slash-source")?.textContent ?? "";
+        await ctx.waitFor(() => !!row("review") && !!row("$cmux-browser") && !!row("daily-plan"));
+        if (label("$cmux-browser") !== "Skill") throw new Error("the skill row has no Skill label");
+        if (label("daily-plan") !== "Prompt") throw new Error("the prompt row has no Prompt label");
+        if (label("review") !== "") throw new Error("a harness command is labeled");
+        await ctx.press("Escape");
+        await ctx.press("Backspace");
+        await ctx.waitFor(() => (ctx.find(prompt).textContent ?? "").trim() === "");
+        await ctx.type("first line");
+        await ctx.press("Shift+Enter");
+        await ctx.type("second line");
+        if (!ctx.find(prompt).textContent?.includes("first line"))
+          throw new Error("Shift-Enter did not keep the draft");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => (ctx.find(prompt).textContent ?? "").trim() === "");
       },
     },
     "search-files-key": {

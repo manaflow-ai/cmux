@@ -108,6 +108,8 @@ LOG = open(os.path.join(opts.out, "journey.log"), "a")
 RUN = os.urandom(3).hex()
 SCROLLBACK_LINES = 3000
 SCROLL = 1500
+SIDEBAR_WIDTH = 312  # points: neither layout's default (208, 240), inside the 160...360 drag range
+FONT_STEPS = 2  # Cmd-+ steps on the counter's terminal
 PIDFILE = os.path.join(opts.out, f"counter-{RUN}.pid")
 
 
@@ -642,6 +644,11 @@ def seed_term():
     # last (a restore that falls back to either must fail focus.pane).
     if right.get("pane_id"):
         cli("pane", right["pane_id"], "focus")
+        # The counter's terminal zoomed in, as a person's Cmd-+ (two steps): its tab record keeps
+        # the font scale, and the reopened view must draw at it (`debug.surfaces` font_scale).
+        for _ in range(FONT_STEPS * bool(right.get("tab_id"))):
+            # The font size actions take the terminal's tab, not its pane.
+            action("terminal.increaseFontSize", target=f"tab:{right['tab_id']}")
 
 
 def seed_split():
@@ -866,6 +873,8 @@ def seed(base):
         rpc("debug.window_frame", {"window": first.get("key"), "frame": FRAMES[0]})
         # The window a person used last: key and first in the app's window recency.
         say(f"  window.focus -> {json.dumps(rpc('debug.window.focus', {'window': first.get('key')}))[:160]}")
+        # Its sidebar dragged to a width neither default uses (the active window's).
+        say(f"  sidebar width -> {json.dumps(rpc('debug.update_surfaces', {'action': 'sidebar-width', 'width': SIDEBAR_WIDTH}))[:160]}")
     # The scrollback writer is done and the counter has ticked a few times.
     wait(lambda: "rj-scrollback-done" in json.dumps(rpc("debug.surfaces", {"text": True})), 40, 1)
     if "term" not in SKIP:
@@ -1013,6 +1022,9 @@ def snapshot(label):
              for w in rj_windows}
     recency = (raw["debug.windows"] or {}).get("recency") if isinstance(raw["debug.windows"], dict) else None
     items["windows.recency"] = [names[key] for key in recency or [] if key in names]
+    # What each window's record saves, as the window shows it (debug.windows, keyed by window id).
+    app_windows = {w.get("id"): w for w in ((raw["debug.windows"] or {}).get("windows") or [])} if isinstance(raw["debug.windows"], dict) else {}
+    displays = (raw["debug.windows"] or {}).get("displays") if isinstance(raw["debug.windows"], dict) else None
     for index, window in enumerate(rj_windows):
         p = f"window[{names[window.get('key')]}]"
         items[f"{p}.id"] = window.get("id")
@@ -1021,7 +1033,19 @@ def snapshot(label):
         # With no `frame`, debug.window_frame sets the window's own frame again and returns it.
         framed = rpc("debug.window_frame", {"window": window.get("key")})
         items[f"{p}.frame"] = framed.get("frame") if isinstance(framed, dict) else None
+        shown = app_windows.get(window.get("key")) or {}
+        items[f"{p}.full_screen"] = shown.get("full_screen")
+        items[f"{p}.sidebar_width"] = shown.get("sidebar_width")
+        items[f"{p}.sidebar_hidden"] = shown.get("sidebar_hidden")
+        # Which display a window comes back on means something only with two to pick from; a
+        # capture slot has one 1080p display, so there the row reads n/a.
+        if isinstance(displays, int) and displays >= 2:
+            items[f"{p}.display"] = shown.get("display")
         raw[f"{p}.snapshot"] = rpc("debug.window_snapshot", {"window": window.get("key"), "path": os.path.join(opts.out, f"{label}-window{index}.png")}, timeout=60)
+    if not isinstance(displays, int):
+        RESULTS.append((f"{label}: debug.windows reports a displays count", False, f"displays is {displays!r}", "windows"))
+    elif displays < 2:
+        RESULTS.append((f"{label}: window[*].display", NA, f"n/a: {displays} display(s), the row needs two", "windows"))
     focus = topo.get("focus", {})
     items["focus.workspace"] = ws_by_id.get(focus.get("workspace"), {}).get("name")
     items["focus.window"] = next((names.get(w.get("key")) for w in rj_windows if w.get("id") == focus.get("window")), focus.get("window"))
@@ -1070,6 +1094,7 @@ def snapshot(label):
                     if kind == "terminal" and tab.get("id") == pane.get("selected_tab") and pane.get("id") in views:
                         view = views[pane.get("id")]
                         items[f"{tp}.view.attach"] = view.get("attach")
+                        items[f"{tp}.view.font_scale"] = view.get("font_scale")
     # The focused pane, by its place (rj-term's counter pane, focused by the seed).
     focused_pane = focus.get("pane") or focus.get("pane_id")
     items["focus.pane"] = pane_names.get(focused_pane, f"not an rj pane: {focused_pane}" if focused_pane else None)
@@ -1235,7 +1260,8 @@ def settled(expected_tabs):
     return bool(shown) and all(v.get("attach") == "live" for v in shown)
 
 
-RESULTS = []  # (item, ok, detail, area)
+RESULTS = []  # (item, ok, detail, area); ok NA: the row does not apply on this host
+NA = "n/a"
 
 
 def area_of(item):
@@ -1265,7 +1291,8 @@ def broken(v, item=""):
 
 def must_have(item):
     """Rows whose value is always present on a working app; for these, equal emptiness is a FAIL."""
-    return (item.endswith((".frame", ".layout", ".view.attach", ".selected_workspace", ".id", ".url", ".tabs"))
+    return (item.endswith((".frame", ".layout", ".view.attach", ".selected_workspace", ".id", ".url", ".tabs",
+                           ".full_screen", ".sidebar_width", ".sidebar_hidden", ".display", ".view.font_scale"))
             or item.endswith(".agent_session")
             or item.endswith((".view.size", ".view.grid"))
             or item in ("windows.recency", "focus.window", "focus.workspace", "focus.pane", "agent.page", "agent.acpmux", "agent.prompts",
@@ -1291,7 +1318,11 @@ def seeded(before):
         "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
                  ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int)),
                  ("top drawing", before.get("top.running") is True and before.get("top.in_view") is True),
-                 ("the counter's pane focused", before.get("focus.pane") == "ws[rj-term].s0.pane1")],
+                 ("the counter's pane focused", before.get("focus.pane") == "ws[rj-term].s0.pane1"),
+                 (f"the counter's terminal zoomed in by {FONT_STEPS} Cmd-+ steps",
+                  (before.get("ws[rj-term].s0.pane1.tab0.view.font_scale") or 0) > 1.05),
+                 (f"the first window's sidebar at {SIDEBAR_WIDTH} points",
+                  has(lambda k, v: k.endswith(".sidebar_width") and isinstance(v, (int, float)) and abs(v - SIDEBAR_WIDTH) <= 1))],
         "web": [("history page at /hist-c after two link clicks", before.get("page[hist].path") == "/hist-c"),
                 # Chromium's Back needs it. A capture slot's window is never key, so a posted
                 # window-level click does not reach a WebKit page there; WebKit's Back keeps
@@ -1355,6 +1386,12 @@ def compare(variant, before, after):
             seeded_zoom = SEEDED.get(item, b)
             ok = abs(a - seeded_zoom) <= 0.03
             detail = f"{b} -> {a} (seeded {seeded_zoom})"
+        elif item.endswith((".sidebar_width", ".view.font_scale")) and isinstance(a, (int, float)):
+            # Against what was seeded, not the last reopen: a lost width or zoom must not pass the next variant.
+            seeded_value = SEEDED.get(item, b)
+            slack = 1 if item.endswith(".sidebar_width") else 0.01
+            ok = isinstance(seeded_value, (int, float)) and abs(a - seeded_value) <= slack
+            detail = f"{b} -> {a} (seeded {seeded_value})"
         elif item == "page[tall].self_scrolled":
             # Only the seeded load scrolls itself; every reopened one must get its scroll from restore.
             ok = a == 0
@@ -1485,7 +1522,8 @@ def journey(base):
         before = snapshot(f"{variant}-before")
         if n == 0:
             seeded(before)
-            SEEDED.update({k: v for k, v in before.items() if k in ("page[hist].history_length", "page[w2page].zoom") or k.startswith("cloud.")})
+            SEEDED.update({k: v for k, v in before.items() if k in ("page[hist].history_length", "page[w2page].zoom")
+                           or k.startswith("cloud.") or k.endswith((".sidebar_width", ".view.font_scale"))})
         if variant == "crash":
             # A crash comes after the last change has been saved (the browser history and record
             # writers debounce 500 ms); the rows check what was saved, not what was still in flight.
@@ -1594,9 +1632,12 @@ def main():
     width = max((len(r[0]) for r in RESULTS), default=10)
     print("\n" + "-" * (width + 40))
     for item, ok, detail, area in RESULTS:
-        print(f"{'PASS' if ok else 'FAIL'}  {item:<{width}}  [{area}] {detail}")
-    failed = [r for r in RESULTS if not r[1]]
-    print(f"RESULT {'PASS' if not failed else 'FAIL'}: {len(RESULTS) - len(failed)}/{len(RESULTS)} rows pass; out {opts.out}")
+        print(f"{'N/A ' if ok is NA else 'PASS' if ok else 'FAIL'}  {item:<{width}}  [{area}] {detail}")
+    # A row with ok NA does not apply on this host (one display): neither passed nor failed.
+    counted = [r for r in RESULTS if r[1] is not NA]
+    failed = [r for r in counted if not r[1]]
+    print(f"RESULT {'PASS' if not failed else 'FAIL'}: {len(counted) - len(failed)}/{len(counted)} rows pass"
+          f"{f', {len(RESULTS) - len(counted)} n/a' if len(counted) < len(RESULTS) else ''}; out {opts.out}")
     dump("report.json", [{"item": r[0], "ok": r[1], "detail": r[2], "area": r[3]} for r in RESULTS])
     sys.exit(1 if failed else 0)
 

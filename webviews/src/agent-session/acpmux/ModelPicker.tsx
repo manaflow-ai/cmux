@@ -777,7 +777,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     <AgentMark agent={entry.mark ?? entry.id} size={16} />
                   ) : (
                     // A harness without a mark: its initial, never an empty tab.
-                    <span aria-hidden="true" className="text-control font-medium">
+                    <span aria-hidden="true" className="text-control font-semibold">
                       {entry.name.trim().charAt(0).toUpperCase()}
                     </span>
                   )}
@@ -794,7 +794,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 type="search"
                 // The picker opens with focus here; its row shows the focus, not a ring inside it.
                 data-focus-ring="none"
-                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-body text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
                 aria-label={searchText}
                 aria-autocomplete="list"
                 aria-controls={`${menuId}-models`}
