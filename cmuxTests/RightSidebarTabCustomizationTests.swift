@@ -1,4 +1,5 @@
 import CmuxSidebar
+import CmuxSettings
 import Foundation
 import CmuxSidebar
 import XCTest
@@ -83,6 +84,17 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
             ),
             StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
         )
+    }
+
+    func testCustomSidebarCanBeHiddenAndReordered() {
+        enableCustomSidebar()
+
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .customSidebar, defaults: defaults))
+        XCTAssertFalse(RightSidebarMode.visibleModes(defaults: defaults).contains(.customSidebar))
+
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(false, mode: .customSidebar, defaults: defaults))
+        RightSidebarTabPreferences.move(.customSidebar, offset: -10, defaults: defaults)
+        XCTAssertEqual(RightSidebarTabPreferences.orderedModes(defaults: defaults).first, .customSidebar)
     }
 
     func testVisibleModesDropUserHiddenTabs() {
