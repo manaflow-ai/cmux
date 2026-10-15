@@ -43,7 +43,7 @@ final class CEFApplicationSupport {
     func install(application: NSApplication) -> Bool {
         if isInstalled { return true }
         guard let appClass = object_getClass(application) else { return false }
-        let proto: Protocol = CEFAppProtocol.self
+        let proto: Protocol = (any CEFAppProtocol).self
 
         let getSelector = NSSelectorFromString("isHandlingSendEvent")
         let setSelector = NSSelectorFromString("setHandlingSendEvent:")
