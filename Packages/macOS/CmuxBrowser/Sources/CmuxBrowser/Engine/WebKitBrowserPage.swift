@@ -86,6 +86,10 @@ public final class WebKitBrowserPage: BrowserPage {
         let (stream, continuation) = AsyncStream<BrowserPageEvent>.makeStream(bufferingPolicy: .bufferingNewest(64))
         eventStream = stream
         eventContinuation = continuation
+        // A consumer that stops iterating also stops the observation.
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.stopObserving() }
+        }
         if isClosed {
             continuation.finish()
         } else {
@@ -150,7 +154,7 @@ public final class WebKitBrowserPage: BrowserPage {
         case .page:
             return try await webView.evaluateJavaScript(script)
         case .isolated(let name):
-            return try await webView.evaluateJavaScript(script, in: nil, contentWorld: WKContentWorld.world(name: name))
+            return try await webView.evaluateJavaScript(script, in: nil, contentWorld: WebKitBrowserPage.contentWorld(for: .isolated(name)))
         }
     }
 
@@ -174,7 +178,8 @@ public final class WebKitBrowserPage: BrowserPage {
         )
     }
 
-    /// Adds a `WKUserScript` to the web view's user content controller.
+    /// Adds a `WKUserScript` to the web view's user content controller
+    /// (shared by every web view using that controller).
     /// - Parameter script: The script.
     public func addUserScript(_ script: BrowserPageUserScript) {
         let userScript = WKUserScript(
@@ -225,6 +230,10 @@ public final class WebKitBrowserPage: BrowserPage {
     }
 
     /// WebKit has no DevTools Protocol.
+    /// - Parameters:
+    ///   - method: Ignored.
+    ///   - params: Ignored.
+    /// - Returns: Never returns.
     /// - Throws: ``BrowserEngineError/unsupported(_:)`` always.
     public func sendDevToolsProtocolMessage(method: String, params: Data?) async throws -> Data {
         throw BrowserEngineError.unsupported("devToolsProtocol")
@@ -265,6 +274,7 @@ public final class WebKitBrowserPage: BrowserPage {
     public func setContentVisible(_ visible: Bool) {}
 
     /// WebKit has no trusted input path.
+    /// - Parameter event: Ignored.
     /// - Throws: ``BrowserEngineError/unsupported(_:)`` always.
     public func dispatchInput(_ event: BrowserPageInputEvent) async throws {
         throw BrowserEngineError.unsupported("trustedInput")
@@ -294,19 +304,34 @@ public final class WebKitBrowserPage: BrowserPage {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
-        observations.forEach { $0.invalidate() }
-        observations.removeAll()
+        stopObserving()
         eventContinuation?.finish()
         eventContinuation = nil
     }
 
     // MARK: Private
 
+    /// Named worlds, kept for the life of the process. A `WKContentWorld`
+    /// that is released after one call can take its web-process world and
+    /// the globals scripts left there with it (observed on macOS 15), so
+    /// every world is held here, as the panel holds its own named worlds.
+    private static var namedWorlds: [String: WKContentWorld] = [:]
+
     private static func contentWorld(for world: BrowserPageScriptWorld) -> WKContentWorld {
         switch world {
-        case .page: .page
-        case .isolated(let name): .world(name: name)
+        case .page:
+            return .page
+        case .isolated(let name):
+            if let existing = namedWorlds[name] { return existing }
+            let created = WKContentWorld.world(name: name)
+            namedWorlds[name] = created
+            return created
         }
+    }
+
+    private func stopObserving() {
+        observations.forEach { $0.invalidate() }
+        observations.removeAll()
     }
 
     private func startObserving() {

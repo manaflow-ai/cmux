@@ -35,6 +35,12 @@ struct BrowserEngineRegistryTests {
         }
     }
 
+    @Test func webKitPagesAreNotMadeByTheRegistry() {
+        #expect(throws: BrowserEngineError.unsupported("webkitPagesAreCreatedByThePanel")) {
+            try BrowserEngineRegistry().makePage(.webkit, configuration)
+        }
+    }
+
     @Test func registeredProviderReportsItsAvailability() {
         let provider = FakeProvider(kind: .chromium, availability: .unavailable(.startFailed("no framework")))
         let registry = BrowserEngineRegistry(providers: [provider])
