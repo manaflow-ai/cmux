@@ -1,8 +1,8 @@
 public import AppKit
 import CmuxNextDesign
 
-/// A command from the fit bar. The App runs it for the bar's tab (`BrowserFitFrameView.perform`).
-public nonisolated enum BrowserFitCommand: Sendable, Equatable {
+/// A command from the fit bar: fits go to the App (`BrowserFitFrameView.perform`), zoom to the page's chrome.
+nonisolated enum BrowserFitCommand: Sendable, Equatable {
     /// Another fit ("16:10", "1440"...), or nil to turn the fit off.
     case fit(String?)
     /// Ask for a custom aspect ratio or width (the palette's argument page).
@@ -18,8 +18,8 @@ public nonisolated enum BrowserFitCommand: Sendable, Equatable {
 /// the fit choices, zoom and Turn Off. The first bar of an app run also shows
 /// one muted line that explains the mode; any use of the bar retires it.
 public final class BrowserFitFrameView: NSView {
-    /// Runs a bar command for a daemon tab id (set by the App).
-    @MainActor public static var perform: (@MainActor (String, BrowserFitCommand) -> Void)?
+    /// Sets a daemon tab's fit (set by the App): a value ("16:10", "1440", "off"), or nil to ask for one.
+    @MainActor public static var perform: (@MainActor (_ tab: String, _ fit: String?) -> Void)?
     /// The explanation line still shows (until the first use of a bar in this app run).
     @MainActor private static var explains = true
 
@@ -168,7 +168,11 @@ public final class BrowserFitFrameView: NSView {
             return
         }
         guard let tabID else { return }
-        Self.perform?(tabID, command)
+        switch command {
+        case .fit(let value): Self.perform?(tabID, value ?? "off")
+        case .custom: Self.perform?(tabID, nil)
+        case .zoom: break
+        }
     }
 
     private func add(_ title: String, _ command: BrowserFitCommand, checked: Bool = false, to menu: NSMenu) {
