@@ -54,6 +54,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
+    /// Child agent sessions hang off their parent row with the ⎿ connector
+    /// (`labs.sidebarStatusElbow`). True only while status grouping's own
+    /// flag (`labs.sidebarStatusGrouping`) is on too.
+    public var statusElbow = false
     /// Whether the device-wide All chats section is shown at the bottom of the
     /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
     public var showChats = true

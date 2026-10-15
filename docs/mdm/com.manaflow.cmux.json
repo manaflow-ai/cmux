@@ -1466,6 +1466,18 @@
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
+    "labs.sidebarStatusElbow" : {
+      "default" : false,
+      "description" : "Child agent sessions hang off their parent row with the ⎿ connector; only with status grouping.",
+      "title" : "Nest Child Agent Sessions",
+      "type" : "boolean"
+    },
+    "labs.sidebarStatusGrouping" : {
+      "default" : false,
+      "description" : "The sidebar groups workspaces by agent status: Needs you, Working, Done.",
+      "title" : "Group Sidebar by Status",
+      "type" : "boolean"
+    },
     "layout.centerFocusedColumn" : {
       "default" : "never",
       "description" : "layout.centerFocusedColumn",
@@ -2099,7 +2111,8 @@
       "description" : "sidebar.groupBy",
       "enum" : [
         "none",
-        "folder"
+        "folder",
+        "status"
       ],
       "title" : "Group Projects By",
       "type" : "string"

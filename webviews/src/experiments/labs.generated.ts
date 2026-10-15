@@ -11,6 +11,22 @@ export const LABS_FLAGS = {
     title: "Show Preview Features",
     intent: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
   },
+  sidebarStatusGrouping: {
+    owner: "leo",
+    created: "2026-10-14",
+    expires: "2026-10-28",
+    cohort: "off",
+    title: "Group Sidebar by Status",
+    intent: "The sidebar groups workspaces by agent status: Needs you, Working, Done.",
+  },
+  sidebarStatusElbow: {
+    owner: "leo",
+    created: "2026-10-14",
+    expires: "2026-10-28",
+    cohort: "off",
+    title: "Nest Child Agent Sessions",
+    intent: "Child agent sessions hang off their parent row with the ⎿ connector; only with status grouping.",
+  },
 } as const;
 
 export type LabsFlagName = keyof typeof LABS_FLAGS;

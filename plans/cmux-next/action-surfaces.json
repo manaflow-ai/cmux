@@ -26300,6 +26300,33 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-group-by-status",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.groupBy.status",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Group by Status",
+      "title_key" : "action.sidebar.groupBy.status",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-density-compact",
       "context_menu" : "offered",
       "context_menus" : [
@@ -32364,6 +32391,19 @@
               "id" : "sidebar.groupBy.folder",
               "kind" : "action",
               "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.groupBy.status",
+              "kind" : "action",
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

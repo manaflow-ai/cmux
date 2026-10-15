@@ -96,9 +96,11 @@ public nonisolated enum SidebarSectionsSetting {
                               kind: .choice([
                                   SettingChoice(SidebarGroupBy.none.rawValue, SettingsText.keyed("settings.choice.groupByNone", "None")),
                                   SettingChoice(SidebarGroupBy.folder.rawValue, SettingsText.keyed("settings.choice.groupByFolder", "Folder")),
+                                  // Labs (`labs.sidebarStatusGrouping`): without the flag it reads as None.
+                                  SettingChoice(SidebarGroupBy.status.rawValue, SettingsText.keyed("settings.choice.groupByStatus", "Status")),
                               ]),
                               default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
-                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
+                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "status", "agents"]),
             // The bottom band's pieces (cx-wab7m): right-click hides each, the band shows it again.
             SettingDescriptor(showSpacesPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
@@ -123,7 +125,12 @@ public nonisolated enum SidebarSectionsSetting {
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
     public static let looks = ["quiet", "card", "tray", "lines", "linesIcons"]
 
-    static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> SidebarSectionsPreferences {
+    /// `labs`: the snapshot's Labs flags, parsed before this. Group by Status
+    /// (`labs.sidebarStatusGrouping`) and its elbow (`labs.sidebarStatusElbow`)
+    /// are read here and nowhere else: without the grouping flag `status` reads
+    /// as `none` and the elbow stays off.
+    static func parse(_ root: JSONValue, labs: (LabsFlag) -> Bool = { _ in false },
+                      diagnostics: inout [SettingsDiagnostic]) -> SidebarSectionsPreferences {
         var result = SidebarSectionsPreferences.defaults
         if let value = root.value(at: lookPath) {
             if let text = value.stringValue, looks.contains(text) {
@@ -182,12 +189,13 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
-                result.groupBy = groupBy
+                result.groupBy = groupBy == .status && !labs(.sidebarStatusGrouping) ? .none : groupBy
             } else {
                 let choices = SidebarGroupBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupBy", message: "expected one of " + choices))
             }
         }
+        result.statusElbow = labs(.sidebarStatusGrouping) && labs(.sidebarStatusElbow)
         if let value = root.value(at: densityPath) {
             if let text = value.stringValue, let density = SidebarDensity(rawValue: text) {
                 result.density = density

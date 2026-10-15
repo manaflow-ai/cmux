@@ -34,6 +34,63 @@
             "beta",
             "prototype"
           ]
+        },
+        {
+          "key": "labs.sidebarStatusGrouping",
+          "owner": "leo",
+          "created": "2026-10-14",
+          "expires": "2026-10-28",
+          "cohort": "off",
+          "note": "Offers Status in Group Projects By and the sidebar.groupBy.status action; without it sidebar.groupBy \"status\" reads as none.",
+          "title": {
+            "key": "settings.labs.sidebarStatusGrouping",
+            "text": "Group Sidebar by Status"
+          },
+          "help": {
+            "key": "settings.labs.sidebarStatusGrouping.help",
+            "text": "The sidebar groups workspaces by agent status: Needs you, Working, Done."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "sidebar",
+            "group",
+            "status",
+            "agents",
+            "needs you",
+            "working",
+            "done"
+          ]
+        },
+        {
+          "key": "labs.sidebarStatusElbow",
+          "owner": "leo",
+          "created": "2026-10-14",
+          "expires": "2026-10-28",
+          "cohort": "off",
+          "note": "Read only with labs.sidebarStatusGrouping on.",
+          "title": {
+            "key": "settings.labs.sidebarStatusElbow",
+            "text": "Nest Child Agent Sessions"
+          },
+          "help": {
+            "key": "settings.labs.sidebarStatusElbow.help",
+            "text": "Child agent sessions hang off their parent row with the ⎿ connector; only with status grouping."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "sidebar",
+            "agents",
+            "sessions",
+            "child",
+            "parent",
+            "nest",
+            "subagents",
+            "tree"
+          ]
         }
       ]
     }

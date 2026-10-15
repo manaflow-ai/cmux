@@ -240,7 +240,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.closeFocus = closeFocus
         if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sidebarSections = SidebarSectionsSetting.parse(root, labs: { [snapshot] in snapshot.lab($0) }, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
                                                             diagnostics: &snapshot.diagnostics)

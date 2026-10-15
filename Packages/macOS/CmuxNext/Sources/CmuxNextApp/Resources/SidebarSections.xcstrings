@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "sidebarSections.statusGroupingOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group by Status is a Labs feature: turn on Group Sidebar by Status in Settings > Labs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التجميع حسب الحالة ميزة من المختبر: فعّل «تجميع الشريط الجانبي حسب الحالة» في الإعدادات > المختبر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupisanje po stanju je funkcija Laboratorija: uključite Grupiši bočnu traku po stanju u Postavke > Laboratorij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppér efter status er en Laboratorium-funktion: slå Gruppér sidepanelet efter status til under Indstillinger > Laboratorium"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Status gruppieren ist eine Labor-Funktion: Aktiviere „Seitenleiste nach Status gruppieren“ unter Einstellungen > Labor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupar por estado es una función del Laboratorio: activa Agrupar barra lateral por estado en Ajustes > Laboratorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regrouper par état est une fonction du Labo : activez Regrouper la barre latérale par état dans Réglages > Labo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raggruppa per stato è una funzione del Laboratorio: attiva Raggruppa barra laterale per stato in Impostazioni > Laboratorio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態でのグループ化はラボの機能です: 設定 > ラボで「サイドバーを状態でグループ化」をオンにしてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដាក់ក្រុមតាមស្ថានភាពជាមុខងារមន្ទីរពិសោធន៍៖ បើក ដាក់ក្រុមរបារចំហៀងតាមស្ថានភាព ក្នុង ការកំណត់ > មន្ទីរពិសោធន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태별 그룹화는 실험실 기능입니다: 설정 > 실험실에서 '사이드바를 상태별로 그룹화'를 켜세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupper etter status er en Laboratorium-funksjon: slå på Grupper sidefeltet etter status i Innstillinger > Laboratorium"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupowanie według stanu to funkcja Laboratorium: włącz Grupuj pasek boczny według stanu w Ustawienia > Laboratorium"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupar por status é um recurso do Laboratório: ative Agrupar barra lateral por status em Ajustes > Laboratório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группировка по состоянию — функция Лаборатории: включите «Группировать боковую панель по состоянию» в Настройки > Лаборатория"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การจัดกลุ่มตามสถานะเป็นฟีเจอร์ในห้องทดลอง: เปิด จัดกลุ่มแถบด้านข้างตามสถานะ ใน การตั้งค่า > ห้องทดลอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duruma göre gruplama bir Laboratuvar özelliğidir: Ayarlar > Laboratuvar'da Kenar çubuğunu duruma göre grupla'yı açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Групування за станом — функція Лабораторії: увімкніть «Групувати бічну панель за станом» у Налаштування > Лабораторія"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm theo trạng thái là tính năng thử nghiệm: bật Nhóm thanh bên theo trạng thái trong Cài đặt > Phòng thử nghiệm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按状态分组是实验室功能：请在 设置 > 实验室 中打开“按状态对边栏分组”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依狀態分組是實驗室功能：請在 設定 > 實驗室 中開啟「依狀態將側邊欄分組」"
+          }
+        }
+      }
+    },
     "sidebarSections.rejected": {
       "extractionState": "manual",
       "localizations": {
