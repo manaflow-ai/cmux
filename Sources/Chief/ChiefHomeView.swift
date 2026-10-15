@@ -166,6 +166,11 @@ final class ChiefHomeView: NSView {
         // A conversation on screen is being read: no dot, even before its read cursor lands.
         _ = ChiefService.shared.visibleGeneration
         let visible = ChiefService.shared.visibleConversations
+        // Opening Home is an explicit read action even before AppKit has made the
+        // window key. Keep the selected row quiet during the short interval before
+        // HomeStore's asynchronous read cursor update reaches this projection.
+        let selectedIsShown = Self.shouldMarkRead(isActive: isActive, attached: window != nil,
+                                                  hidden: isHiddenOrHasHiddenAncestor)
         let pinned = pinnedOrder ?? rows.filter { $0.summary.pinRank != nil }
             .sorted { ($0.summary.pinRank ?? 0, $0.id.rawValue) < ($1.summary.pinRank ?? 0, $1.id.rawValue) }
             .map(\.id)
@@ -185,7 +190,9 @@ final class ChiefHomeView: NSView {
                 // No message yet: no time (the list draws none for `.distantPast`), as Messages shows a new thread.
                 preview: Self.listPreview(row, line: line, waiting: waiting), previewSender: nil,
                 lastAt: Self.hasNoMessages(row) ? .distantPast : row.timestamp,
-                unreadCount: visible.contains(row.id) ? 0 : (marked ? max(row.unread, 1) : row.unread), pinned: pinnedSet.contains(row.id),
+                unreadCount: Self.unreadCount(rowID: row.id, rowUnread: row.unread, selected: selected,
+                                              selectedIsShown: selectedIsShown, visible: visible, manuallyMarked: marked),
+                pinned: pinnedSet.contains(row.id),
                 typing: row.isTyping && !working,
                 avatar: avatar)
         }
@@ -249,6 +256,18 @@ final class ChiefHomeView: NSView {
         }
         if row.previewAttachments != nil { return ChiefStrings.conversationAttachmentPreview }
         return ChiefStrings.conversationEmptyPreview
+    }
+
+    /// The sidebar count for a row while Home is mounted.
+    ///
+    /// The selected conversation is read as soon as it is shown. Its persisted
+    /// cursor advances asynchronously, so this projection also suppresses the
+    /// stale count until the store publishes the updated row. Other visible
+    /// transcript panes use the same suppression through ``visible``.
+    static func unreadCount(rowID: ConversationID, rowUnread: Int, selected: ConversationID,
+                            selectedIsShown: Bool, visible: Set<ConversationID>, manuallyMarked: Bool) -> Int {
+        if (selectedIsShown && rowID == selected) || visible.contains(rowID) { return 0 }
+        return manuallyMarked ? max(rowUnread, 1) : rowUnread
     }
 
     /// A bubble's preview: its words as the transcript shows them (the Chief's Markdown flattened),

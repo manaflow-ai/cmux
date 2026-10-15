@@ -27,6 +27,19 @@ import Testing
         #expect(!ChiefHomeView.shouldMarkRead(isActive: true, attached: true, hidden: true))
     }
 
+    @Test func selectedHomeConversationSuppressesTheStaleUnreadCount() {
+        let selected = ConversationID("chief")
+        let other = ConversationID("other")
+        #expect(ChiefHomeView.unreadCount(rowID: selected, rowUnread: 3, selected: selected,
+                                          selectedIsShown: true, visible: [], manuallyMarked: false) == 0)
+        #expect(ChiefHomeView.unreadCount(rowID: other, rowUnread: 3, selected: selected,
+                                          selectedIsShown: true, visible: [], manuallyMarked: false) == 3)
+        #expect(ChiefHomeView.unreadCount(rowID: other, rowUnread: 0, selected: selected,
+                                          selectedIsShown: true, visible: [], manuallyMarked: true) == 1)
+        #expect(ChiefHomeView.unreadCount(rowID: other, rowUnread: 4, selected: selected,
+                                          selectedIsShown: false, visible: [other], manuallyMarked: false) == 0)
+    }
+
     @Test func activityNamesTheHarnessAndPrintsNoPath() {
         #expect(ChiefSettingsStrings.harnessName("claude") == CmuxChief.ChiefHarness.claude.displayName)
         #expect(ChiefSettingsStrings.harnessName("codex") == CmuxChief.ChiefHarness.codex.displayName)
