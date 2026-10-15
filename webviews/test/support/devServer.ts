@@ -15,8 +15,8 @@ export function stopDevServer(server: ChildProcess | null | undefined): void {
   if (!server?.pid || server.exitCode !== null || server.signalCode !== null) return;
   const pid = server.pid;
   // `pgrep -P` matches the parent pid exactly (Linux and macOS); no output when there are none.
-  const children = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" })
-    .stdout.split(/\s+/)
+  const children = (spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" }).stdout ?? "")
+    .split(/\s+/)
     .filter(Boolean)
     .map(Number);
   for (const child of children) signal(child);
