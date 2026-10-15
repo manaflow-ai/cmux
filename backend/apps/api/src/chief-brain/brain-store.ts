@@ -18,6 +18,7 @@ const EFFORTS = Effort.literals
  * - cb_turn: one row per turn, which is also the run of the trajectory wire (`run_...` id).
  * - cb_step: the run's steps (TRAJECTORIES Step JSON, upsert by step id: a tool's echo completes its tool step).
  * - oc_logged: once-per-key guard for log appends (hooks may rerun after an eviction).
+ * - cb_timing: when the run's first model request went out and its first token came back (Run.timing).
  * - cb_usage: the run's model usage, summed over its model calls (model-gateway/gateway.ts).
  */
 export const SCHEMA = [
@@ -29,6 +30,7 @@ export const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS cb_turn_conversation ON cb_turn (conversation, started)`,
   `CREATE TABLE IF NOT EXISTS oc_logged (key TEXT PRIMARY KEY)`,
   // Model usage per run (the model gateway's terminal messages): tokens, cache, cost; Run.usage / Run.cost_usd.
+  `CREATE TABLE IF NOT EXISTS cb_timing (turn TEXT PRIMARY KEY, request_at INTEGER, first_token_at INTEGER)`,
   `CREATE TABLE IF NOT EXISTS cb_usage (turn TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, cost_usd REAL NOT NULL)`
 ]
 

@@ -97,10 +97,15 @@ export class BrainStream {
   }
 
   /** A model request of the running turn starts (pi-durable GenerationTask beforeRequest). */
+  /** Timing marks of a run: its first model request and its first token (brain-gateway.ts stores them on the run). */
+  onMark: (run: string, mark: "request" | "first_token", at: number) => void = () => undefined
+  private firstToken = false
+
   request(taskId: string): void {
     const t = this.target()
     if (!t.run) return
-    if (t.run !== this.run) [this.run, this.line] = [t.run, undefined]
+    if (t.run !== this.run) [this.run, this.line, this.firstToken] = [t.run, undefined, false]
+    this.onMark(t.run, "request", this.now())
     else this.flush(false)
     // A new attempt of the same generation streams its text again from the start.
     for (const s of this.steps.values()) [s.seq, s.pending] = [0, ""]
@@ -126,9 +131,11 @@ export class BrainStream {
     if (!this.run || !this.generation || this.target().run !== this.run) return
     switch (e.type) {
       case "text_delta":
+        if (!this.firstToken) [(this.firstToken = true), this.onMark(this.run, "first_token", this.now())]
         if (!this.steps.has(`talk:${this.generation}`)) this.setActivity("Writing the reply")
         return this.append("talk", e.delta)
       case "thinking_delta":
+        if (!this.firstToken) [(this.firstToken = true), this.onMark(this.run, "first_token", this.now())]
         return this.append("thought", e.delta)
       case "toolcall_end":
         this.flush(false)

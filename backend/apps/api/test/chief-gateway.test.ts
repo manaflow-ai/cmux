@@ -138,6 +138,9 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
     expect(run).toMatchObject({ model: "claude-sonnet-5-5", status: "done", usage: { input: 12, cache_read: 900, cache_write: 40, output: 6, calls: 1 } })
     expect(run.cost_usd).toBeGreaterThan(0)
+    // Timing: the first model request after the run started, the first token after the request.
+    expect(run.timing.request_at).toBeGreaterThanOrEqual(run.started_at)
+    expect(run.timing.first_token_at).toBeGreaterThanOrEqual(run.timing.request_at)
     const after = await meter(team).creditBalance(team, 0, 5)
     expect(after.balance_micros).toBeLessThan(before.balance_micros)
     expect(after.held_micros).toBe(0)
