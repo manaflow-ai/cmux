@@ -110,17 +110,38 @@ portrait-only plist.
 | cmux `feat-cmux-next-tui-attach-size` (PR 20809) | `6bb49632` red, `e960080b`, `1a756bcc`, merge, `1071f4a0`, `9db5f180` | review fixes, ratchet, fmt |
 | `feat-cnx-ios-termqa` | `5411a38a` red, `e24da1c6`; `cbe800df` red, `c5b4b2ac`; `f27e2c75`; `86be059f` red, `c622a001` | V2-3/V3-1/V3-2/V3-3, D5, V3-4, surface 14 |
 
-## Rig state for the next verifier
+## Rig state for the next verifier (rebuilt 2026-10-14 21:00 PT)
 
-- Simulator `cnx-termqa-1` (`C906E217-BD51-4BC7-82D8-584AB67695B7`), booted and headless, with the
-  `c622a001` Demo build installed (binary sha256 `10e5721c5f7e5fb6…`). The app is open on
-  `e2e-t1` over WireGuard + relay.
-- Mac `cnx-e2e-604fc689` on mini-cmuxs-mac-mini-2, daemon f18e13c9 (round 4). Its Mac app still
-  has the **old** hostd supervisor, so space `pkill -9 cnx-hostd` drops more than 60 s apart,
-  or the restart backoff will dominate. The original daemon backup is still at
-  `~/cnx-ios-e2e/termqa/stage-640c9d5f/cmux.604fc689.bak`.
-- The PR 20809 head (`9db5f180`) adds the review fixes on top of the rig's daemon (f18e13c9). The
-  rig daemon does not have them: a phone returning at a larger size is still capped there.
+| Part | State |
+| --- | --- |
+| Mac app | `cmux DEV cnx-e2e-604fc689.app` on `mini-cmuxs-mac-mini-2`, same tag, bundle id (`com.cmuxterm.app.debug.cnx.e2e.604fc689`), settings, pairing seed and Mac device id as before. Built from cmux `feat-cnx-ios-machost-d5` **`e1edf234`** (fleet job `a95fed416c5352b401c7791f`): origin/feat-cnx-ios-machost `3df9ff77` (supervisor fix) + the round-4 daemon commits + PR 20809's review fixes (`6bb49632`..`9db5f180`, cherry-picked). |
+| Daemon | `cmux 0.1.0 (e1edf23408149efc15d70566bcaf590ce9273fce)`, started 20:59:43 PT. The PR-20809 files are byte-identical to the PR head `9db5f180` except base drift in `server.rs` and one comment-and-`drop(frames)` in `cmd_attach.rs` that the PR's base has. Both e2e terminals (`term_e54d808d…`, `term_c5ca5960…`) were adopted, not restarted. |
+| cnx-hostd | the bundled one from the old app (`cnx-hostd.version` key `fd86929d78f0e4da`, built from `604fc689`). `cnx-ios/rust` is unchanged between `604fc689` and `e1edf234`, so the source key is the same. The linux-pool fleet build did not bundle cnx-hostd at all (see below). |
+| Simulator | `cnx-termqa-1` (`C906E217-BD51-4BC7-82D8-584AB67695B7`) on the laptop, booted, headless, `feat-cnx-ios-termqa` **`c622a001`** Demo build (binary sha256 `10e5721c5f7e5fb6…`), still paired, open on `e2e-t1`. It reattached on its own after the app swap. |
+| Keychain | no prompt: the rig app's auth already uses the file fallback (`keychain ADD status=-34018`, then `switching to file fallback`), and the Mac device id is a file (`cnx-host/device-id`). Settings stay in Info.plist `LSEnvironment` as before; nothing was added there. |
+
+**Fleet gap found:** the job was routed to the linux pool (`labels cmux-next-linux`), and its app has no
+`Contents/Resources/bin/cnx-hostd`: the Mac app's iPhone host never starts (no `mobile.cnx-host` log line).
+The `604fc689` build (job `f9133c72…`, a Mac worker) bundled it. A rig build from a linux-pool job needs
+cnx-hostd copied in (same source key) and an ad hoc re-sign.
+
+### Rig proof after the rebuild (21:05-21:08 PT)
+
+`cnx-ios/verify/termqa/killtest.py` on mini-2 kills `cnx-hostd` (`pkill -9`) 5 times with gaps of 20, 25, 40
+and 70 s, and reads `link up` from hostd's log. The phone log is `artifacts/r5-rig-killtest-phone.log`
+(gitignored, on the laptop).
+
+| Kill | Gap | Supervisor restart (`starting`) | Link up | Phone `mirror reset cause=reattach` | `cause=resized-event` |
+| --- | --- | --- | --- | --- | --- |
+| 04:05:21.5Z | first | +1.3 s | +2.2 s (Direct) | 1 | 0 |
+| 04:05:43.8Z | 20 s | +1.1 s | +2.0 s (Direct) | 1 | 0 |
+| 04:06:10.8Z | 25 s | +1.0 s | +1.9 s (Direct) | 1 | 0 |
+| 04:06:52.8Z | 40 s | +1.2 s | +4.4 s (**Relay**: the direct path did not come up, the relay took 2.2 s after signaling) | 1 | 0 |
+| 04:08:07.3Z | 70 s | +1.2 s | +2.0 s (Direct) | 1 | 0 |
+
+The supervisor restart no longer grows with kills under 60 s apart (it was 7, 16, 32, 61 s in round 4).
+Exactly one replay per reattach, 5 of 5. The one 4.4 s reconnect is the WireGuard path choice (direct
+failed, relay), not the restart; it belongs with V2-6.
 
 ## Next (in order)
 
@@ -129,4 +150,4 @@ portrait-only plist.
    frames on deep-history and WebRTC drops).
 3. G-04 in-app frame timing (signposts and a display-link interval log), or the simulator on a
    remote Mac, so that timing rows can count.
-4. Rebuild the rig's Mac app with `3df9ff77` (supervisor) and swap in a daemon from PR 20809's head.
+4. ~~Rebuild the rig's Mac app~~ done (above).
