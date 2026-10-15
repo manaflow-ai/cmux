@@ -289,6 +289,9 @@ extension BrowserPanel {
 
     /// What the pane asks the user to do before its page comes back, if anything.
     var pageRecoveryPrompt: BrowserPageRecoveryPrompt? {
+        if let chromiumPrompt = chromiumPageFailurePrompt {
+            return chromiumPrompt
+        }
         if shouldRenderWebView, hasRecoverableWebContentTermination {
             return .crashed
         }
@@ -304,6 +307,8 @@ extension BrowserPanel {
             restoreUnloadedPage()
         case .chromiumLoadFailed:
             _ = reload()
+        case .chromiumCrashed, .chromiumUnresponsive:
+            performChromiumPageFailurePrimaryAction()
         }
     }
 

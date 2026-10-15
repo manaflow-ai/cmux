@@ -15,6 +15,11 @@ enum BrowserPageRecoveryPrompt {
     /// own (`ChromiumNetError.presentation`). Chromium's own error and
     /// certificate pages never get this prompt (design spec §8).
     case chromiumLoadFailed(ChromiumNetError)
+    /// A Chromium panel's renderer ended (Chrome's "Aw, Snap!" page).
+    /// `isRepeat` is a crash soon after the previous one.
+    case chromiumCrashed(BrowserPageProcessExit, isRepeat: Bool)
+    /// A Chromium panel's renderer stopped responding (Wait / Exit page).
+    case chromiumUnresponsive
 }
 
 /// Covers a browser pane whose page is gone until the user brings it back.
@@ -22,6 +27,8 @@ struct BrowserPageRecoveryOverlay: View {
     let prompt: BrowserPageRecoveryPrompt
     let backgroundColor: NSColor
     var metrics = BrowserChromeMetrics(tabBarFontSize: BrowserChromeMetrics.referenceFontSize)
+    /// Exit page on the Chromium "Page unresponsive" card.
+    var exitPageAction: () -> Void = {}
     let action: () -> Void
 
     var body: some View {
@@ -81,6 +88,18 @@ struct BrowserPageRecoveryOverlay: View {
             .clipped()
         case .chromiumLoadFailed(let error):
             ChromiumLoadFailureView(error: error, backgroundColor: backgroundColor, metrics: metrics, reload: action)
+        case .chromiumCrashed(let exit, let isRepeat):
+            ChromiumPageFailureOverlay(
+                failure: .crashed(exit, isRepeat: isRepeat, restoresWhenShown: false),
+                metrics: metrics, backgroundColor: backgroundColor,
+                primaryAction: action, exitPageAction: exitPageAction
+            )
+        case .chromiumUnresponsive:
+            ChromiumPageFailureOverlay(
+                failure: .unresponsive,
+                metrics: metrics, backgroundColor: backgroundColor,
+                primaryAction: action, exitPageAction: exitPageAction
+            )
         }
     }
 }

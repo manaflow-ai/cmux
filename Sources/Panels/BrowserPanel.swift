@@ -2137,6 +2137,15 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Answers a non-WebKit page's requests (new pages, permissions,
     /// dialogs, downloads); the page holds it weakly.
     let enginePageDelegate = BrowserPanelEnginePageDelegate()
+    /// A Chromium page's crash or hang, and whether it restores on show
+    /// (`BrowserPanel+ChromiumPageFailure.swift`). Unused for WebKit panels.
+    var chromiumPageFailure = ChromiumPageFailureState() {
+        willSet {
+            if newValue != chromiumPageFailure { objectWillChange.send() }
+        }
+    }
+    /// Whether the non-WebKit page is on screen, as its host last reported.
+    var isEnginePageVisible = false
     private var webKitPageAdapter: WebKitBrowserPage?
     private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()

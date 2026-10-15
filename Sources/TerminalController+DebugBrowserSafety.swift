@@ -38,6 +38,17 @@ extension TerminalController {
         return .object(["total": .int(Int64(log.total)), "records": .array(records)])
     }
 
+    /// The prompt's name for tests: Chromium and WebKit crashes are both
+    /// "crashed", so one test step covers either engine.
+    static func debugPromptName(_ prompt: BrowserPageRecoveryPrompt) -> String {
+        switch prompt {
+        case .crashed, .chromiumCrashed: "crashed"
+        case .chromiumUnresponsive: "unresponsive"
+        case .unloaded: "unloaded"
+        default: "other"
+        }
+    }
+
     private func debugBrowserPageStatus(params: [String: JSONValue]) -> ControlCallResult {
         let press = params["press"].flatMap { value -> String? in
             if case .string(let text) = value { return text }
@@ -45,15 +56,19 @@ extension TerminalController {
         }
         let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, panel in
             var pressed = false
-            if press == "reload", let prompt = panel.pageRecoveryPrompt, case .crashed = prompt {
-                panel.performPageRecovery(prompt)
-                pressed = true
+            if let prompt = panel.pageRecoveryPrompt {
+                switch (press ?? "", Self.debugPromptName(prompt)) {
+                case ("reload", "crashed"), ("wait", "unresponsive"):
+                    panel.performPageRecovery(prompt)
+                    pressed = true
+                case ("exit", "unresponsive"):
+                    panel.exitUnresponsiveChromiumPage()
+                    pressed = true
+                default:
+                    break
+                }
             }
-            let promptName: String? = switch panel.pageRecoveryPrompt {
-            case .crashed?: "crashed"
-            case .unloaded?: "unloaded"
-            case nil: nil
-            }
+            let promptName = panel.pageRecoveryPrompt.map(Self.debugPromptName)
             let pidSelector = NSSelectorFromString("_webProcessIdentifier")
             let pagePID = panel.webView.responds(to: pidSelector)
                 ? (panel.webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.intValue ?? 0
@@ -61,7 +76,7 @@ extension TerminalController {
             return .ok([
                 "workspace_id": workspaceId.uuidString,
                 "surface_id": surfaceId.uuidString,
-                "engine": "webkit",
+                "engine": panel.engineKind.rawValue,
                 "page_pid": pagePID,
                 "prompt": v2OrNull(promptName),
                 "crashed": promptName == "crashed",
