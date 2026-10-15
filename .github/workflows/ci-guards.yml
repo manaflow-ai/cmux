@@ -648,8 +648,12 @@ jobs:
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
 
       - name: Validate the golden interactions judge
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_golden.py
+
+      - name: Validate cmux-tui same-commit republish behavior
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_republish_same_commit.py
 
       - name: Validate the dispatch runner pool's auto pick
         if: ${{ matrix.group == 'ci' }}

@@ -2164,7 +2164,7 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    steps: &publish-tree-steps
+    steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -2423,7 +2423,7 @@ jobs:
 
   # publish-tree for every ref but feat-cmux-next that runs the daemon tests
   # (pins, next-batch/*, main, opted-in lane pushes, dispatches): the same
-  # steps (the YAML alias), after the tests pass, with the daemon-tests marker
+  # steps, after the tests pass, with the daemon-tests marker
   # written first (cx-kfbom): branch run 38511998456 published tree
   # c77d397b3a9f unmarked, and a feat-cmux-next push that finds the key
   # published does not test it. Exactly one of the two jobs runs.
@@ -2445,7 +2445,263 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    steps: *publish-tree-steps
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the macOS arm64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-apple-darwin
+          path: assets/tree
+
+      # Linux daemon mode fetches the musl daemon and app host by tree key
+      # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
+      - name: Download the Linux x86_64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-unknown-linux-musl
+          path: assets/tree
+
+      - name: Download the Linux arm64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-unknown-linux-musl
+          path: assets/tree
+
+      # GPUI's Windows daemon mode fetches the Windows daemon by tree key
+      # (pin-cmux-tui.sh fetch on Git Bash, or CMUX_TUI_TREE_TARGET). The
+      # Windows build artifact also holds the hook and relays; only the daemon
+      # goes into the tree.
+      # Optional (build windows_optional): absent when the Windows build failed.
+      - name: Download the Windows x86_64 cmux-tui
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: assets/windows
+
+      - name: Keep only the Windows daemon for the tree
+        run: |
+          set -euo pipefail
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+            if [[ -f "assets/windows/$asset" ]]; then
+              cp "assets/windows/$asset" "assets/tree/$asset"
+            else
+              echo "::warning title=no Windows daemon::this run built no $asset; the tree keeps an earlier Windows build or none"
+            fi
+          done
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+            if [[ -f "assets/windows/$asset" ]]; then
+              cp "assets/windows/$asset" "assets/tree/$asset"
+            fi
+          done
+          rm -rf assets/windows
+
+      # Any ref but feat-cmux-next publishes a shared tree key only with its
+      # daemon-tests marker, written first (cx-kfbom): branch run
+      # 38511998456 published tree c77d397b3a9f without one and blocked every
+      # feat-cmux-next promotion with that key (2026-10-14).
+      - name: Mark the tree daemon-tested before publishing it
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY_V2: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
+        run: scripts/ci/cmux-tui-mark-daemon-tested.sh "$KEY_V2" "$LEGACY_KEY"
+
+      - name: Publish the complete tree with the trusted helper
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY_V2: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          # This run's downloaded build, kept apart: a call that completes an
+          # existing publication overwrites assets/tree with that commit's
+          # binaries, and the next call must start from this run's again.
+          rm -rf assets/run
+          cp -R assets/tree assets/run
+          # Publishes the tree under KEY, which must be this checkout's key
+          # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
+          publish_tree() {
+          local KEY="$1" version="$2" base source_args source_commit
+          [[ "$(scripts/cmux-next/pin-cmux-tui.sh key --version "$version")" == "$KEY" ]] || {
+            echo "tree key $KEY does not match this checkout's $version key; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
+            exit 1; }
+          rm -rf tree assets/tree
+          cp -R assets/run assets/tree
+          base="https://files.cmux.com/cmux-tui/tree/$KEY"
+          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
+          fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
+          mkdir -p tree
+          if fetch "$base/source.json" tree/source.json 2>/dev/null; then
+            source_args=(--source-file tree/source.json)
+            source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/source.json)"
+            [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
+            fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
+              fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
+            done
+          else
+            source_commit="$GITHUB_SHA"
+            # The commit's published binaries, not this run's: an earlier run
+            # may have published this commit (the publish job keeps that
+            # publication), and a rebuild's bytes differ from its manifest.
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
+              fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$asset" "assets/tree/$asset"
+            done
+            python3 - "$KEY" "$GITHUB_SHA" manifest.json > tree/source.json <<'PY'
+          import json, os, re, subprocess, sys
+          key, commit, manifest_path = sys.argv[1:]
+          manifest = json.load(open(manifest_path))
+          names = subprocess.check_output([sys.executable, "scripts/ci/publish-cmux-tui-tree.py", "--list-companions"], text=True).split()
+          def rev(spec):
+              return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
+          built = re.search(r"/actions/runs/(\d+)", manifest.get("attestationUrl") or "")
+          built_by = built.group(1) if built else os.environ["GITHUB_RUN_ID"]
+          print(json.dumps({
+              "key": key,
+              "cmuxTuiTree": rev("HEAD:cmux-tui"),
+              "ghosttyCommit": rev("HEAD:ghostty"),
+              "ghosttyNextCommit": rev("HEAD:ghostty-next"),
+              "commit": commit,
+              # Trees first published from another branch (a pull request
+              # head) are the R2 pruner's candidates; trunk trees are kept.
+              "ref": os.environ["GITHUB_REF"],
+              "family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch",
+              # The run that built the published binaries: an earlier run
+              # when the publish job kept that run's publication.
+              "run": built_by,
+              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{built_by}",
+              "binaries": {name: manifest["binaries"][name] for name in names},
+              # The tree is published before the daemon tests end; a passing
+              # run writes tree/<key>/daemon-tests.json (publish-tree-tested).
+              "daemonTests": "separate",
+          }, indent=2))
+          PY
+            source_args=(--source-file tree/source.json --publish-source)
+          fi
+          # The Windows daemon has its own attestation (completion-windows.json)
+          # and commit prefix (cmux-tui-windows/<commit>/): the build of the
+          # commit an earlier publication of this tree named there; else the
+          # tree's source commit's, when it published one; else this run's (a
+          # tree published before the Windows target). A write-once object
+          # never gets a second build's bytes. The Windows build is optional:
+          # with none of these, the tree is published without Windows.
+          windows_commit=""
+          if fetch "$base/completion-windows.json" tree/completion-windows.json 2>/dev/null; then
+            windows_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceCommit"])' tree/completion-windows.json)"
+          elif [[ "$source_commit" != "$GITHUB_SHA" ]] &&
+              fetch "https://files.cmux.com/cmux-tui-windows/$source_commit/manifest.json" tree/windows-manifest.json 2>/dev/null; then
+            windows_commit="$source_commit"
+          elif fetch "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" tree/windows-manifest.json 2>/dev/null; then
+            windows_commit="$GITHUB_SHA"
+          fi
+          windows_args=()
+          if [[ -n "$windows_commit" ]]; then
+            [[ "$windows_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed Windows tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
+            fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/manifest.json" tree/windows-manifest.json
+            # Published bytes even for this commit (see the companions above).
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+              fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+            done
+            # Optional (cx-1vlzr host): only when that commit's manifest
+            # attests it; a Windows build from before it has none.
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) else 1)' tree/windows-manifest.json "$asset"; then
+                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+              fi
+            done
+            windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
+          else
+            echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
+          fi
+          # Two runs of one tree key at once (two commits that share the key,
+          # cx-a1q4d) race on the write-once source.json, which each writes
+          # first: the run that loses it (exit 75, source.json only) waits for
+          # the other run's completion.json (written last) and keeps that
+          # tree. It never overwrites; any other conflict fails as before.
+          local status=0 waited=0 limit="${CMUX_R2_ADOPT_WAIT_SECONDS:-480}"
+          python3 scripts/ci/publish-cmux-tui-tree.py \
+            --key "$KEY" \
+            --source-commit "$source_commit" \
+            --assets-dir assets/tree \
+            --manifest-file manifest.json \
+            "${source_args[@]}" \
+            "${windows_args[@]}" \
+            --uploader scripts/ci/upload-r2-object.py \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --conflict-exit-code 75 || status=$?
+          if [[ "$status" == 75 ]]; then
+            echo "Another run is publishing tree $KEY; waiting for its completion.json."
+            until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 \
+                "$base/completion.json?adopt=$GITHUB_RUN_ID-$waited" -o tree/completion-other.json 2>/dev/null; do
+              if (( waited >= limit )); then
+                echo "::error title=immutable-r2-conflict::tree $KEY: another run wrote it first and did not complete it within ${limit}s; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
+                exit 1
+              fi
+              sleep 15
+              waited=$((waited + 15))
+            done
+            echo "Kept tree $KEY as the other run published it."
+          elif [[ "$status" != 0 ]]; then
+            exit "$status"
+          fi
+          }
+          publish_tree "$KEY_V2" v2
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY_V2" ]]; then
+            publish_tree "$LEGACY_KEY" v1
+          fi
+
+      - name: Verify the tree publication
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
+        run: |
+          set -euo pipefail
+          verify_tree() {
+          local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
+          names="cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl"
+          # The Windows daemon is optional: verified when the tree has it.
+          if curl -fsSL --proto '=https' -o /dev/null "$base/completion-windows.json?verify=$GITHUB_RUN_ID-check"; then
+            names="$names cmux-tui-x86_64-pc-windows-gnu.exe"
+          else
+            echo "::warning title=tree without Windows::$base has no completion-windows.json"
+          fi
+          for name in $names; do
+            curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID-check"
+            published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID-check" | awk 'NR==1{print $1}')"
+            [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
+            echo "Verified: $base/$name"
+          done
+          curl -fsSL --proto '=https' "$base/source.json?verify=$GITHUB_RUN_ID-check"
+          }
+          verify_tree "$KEY"
+          # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then
+            verify_tree "$LEGACY_KEY"
+          fi
+
+      # cmux-next runs that probed this tree before it was published left a
+      # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
+      # waited). Start them now: cmux-next.yml same-tree mode.
+      - name: Start the cmux-next tree jobs that waited for this tree
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
+
 
   # The daemon tests passed for this tree (chief 2026-10-13): one write-once
   # marker per key, after publish-tree. request-nightly-next.sh promotes a tree
@@ -2702,9 +2958,10 @@ jobs:
   # cmux-tui-pin-* push) still starts their tree jobs.
   notify-unpublished-tree:
     name: report an unpublished cmux-tui tree to cmux-next
-    # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
-    # job, so a run re-run below finds this owner ended (cx-urd.26).
-    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-tree-daemon-tested, publish-pr-tree, macos-cross-shadow, macos-cross-runtime-x86_64]
+    # The publication jobs keep the run in progress; waiting for the optional
+    # cross-compile comparison jobs would make them dependents rather than
+    # compare-only shadows (cx-urd.26).
+    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-tree-daemon-tested, publish-pr-tree]
     if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-tree-daemon-tested.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5

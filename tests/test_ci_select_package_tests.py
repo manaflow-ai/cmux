@@ -73,6 +73,9 @@ def run_package_step(package: str, attempts: list[tuple[str, int]], ghosttykit: 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "Packages/macOS" / package).mkdir(parents=True)
+        (root / "Packages/macOS" / package / "Package.swift").write_text(
+            "let package = Package(name: \"Fixture\")\n", encoding="utf-8"
+        )
         if ghosttykit:
             # A binaryTarget on the root xcframework, as a GhosttyKit package declares.
             (root / "Packages/macOS" / package / "Package.swift").write_text(

@@ -6,6 +6,7 @@ import io
 import json
 import sys
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -37,6 +38,23 @@ def counted(parent, one, other, specifier="d"):
 
 
 class LocalizationCatalogTests(unittest.TestCase):
+    def test_changed_catalogs_ignores_inherited_catalogs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Resources").mkdir()
+            (root / "Resources/Inherited.xcstrings").write_text("{}")
+            (root / "Resources/Changed.xcstrings").write_text("{}")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "Resources"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "base"], check=True)
+            base = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+            (root / "Resources/Changed.xcstrings").write_text('{"changed": true}')
+            subprocess.run(["git", "-C", str(root), "add", "Resources/Changed.xcstrings"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "change"], check=True)
+            self.assertEqual([p.name for p in MODULE.changed_catalogs(root, base)], ["Changed.xcstrings"])
+
     def test_rejects_duplicate_locale_members_before_validation(self):
         text = '{"sourceLanguage":"en","strings":{"example":{"localizations":{"en":' + json.dumps(unit("Open")) + ',"de":' + json.dumps(unit("")) + ',"de":' + json.dumps(unit("Öffnen")) + '}}},"version":"1.0"}'
         with self.assertRaisesRegex(ValueError, "duplicate.*de"):

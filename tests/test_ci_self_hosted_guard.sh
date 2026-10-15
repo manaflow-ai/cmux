@@ -1216,6 +1216,18 @@ check_no_self_hosted_fleet_runners() {
   while IFS= read -r line; do
     content="${line#*:*:}"
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    # cmux-next's GUI placement has a trusted, owned-pool fallback when the
+    # placement API cannot provide an output. The fallback is guarded by the
+    # owned-pool switch and appears only in these three trusted workflows; the
+    # placement output remains the preferred route. Keep this narrow exception
+    # here so the general fleet-label prohibition still catches every other
+    # hard-coded label.
+    if [[ "$line" == *".github/workflows/cmux-next.yml:"* ||
+          "$line" == *".github/workflows/cmux-next-pr-autofix.yml:"* ||
+          "$line" == *".github/workflows/cmux-next-base-autofix.yml:"* ]] &&
+       [[ "$content_without_allowed" == *"vars.CI_PR_POOL_OWNED == '1'"* ]]; then
+      content_without_allowed="${content_without_allowed//\'glaeda-gui-std-xcode-26.6\'/}"
+    fi
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
     # (see selfhosted above).

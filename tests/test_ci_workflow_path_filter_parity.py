@@ -39,6 +39,17 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
         "base pushes keep full side coverage for every package; pull requests send "
         "packages outside CmuxNext to the focused package lane",
     ),
+    # Production promotion controls are intentionally push-only: a pull
+    # request may validate the backend, but it must never queue a production
+    # promotion or consume its approval record.
+    "backend.yml": (
+        "paths",
+        frozenset({
+            "scripts/cmux-next/release/prod-promote.ts",
+            "scripts/cmux-next/release/production-approvals.json",
+        }),
+        "production promotion controls run only on trusted branch pushes",
+    ),
 }
 
 FILTERS = ("paths", "paths-ignore")
