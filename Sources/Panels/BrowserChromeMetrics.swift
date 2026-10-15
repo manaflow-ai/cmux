@@ -58,46 +58,33 @@ struct BrowserChromeMetrics: Equatable {
     /// Square hit target of the back/forward/reload buttons. Base `26`.
     var buttonHitSize: CGFloat { scaled(26) }
 
-    /// Inset of the Chromium permission prompt bar from the page edges. Base `8`.
-    var promptBarInset: CGFloat { scaled(8) }
+    /// Vertical padding of the Chromium permission prompt strip (spec §4). Base `6`.
+    var promptStripVerticalPadding: CGFloat { scaled(6) }
 
-    /// Narrowest the permission prompt bar gets (a narrower page narrows it further). Base `320`.
-    var promptBarMinWidth: CGFloat { scaled(320) }
+    /// Horizontal padding of the permission prompt strip. Base `8`.
+    var promptStripHorizontalPadding: CGFloat { scaled(8) }
 
-    /// Widest the permission prompt bar gets. Base `480`.
-    var promptBarMaxWidth: CGFloat { scaled(480) }
+    /// Minimum height of the permission prompt strip. Base `32`.
+    var promptStripMinHeight: CGFloat { scaled(32) }
 
-    /// Corner radius of the permission prompt bar (matches the omnibar). Base `10`.
-    var promptBarCornerRadius: CGFloat { scaled(10) }
+    /// Space between the strip's glyph, message and buttons. Base `8`.
+    var promptStripSpacing: CGFloat { scaled(8) }
 
-    /// Padding inside the permission prompt bar. Base `10`.
-    var promptBarPadding: CGFloat { scaled(10) }
+    /// Pane width under which the strip's buttons wrap to a second row
+    /// (spec §4: 420 pt of pane, not scaled).
+    static let promptStripNarrowPaneWidth: CGFloat = 420
 
-    /// Point size of the permission prompt bar's capability glyph. Base `14`.
+    /// Point size of the permission prompt's capability glyph. Base `14`.
     var promptBarIconFontSize: CGFloat { scaled(14) }
 
-    /// Point size of the permission prompt bar's message. Base `13`.
+    /// Point size of the permission prompt's message. Base `13`.
     var promptBarMessageFontSize: CGFloat { scaled(13) }
 
-    /// Point size of the permission prompt bar's button titles. Base `12`.
+    /// Point size of the permission prompt's button titles. Base `12`.
     var promptBarButtonFontSize: CGFloat { scaled(12) }
 
-    /// Shadow radius under the permission prompt bar. Base `6`.
-    var promptBarShadowRadius: CGFloat { scaled(6) }
-
-    /// Shadow drop under the permission prompt bar. Base `2`.
-    var promptBarShadowOffsetY: CGFloat { scaled(2) }
-
-    /// Height of the permission prompt bar's buttons. Base `22`.
+    /// Height of the permission prompt's buttons. Base `22`.
     var promptBarButtonHeight: CGFloat { scaled(22) }
-
-    /// The permission prompt bar's width for a page `pageWidth` wide:
-    /// three quarters of the page, clamped to the min/max widths and never
-    /// wider than the page minus its insets.
-    func promptBarWidth(pageWidth: CGFloat) -> CGFloat {
-        let preferred = min(max(pageWidth * 0.75, promptBarMinWidth), promptBarMaxWidth)
-        return max(0, min(preferred, pageWidth - promptBarInset * 2))
-    }
 
     /// Glyph size of a full-page recovery view (Chromium error, crash). Base `28`.
     var recoveryIconSize: CGFloat { scaled(28) }
