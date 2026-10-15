@@ -145,11 +145,17 @@ struct BrowserChromeMetrics: Equatable {
     /// Spacing between the Extensions popover's sections and row parts. Base `8`.
     var extensionsMenuSpacing: CGFloat { scaled(8) }
 
+    /// Text size of the Extensions popover's section captions ("Pinned"). Base `10`.
+    var extensionsMenuCaptionFontSize: CGFloat { scaled(10) }
+
+    /// Spacing between Extensions popover rows. Base `2`.
+    var extensionsMenuRowSpacing: CGFloat { scaled(2) }
+
     /// Corner radius of an Extensions popover row's hover fill. Base `6`.
     var extensionsMenuRowCornerRadius: CGFloat { scaled(6) }
 
-    /// Most pinned extension actions shown in the toolbar row (design spec §3a).
-    static let maximumPinnedExtensionActions = 6
+    /// Gap between the extension cluster and the cmux accessories (design spec §3a-bis). Base `6`.
+    var extensionsGroupGap: CGFloat { scaled(6) }
 
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }
