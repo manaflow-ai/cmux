@@ -17,14 +17,18 @@ import Foundation
 enum ChromiumHelperCrashWatch {
     private static var monitor: ChromiumChildProcessMonitor?
     private static var terminationObserver: (any NSObjectProtocol)?
+    /// True once quit began: exits already on their way to the main actor
+    /// are dropped too.
+    private(set) static var isStopped = false
 
     static func startIfNeeded(log: BrowserCrashLog = .app) {
-        guard monitor == nil else { return }
+        guard monitor == nil, !isStopped else { return }
         let monitor = ChromiumChildProcessMonitor { exit in
             guard let kind = exit.abnormalKind, exit.identity.processType != "renderer" || exit.identity.isExtension else {
                 return
             }
             Task { @MainActor in
+                guard !ChromiumHelperCrashWatch.isStopped else { return }
                 log.append(BrowserCrashRecord(
                     processType: exit.identity.recordedType,
                     subType: exit.identity.subType,
@@ -44,8 +48,10 @@ enum ChromiumHelperCrashWatch {
         monitor.start()
     }
 
-    /// Stops recording (quit). Idempotent.
+    /// Stops recording (quit). Idempotent. The app calls it when quit cleanup
+    /// begins, before Chromium closes its pages and helpers.
     static func stop() {
+        isStopped = true
         monitor?.stop()
         if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
         terminationObserver = nil
