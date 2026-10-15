@@ -153,6 +153,35 @@ import Testing
         #expect(page.stopCount == 1)
     }
 
+    @Test func sessionSnapshotRecordsOnlyNonWebKitEngines() throws {
+        var snapshot = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com/", profileID: nil, shouldRenderWebView: true,
+            pageZoom: 1, developerToolsVisible: false,
+            backHistoryURLStrings: nil, forwardHistoryURLStrings: nil
+        )
+        let webKitJSON = try JSONEncoder().encode(snapshot)
+        #expect(!String(decoding: webKitJSON, as: UTF8.self).contains("engine"))
+
+        snapshot.engine = .chromium
+        let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: JSONEncoder().encode(snapshot))
+        #expect(decoded.engine == .chromium)
+
+        var object = try #require(JSONSerialization.jsonObject(with: webKitJSON) as? [String: Any])
+        object["engine"] = "gecko"
+        let unknown = try JSONSerialization.data(withJSONObject: object)
+        let fromUnknown = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: unknown)
+        #expect(fromUnknown.engine == nil)
+    }
+
+    @Test func restoredPanelsKeepTheirEngine() {
+        let engines = runtime(providers: [FakeChromiumProvider()])
+        #expect(BrowserPanel.restoredEngineChoice(nil, runtime: engines).engine == .webkit)
+        #expect(BrowserPanel.restoredEngineChoice(.chromium, runtime: engines).engine == .chromium)
+        let unavailable = BrowserPanel.restoredEngineChoice(.chromium, runtime: runtime())
+        #expect(unavailable.engine == .webkit)
+        #expect(unavailable.fallback == .notBundled)
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(

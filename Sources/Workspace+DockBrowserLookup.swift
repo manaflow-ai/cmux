@@ -164,7 +164,8 @@ extension DockSplitStore {
         preloadInitialNavigationInBackground: Bool = false,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        engineChoice: BrowserEngineChoice? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let resolvedBypassRemoteProxy =
@@ -187,7 +188,8 @@ extension DockSplitStore {
             remoteWebsiteDataStoreIdentifier: resolvedBypassRemoteProxy
                 ? nil
                 : settings.remoteWebsiteDataStoreIdentifier,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            engineChoice: engineChoice
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
         configureBrowserPanel(panel)
