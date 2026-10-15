@@ -7,7 +7,7 @@ import { fireAlarm } from "./setup/alarm.ts"
  * The model gateway (model-gateway/gateway.ts) at the product boundary: a person writes to a Cloud
  * Chief over POST /v1/ops, the Chief's brain answers through the gateway, and the Claude route is
  * faked at its HTTP boundary. This file runs the route in `service-key` mode (the scoped service key
- * of the Chatmux route, 1f-D) with Opus and Sonnet served and a paid fallback (Haiku, not served):
+ * of the Chatmux route, 1f-D) with Opus and Sonnet served and a paid fallback:
  * - every request carries the service key, the payer team, the chief and a request id, the Bedrock
  *   model id and the Chief's effort; no person's session;
  * - each call holds and then charges prepaid credits, and the run records its token usage;
@@ -157,8 +157,10 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
 
   it("refuses a paid fallback through the same gate: no turn and no paid call when the Chief's model is refused", async () => {
     const seen = fakeRoute()
-    // The deployment's daily cap of paid turns is spent: Opus is refused, and so is the paid fallback (Haiku).
+    // The deployment's daily cap of paid turns is spent: Opus is refused, and so is the paid fallback
+    // (Sonnet, which the route serves: before the gate, the turn ran on it unchecked).
     testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS = "1"
+    testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-sonnet-5-5"
     try {
       const { token, chief } = await owner("brain-gateway-cap", 5, "claude-opus-5-5", "low", true)
       expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f1", parts: [{ type: "text", text: "anyone?" }] }, "f1")).ok).toBe(true)
@@ -170,6 +172,7 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
       expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(0)
     } finally {
       delete testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS
+      testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-haiku-5-5"
     }
   })
 })
