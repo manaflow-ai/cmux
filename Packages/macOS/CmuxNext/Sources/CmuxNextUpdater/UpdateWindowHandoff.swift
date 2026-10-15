@@ -1,6 +1,5 @@
 import AppKit
-import CmuxNextDesign
-import CmuxNextUpdater
+public import CmuxNextDesign
 
 /// Restart to Update (cx-ncc.45 S1): what the old windows do at the click.
 /// ``mode`` is the one switch (hq-a3 rule 2026-10-10: hide when the click
@@ -16,7 +15,7 @@ import CmuxNextUpdater
 /// them back. With unsaved documents nothing changes: the quit asks about
 /// them on screen (decision D2).
 @MainActor
-final class UpdateWindowHandoff {
+public final class UpdateWindowHandoff {
     private struct Hidden {
         weak var window: NSWindow?
         var alpha: CGFloat
@@ -33,13 +32,13 @@ final class UpdateWindowHandoff {
     private var hidden: [Hidden] = []
     private let unsaved: QuitUnsavedRegistry
 
-    init(unsaved: QuitUnsavedRegistry = .shared) {
+    public init(unsaved: QuitUnsavedRegistry = .shared) {
         self.unsaved = unsaved
     }
 
     /// Hides every visible window; false when it did not (unsaved documents).
     @discardableResult
-    func hide() -> Bool {
+    public func hide() -> Bool {
         guard hidden.isEmpty, unsaved.unsaved().isEmpty else { return false }
         hidden = NSApp.windows.filter(\.isVisible).map { Hidden(window: $0, alpha: $0.alphaValue, ignoresMouse: $0.ignoresMouseEvents) }
         for entry in hidden {
@@ -53,7 +52,7 @@ final class UpdateWindowHandoff {
     }
 
     /// Brings the hidden windows back as they were.
-    func restore() {
+    public func restore() {
         for entry in hidden {
             entry.window?.alphaValue = entry.alpha
             entry.window?.ignoresMouseEvents = entry.ignoresMouse
