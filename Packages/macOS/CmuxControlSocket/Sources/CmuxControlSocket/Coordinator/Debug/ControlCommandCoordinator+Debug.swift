@@ -62,6 +62,9 @@ extension ControlCommandCoordinator {
             return debugBrowserAddressBarFocused(request.params)
         case "debug.browser.favicon":
             return debugBrowserFavicon(request.params)
+        case "debug.browser.crashes", "debug.browser.page_status":
+            return debugContext?.controlDebugBrowserSafety(method: request.method, params: request.params)
+                ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
         case "debug.right_sidebar.focus":
             return debugRightSidebarFocus(request.params)
         case "debug.sidebar.visible":
