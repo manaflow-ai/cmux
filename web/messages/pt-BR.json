@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "A máquina não está respondendo",
       "message": "Esta máquina não respondeu a tempo, então a solicitação não pôde ser concluída.",
-      "action": "Pause a máquina, depois retome-a e tente novamente. No app para Mac, escolha Pausar máquina e depois Retomar máquina. Em um terminal, execute cmux vm pause '<machine>' e depois cmux vm resume '<machine>'."
+      "action": "Entre em contato com o suporte informando o ID de rastreamento antes de criar outra máquina."
     },
     "inProgress": {
       "title": "Ainda em andamento",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go suporta 2 vCPU, 4 GiB de RAM e 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Cota de computação do {plan} esgotada",
+      "computeMessage": "Seu plano {plan} usou as {included} horas de computação deste período de cobrança. Uma hora de computação é 1 vCPU com 2 GB de memória durante uma hora. Suas máquinas podem iniciar novamente em {resetDate}.",
+      "computeAction": "Máquinas pausadas mantêm seus arquivos. Fale com o suporte se precisar de mais computação antes de {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Cota de disco do {plan} esgotada",
+      "storageMessage": "Seu plano {plan} inclui {included} GB de disco para todas as máquinas salvas. As máquinas salvas usam {used} GB, e esta solicitação precisa de {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Recursos de Cloud VM insuficientes",
