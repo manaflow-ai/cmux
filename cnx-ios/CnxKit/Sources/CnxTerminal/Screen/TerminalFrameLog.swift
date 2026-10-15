@@ -53,13 +53,17 @@ final class TerminalFrameLog {
 
     func outputArrived() { lastOutput = CACurrentMediaTime() }
 
-    /// Main-thread work done for the screen in this frame.
-    func work(_ seconds: CFTimeInterval) { workMs += seconds * 1000 }
+    /// Main-thread work done for the screen in this frame (`name`: the signpost).
+    func work(_ name: String, _ seconds: CFTimeInterval, outermost: Bool = true) {
+        if outermost { workMs += seconds * 1000 }
+        parts[name, default: 0] += seconds * 1000
+    }
+    private var parts: [String: Double] = [:]
 
     private func tick() {
         guard let link else { return }
         let now = link.timestamp
-        defer { last = now; workMs = 0 }
+        defer { last = now; workMs = 0; parts.removeAll(keepingCapacity: true) }
         guard last > 0 else { windowStart = now; return }
         let current = phaseProvider()
         if current != phase {
@@ -70,9 +74,10 @@ final class TerminalFrameLog {
         let streaming = now - lastOutput < 0.1
         let key = TerminalFrameStats.Key(phase: phase, streaming: streaming)
         stats.add(key, interval: interval, workMs: workMs)
-        lines.append(String(format: "{\"t\":%.4f,\"dt_ms\":%.2f,\"target_ms\":%.2f,\"phase\":\"%@\",\"streaming\":%@,\"work_ms\":%.2f,\"surface\":\"%@\"}",
+        lines.append(String(format: "{\"t\":%.4f,\"dt_ms\":%.2f,\"target_ms\":%.2f,\"phase\":\"%@\",\"streaming\":%@,\"work_ms\":%.2f,\"parts\":{%@},\"surface\":\"%@\"}",
                             Date().timeIntervalSince1970, interval * 1000, (link.targetTimestamp - now) * 1000, phase,
-                            streaming ? "true" : "false", workMs, surfaceName))
+                            streaming ? "true" : "false", workMs,
+                            parts.map { String(format: "\"%@\":%.3f", $0.key, $0.value) }.joined(separator: ","), surfaceName))
         if phase != "interacting", now - windowStart > 5 { flush(reason: "5 s") }
     }
 

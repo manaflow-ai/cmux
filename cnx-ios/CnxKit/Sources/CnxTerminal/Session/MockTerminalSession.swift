@@ -218,6 +218,13 @@ public final class MockTerminalSession: TerminalSession {
         case "git" where parts.dropFirst().first == "log": try await stream(MockOutput.gitLog)
         case "git" where parts.dropFirst().first == "status": try await stream(MockOutput.gitStatus)
         case "cargo", "make", "build": try await stream(MockOutput.buildLog(), lineDelay: 4, batch: 3)
+        case "stream":
+            // stream [LINES=3000] [MS=20]: numbered rows like the rig's stream20.py,
+            // for timing a drag while output streams (termqa G-04).
+            let count = parts.count > 1 ? Int(parts[1]) ?? 3000 : 3000
+            let delay = parts.count > 2 ? Int(parts[2]) ?? 20 : 20
+            let lines = (1...max(1, count)).map { String(format: "#%07d \u{1B}[3%dmstreamed row\u{1B}[0m %@", $0, 1 + $0 % 6, String(repeating: "x", count: $0 % 30)) }
+            try await stream(lines, lineDelay: delay)
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))

@@ -155,6 +155,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return log
     }()
 
+    /// `-CnxFrameLog`: the last row's bottom edge against the composer card's
+    /// top (page points) whenever it changes while following.
+    private var lastPinLog = ""
+    private func logPin() {
+        guard TerminalFrameLog.isEnabled, following, let document, cell.height > 0 else { return }
+        let lastRowBottom = document.contentY(ofRow: document.endRow, cellHeight: cell.height) - scrollView.contentOffset.y
+        let composerTop = bottomStack.frame.minY
+        let line = String(format: "pin: last row bottom %.1f, composer top %.1f, gap %.1f pt (keyboard %@, composer %.0f pt, rows %d)",
+                          lastRowBottom, composerTop, composerTop - lastRowBottom, model.keyboardVisible ? "up" : "down",
+                          composerHost?.view.bounds.height ?? 0, document.rowCount)
+        guard line != lastPinLog else { return }
+        lastPinLog = line
+        sizingLog.notice("\(line, privacy: .public)")
+    }
+
     /// Times `body` as the screen's main-thread work in this frame and marks
     /// it with a signpost (G-04). DEBUG only; release builds call `body`.
     private func measured<T>(_ name: StaticString, _ body: () -> T) -> T {
@@ -165,7 +180,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         defer {
             measureDepth -= 1
             // Nested work is already inside the outer interval's time.
-            if measureDepth == 0 { frameLog.work(CACurrentMediaTime() - start) }
+            frameLog.work("\(name)", CACurrentMediaTime() - start, outermost: measureDepth == 0)
             TerminalFrameLog.signposter.endInterval(name, state)
         }
         return body()
@@ -537,6 +552,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         updateBottomFade()
+        #if DEBUG
+        logPin()
+        #endif
         setScrollButton(visible: scrollButtonVisibility.update(
             offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top, maxOffsetY: maxOffsetY))
     }
@@ -792,7 +810,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// `TerminalOutputQueue.frameBudget` bytes) when the previous one is
     /// parsed, applying alternate screen switches in order on the way.
     private func pumpOutput() {
-        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting)) {
+        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
@@ -1142,7 +1160,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // rows and read nothing under Ghostty's lock (user report
         // 2026-10-14: a drag stuttered while an agent streamed). The page is
         // measured again when the gesture ends (settleScroll).
-        if scroll.isInteracting, let current = document, scrollbar.total >= documentTotal, !placesFromReport {
+        if scroll.isInteracting, !Self.legacyInteraction, let current = document, scrollbar.total >= documentTotal, !placesFromReport {
             let next = current.grown(fromTotal: documentTotal, toTotal: scrollbar.total)
             documentTotal = scrollbar.total
             measureAfterGesture = true
@@ -1285,28 +1303,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         if let rows = surface.presentedRowSignatures(rowHeight: rowPixels) {
             if let previous = presentedRows {
-                // Shifts to every viewport a frame in flight may still show.
-                // In order of likelihood; periodic output (a build log) can
-                // match several shifts equally, and ties go to the earlier one.
-                var candidates: [Int] = []
-                let activeTop = max(0, scrollbar.total - surfaceRows)
-                for top in [scrollbar.offset, viewportTop, presentedTop] + recentTops.reversed() + [activeTop]
-                    where !candidates.contains(top - presentedTop) {
-                    candidates.append(top - presentedTop)
+                let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
+                                                 recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
+                top = match.top(previous: previous, current: rows)
+                #if DEBUG
+                if CommandLine.arguments.contains("-CnxPresentLog") {
+                    presentDebug = match.candidateShifts.map { String(format: " %d:%.2f", $0, TerminalPresentMatch.score(previous, rows, shift: $0)) }.joined()
                 }
-                var best: (shift: Int, score: Double)?
-                for shift in candidates {
-                    let score = Self.matchScore(previous, rows, shift: shift)
-                    if score > (best?.score ?? -1) + 0.02 { best = (shift, score) }
-                    #if DEBUG
-                    presentDebug += String(format: " %d:%.2f", shift, score)
-                    #endif
-                }
-                if let best, best.score >= 0.9 {
-                    top = presentedTop + best.shift
-                } else if recentTops.contains(scrollbar.offset) == false {
-                    top = scrollbar.offset
-                }
+                #endif
             }
             presentedRows = rows
         }
@@ -1348,25 +1352,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
-    /// Fraction of the new frame's non-blank rows equal to the previous
-    /// frame's rows `shift` further down (1 = the same picture moved by `shift`).
-    static func matchScore(_ previous: [UInt64], _ current: [UInt64], shift: Int) -> Double {
-        let blank = current.isEmpty ? 0 : mostCommon(current)
-        var compared = 0, equal = 0
-        for index in current.indices {
-            let other = index + shift
-            guard other >= 0, other < previous.count, current[index] != blank else { continue }
-            compared += 1
-            if previous[other] == current[index] { equal += 1 }
-        }
-        return compared < 4 ? -1 : Double(equal) / Double(compared)
-    }
-
-    private static func mostCommon(_ values: [UInt64]) -> UInt64 {
-        var counts: [UInt64: Int] = [:]
-        for value in values { counts[value, default: 0] += 1 }
-        return counts.max { $0.value < $1.value }?.key ?? 0
-    }
 
     private func applyMode(tui: Bool) {
         presentedRows = nil
@@ -1414,6 +1399,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        measured("did-scroll") { didScroll(scrollView) }
+    }
+
+    private func didScroll(_ scrollView: UIScrollView) {
         #if DEBUG
         let stepStart = CACurrentMediaTime()
         defer { scrollMeter.step(start: stepStart, end: CACurrentMediaTime(), active: scroll.isInteracting) }
@@ -1493,6 +1482,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The finger lifted (or the deceleration ended): follow within two rows
     /// of the bottom, else read here, anchored to the top row.
+    /// DEBUG A/B (`-CnxLegacyInteraction`): full batches and measures during a
+    /// gesture, as before the 2026-10-14 smoothness fix.
+    #if DEBUG
+    static let legacyInteraction = CommandLine.arguments.contains("-CnxLegacyInteraction")
+    #else
+    static let legacyInteraction = false
+    #endif
+
     /// The document grew without a measure during a gesture (updateDocument).
     private var measureAfterGesture = false
 
