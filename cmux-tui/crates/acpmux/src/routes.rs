@@ -725,8 +725,8 @@ fn reference_value(secret: &str) -> String {
 }
 
 /// The local CodeRouter's loopback base URL and a key it minted for acpmux.
-/// Read from the running router (crate cmux-coderouter: its admin socket in
-/// `<acpmux home>/router/router.sock`), never from a settings copy. One key
+/// Read from the running router (crate cmux-coderouter: its admin socket at
+/// `cmux_coderouter::admin_socket_path`), never from a settings copy. One key
 /// per family per router run (minting the same id again would revoke the key
 /// running harnesses hold), so a spawn's env stays the same and the session
 /// pool's env key still matches.
@@ -744,7 +744,7 @@ pub fn local_router_with(
     use crate::router_socket::UnixStream;
     use std::io::{BufRead, BufReader, Write};
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
-    let socket = home.join("router").join("router.sock");
+    let socket = cmux_coderouter::admin_socket_path(home);
     let unavailable = |what: String| {
         RouteError::Unavailable(format!(
             "the local CodeRouter is not running ({what}); start it with `acpmux router serve`"

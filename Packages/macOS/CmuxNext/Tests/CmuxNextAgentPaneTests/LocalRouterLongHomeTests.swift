@@ -69,6 +69,7 @@ nonisolated final class OneShotRelay: Sendable {
     }
 
     func stop() {
+        _ = shutdown(listener, SHUT_RDWR)  // wakes the accept thread
         close(listener)
         unlink(path)
     }

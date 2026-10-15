@@ -106,8 +106,8 @@ fn router_socket(home: &Path) -> PathBuf {
 /// every platform's Unix socket limit (104 bytes with the NUL on macOS, 108 on
 /// Linux), with the stand-in agent config.
 fn long_home(dir: &Path) -> PathBuf {
-    let base = dir.join("long-home-").as_os_str().len();
-    let home = dir.join(format!("long-home-{}", "h".repeat(140 - "/router/router.sock".len() - base)));
+    let pad = 140 - "/router/router.sock".len() - dir.join("long-home-").as_os_str().len();
+    let home = dir.join(format!("long-home-{}", "h".repeat(pad)));
     std::fs::create_dir_all(&home).unwrap();
     std::fs::copy(dir.join("config.json"), home.join("config.json")).unwrap();
     assert_eq!(home.join("router").join("router.sock").as_os_str().len(), 140);
@@ -259,8 +259,9 @@ fn router_exits_when_its_daemon_is_killed() {
 /// A long acpmux home (cx-8iw6m: the cmux app trapped on a router socket path
 /// past `sun_path`): the router binds the short path of the shared rule, and the
 /// daemon reaches it there. A router started by hand answers at that path; the
-/// daemon finds it at the same path, stops it (same build, no owner FIFO) and
-/// starts its own router, which answers there too.
+/// daemon finds it at the same path, stops it (another build: no
+/// CMUX_ROUTER_BUILD; no owner FIFO) and starts its own router, which answers
+/// there too.
 #[test]
 fn a_long_home_gets_a_router_that_the_daemon_and_clients_reach() {
     let dir = scratch("rlng");
@@ -294,12 +295,16 @@ fn a_long_home_gets_a_router_that_the_daemon_and_clients_reach() {
         if let Some(status) = by_hand.0.try_wait().unwrap() {
             let mut stderr = String::new();
             by_hand.0.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-            panic!("the router exited ({status}) and never answered at {}: {stderr}", socket.display());
+            panic!(
+                "the router exited ({status}) and never answered at {}: {stderr}",
+                socket.display()
+            );
         }
         std::thread::sleep(Duration::from_millis(50));
     };
     drop(first);
-    let first_pid = ask_router(&home, json!({"op": "status"}))["pid"].as_u64().expect("status names the pid");
+    let first_pid =
+        ask_router(&home, json!({"op": "status"}))["pid"].as_u64().expect("status names the pid");
     assert_eq!(first_pid, u64::from(by_hand.0.id()));
 
     let mut daemon = start_daemon_at(&dir, &home);
@@ -308,9 +313,11 @@ fn a_long_home_gets_a_router_that_the_daemon_and_clients_reach() {
     assert_ne!(u64::try_from(pid).unwrap(), first_pid, "the daemon kept the hand-started router");
     assert!(ask_router(&home, json!({"op": "status"}))["port"].as_u64().is_some());
 
-    cli_shutdown_at(&dir, &home, &[]);
+    cli_shutdown_at(&dir, &home, &["--end-agents"]);
     wait_exit(&mut daemon, Duration::from_secs(15));
     assert!(gone_within(pid, Duration::from_secs(10)), "the router outlived its daemon");
+    // The short socket is outside the scratch folder.
+    let _ = std::fs::remove_file(&socket);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

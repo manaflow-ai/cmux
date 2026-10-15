@@ -1000,7 +1000,7 @@ const ROUTER_STOP_BUDGET: Duration = Duration::from_secs(2);
 #[cfg(unix)]
 fn ask_router(line: &[u8]) -> std::io::Result<Value> {
     use std::io::{BufRead, BufReader, Write};
-    let socket = home().join("router").join("router.sock");
+    let socket = cmux_coderouter::admin_socket_path(&home());
     let stream = std::os::unix::net::UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut writer = stream.try_clone()?;
@@ -1022,7 +1022,8 @@ fn open_owner_rw(fifo: &std::path::Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Start the local router, or adopt the one that runs. A router answers on
-/// `<home>/router/router.sock`:
+/// `<home>/router/router.sock` (a short path for a long home:
+/// `cmux_coderouter::admin_socket_path`):
 /// - same build: this daemon opens the owner FIFO, then asks `adopt`. The
 ///   router refuses only when it is already stopping; then a new one starts
 ///   (it waits on router.lock for the old one).
