@@ -47,7 +47,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var connected: Bool
         var generation: String?
         var surfaces: [UInt64]
-        var hidesStrip = false // PaneTabBar: the pane's choice, else its kind's tabs.tabBar
+        var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
     }
 
     /// `workspace` is set before the first apply, so the first frame is the settled one.

@@ -12,7 +12,7 @@ extension BrowserTabService {
         emulationFollowers[id] = Task { @MainActor [weak self, weak engine] in
             for await record in ObservationStream({ [weak self] in self?.tabModel(id)?.emulation }) {
                 guard let engine else { return }
-                engine.applyEmulation(BrowserEmulation(record: record.flatMap { try? JSONEncoder().encode($0) }))
+                engine.applyEmulation(BrowserEmulation(record: record.flatMap { try? JSONEncoder().encode($0) }, tabID: id))
             }
         }
     }

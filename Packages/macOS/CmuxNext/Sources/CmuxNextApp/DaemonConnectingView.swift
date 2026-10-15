@@ -5,10 +5,10 @@ import CmuxNextWakeups
 
 /// Content of a window that has no workspace yet. The window opens at
 /// launch with this view, so the app is never windowless while the daemon
-/// is slow or unreachable. While connecting it is the bare glass at first;
-/// the cmux mark resolves in after `MotionTunables.launchMarkDelay` and
-/// "Connecting to cmux-tui" follows after `launchTextDelay` only while not yet
-/// connected, so a fast launch replaces it before either shows. Once the startup deadline
+/// is slow or unreachable. While connecting it is the empty main pane beside the
+/// sidebar, as the window looks without a workspace (no cmux mark: the window must look
+/// usable at once, cx-r650e); "Connecting to cmux-tui" shows after `launchTextDelay` only
+/// while not yet connected, so a fast launch replaces it first. Once the startup deadline
 /// passes, it shows the failure at once, in plain words, with the raw error
 /// behind Copy Details for a bug report.
 final class DaemonConnectingView: NSView {
@@ -24,7 +24,6 @@ final class DaemonConnectingView: NSView {
         NSPasteboard.general.setString(text, forType: .string)
     }
     private(set) var state: DaemonStartupState = .connecting
-    private let markTimer: DemandTimer
     private let statusTimer: DemandTimer
     /// The status line has waited out its delay (or a failure showed it).
     private var statusDue = false
@@ -33,9 +32,8 @@ final class DaemonConnectingView: NSView {
         self.init(frame: frame, clock: ContinuousClock())
     }
 
-    /// - Parameter clock: Times the mark and status delays (tests step it).
+    /// - Parameter clock: Times the status delay (tests step it).
     init(frame: NSRect, clock: any Clock<Duration>) {
-        markTimer = DemandTimer(owner: "launch.mark", clock: clock)
         statusTimer = DemandTimer(owner: "launch.status", clock: clock)
         super.init(frame: frame)
         // Layer-backed, so the status line's fade sets its model alpha at once.
@@ -90,15 +88,10 @@ final class DaemonConnectingView: NSView {
         }
     }
 
-    /// While connecting in a window: the mark, then the status line, each
-    /// after its delay from when this view entered the window.
+    /// While connecting in a window: the status line, after its delay from
+    /// when this view entered the window.
     private func staggerIfConnecting() {
         guard window != nil, state == .connecting else { return }
-        if !mark.isRevealed {
-            markTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchMarkDelay.value)) { @MainActor [weak self] in
-                self?.mark.reveal()
-            }
-        }
         if !statusDue {
             statusTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { @MainActor [weak self] in
                 guard let self else { return }
@@ -109,10 +102,7 @@ final class DaemonConnectingView: NSView {
         }
     }
 
-    private func cancelStagger() {
-        markTimer.cancel()
-        statusTimer.cancel()
-    }
+    private func cancelStagger() { statusTimer.cancel() }
 
     func apply(_ state: DaemonStartupState) {
         self.state = state
