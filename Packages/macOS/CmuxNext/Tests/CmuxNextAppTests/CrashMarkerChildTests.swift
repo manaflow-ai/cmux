@@ -7,7 +7,8 @@ import Testing
 /// Crashes where the run marker's fatal-signal handler could not run left
 /// no signal, so the next launch restored without the restart notice
 /// (cx-30ko):
-/// - a stack overflow: the handler had no alternate signal stack to run on;
+/// - a stack overflow: the handler had no alternate signal stack to run on,
+///   first on any thread, then on any thread but the main one (cx-feao0);
 /// - a crash after a failed Chromium start: Chromium resets every signal
 ///   action when it starts, and the handlers came back only when it started.
 ///
@@ -24,6 +25,19 @@ struct CrashMarkerChildTests {
         #expect(previous.signal == SIGSEGV || previous.signal == SIGBUS,
                 "a stack overflow recorded no signal (\(previous.signal.map(String.init) ?? "none"))")
         #expect(LaunchRecovery.decide(previous: previous).isRestart, "a stack overflow showed no restart notice")
+    }
+
+    @Test func aStackOverflowOnABackgroundThreadShowsTheNoticeOnTheNextLaunch() async throws {
+        let directory = CrashChild.directory("thread-overflow", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .failure) {
+            await CrashChild.overflowABackgroundThread()
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGSEGV || previous.signal == SIGBUS,
+                "a background thread's stack overflow recorded no signal (\(previous.signal.map(String.init) ?? "none"))")
+        #expect(LaunchRecovery.decide(previous: previous).isRestart,
+                "a background thread's stack overflow showed no restart notice")
     }
 
     @Test func aCrashAfterAFailedChromiumStartShowsTheNoticeOnTheNextLaunch() async throws {
@@ -70,6 +84,18 @@ enum CrashChild {
         withExtendedLifetime(marker) {}
     }
 
+    /// Runaway recursion on a thread started after launch (as Chromium's
+    /// and the system's worker threads are), while the main thread waits.
+    @MainActor
+    static func overflowABackgroundThread() async {
+        let marker = await markRun("thread-overflow")
+        Thread { _ = recurse(1) }.start()
+        // The overflow ends the process well before this; if it does not,
+        // the child exits cleanly and the exit test fails.
+        try? await Task.sleep(for: .seconds(30))
+        withExtendedLifetime(marker) {}
+    }
+
     /// Chromium fails to start (no runtime at this layout) after it reset
     /// the signal actions, as `CefInitialize` does before it can fail; then
     /// the app crashes on a bad memory access. (A `raise(SIGSEGV)` reads as
@@ -94,9 +120,9 @@ enum CrashChild {
         UnsafeMutablePointer<Int>(bitPattern: 16)?.pointee = 1
     }
 
-    /// About 300 bytes of stack per call, never a tail call.
+    /// About 300 bytes of stack per call, never a tail call. Any thread.
     @inline(never)
-    static func recurse(_ depth: Int) -> Int {
+    nonisolated static func recurse(_ depth: Int) -> Int {
         var frame: (Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int) =
             (depth, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
         if depth == Int.max { return 0 }

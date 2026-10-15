@@ -116,6 +116,19 @@ cmux terminal term_… process wait --timeout-ms 600000
 
 `write` sends text literally; it adds no Enter. Key chords join modifiers with `+` (`ctrl+c`, `shift+tab`). `screen wait` exits 1 when the timeout passes without a match.
 
+## Waiting for other agents
+
+Wait instead of polling `cmux agents snapshot`:
+
+```bash
+cmux agents wait --until idle --target term_… --timeout 60       # its agent stops working
+cmux agents wait --until dialog [--target term_…|request_…] --timeout 60
+cmux agents wait --until text --target term_… --text 'tests passed' --timeout 60
+cmux agents wait --until text --target tab_… --text '^done [0-9]+$' --regex
+```
+
+It prints `{until, matched, waited_seconds, match, state}` and exits 1 when the timeout (default 30 s, at most 120 s) passes without a match, as `screen wait` does. `match.state` says how an idle agent stopped (`idle`, `done`, `blocked`, or `closed`). A terminal, tab or agent id no owner knows exits with `selector.not_found`; a dialog target that is not such an id (a request id, a chat session) may name a dialog that has not appeared yet, so it waits. The MCP tool `agents_wait` takes the same arguments.
+
 ## Notifications and attention
 
 ```bash

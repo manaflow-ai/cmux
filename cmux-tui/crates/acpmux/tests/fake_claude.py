@@ -264,10 +264,15 @@ for line in sys.stdin:
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process may query the keychain
-        # (`security dump-keychain` lists item metadata when it may).
+        # (`security dump-keychain` lists item metadata when it may). The
+        # System keychain, by path: the user's keychain search list depends
+        # on HOME, and a test's HOME is a scratch folder.
         if said.strip() == "keychain-probe":
             import subprocess
-            rc = subprocess.run(["/usr/bin/security", "dump-keychain"], capture_output=True).returncode
+            rc = subprocess.run(
+                ["/usr/bin/security", "dump-keychain", "/Library/Keychains/System.keychain"],
+                capture_output=True,
+            ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})
         if said.startswith("sandbox-probe "):
             import os

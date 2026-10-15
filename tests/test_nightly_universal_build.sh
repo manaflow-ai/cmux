@@ -1071,6 +1071,42 @@ if [ "$(orphan 0)" != retired ] || ! grep -q 'artifacts/4242' "$legacy_dir/gh.lo
   echo "FAIL: a pending metadata artifact whose bundle is confirmed gone must be retired"
   exit 1
 fi
+# The failure issue is found with GitHub search and an exact title match, not a
+# one-page listing of open issues (it may be past the first 100 open issues
+# and pull requests); a failed search is an error, never "no issue".
+search_gh_dir="$legacy_dir/searchgh"
+mkdir -p "$search_gh_dir"
+cat > "$search_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *search/issues*)
+    [ "$FAKE_SEARCH" = error ] && { echo "HTTP 403: rate limit" >&2; exit 1; }
+    printf '%b' "$FAKE_SEARCH"; exit 0 ;;
+  *"issues?state=open"*) echo "one-page listing used" >&2; exit 3 ;;
+esac
+exit 1
+GH
+chmod +x "$search_gh_dir/gh"
+failure_issue() {  # <search rows> -> number (exit code kept)
+  PATH="$search_gh_dir:$PATH" FAKE_SEARCH="$1" bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-failure-issue.sh" manaflow-ai/cmux
+}
+issue_title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)"
+if [ "$(failure_issue "20001\t$issue_title (old)\n20668\t$issue_title\n")" != 20668 ]; then
+  echo "FAIL: the failure issue must be found by search with an exact title match"
+  exit 1
+fi
+if [ -n "$(failure_issue "20001\tsomething else\n")" ]; then
+  echo "FAIL: no exact title match must give no failure issue"
+  exit 1
+fi
+if failure_issue error >/dev/null 2>&1; then
+  echo "FAIL: a failed issue search must be an error, not 'no failure issue'"
+  exit 1
+fi
+if grep -Fq 'issues?state=open&per_page=100' "$WORKFLOW_FILE" || grep -Fq 'listForRepo({ ...context.repo, state' "$WORKFLOW_FILE"; then
+  echo "FAIL: the cmux NIGHTLY-identity jobs must find the failure issue by search, not a one-page listing"
+  exit 1
+fi
 # Wiring: the macOS job takes its build and mode from legacy-identity-target,
 # not from this run's publish-nightly; a pending submission is stored and
 # continued, never counted as a failure.

@@ -116,12 +116,12 @@ function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
 }
 
 const expandDetails: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Expand details" });
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-items details[open]")));
+  await ctx.click({ selector: ".acpmux-ask-toggle" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-ask-details")));
 };
 
 const allowOnce: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Allow once" });
+  await ctx.click({ role: "button", name: "Allow" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="allow_once"]'));
 };
 
@@ -161,16 +161,21 @@ export default componentEntry<Props>({
   pane: true,
   covers: ["agent-session/acpmux/permissions/Panel.tsx#PermissionPanel"],
   load: async () => GalleryPermissionPanel,
-  // The app loads these together (dev.tsx); the card's edge and fill live in composerLocation.css.
+  // The app loads these together (dev.tsx); the card's edge and fill live in composerLocation.css, the
+  // ask row in conversation.css.
   styles: () =>
-    Promise.all([import("../styles.css"), import("../composerStates.css"), import("../composerLocation.css")]),
+    Promise.all([
+      import("../styles.css"),
+      import("../composerStates.css"),
+      import("../composerLocation.css"),
+      import("../conversation/conversation.css"),
+    ]),
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 420,
   checks: {
     layoutShiftMax: {
       value: 0.05,
-      reason:
-        "Opening an in-flow permission detail intentionally moves the decision controls below the revealed request.",
+      reason: "Opening a row's details moves the rows below it; the answers stay on the row.",
     },
     longFrameFailMs: {
       value: 33,
@@ -183,16 +188,16 @@ export default componentEntry<Props>({
   },
   variants: {
     pending: {
-      note: "Two grouped tool requests show the pending approval surface.",
+      note: "Two grouped commands wait: one quiet row each, the verb and command once, Allow / Always / Deny at the first row's end.",
       props: { state: baseState, ...callbacks },
     },
     expanded: {
-      note: "Expand details reveals each requested command without losing the decision controls.",
+      note: "A click on a row opens its full command, folder and scope in plain words; the answers stay on the row.",
       props: { state: baseState, ...callbacks },
       play: expandDetails,
     },
     "allow-once": {
-      note: "Allow once records the selected decision while the host owns the eventual state update.",
+      note: "Allow records the selected decision while the host owns the eventual state update.",
       props: { state: baseState, ...callbacks },
       play: allowOnce,
     },

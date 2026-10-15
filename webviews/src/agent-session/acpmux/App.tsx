@@ -232,6 +232,7 @@ import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
+import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
@@ -2584,11 +2585,16 @@ function AcpmuxPane() {
     lastEditRows.current = edits;
     return edits.edits;
   }, [snapshot.rows]);
+  const askedToolCalls = useMemo(
+    () => pendingToolCalls(snapshot),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
+    [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
+  );
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
-    return groups?.supported
+    const rows = groups?.supported
       ? snapshot.rows.filter(
           (row) =>
             row.kind !== "permission" ||
@@ -2599,11 +2605,19 @@ function AcpmuxPane() {
       : individualPermission
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
+    return rows;
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
+  // A call the permission panel asks about is drawn by the panel's row while it waits
+  // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
+  const trustBlocked = Boolean(trustAsk.blocked);
+  const panelAsks = useMemo(
+    () => (trustBlocked ? new Set<string>() : groupAskedCalls(snapshot.permissionGroups)),
+    [trustBlocked, snapshot.permissionGroups],
+  );
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
-    if (childRows) return childRows;
+    if (childRows) return withoutAskedCalls(childRows, panelAsks);
     const rows = sourceRows;
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
@@ -2615,9 +2629,10 @@ function AcpmuxPane() {
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
-      return withShellRows(subagents.rows, chatShellRuns);
+      // After the turns: a live turn's status reads its last row, the call's included.
+      return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
     });
-  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns]);
+  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, panelAsks]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
@@ -2625,11 +2640,6 @@ function AcpmuxPane() {
   const summaryCard = useSummaryCard(
     subagentPane.current && shownSessionId ? `${shownSessionId}#subagent` : shownSessionId,
     hasSubagents && !subagentPane.current,
-  );
-  const askedToolCalls = useMemo(
-    () => pendingToolCalls(snapshot),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
-    [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
   );
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
