@@ -18,6 +18,8 @@ mod app;
 #[cfg(unix)]
 mod app_identity;
 mod browser_input;
+#[cfg(unix)]
+mod build_adopt;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;

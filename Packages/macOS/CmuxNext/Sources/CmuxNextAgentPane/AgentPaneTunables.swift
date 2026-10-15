@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextPages
 
@@ -68,6 +69,33 @@ public nonisolated struct AgentPaneTunables {
         help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, or plain text. New agent tabs.",
         default: .default, code: "AgentPaneTunables.topStripStyle")
 
+    /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
+    /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
+    /// newest call, and a run any later row follows settles into its summary line. Off keeps every
+    /// call's row until Leo picks the default. The page gets it with the theme (`AgentPaneTheme`,
+    /// `codexToolRuns`), again on each change.
+    public static let codexToolRuns = Tunable<Bool>.toggle(
+        "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
+        help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
+        default: false, code: "AgentPaneTunables.codexToolRuns")
+
+    /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
+    /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
+    /// starts it (``AgentPaneTheme/values(_:motion:surface:)``).
+    @MainActor static func followCodexToolRuns() {
+        guard codexToolRunsFollow == nil else { return }
+        // task-owner: lives as long as the app; event-driven (Observation)
+        codexToolRunsFollow = Task {
+            var last = codexToolRuns.value
+            for await on in ObservationStream({ codexToolRuns.value }) where on != last {
+                last = on
+                ThemeStore.shared.repaintAll()
+            }
+        }
+    }
+
+    @MainActor private static var codexToolRunsFollow: Task<Void, Never>?
+
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value)
@@ -91,5 +119,5 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor] }
 }
