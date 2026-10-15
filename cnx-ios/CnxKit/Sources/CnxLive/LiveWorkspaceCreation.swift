@@ -335,7 +335,13 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return parts.first == "Users" && parts.count <= 2 && parts.last != "Shared"
     }
 
-    /// `close-surface` on the Mac, then a fresh list.
+    /// `close-surface` on the Mac, then `close-terminal` for the tab's own
+    /// terminal, then a fresh list. `close-surface` only detaches a terminal
+    /// (the daemon reaps a tab-less one after its grace period, so the Mac
+    /// listed it running 50 s after the close, V5-5); the phone has no undo
+    /// and its close question says the program stops, so the terminal ends
+    /// at once (T-TABS-08), unless another tab still shows it. A refused
+    /// `close-terminal` leaves the reap to the daemon: the tab is closed.
     public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         guard canManage(on: workspace.macID), let client = sync.daemon else {
             throw WorkspaceCreationError("Not connected")
@@ -343,8 +349,18 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let surface = sync.tree?.surfaces[tab.id] else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")
         }
+        let terminal = sync.tree?.terminalEndedByClosing(tab.id)
         do {
             try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
+            if let terminal {
+                var params: [String: Any] = ["terminal_id": terminal.id]
+                if let incarnation = terminal.incarnation { params["terminal_incarnation"] = incarnation }
+                do {
+                    try WorkspaceSync.check(await client.request("close-terminal", params: params))
+                } catch {
+                    creationLog.error("close-terminal \(terminal.id, privacy: .public) after the tab closed: \(String(describing: error), privacy: .public)")
+                }
+            }
             _ = try? await sync.listNow()
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)

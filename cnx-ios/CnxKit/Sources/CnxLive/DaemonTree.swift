@@ -29,6 +29,21 @@ public struct DaemonTree: Sendable {
     public var panes: [String: Int] = [:]
     /// Each tab's pane and position in it (`move-tab`, a duplicate next to it).
     public var tabPlaces: [String: TabPlace] = [:]
+    /// The Mac's own terminal (kind `pty`) each tab shows, by tab id: what
+    /// `close-terminal` names when the phone closes the tab (T-TABS-08).
+    public var terminals: [String: TerminalRef] = [:]
+
+    public struct TerminalRef: Hashable, Sendable {
+        public var id: String
+        public var incarnation: String?
+    }
+
+    /// The terminal to end with `tab`: its own `pty` terminal, unless another
+    /// listed tab (any workspace) still shows it.
+    public func terminalEndedByClosing(_ tab: String) -> TerminalRef? {
+        guard let terminal = terminals[tab] else { return nil }
+        return terminals.contains { $0.key != tab && $0.value.id == terminal.id } ? nil : terminal
+    }
     /// Each workspace's numeric daemon id by app workspace id (`move-tab-to-workspace`).
     public var workspaceNumbers: [String: Int] = [:]
     /// Each tab group's pane (`tab_groups`), by group id.
@@ -88,6 +103,7 @@ public struct DaemonTree: Sendable {
         var directories: [String: String] = [:]
         var panes: [String: Int] = [:]
         var places: [String: TabPlace] = [:]
+        var terminals: [String: TerminalRef] = [:]
         var markers: [Int: NotificationMarker] = [:]
         var numbers: [String: Int] = [:]
         var groupPanes: [String: Int] = [:]
@@ -129,6 +145,9 @@ public struct DaemonTree: Sendable {
                         let id = Self.tabID(surface: surface)
                         surfaces[id] = surface
                         if let paneID = pane["id"] as? Int { places[id] = TabPlace(pane: paneID, index: index) }
+                        if tab["kind"] as? String == "pty", let terminal = tab["terminal_id"] as? String, !terminal.isEmpty {
+                            terminals[id] = TerminalRef(id: terminal, incarnation: tab["terminal_incarnation"] as? String)
+                        }
                         if let marker = tab["notification"] as? [String: Any], let notification = marker["notification"] as? Int {
                             markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
                         }
@@ -192,6 +211,7 @@ public struct DaemonTree: Sendable {
         self.directories = directories
         self.panes = panes
         self.tabPlaces = places
+        self.terminals = terminals
         workspaceNumbers = numbers
         self.groupPanes = groupPanes
         notificationMarkers = markers
