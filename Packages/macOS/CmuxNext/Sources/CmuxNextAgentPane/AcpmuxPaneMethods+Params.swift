@@ -38,7 +38,6 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
-        "_acpmux/ask": (["sessionId", "text"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
@@ -57,6 +56,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
+        // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
+        "_acpmux/btw": (["sessionId", "question", "model"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),

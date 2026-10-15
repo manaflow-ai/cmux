@@ -2,7 +2,8 @@
 # cmux-tui's Rust checks on a macOS fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
 #     --arg MODE [--arg TEST_FILTER]
-# MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER], or all [FILTER];
+# MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
+# failed test reruns once alone: see workspace_tests), or all [FILTER];
 # optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
 # Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
 # a red run still reports them; without --locked, so a new dependency resolves
@@ -171,80 +172,204 @@ load_base_red() {
   done <"$base_red_file"
   return "$bad"
 }
+# Workspace tests run under cargo-nextest: one process per test and every test
+# binary at once. cargo test ran the 361 test binaries one after another
+# (cmux9, 7e32a23c: 998 s of test time, 473 s of it in one binary). A test that
+# fails in the full run runs once more, alone (one test at a time, after the
+# full run), because the full run's reds were load reds: a different set every
+# run, each green alone (beads cx-mqvyw, cx-t9m9q). A test that also fails
+# alone stays red. One that passes alone is FLAKY: the step passes, and its
+# name is printed as a gate-notice line (gate-run receipts keep them) and in
+# the summary, so its owner sees it. The rerun is skipped (the step stays red)
+# when more than CMUX_RUST_CHECK_RERUN_MAX (default 12) tests failed, when
+# nextest failed for another reason than a red test (build, list), and with
+# CMUX_RUST_CHECK_FAIL_FAST=1. CMUX_RUST_CHECK_RERUN_MAX=0 turns the rerun off.
+# Doc tests (nextest does not run them) are their own step, only without a filter.
+# A filter that matches no test is red (--no-tests=fail; cargo test was green).
+nextest_version=0.9.148
+ensure_nextest() {
+  local have dir asset sha archive sum
+  have="$(cargo nextest --version 2>/dev/null | head -n 1 || true)"
+  if [[ "$have" != "cargo-nextest $nextest_version "* ]]; then
+    case "$(uname -s)-$(uname -m)" in
+      Darwin-*) asset=universal-apple-darwin sha=6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b ;;
+      Linux-x86_64) asset=x86_64-unknown-linux-gnu sha=223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc ;;
+      *) echo "error: no pinned cargo-nextest for $(uname -sm)" >&2; return 3 ;;
+    esac
+    dir="$root/.build/tools/cargo-nextest-$nextest_version"
+    if [[ ! -x "$dir/cargo-nextest" ]]; then
+      mkdir -p "$dir"
+      archive="$dir/cargo-nextest.tar.gz"
+      curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 120 --output "$archive" \
+        "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$asset.tar.gz" \
+        || { echo "error: cargo-nextest $nextest_version download failed" >&2; return 3; }
+      if command -v sha256sum >/dev/null; then sum="$(sha256sum "$archive")"; else sum="$(shasum -a 256 "$archive")"; fi
+      if [[ "${sum%% *}" != "$sha" ]]; then
+        rm -f "$archive"
+        echo "error: cargo-nextest archive sha256 ${sum%% *} is not the pinned $sha" >&2
+        return 3
+      fi
+      # extract beside it and rename, so a broken extract never looks installed
+      rm -rf "$dir/x" && mkdir -p "$dir/x" && tar -xzf "$archive" -C "$dir/x" cargo-nextest && mv "$dir/x/cargo-nextest" "$dir/cargo-nextest" \
+        || { rm -rf "$dir/x" "$archive"; echo "error: cargo-nextest archive did not extract" >&2; return 3; }
+      rm -rf "$dir/x" "$archive"
+    fi
+    export PATH="$dir:$PATH"
+    have="$(cargo nextest --version 2>/dev/null | head -n 1 || true)"
+  fi
+  [[ "$have" == "cargo-nextest $nextest_version "* ]] || { echo "error: cargo nextest is '$have', not $nextest_version" >&2; return 3; }
+  echo "cargo-nextest: $have"
+}
 test_log="$root/.build/cmux-tui-rust-check-test.log"
-rm -f "$test_log" "$test_log.meta"   # a reused checkout never shows an older run's table
+junit_full="$root/.build/cmux-tui-rust-check-junit.xml"
+junit_rerun="$root/.build/cmux-tui-rust-check-rerun-junit.xml"
+rerun_max="${CMUX_RUST_CHECK_RERUN_MAX:-12}"
+[[ "$rerun_max" =~ ^[0-9]{1,3}$ ]] || { echo "error: CMUX_RUST_CHECK_RERUN_MAX must be a number" >&2; exit 2; }
+rerun_notes=()
+# a reused checkout never shows an older run's table
+rm -f "$test_log" "$junit_full" "$junit_rerun"
+junit_tool() { # failed FULL | expr FULL | verdict FULL RERUN | table FULL RERUN
+  python3 -I - "$@" <<'PY'
+import os, re, sys
+import xml.etree.ElementTree as ET
+op, full = sys.argv[1], sys.argv[2]
+rerun = sys.argv[3] if len(sys.argv) > 3 else ""
+def cases(path):
+    out = []
+    for tc in ET.parse(path).getroot().iter("testcase"):
+        bad = any(c.tag in ("failure", "error") for c in tc)
+        out.append((tc.get("classname", ""), tc.get("name", ""), bad, float(tc.get("time") or 0)))
+    return out
+def alone():
+    # (binary, test) -> True when it failed alone, False when it passed alone
+    if not rerun or not os.path.exists(rerun):
+        return {}
+    return {(b, n): bad for b, n, bad, _ in cases(rerun)}
+failed = [(b, n) for b, n, bad, _ in cases(full) if bad]
+if op == "failed":
+    for b, n in failed:
+        print(f"{b} {n}")
+elif op == "expr":
+    parts = []
+    for b, n in failed:
+        if not re.fullmatch(r"[A-Za-z0-9_.:/-]+", b) or not re.fullmatch(r"[A-Za-z0-9_:]+", n):
+            print(f"cannot name {b} {n} in a filterset", file=sys.stderr)
+            sys.exit(1)
+        parts.append(f"(binary_id(={b}) & test(={n}))")
+    print(" | ".join(parts))
+elif op == "verdict":
+    res, red = alone(), 0
+    for b, n in failed:
+        r = res.get((b, n))
+        if r is False:
+            print(f"gate-notice: FLAKY: {b} {n}: failed in the full run, passed alone; the step passes, the test's owner must fix it")
+        else:
+            red += 1
+            print(f"gate-notice: RED: {b} {n}: failed in the full run and {'failed alone' if r else 'did not run alone'}")
+    sys.exit(1 if red else 0)
+elif op == "table":
+    res, rows = alone(), {}
+    for b, n, bad, t in cases(full):
+        r = rows.setdefault(b.split("::", 1)[0], [0, 0, 0, 0.0])
+        r[0 if not bad else 2 if res.get((b, n)) is False else 1] += 1
+        r[3] += t
+    if not rows:
+        print("(no tests ran)")
+        sys.exit(0)
+    print(f"{'crate':<36} {'result':<6} {'passed':>7} {'failed':>7} {'flaky':>6} {'test s':>8}")
+    for name in sorted(rows):
+        p, f, fl, s = rows[name]
+        print(f"{name:<36} {'FAIL' if f else 'FLAKY' if fl else 'pass':<6} {p:>7} {f:>7} {fl:>6} {s:>8.1f}")
+    print(f"{len(rows)} crates, {sum(1 for r in rows.values() if r[1])} red, "
+          f"{sum(r[2] for r in rows.values())} flaky tests (test s: sum of the full run's test times)")
+PY
+}
+# macOS only: sample the number of allocated PTYs (/dev/ttysNNN) every 2 s
+# during the full run and report the peak against kern.tty.ptmx_max (511 by
+# default): a fleet Mac ran out of PTYs in one full run (cx-leo45). A sampler,
+# not a synchronization: the run never waits on it. macOS removes a ttys node
+# when its PTY is freed (xnu ptmx_free), so the count is PTYs in use.
+pty_note=""
+pty_watch_pid=""
+pty_peak_file="$root/.build/cmux-tui-rust-check-pty-peak"
+pty_count() { local n=0 f; for f in /dev/ttys[0-9]*; do [[ -e "$f" ]] && n=$((n + 1)); done; echo "$n"; }
+pty_watch_start() {
+  [[ "$(uname -s)" == Darwin ]] || return 0
+  pty_count >"$pty_peak_file"
+  ( peak="$(cat "$pty_peak_file")"
+    while :; do
+      n="$(pty_count)"
+      if [[ "$n" -gt "$peak" ]]; then peak="$n"; echo "$peak" >"$pty_peak_file"; fi
+      sleep 2
+    done ) >/dev/null 2>&1 </dev/null &
+  pty_watch_pid=$!
+  # a killed step must not leave the sampler running
+  trap '[[ -z "$pty_watch_pid" ]] || kill "$pty_watch_pid" 2>/dev/null || true' EXIT
+}
+pty_watch_stop() { # START
+  [[ -n "$pty_watch_pid" ]] || return 0
+  kill "$pty_watch_pid" 2>/dev/null || true
+  wait "$pty_watch_pid" 2>/dev/null || true
+  pty_watch_pid=""
+  pty_note="pty: peak $(cat "$pty_peak_file" 2>/dev/null || echo '?') allocated during the full run (at start $1; kern.tty.ptmx_max $(sysctl -n kern.tty.ptmx_max 2>/dev/null || echo '?'))"
+  echo "$pty_note"
+}
 workspace_tests() {
-  local args=(test --workspace --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"})
+  # nextest's store is target/nextest under the workspace, not under CARGO_TARGET_DIR.
+  local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
+  local args=(nextest run --workspace --locked --profile ci --no-tests=fail)
+  [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
   [[ -z "$filter" ]] || args+=("$filter")
   [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
   mkdir -p "$(dirname "$test_log")"
+  rm -f "$junit"
+  local pty_start=""
+  [[ "$(uname -s)" != Darwin ]] || pty_start="$(pty_count)"
+  pty_watch_start
   cargo "${args[@]}" 2>&1 | tee "$test_log"
-  return "${PIPESTATUS[0]}"
+  rc="${PIPESTATUS[0]}"
+  pty_watch_stop "$pty_start"
+  [[ ! -f "$junit" ]] || cp "$junit" "$junit_full"
+  [[ "$rc" -ne 0 ]] || return 0
+  # nextest exits 100 when a test failed; any other code (build, list) stays red.
+  if [[ "$rc" -ne 100 || "$fail_fast" == 1 || "$rerun_max" -eq 0 || ! -f "$junit_full" ]]; then
+    echo "rerun: none (nextest exit $rc)"
+    return "$rc"
+  fi
+  n="$(junit_tool failed "$junit_full" | wc -l | tr -d ' ')" || n=0
+  if [[ "$n" -eq 0 ]]; then
+    echo "rerun: none (exit $rc and no failed test in the JUnit file)"
+    return "$rc"
+  fi
+  if [[ "$n" -gt "$rerun_max" ]]; then
+    echo "gate-notice: rerun skipped: $n tests failed (more than CMUX_RUST_CHECK_RERUN_MAX=$rerun_max); every one is red"
+    return "$rc"
+  fi
+  expr="$(junit_tool expr "$junit_full")" || { echo "rerun: none (a failed test name does not fit a filterset)"; return "$rc"; }
+  echo "=== rerun: the $n failed tests, each alone (--test-threads 1)"
+  rm -f "$junit"
+  cargo nextest run --workspace --locked --profile ci --no-tests=fail --test-threads 1 -E "$expr" 2>&1 | tee -a "$test_log"
+  rrc="${PIPESTATUS[0]}"
+  [[ ! -f "$junit" ]] || cp "$junit" "$junit_rerun"
+  vrc=0
+  verdict="$(junit_tool verdict "$junit_full" "$junit_rerun")" || vrc=$?
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    echo "$line"
+    rerun_notes+=("$line")
+  done <<<"$verdict"
+  [[ "$vrc" -eq 0 && "$rrc" -eq 0 ]] && return 0
+  return "$rc"
 }
-# Per-crate table of a workspace test run: each test binary's result line,
-# mapped to its package through `cargo metadata` (cargo prints only the
-# package-relative source path and the binary name).
+doc_tests() {
+  local args=(test --workspace --locked --doc ${no_fail_fast[@]+"${no_fail_fast[@]}"})
+  [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
+  cargo "${args[@]}"
+}
 crate_table() {
-  [[ -f "$test_log" ]] || return 0
+  [[ -f "$junit_full" ]] || { echo "(no JUnit file: per-crate table unavailable)"; return 0; }
   command -v python3 >/dev/null || { echo "(no python3: per-crate table unavailable)"; return 0; }
-  cargo metadata --no-deps --format-version 1 --locked 2>/dev/null >"$test_log.meta" && [[ -s "$test_log.meta" ]] || { echo "(cargo metadata failed: per-crate table unavailable)"; return 0; }
-  python3 -I - "$test_log" "$test_log.meta" <<'PY' || echo "(per-crate table failed)"
-import json, re, sys
-log, meta = sys.argv[1:]
-by_bin, by_lib = {}, {}
-for pkg in json.load(open(meta))["packages"]:
-    for t in pkg["targets"]:
-        name = t["name"].replace("-", "_")
-        by_bin.setdefault(name, []).append((t["src_path"], pkg["name"]))
-        if "lib" in t["kind"] or "proc-macro" in t["kind"] or "rlib" in t["kind"]:
-            by_lib[name] = pkg["name"]
-# A binary's own result is the LAST "test result" line before the next binary:
-# tests that run the test binary again as a child print nested result lines.
-# cargo's "error: test failed, to rerun pass `-p PKG ...`" marks a red binary
-# also when it crashed before its result line.
-rows, cur, last = {}, None, None
-def row(name):
-    return rows.setdefault(name, [0, 0, 0.0, False])
-def close():
-    global cur, last
-    if cur is not None:
-        r = row(cur)   # no result line (a binary or doctest set with no tests): pass unless cargo says otherwise
-        if last is not None:
-            r[0] += last[0]; r[1] += last[1]; r[2] += last[2]; r[3] = r[3] or last[3]
-    cur, last = None, None
-for line in open(log, errors="replace"):
-    m = re.match(r"\s+Running (\S+(?: \S+)?) \((.+)\)$", line)
-    d = re.match(r"\s+Doc-tests (\S+)$", line)
-    if m or d:
-        close()
-        if m:
-            src, binary = m.group(1).replace("unittests ", ""), m.group(2)
-            stem = re.sub(r"-[0-9a-f]{16}$", "", binary.rsplit("/", 1)[-1])
-            cands = by_bin.get(stem, [])
-            hits = [p for s, p in cands if s.endswith("/" + src)] or [p for _, p in cands]
-            cur = hits[0] if hits else stem
-        else:
-            cur = by_lib.get(d.group(1), d.group(1))
-        continue
-    r = re.match(r"test result: (\w+)\. (\d+) passed; (\d+) failed;.*finished in ([\d.]+)s", line)
-    if r and cur is not None:
-        last = (int(r.group(2)), int(r.group(3)), float(r.group(4)), r.group(1) != "ok")
-        continue
-    e = re.match(r"error: test failed, to rerun pass `-p (\S+)", line)
-    if e:
-        if cur is not None and last is None:
-            cur = e.group(1)   # the crashed binary's package, as cargo names it
-        close()
-        row(e.group(1))[3] = True
-close()
-if not rows:
-    print("(no test binaries ran)"); sys.exit(0)
-print(f"{'crate':<36} {'result':<6} {'passed':>7} {'failed':>7} {'test s':>8}")
-for name in sorted(rows):
-    p, f, s, bad = rows[name]
-    print(f"{name:<36} {'FAIL' if bad else 'pass':<6} {p:>7} {f:>7} {s:>8.1f}")
-print(f"{len(rows)} crates, {sum(1 for r in rows.values() if r[3])} red")
-PY
+  junit_tool table "$junit_full" "$junit_rerun" || echo "(per-crate table failed)"
 }
 finish() {
   echo
@@ -260,6 +385,8 @@ finish() {
     crate_table
   fi
   [[ "${#skip_notes[@]}" -eq 0 ]] || printf '%s\n' "${skip_notes[@]}"
+  [[ "${#rerun_notes[@]}" -eq 0 ]] || printf '%s\n' "${rerun_notes[@]}"
+  [[ -z "$pty_note" ]] || echo "$pty_note"
   if [[ "$first_rc" -ne 0 ]]; then
     echo "cmux-tui-rust-check: RED (first red step exit $first_rc)"
   else
@@ -313,6 +440,10 @@ if [[ "$mode" == clippy || "$mode" == all ]]; then
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red
+  step "cargo-nextest" ensure_nextest
   step "workspace tests" workspace_tests
+  if [[ -z "$filter" ]]; then
+    step "doc tests" doc_tests
+  fi
 fi
 finish

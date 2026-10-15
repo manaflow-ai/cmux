@@ -4,6 +4,7 @@ import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
 import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
+import { claudeRoute, isMetered } from "../chief-brain/model-routes.ts"
 import type { CpNote, CpRun, CpWake } from "./contract.ts"
 import { brainModel, hostCall, HostRefused, type Who } from "./host.ts"
 import { LiveRuns } from "./live-runs.ts"
@@ -177,6 +178,12 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (row.tries >= MAX_ATTEMPTS) return this.endWake(row.n, run, "failed", "the brain did not finish the turn")
     const admitted = (await this.settings(agent).admit(agent, owner, row.tries === 0)) as Admission
     if (!admitted.ok) return void this.sql.exec(`UPDATE oc_wake SET state = 'skipped' WHERE n = ?`, row.n)
+    // A metered model counts against the deployment's daily Claude cap, as on P (the holder decides).
+    const model = brainModel(admitted.config.model)
+    if (row.tries === 0 && isMetered(model)) {
+      const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
+      if (!(await holder.claudeTurn(owner, model).catch(() => false))) return this.endWake(row.n, run, "skipped", "the deployment's daily Claude cap is reached")
+    }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.
     await this.alarmAt(Date.now() + TURN_MS + 60_000)
@@ -392,9 +399,10 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     const who = await this.who()
     if ("refused" in who) return Response.json({ type: "error", error: { type: "permission_error", message: who.refused } }, { status: 403 })
     const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
-    const url = `${(this.env.CHIEF_BRAIN_CLAUDE_URL || "https://chatmux.dev/api/claude-david").replace(/\/+$/, "")}/v1/messages`
-    const f = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate())
-    return f(url, { method: "POST", headers: request.headers, body: await request.text() }).catch((e: unknown) => Response.json({ type: "error", error: { type: "api_error", message: e instanceof Error ? e.message : "gateway failed" } }, { status: 502 }))
+    // The P brain's Claude route, from the same configuration (url, stack or bearer auth, models, cache TTL).
+    const route = claudeRoute(this.env)
+    const f = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(this.env.CHIEF_BRAIN_CACHE_TTL ? { ttl: this.env.CHIEF_BRAIN_CACHE_TTL } : {}) })
+    return f(`${route.url.replace(/\/+$/, "")}/v1/messages`, { method: "POST", headers: request.headers, body: await request.text() }).catch((e: unknown) => Response.json({ type: "error", error: { type: "api_error", message: e instanceof Error ? e.message : "gateway failed" } }, { status: 502 }))
   }
 
   // ------------------------------------------------------------------ retries, turn guard and idle sleep

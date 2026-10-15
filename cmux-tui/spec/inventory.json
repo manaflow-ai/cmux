@@ -8,6 +8,7 @@
     "agent.message.mark",
     "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "agent.report",
     "browser.activate",
     "browser.attach",
@@ -24,6 +25,9 @@
     "browser.input.wheel",
     "browser.list",
     "browser.navigate",
+    "browser.profile.create",
+    "browser.profile.list",
+    "browser.profile.open",
     "browser.reload",
     "browser.tab.emulate",
     "browser.tab.emulate.clear",
@@ -563,6 +567,7 @@
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
       "cloud-conversation-unsubscribe",
+      "cloud-conversation-live",
       "cloud-mux-subscribe",
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
@@ -575,6 +580,8 @@
       "conversation-run-append",
       "conversation-runs",
       "conversation-run",
+      "conversation-live-publish",
+      "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"
@@ -684,7 +691,19 @@
       ]
     },
     {
+      "name": "conversation-live",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "cloud-conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-live",
       "streams": [
         "subscribe"
       ]

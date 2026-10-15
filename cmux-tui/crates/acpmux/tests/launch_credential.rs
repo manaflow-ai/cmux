@@ -1,8 +1,11 @@
 //! A cmux terminal's launch credential names that one terminal
 //! (plans/cmux-next/identity.md section 2). acpmux serves many terminals, so
 //! no agent it starts may act as the terminal that started acpmux: a value in
-//! acpmux's own environment or in a preset never reaches the harness. Its own
-//! binary, so setting the process environment touches no other test.
+//! acpmux's own environment or in a preset never reaches the harness. Without
+//! a cmux session daemon to mint one (`CMUX_TUI_SOCKET`) an agent gets none
+//! of its own (cmux-tui tests/agent_message_launch_credential.rs covers the
+//! minted one). Its own binary, so setting the process environment touches no
+//! other test.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -23,7 +26,10 @@ const NAME: &str = "CMUX_LAUNCH_CREDENTIAL";
 #[tokio::test]
 async fn no_agent_inherits_the_terminal_launch_credential() {
     // SAFETY: the only test in this binary sets it before any agent starts.
-    unsafe { std::env::set_var(NAME, "cmuxlc1.kinherited.e30.inherited") };
+    unsafe {
+        std::env::set_var(NAME, "cmuxlc1.kinherited.e30.inherited");
+        std::env::remove_var("CMUX_TUI_SOCKET");
+    }
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
