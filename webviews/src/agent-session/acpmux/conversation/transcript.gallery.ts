@@ -5,6 +5,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
 import { workedTurnRows } from "../workedTurn";
+import { THOUGHT_FOLD_PX } from "./ThoughtRow";
 import { minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
@@ -15,8 +16,6 @@ import {
 
 const prompt = "Add retries with backoff to the fetch helper";
 
-/// A thought taller than this folds (ThoughtRow.tsx): seven 20px lines, as Codex's 8.75rem.
-const THOUGHT_FOLD_PX = 140;
 const LONG_THOUGHT_FIRST = "Start with how the helper parses errors.";
 const LONG_THOUGHT_LAST = "Then run the focused tests once more before answering.";
 const LONG_THOUGHT = [
@@ -676,10 +675,7 @@ export default agentPaneEntry({
         [
           user(prompt, 2),
           activity(
-            [
-              thought(LONG_THOUGHT, { startedAt: minutesAgo(1.5), endedAt: minutesAgo(1.5) + 12_000 }),
-              readClient(),
-            ],
+            [thought(LONG_THOUGHT, { startedAt: minutesAgo(1.5), endedAt: minutesAgo(1.5) + 12_000 }), readClient()],
             1.5,
           ),
         ],

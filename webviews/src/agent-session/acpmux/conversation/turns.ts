@@ -415,8 +415,14 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): Acpm
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
-  return [status, ...rows];
+  return [status, ...rows.slice(0, -1), streamingTail(last)];
 }
+
+/// The live turn's last row, marked as still streaming: its last thought is the one the agent is
+/// thinking now (ThoughtRow.tsx). Its version is the row's own negated, which no drawn row ever
+/// has, so the memoized row and the height cache redraw it when it stops streaming.
+const streamingTail = (row: AcpmuxRow): AcpmuxRow =>
+  row.kind === "activity" ? { ...row, streaming: true, version: -row.version } : row;
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
 export const isFoldedCopy = (row: AcpmuxRow) => row.id.endsWith(FOLDED);

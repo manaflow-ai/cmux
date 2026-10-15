@@ -885,6 +885,28 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A long thought still streaming (ThoughtRow.tsx): a fixed viewport of seven lines, Codex's
+   8.75rem, that keeps its newest line at the bottom while older lines fade out at its top. */
+.cv-thought.is-live .cv-thought__text {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: 140px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px);
+  mask-image: linear-gradient(to bottom, transparent, black 16px);
+}
+/* An ended long thought folds to its "Thought for 12s" line; opened, its text reads in full under
+   it on the same 20px lines. */
+.cv-thought-fold {
+  padding-block: 0;
+}
+.cv-thought__body {
+  padding-block: 1px 5px;
+  line-height: 20px;
+  color: var(--cv-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .cv-tool.is-toggle {
   cursor: pointer;
   user-select: none;
