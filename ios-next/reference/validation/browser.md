@@ -1076,3 +1076,34 @@ animated the new tab's zoom offset; it now grows from the centre and shows
 the tab's card until the zoom ends (the demo draws its start page card
 natively), so there is no blank page. Closing the active card no longer
 shows its successor twice.
+
+## Round 21: re-audit 2 (tabs-parity-reaudit-2.md)
+
+mini-cmux15 iPhone 17 Pro simulator without a hardware keyboard, mock
+host unless noted.
+
+| Item | Safari | Before (8d33469) | After |
+|---|---|---|---|
+| 1 Long-press reorder, left drop | Both tabs stay | Dragged tab closed 3 of 3 | `scripts/grid-reorder-drop.sh` red on d4dec7e, then 9 of 9 + 3 of 3: reordered, 5 tabs. The swipe and the long press are exclusive; the swipe ignores a card a long press owns (unit tested) |
+| 2 ✕ on a terminal that ended on the Mac (cmux15) | — | Card came back, "Couldn't close the terminal" | Closes 13 → 12, no banner, stays gone; ended or not_found closes locally (unit tested) |
+| 3 Close rule | Measured here with AXe on Safari: 100 pt / 1.0 s drag springs back 3 of 3, 100 pt / 1.0 s swipe closes 2 of 2 | Swipe sprang back | Our pan sees about −70 pt/s (drag) and −190 pt/s (swipe) at release; projection 0.2 s against 72%: 9 of 9 drags spring back, 3 of 3 swipes close |
+| 4 Fling | No hold; count about 10 ms after release | 4-frame hold, 2–3-frame freeze, count about 165 ms | Display-clock driven from the release: moves on the first frame, then about 25 pt/frame; one held frame at the removal; count 20–30 ms after release. A frame trace showed the main thread never missed a frame; the hold was the SwiftUI animation starting late |
+| 5 Last tab | From the lone card's slot (0.665), 0.375 / 0.98, rest about 500 ms | From 0.84, 323 ms | From the lone card's slot on 0.375 / 0.98, full screen about 400 ms after its first frame; count never reads 0 |
+| 6 ✕ reflow | Fit to Safari's frames: 0.43 / 0.865 from rest, 0.7 pt overshoot | No overshoot, 11.8 pt | Overshoot 0.7 pt; crossings 50/117/233/333 against 50/133/250/350 when aligned at the first visible move. Open: our cards first move about 2 frames after the count (Safari 1), so the curve leads after onset by that latency |
+| 7 Count vs motion | 1 frame | 3 frames | About 2.5 frames (see 6) |
+| 8 New Tab tail | 395/398/400/401.3 pt at 48/80/130/182 ms | 60–93 ms late | Spring 0.27 / 1.03 (model 53/86/125/184 ms); the zoom trace starts with one 55 ms frame |
+| 9 Zoom-in | Mean t50 95, t90 227, t99 401 | t50/t90 17–22 ms late | t50 77–102, t90 225–237, t99 392–402 ms, first frame +8.6 pt |
+| 9 Swipe-up | t90 273–313, t99 391–442 | t90 +62–77 ms | t90 310–328, t99 442–462 ms; no hover after lift |
+| Close safety | — | A tap closed a terminal slid under the finger by a host change | Close buttons ignore taps for 0.45 s after the host moved the cards; the user's own closes do not arm it (rapid ✕ still 5 → 3, 3 of 3) |
+| 10 D14 | — | Often missing | Present in every check here: fresh grid, after a ✕, after a reorder, the two-tab grid, 0.05 / 0.2 / 0.4 s into a reflow. The card's label is the page title ("terminal: debounce resize…"), which does not contain "GitHub"; a search by the header text would miss it. Not reproduced, root cause not found |
+
+Not changed: the slow-drag carry after release (−100 against −104.65),
+3i and 4b (0.3 pt over, the latter the native scroll view's rubber band),
+and the menu items Pin, Select and Move.
+
+CmuxTabsKit (2dd83bab3ec6): items 1, 3–9 as above, plus the kit's own:
+the flung card stays above its neighbours (the live active page hides
+while a card is swiped), closing the active card fades and shrinks it, a
+long-pressed active card lifts, New Tab is centred and blurred, and the
+demo start card no longer jumps 16 pt. Kit runs: reorder-left 3 of 3 keep
+5 tabs, slow drags 3 of 3 spring back, moving swipes 2 of 2 close.
