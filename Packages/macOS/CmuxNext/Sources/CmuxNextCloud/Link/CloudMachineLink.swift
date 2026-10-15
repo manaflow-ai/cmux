@@ -13,6 +13,8 @@ import os
 /// replaced on the next call, which the connection makes on reconnect.
 public actor CloudMachineLink {
     public nonisolated let machineID: String
+    /// Whether the running link redials, from its later snapshots.
+    public nonisolated let redial = CloudLinkRedial()
     private let api: CloudAPIClient
     private let hub: CloudTunnelHub
     private let paths: CloudPaths
