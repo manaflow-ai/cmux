@@ -60,8 +60,19 @@ public struct BrowserPageAutomation {
 
     // MARK: - Screenshot
 
-    /// PNG bytes of the visible viewport.
+    /// PNG bytes of the visible viewport. A hidden page (a background tab or
+    /// workspace) draws no frames, so the capture runs with its content made
+    /// visible to the engine for the duration, off screen.
     public func captureViewportPNG() async throws(BrowserAutomationPageError) -> Data {
+        guard let hidden = page as? any BrowserPageHiddenCapturing else { return try await captureShownViewportPNG() }
+        do {
+            return try await hidden.withContentVisibleForCapture { try await captureShownViewportPNG() }
+        } catch {
+            throw automationError(error)
+        }
+    }
+
+    private func captureShownViewportPNG() async throws(BrowserAutomationPageError) -> Data {
         if speaksDevTools {
             // Chromium captures device pixels; clip to the visible viewport
             // and scale by 1/devicePixelRatio so the PNG is its CSS size, as
