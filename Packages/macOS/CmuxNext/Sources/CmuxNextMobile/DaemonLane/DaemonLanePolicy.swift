@@ -282,7 +282,7 @@ public struct DaemonLanePolicy: Sendable {
     /// a palette color, a Bool `collapsed`, short group and room ids, a `ws_` id.
     static func groupRefusal(_ operation: String, _ params: [String: Any]) -> String? {
         if let name = params["name"] {
-            guard let text = name as? String, !text.trimmingCharacters(in: .whitespaces).isEmpty, text.unicodeScalars.count <= 256,
+            guard let text = name as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.unicodeScalars.count <= 256,
                   !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
                 return "\(operation) name is a short name"
             }
