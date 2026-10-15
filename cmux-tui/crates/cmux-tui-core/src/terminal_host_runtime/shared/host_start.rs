@@ -37,8 +37,11 @@ pub(crate) fn new_host_terminal(
     scrollback: usize,
     callbacks: ghostty_vt::Callbacks,
 ) -> anyhow::Result<Terminal> {
-    let _ = term_name;
-    Ok(Terminal::new(cols, rows, scrollback, callbacks)?)
+    let mut term = Terminal::new(cols, rows, scrollback, callbacks)?;
+    // A TERM libghostty refuses (over 128 bytes) leaves XTGETTCAP "TN"
+    // unanswered, as Ghostty does for a name it does not know.
+    let _ = term.set_terminfo_name(term_name);
+    Ok(term)
 }
 
 /// Start the host runtime on `master` and `child`. `seed` is VT replay of
