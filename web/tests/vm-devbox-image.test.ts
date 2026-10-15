@@ -328,7 +328,7 @@ describe("devbox image template", () => {
         writeFileSync(path.join(directory, "files", "alpha-two"), "");
         writeFileSync(
           path.join(directory, "history"),
-          `echo older-entry\necho accepted-ghost\nclaude --dangerously-skip-permissions\necho ${"x".repeat(70_000)}\necho \u001b[31munsafe\n`,
+          `echo older-entry\necho accepted-ghost\nclaude --dangerously-skip-permissions\necho ${"x".repeat(70_000)}\n`,
         );
         // PS1 is set after ghost.bash loads, as a user's ~/.bashrc does after
         // /etc/cmux/bashrc, and carries \[ \] color spans like the cmux prompt.
@@ -390,6 +390,7 @@ os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*" + prompt)
 run(b"set -e\r", rb"set -e")
 os.write(fd, b"\x1b[C\x1bf"); run(b"echo still-here\r", rb"[\r\n]still-here\r\n")
 # Control bytes in history are display data, never terminal controls.
+os.write(fd, b"history -s $'echo \\e[31munsafe'\r"); expect(prompt)
 os.write(fd, b"echo "); out = expect(rb"echo ")
 os.write(fd, b"\x03"); cancelled = expect(prompt)
 if gray in out + cancelled or b"\x1b[31m" in out + cancelled: sys.exit("control bytes from history reached the terminal")
