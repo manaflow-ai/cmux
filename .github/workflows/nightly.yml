@@ -1601,6 +1601,8 @@ jobs:
           CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$archs" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
           echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
+          # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
+          echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
