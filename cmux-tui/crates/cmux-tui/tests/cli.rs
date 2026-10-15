@@ -3658,6 +3658,9 @@ fn bin() -> &'static str {
 #[path = "cli/agent_session_start.rs"]
 mod agent_session_start;
 #[cfg(unix)]
+#[path = "cli/remote_update_need.rs"]
+mod remote_update_need;
+#[cfg(unix)]
 #[path = "cli/all_sessions_scope.rs"]
 mod all_sessions_scope;
 #[cfg(unix)]
