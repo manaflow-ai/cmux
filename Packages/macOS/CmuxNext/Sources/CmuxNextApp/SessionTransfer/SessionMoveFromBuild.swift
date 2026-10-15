@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextSessionTransfer
 
 /// Move Sessions from Another cmux Build… (cx-yxmkh): finds the sibling
 /// builds with sessions, asks which to move in a cmux dialog, pulls them
@@ -44,7 +45,7 @@ struct SessionMoveFromBuild {
             do {
                 outcome.record(try await transfer.pull(source: pull.source, ids: pull.ids), titles: selection.titles(in: pull.source))
             } catch {
-                outcome.record(error, from: pull.heading)
+                outcome.record(failure: SessionTransferService.message(for: error), from: pull.heading)
             }
         }
         Self.toast(outcome.notice, in: window)

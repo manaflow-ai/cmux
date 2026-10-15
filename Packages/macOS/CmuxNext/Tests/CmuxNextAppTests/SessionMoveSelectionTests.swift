@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextSessionTransfer
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -87,7 +88,7 @@ import Testing
         #expect(outcome.notice == [SessionMoveOutcome.movedOthers, SessionMoveOutcome.couldNotMove("site", "busy.")].joined(separator: " "))
 
         var refused = SessionMoveOutcome()
-        refused.record(SessionTransferService.Failure.peerRefused, from: "cmux NIGHTLY")
+        refused.record(failure: SessionTransferService.message(for: SessionTransferService.Failure.peerRefused), from: "cmux NIGHTLY")
         #expect(refused.notice == SessionMoveOutcome.couldNotMove(
             from: "cmux NIGHTLY", SessionTransferService.message(for: SessionTransferService.Failure.peerRefused)))
         #expect(SessionMoveOutcome().notice == SessionMoveOutcome.nothingMoved)
