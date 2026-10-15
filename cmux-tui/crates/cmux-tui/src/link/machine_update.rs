@@ -116,7 +116,7 @@ fn update(socket: &Path, to_bundled: bool) -> Result<Value, Failed> {
         .ok_or_else(|| Failed::new("machine_unreachable", "the machine daemon did not answer"))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
     let current = if to_bundled {
-        previous.as_deref() == Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY)
+        previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)
     } else {
         machine_gate::outdated_identity(&before, &NEEDED).is_none()
     };
