@@ -529,6 +529,7 @@
 		D7632003A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632004A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift */; };
 		D0AE1EE263B9A4BBB0F06312 /* BrowserPanel+AgentURLPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909581C88CA7A063EAA60F65 /* BrowserPanel+AgentURLPolicy.swift */; };
 		C65241010000000000000001 /* BrowserPanel+AppPricingRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */; };
+		A6AC41983B0751C266951A79 /* BrowserPanel+AutomationEngineNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 815A5B98348A0FF68ABB0013 /* BrowserPanel+AutomationEngineNavigation.swift */; };
 		8054A0010000000000000001 /* BrowserPanel+AutomationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */; };
 		805600000000000000000001 /* BrowserPanel+AutomationViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */; };
 		E8C7E33EA7CEE20C58390742 /* BrowserPanel+ChromiumChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9C7E33EA7CEE20C58390742 /* BrowserPanel+ChromiumChrome.swift */; };
@@ -5274,6 +5275,7 @@
 		D7632004A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneFileDropUploadRegressionTests.swift; sourceTree = "<group>"; };
 		909581C88CA7A063EAA60F65 /* BrowserPanel+AgentURLPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AgentURLPolicy.swift"; sourceTree = "<group>"; };
 		C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AppPricingRestore.swift"; sourceTree = "<group>"; };
+		815A5B98348A0FF68ABB0013 /* BrowserPanel+AutomationEngineNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AutomationEngineNavigation.swift"; sourceTree = "<group>"; };
 		8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AutomationRecovery.swift"; sourceTree = "<group>"; };
 		805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AutomationViewport.swift"; sourceTree = "<group>"; };
 		E9C7E33EA7CEE20C58390742 /* BrowserPanel+ChromiumChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+ChromiumChrome.swift"; sourceTree = "<group>"; };
@@ -12387,6 +12389,7 @@
 				909581C88CA7A063EAA60F65 /* BrowserPanel+AgentURLPolicy.swift */,
 				8E9367F765EC011170028F94 /* ChromiumHelperCrashWatch.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
+				815A5B98348A0FF68ABB0013 /* BrowserPanel+AutomationEngineNavigation.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15127,6 +15130,7 @@
 				D7632001A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift in Sources */,
 				D0AE1EE263B9A4BBB0F06312 /* BrowserPanel+AgentURLPolicy.swift in Sources */,
 				C65241010000000000000001 /* BrowserPanel+AppPricingRestore.swift in Sources */,
+				A6AC41983B0751C266951A79 /* BrowserPanel+AutomationEngineNavigation.swift in Sources */,
 				8054A0010000000000000001 /* BrowserPanel+AutomationRecovery.swift in Sources */,
 				805600000000000000000001 /* BrowserPanel+AutomationViewport.swift in Sources */,
 				E8C7E33EA7CEE20C58390742 /* BrowserPanel+ChromiumChrome.swift in Sources */,

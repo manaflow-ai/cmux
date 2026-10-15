@@ -276,6 +276,36 @@ public final class BrowserAutomationNavigationCoordinator {
         finish(ticket, with: .cancelled)
     }
 
+    // MARK: - Engine (non-WebKit) navigations
+
+    /// Associates a navigation that a non-WebKit engine started. Such a load
+    /// has no `WKNavigation`; the ticket itself is its identity, and the
+    /// engine's commit or failure event for this panel finishes it.
+    public func didStartEngineNavigation(_ ticket: BrowserAutomationNavigationTicket) {
+        guard activeTicket == ticket else { return }
+        activeNavigationID = ObjectIdentifier(ticket.transaction)
+    }
+
+    /// The engine committed the panel's main-frame navigation.
+    public func didCommitEngineNavigation(instanceID: UUID) {
+        guard let activeTicket else { return }
+        finishMatching(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(activeTicket.transaction),
+            with: .committed
+        )
+    }
+
+    /// The engine's main-frame navigation failed.
+    public func didFailEngineNavigation(instanceID: UUID, message: String) {
+        guard let activeTicket else { return }
+        finishMatching(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(activeTicket.transaction),
+            with: .failed(message)
+        )
+    }
+
     /// Cancels the active transaction and stops observing the current WebView instance.
     public func invalidate() {
         if let activeTicket {

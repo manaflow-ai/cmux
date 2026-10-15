@@ -117,10 +117,7 @@ extension BrowserPanel {
             to: targetURL,
             recordTypedNavigation: recordTypedNavigation,
             onNavigationStarted: { [weak self] navigation in
-                self?.automationNavigationCoordinator.didStart(
-                    ticket,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
+                self?.noteAutomationNavigationStarted(ticket, navigation: navigation)
             }
         )
         return ticket
@@ -136,12 +133,15 @@ extension BrowserPanel {
             targetURL: targetURL
         )
         let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
-            self?.automationNavigationCoordinator.didStart(
-                ticket,
-                navigationID: navigation.map { ObjectIdentifier($0) }
-            )
+            self?.noteAutomationNavigationStarted(ticket, navigation: navigation)
         }
 
+        if enginePage != nil {
+            // An engine page reloads itself and reports the load as events.
+            _ = reload(dialogOwner: .automation)
+            automationNavigationCoordinator.didStartEngineNavigation(ticket)
+            return (ticket, targetURL)
+        }
         if !retryFailedNavigationForReload(mode: .soft, onNavigationStarted: navigationStarted) {
             if let navigation = reload(dialogOwner: .automation) {
                 navigationStarted(navigation)

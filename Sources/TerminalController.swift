@@ -7351,7 +7351,10 @@ class TerminalController {
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
         if let enginePage = v2EnginePage(browserPanel) {
-            if case .err(_, let message, _)? = v2EngineAgentRefusalOnWorker(browserPanel, surfaceId: surfaceId) {
+            if let refusal = v2EngineAgentRefusalOnWorker(browserPanel, surfaceId: surfaceId),
+               case .err(_, let message, _) = refusal {
+                // The command answers this refusal's own code, not js_error.
+                v2RecordEngineCommandError(refusal)
                 return .failure(message)
             }
             return v2RunEngineBrowserJavaScript(
