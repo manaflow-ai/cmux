@@ -93,6 +93,10 @@ extension RemoteTmuxControlConnection {
                let completion = trackedSendCompletions.removeValue(forKey: token) {
                 completion(false)
             }
+            if case let .paneTitleSubscription(token) = kind,
+               let completion = trackedSendCompletions.removeValue(forKey: token) {
+                completion(false)
+            }
             if case let .rawQuery(token) = kind {
                 rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
                 rawQueryCompletions.removeValue(forKey: token)?(.error(lines))
@@ -422,6 +426,8 @@ extension RemoteTmuxControlConnection {
         case let .windowReorder(isLast):
             completeWindowReorderCommand(isLast: isLast, failed: false)
         case let .tracked(token):
+            trackedSendCompletions.removeValue(forKey: token)?(true)
+        case let .paneTitleSubscription(token):
             trackedSendCompletions.removeValue(forKey: token)?(true)
         case .paneColorReport, .other:
             break

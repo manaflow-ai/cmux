@@ -50,7 +50,7 @@ extension RemoteTmuxControlConnection {
         // stream reset clears it through `sendTracked`, allowing the next
         // topology publication to retry.
         paneTitleSubscriptionActive = true
-        guard sendTracked(Self.paneTitleSubscriptionCommand(), completion: { [weak self] accepted in
+        guard sendPaneTitleSubscription(Self.paneTitleSubscriptionCommand(), completion: { [weak self] accepted in
             if !accepted { self?.paneTitleSubscriptionActive = false }
         }) else {
             paneTitleSubscriptionActive = false
@@ -234,6 +234,7 @@ extension RemoteTmuxControlConnection {
                 + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
                 + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
                 + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+                + " -B \"\(Self.agentSubscriptionPrefix)\(paneId):%\(paneId):#{@cmux_agent}\""
         )
         subscribePaneTitlesIfNeeded()
     }
