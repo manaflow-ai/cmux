@@ -69,13 +69,12 @@ enum AppearanceHandlers {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
-            try requireUnmanaged(fontSizePath, context)
-            context.design.setOverride(.chromeFontSize, nil)
+            try requireUnmanaged(fontSizePath, context); context.design.interfaceScale = CGFloat(InterfaceScaleSetting().fallback)
             context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
         })
     }
 
-    private static let fontSizePath = InterfaceSizeSetting().configPath
+    private static let fontSizePath = InterfaceScaleSetting().configPath
     private static let uiScalePath = UIScaleSetting().configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
@@ -159,17 +158,20 @@ enum AppearanceHandlers {
         context.writeSetting("toggle \(kind.rawValue) animations", AnimationKindsSetting.path(kind), value, reloadOnFailure: true)
     }
 
-    /// Body size in points: the override, else the density default.
+    /// The selected Labs-gated chrome multiplier.
     static func interfaceSize(_ design: DesignSettings = .shared) -> Double {
-        Double(design.overrides[.chromeFontSize] ?? (design.density == .compact ? 12 : 13))
+        Double(design.interfaceScale)
     }
 
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
         try requireUnmanaged(fontSizePath, context)
         let design = context.design
-        design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
-        let size = interfaceSize(design)
-        context.writeSetting("set interface size", fontSizePath, .number(size), reloadOnFailure: true)
+        let values = InterfaceScaleSetting().values
+        let current = interfaceSize(design)
+        let index = values.enumerated().min(by: { abs($0.element - current) < abs($1.element - current) })?.offset ?? 1
+        let next = values[min(max(index + Int(delta), 0), values.count - 1)]
+        design.interfaceScale = CGFloat(next)
+        context.writeSetting("set interface size", fontSizePath, .number(next), reloadOnFailure: true)
     }
 
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {
