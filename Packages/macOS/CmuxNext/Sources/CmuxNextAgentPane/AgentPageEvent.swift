@@ -34,6 +34,8 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
+    /// Whether agents suggest tasks (the `agent.suggestedTasks` Debug Settings toggle, cx-lo9yf).
+    public static func suggestedTasks(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "suggestedTasks", value: .bool(on)) }
 
     /// Whether the in-session status cards show (the `agent.sessionStatus` tunable).
     public static func sessionStatus(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "sessionStatus", value: .bool(on)) }

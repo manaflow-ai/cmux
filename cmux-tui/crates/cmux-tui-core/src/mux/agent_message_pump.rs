@@ -22,6 +22,7 @@
 // Off unix nothing starts the pump (no acpmux), and nothing is handed over.
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -46,6 +47,9 @@ const ORIGIN: &str = "agent-message-pump";
 pub(crate) struct AgentMessagePump {
     wake: Mutex<Option<SyncSender<()>>>,
     delivering: Mutex<()>,
+    /// `(message id, recipient)` of hand-overs that went out unaccepted
+    /// whose attempt could not be noted: an unsend treats them as tried.
+    unnoted: Mutex<HashSet<(String, String)>>,
 }
 
 /// How one hand-over to acpmux went.
@@ -108,12 +112,21 @@ impl Mux {
         self.agent_message_pump.delivering.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Whether a hand-over of `id` to `recipient` went out unaccepted and
+    /// its attempt could not be noted.
+    pub(crate) fn agent_message_attempt_unnoted(&self, id: &str, recipient: &str) -> bool {
+        let unnoted = self.agent_message_pump.unnoted.lock().unwrap_or_else(|e| e.into_inner());
+        unnoted.contains(&(id.to_owned(), recipient.to_owned()))
+    }
+
     /// One pass over every queued acpmux delivery, oldest first; whether
-    /// one still waits.
+    /// one still waits. A recipient one waits for, or acpmux cannot reach,
+    /// gets nothing more this pass: its later messages never overtake it,
+    /// and a stuck session costs one wait per pass.
     fn pump_agent_messages(&self) -> bool {
         let session_id = self.session_public_id.as_str().to_owned();
         let mut cursor = (i64::MIN, i64::MIN);
-        let mut unreachable: Vec<String> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
         let mut waits = false;
         loop {
             let Ok(page) = self.read_registry_state(|connection| queued_acp(connection, cursor))
@@ -124,17 +137,20 @@ impl Mux {
             let more = page.len() == PAGE;
             for (sequence, position, id, recipient) in page {
                 cursor = (sequence, position);
-                if unreachable.contains(&recipient) {
+                if skipped.contains(&recipient) {
                     continue;
                 }
                 match self.pump_one(&session_id, &id, &recipient) {
                     Pumped::Done => {}
-                    Pumped::Waits => waits = true,
-                    Pumped::Unreachable => unreachable.push(recipient),
+                    Pumped::Waits => {
+                        waits = true;
+                        skipped.push(recipient);
+                    }
+                    Pumped::Unreachable => skipped.push(recipient),
                 }
             }
             if !more {
-                return waits || !unreachable.is_empty();
+                return waits || !skipped.is_empty();
             }
         }
     }
@@ -161,9 +177,11 @@ impl Mux {
             Handover::Failed(error) => ("failed", Some(truncate(&error, 1024))),
             Handover::Unreachable => return Pumped::Unreachable,
             Handover::Unsettled(error) => {
-                if self.note_agent_message_attempt(id, recipient, &error).is_err() {
+                let noted = self.note_agent_message_attempt(id, recipient, &error).is_ok();
+                if !noted {
                     self.report_internal_diagnostic("agent message pump could not note an attempt");
                 }
+                self.remember_unnoted(id, recipient, !noted);
                 return Pumped::Waits;
             }
         };
@@ -180,7 +198,21 @@ impl Mux {
         if marked.is_err() {
             self.report_internal_diagnostic("agent message pump could not record a delivery");
         }
+        self.remember_unnoted(id, recipient, marked.is_err());
         Pumped::Done
+    }
+
+    /// Fails a hand-over that went out but was not recorded closed: until a
+    /// later record, an unsend treats `id`'s delivery to `recipient` as
+    /// tried and asks acpmux about it.
+    fn remember_unnoted(&self, id: &str, recipient: &str, unnoted: bool) {
+        let key = (id.to_owned(), recipient.to_owned());
+        let mut set = self.agent_message_pump.unnoted.lock().unwrap_or_else(|e| e.into_inner());
+        if unnoted {
+            set.insert(key);
+        } else {
+            set.remove(&key);
+        }
     }
 
     /// Counts a hand-over acpmux never accepted on a delivery that stays

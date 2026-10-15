@@ -134,5 +134,5 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor] }
 }

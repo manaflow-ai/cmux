@@ -14,8 +14,11 @@ Status 2026-10-14: partly built. What exists:
 - The registry for Claude Code's shells (`hub/processes.rs`,
   `server/processes.rs`, #20724): `process/list`, `process/kill` and
   `process_update`. The idle reaper asks it whether anything runs.
+- `process/tail` (cx-d2vha): reads the `output_file` Claude Code names for
+  the shell, which the record keeps (`outputFile`); `outputBytes` is the
+  file's length when listed.
 
-Not built yet: `process/tail` and `process/watch`, Codex, and the
+Not built yet: `process/watch`, Codex, and the
 per-session resource valve. The valve was dropped from #20585 because it
 read `ps` and `/proc`, and cmux-next never scans processes
 (`plans/cmux-next/pty-holder.md` §4). It comes back without scanning in
@@ -59,7 +62,8 @@ Process {
                 // later "budget_memory", "harness_time_limit"
   detail?       // the harness's own words on its end (Claude's summary)
   origin        // background | auto_backgrounded | user_backgrounded
-  outputBytes   // null until tail lands
+  outputBytes   // the output file's length when listed; null with no file
+  outputFile?   // the file the harness writes its output to
 }
 ```
 
@@ -81,8 +85,10 @@ harness itself exited. Its last output is kept and its command is shown with
 - `background_tasks_changed` carries the full live set, so a missed event is
   repaired on the next one.
 - Output comes from tailing the `tasks/<id>.output` file Claude Code already
-  writes. That file lives on the agent host's machine, so the host tails it,
-  not the daemon. Claude Code does not need to stream the output.
+  writes, named by `output_file` on its task events. That file lives on the
+  agent host's machine; the host runs on the daemon's machine, so the daemon
+  reads it (peers are refused). Claude Code does not need to stream the
+  output.
 - To stop a task, acpmux sends Claude Code's `stop_task` control request.
 
 **Codex** (`codex app-server`, through the `cmux-codex-acp` bridge):
@@ -111,7 +117,7 @@ process's command line and its kill never leave the machine.
 | Message | Params | Result |
 | --- | --- | --- |
 | `_acpmux/process/list` (request, built) | `{sessionId?}` (none: every chat whose processes this daemon has read since it started) | `{processes: [Process]}` |
-| `_acpmux/process/tail` (request) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB) | `{data (base64), fromByte, nextByte, eof}` |
+| `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
 | `_acpmux/process/kill` (request, built) | `{processId, signal?: "term" \| "kill"}` | `{}`; the outcome arrives as a `process_update` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
@@ -156,9 +162,11 @@ process's command line and its kill never leave the machine.
   background task, a subagent's included; `process/list` shows it running;
   `process/kill` sends `stop_task`, after which a `process_update` says
   `killed` by the person; a harness exit marks running processes `lost`; Web
-  and Peer connections are refused.
-- To build: `process/tail` returns the output file's bytes; after a daemon
-  restart an adopted host's processes are listed again.
+  and Peer connections are refused; `process/tail` returns the output file's
+  bytes, pages with `fromByte`/`maxBytes`, says `eof` after the shell ends,
+  reads a missing file as empty, and refuses unknown ids.
+- To build: after a daemon restart an adopted host's processes are listed
+  again.
 - The fake Codex app-server: a completed exec item with a live `processId`
   is listed, and `process/kill` calls `backgroundTerminals/terminate`.
 

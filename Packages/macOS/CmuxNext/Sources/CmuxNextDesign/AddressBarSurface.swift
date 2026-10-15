@@ -47,7 +47,7 @@ public nonisolated struct AddressBarSurface: Hashable, Sendable {
     }
 
     /// The selected suggestion row over the popup surface, with a neutral selection.
-    static func rowSelectedAlpha(isDark: Bool) -> Double { isDark ? 0.085 : 0.05 }
+    static func rowSelectedAlpha(isDark: Bool) -> Double { isDark ? 0.105 : 0.05 }
 
     public let background: ThemeRGB
     public let text: ThemeRGB

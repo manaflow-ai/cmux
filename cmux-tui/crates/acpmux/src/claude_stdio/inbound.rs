@@ -179,6 +179,7 @@ impl Translator {
                                 launched: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
                                 announced: false,
+                                output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
@@ -617,14 +618,17 @@ impl Translator {
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
                     announced: false,
+                    output: None,
                 });
                 shell.task = task.map(str::to_owned).or(shell.task.take());
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 shell.background |= backgrounded(line.get("is_backgrounded"));
                 return running(&tool, shell);
             }
             "task_updated" => {
                 let shell = shells.get_mut(&tool)?;
                 shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 // Claude Code may send no notification after `stop_task`: a
                 // stopped task ends here. A completed or failed one waits
                 // for its notification, which carries the summary.
@@ -635,7 +639,8 @@ impl Translator {
             "task_notification" => {}
             _ => return None,
         }
-        let shell = shells.remove(&tool).filter(|s| s.background)?;
+        let mut shell = shells.remove(&tool).filter(|s| s.background)?;
+        shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
         let state = match status {
             Some("failed") => "failed",
             Some("killed" | "stopped") => "stopped",
@@ -804,7 +809,14 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     Some(shell_update(shell, update))
 }
 
-/// `update` as a session update in the shell's session.
+/// `update` as a session update in the shell's session, with its output
+/// file once Claude named it as `_meta.acpmux.outputFile`, which the hub
+/// takes off before the update is logged (`hub/processes.rs`): the path
+/// stays in the registry.
 fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
-    Message::notification(method::SESSION_UPDATE, json!({"sessionId": shell.sid, "update": update}))
+    let mut params = json!({"sessionId": shell.sid, "update": update});
+    if let Some(output) = &shell.output {
+        params["_meta"] = json!({"acpmux": {"outputFile": output}});
+    }
+    Message::notification(method::SESSION_UPDATE, params)
 }

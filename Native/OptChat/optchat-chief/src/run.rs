@@ -231,6 +231,23 @@ impl RunSteps {
         out
     }
 
+    /// The turn is over: every talk and thought step still open closes, so
+    /// its last live frame (`final`) goes before the run's end and the reply.
+    pub fn close_all(&mut self) {
+        let open: Vec<String> = self
+            .steps
+            .iter()
+            .filter(|(_, step)| step.open)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in open {
+            if let Some(step) = self.steps.get_mut(&id) {
+                step.open = false;
+            }
+            self.dirty.insert(id);
+        }
+    }
+
     /// The streaming thought ended (a tool call or a reply began): the next one is a new step.
     pub fn close_thought(&mut self) {
         let id = format!("thought:{}", self.thought);

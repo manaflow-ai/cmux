@@ -74,6 +74,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyShortcuts()
             view.applyPreviewFeatures()
             AgentPaneSessionStatus.push(to: view)
+            AgentPaneSuggestedTasks.shared.push(to: view)
             view.applyEditedFiles()
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)

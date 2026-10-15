@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextResources
 import CmuxNextSettings
 import ObjectiveC
 import WebKit
@@ -85,9 +86,7 @@ enum DebugAgentPane {
         keepRenderingWhenCovered(view.webView)
         actAsUser(action, gestures: view.model.transport.gestures)
         if action == "pid" {
-            let selector = NSSelectorFromString("_webProcessIdentifier")
-            guard view.webView.responds(to: selector),
-                  let pid = (view.webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else {
+            guard let pid = WebContentProcess.identifier(of: view.webView) else {
                 return .object(["pane": .string(pane), "error": .string("no WebContent process")])
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
