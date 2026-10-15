@@ -193,7 +193,7 @@ async fn a_chief_turn_seal_reaches_its_session_and_is_never_shown() {
         local.call("session/new", new_params(json!({"env": {"OPTCHAT_TURN_SEAL": seal}}))).await;
     assert!(reply.get("error").is_none(), "{reply}");
     let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
-    assert_eq!(local.env_of(&id, "OPTCHAT_TURN_SEAL").await, format!("OPTCHAT_TURN_SEAL={seal}"));
+    // Before the harness echoes it into the transcript (which info carries).
     let info = local.call("_acpmux/info", json!({"sessionId": id})).await;
     assert_eq!(
         info.pointer("/result/sessionEnv/OPTCHAT_TURN_SEAL"),
@@ -201,6 +201,7 @@ async fn a_chief_turn_seal_reaches_its_session_and_is_never_shown() {
         "{info}"
     );
     assert!(!info.to_string().contains(&seal), "{info}");
+    assert_eq!(local.env_of(&id, "OPTCHAT_TURN_SEAL").await, format!("OPTCHAT_TURN_SEAL={seal}"));
     for bad in [json!("short"), json!("zz".repeat(32))] {
         let reply =
             local.call("session/new", new_params(json!({"env": {"OPTCHAT_TURN_SEAL": bad}}))).await;
