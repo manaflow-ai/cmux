@@ -2,10 +2,14 @@
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
-// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). The images a prompt sent show
-// above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished once sent).
+// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Copy is on the prompt's right-click
+// menu (Copy Message; Leo dogfood 2026-10-13: one hover action); the `hover-actions` experiment's
+// "all" arm keeps it under the bubble. The images a prompt sent show above its bubble, each opening
+// the image viewer (Leo, 2026-10-13: they vanished once sent).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
+import { experimentArm } from "../../../experiments/experiment";
+import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useT } from "../i18n";
 import { copyText } from "./clipboard";
 import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
@@ -19,6 +23,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const through = edit?.seqs.get(row.id);
+  const copies = experimentArm(hoverActions) === "all";
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -39,7 +44,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">{text}</div>
-      {text && !row.failed && !row.queued && (
+      {text && !row.failed && !row.queued && (copies || branch || through !== undefined) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
             <span className="cv-user__versions">
@@ -71,20 +76,22 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               </button>
             </span>
           )}
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={copied ? t("turn.copied") : t("turn.copy")}
-            title={copied ? t("turn.copied") : t("turn.copy")}
-            onClick={() =>
-              void copyText(row.text ?? text).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            <Copy size={14} />
-          </button>
+          {copies && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={copied ? t("turn.copied") : t("turn.copy")}
+              title={copied ? t("turn.copied") : t("turn.copy")}
+              onClick={() =>
+                void copyText(row.text ?? text).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                )
+              }
+            >
+              <Copy size={14} />
+            </button>
+          )}
           {through !== undefined && (
             <button
               type="button"
