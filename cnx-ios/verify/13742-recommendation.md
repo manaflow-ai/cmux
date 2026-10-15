@@ -318,3 +318,11 @@ signature). Policy tests: acpmux `tests/workspace_roots.rs`, plus
 the phone then says to update or use a known project) or `ask on the Mac for
 each new folder` (a follow-up: the Mac prompts the first time a phone starts a
 chat in a folder).
+
+**Follow-up decision (folder trust from the phone):** acpmux refuses
+`acp.trust.set` from a remote connection, so a phone-started agent chat in a
+folder nobody trusted yet waits for the Mac (or for `claude` run in that
+workspace's terminal, which the phone can already do). Reply `answer folder
+trust on the phone with Face ID` (a signed, one-time answer like the
+approvals, for the folder of the person's own tab only) or `keep folder trust
+on the Mac` (today: the phone explains where to answer it).
