@@ -106,12 +106,12 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
         }
         #expect(answered)
         let head = [
-            "text: On it. That needs a new workspace, so I'll ask first.",
+            "text: On it. That starts a coding agent, so I'll ask first.",
             "approval scripted-approval-1: Allow/Deny",
         ]
         let tail = allowed
-            ? ["tool: \(ChiefScriptedBrain.approvalCommand)", "tool done: Created workspace Scratch",
-               "text: Done. Scratch is open as a new workspace.", "finished"]
+            ? ["tool: \(ChiefScriptedBrain.approvalCommand)", "tool done: Codex is working in Scratch",
+               "text: Done. Codex is working in Scratch.", "finished"]
             : ["text: Okay, I left everything as it was.", "finished"]
         #expect(summarize(events) == head + tail)
     }

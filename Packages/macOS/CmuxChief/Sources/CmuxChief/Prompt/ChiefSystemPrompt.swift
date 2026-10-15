@@ -192,7 +192,7 @@ public enum ChiefSystemPrompt {
     /// A filled-in `cmux chief dispatch` call, quoted in ``codingAgents``.
     /// `ChiefDispatchRecipeTests` holds it to one simple command (one approval card,
     /// covered by an Always Allow rule for `cmux chief dispatch`).
-    static let dispatchExample = #"cmux chief dispatch --agent codex --name "#123: fix login" --cwd /Users/me/src/app --wait-working --json -- 'Fix the login bug in src/auth.ts, run its tests, open a PR and report the PR URL.'"#
+    static let dispatchExample = ##"cmux chief dispatch --agent codex --name "#123: fix login" --cwd /Users/me/src/app --wait-working --json -- 'Fix the login bug in src/auth.ts, run its tests, open a PR and report the PR URL.'"##
 
     static let codingAgents = """
     # Coding agents

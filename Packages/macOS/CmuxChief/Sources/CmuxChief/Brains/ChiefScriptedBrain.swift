@@ -34,8 +34,8 @@ public final class ChiefScriptedBrain: ChiefBrain {
     public static let approvalOptions = ["Allow", "Deny"]
     /// The command the scripted tool call shows.
     public static let treeCommand = "cmux tree --all --json"
-    /// The command the approval asks to run.
-    public static let approvalCommand = "cmux new-workspace --name Scratch"
+    /// The command the approval asks to run: the dispatch verb the system prompt teaches.
+    public static let approvalCommand = "cmux chief dispatch --agent codex --name Scratch --wait-working -- 'Run the test suite and report what fails.'"
 
     private let clock: any Clock<Duration>
     private let state = ScriptedBrainState()
@@ -59,15 +59,15 @@ public final class ChiefScriptedBrain: ChiefBrain {
         let tool = "scripted-tool-\(turn)"
         var steps: [Step] = [.pause(.milliseconds(900))]
         if text.contains("approve") {
-            steps += stream("On it. That needs a new workspace, so I'll ask first.")
+            steps += stream("On it. That starts a coding agent, so I'll ask first.")
             steps.append(.pause(.milliseconds(300)))
             let run = "scripted-tool-\(turn)-run"
             let allowed: [Step] = [
                 .event(.toolStarted(id: run, title: approvalCommand, detail: nil)),
                 .pause(.milliseconds(1200)),
-                .event(.toolFinished(id: run, ok: true, preview: "Created workspace Scratch")),
+                .event(.toolFinished(id: run, ok: true, preview: "Codex is working in Scratch")),
                 .pause(.milliseconds(400)),
-            ] + stream("Done. Scratch is open as a new workspace.") + [.event(.finished)]
+            ] + stream("Done. Codex is working in Scratch.") + [.event(.finished)]
             let denied: [Step] = stream("Okay, I left everything as it was.") + [.event(.finished)]
             // The real brains' command prompt ("Run `<command>`?", ChiefToolPolicy.claudePrompt), so the
             // card shows "Chief wants to run", the command block and the Always Allow menu.
