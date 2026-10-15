@@ -236,6 +236,37 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(hiddenBadge.isHidden)
     }
 
+    @Test("Cloud identity remains visible when repository details are hidden")
+    func cloudIdentityDoesNotFollowHideAllRepositoryDetails() throws {
+        let defaults = Self.makeDefaults()
+        let sidebar = SidebarCatalogSection()
+        defaults.set(true, forKey: sidebar.hideAllDetails.userDefaultsKey)
+        defaults.set(false, forKey: sidebar.showBranchDirectory.userDefaultsKey)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let workspace = Workspace(workingDirectory: "/home/cmux", initialSurface: .terminal)
+        defer { workspace.teardownAllPanels() }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        workspace.updateCloudPanelDirectory(
+            panelId: try #require(workspace.focusedPanelId),
+            directory: "/home/cmux"
+        )
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        ).makeSnapshot()
+        let cell = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: settings, workspaceSnapshot: snapshot),
+            tab: workspace
+        )
+        let badge = try #require(SidebarAppKitRowCellTests.descendants(of: cell).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+
+        #expect(!badge.isHidden)
+    }
+
     /// Ensures restored Cloud identity survives every connection presentation state.
     @Test(arguments: [false, true])
     func cloudBadgeSurvivesRestoreAndReconnect(legacyTransport: Bool) throws {
