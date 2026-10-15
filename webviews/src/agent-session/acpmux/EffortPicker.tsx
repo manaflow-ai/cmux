@@ -254,6 +254,7 @@ function ReasoningSlider({
         <span id={titleId} className="ui-menu-group-label">
           {title}
         </span>
+        {/* tooltip-allow: the slider row shows only the level's name; the tooltip is its description */}
         <span className="acpmux-effort-slider-level" title={shown?.description}>
           {shown?.name}
         </span>
