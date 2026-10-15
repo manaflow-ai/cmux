@@ -132,7 +132,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // one main-actor hop for app state (`TerminalController+Chief`).
         // `chief.debug` answers only in DEBUG builds.
         "chief.open", "chief.send", "chief.status", "chief.conversations",
-        "chief.read", "chief.stop", "chief.debug",
+        "chief.read", "chief.stop", "chief.approve", "chief.debug",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

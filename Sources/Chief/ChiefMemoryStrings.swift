@@ -38,11 +38,11 @@ enum ChiefMemoryStrings {
     static func updated(_ relative: String) -> String {
         String(format: String(localized: "chief.memory.sheet.updated", defaultValue: "Updated %@"), relative)
     }
-    /// Who saved a note: Chief through the CLI, the app, or another tag shown as is.
+    /// Who saved a note: Chief through the CLI, the user in the app, or another tag shown as is.
     static func source(_ tag: String) -> String {
         switch tag {
-        case "cli": String(localized: "chief.memory.source.chief", defaultValue: "Chief")
-        case "app": String(localized: "chief.memory.source.you", defaultValue: "You")
+        case "cli": String(localized: "chief.memory.source.chief", defaultValue: "Saved by Chief")
+        case "app": String(localized: "chief.memory.source.you", defaultValue: "Saved by you")
         default: tag
         }
     }

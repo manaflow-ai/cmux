@@ -35,6 +35,11 @@ enum ChiefToolPolicy {
         choice.caseInsensitiveCompare("Allow") == .orderedSame
     }
 
+    /// Whether an approval option refuses (Stop settles a waiting card with it).
+    static func isRefusal(_ choice: String) -> Bool {
+        ["deny", "decline", "reject", "no", "cancel"].contains(choice.lowercased())
+    }
+
     private static let readOnlyTools: Set<String> = ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch"]
 
     /// Whether Claude Code's `tool` with `input` runs without asking.
@@ -57,7 +62,9 @@ enum ChiefToolPolicy {
         for stage in stages {
             // `$HOME`-style expansion could smuggle flags past the checks.
             if stage.contains(where: \.expands) { return false }
-            guard autoAllowsSimpleCommand(stage.map(\.text)) else { return false }
+            let words = stage.map(\.text)
+            // The user's "Always Allow" rules (an approval card's menu) cover their program and subcommand.
+            guard autoAllowsSimpleCommand(words) || ChiefAllowRules.shared.allows(words) else { return false }
         }
         return true
     }

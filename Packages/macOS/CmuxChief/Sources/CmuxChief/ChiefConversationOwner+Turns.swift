@@ -35,6 +35,8 @@ extension ChiefConversationOwner {
         let next = queue.removeFirst()
         pending[conversation] = queue.isEmpty ? nil : queue
         guard let state = conversations[conversation], let chief = state.chief else { return }
+        // The user's "Always Allow" rules, for the brain's approval checks (ChiefToolPolicy).
+        ChiefAllowRules.shared.load(home)
         if let seq = next.readSeq { moveReadCursor(conversation, of: chief.id, to: seq) }
         running[conversation] = ChiefRunningTurn(chief: chief.id, threadRoot: next.threadRoot, startedAt: now())
         guard let turnID = running[conversation]?.id else { return }
@@ -132,9 +134,19 @@ extension ChiefConversationOwner {
             running[conversation] = turn
         case .approvalRequested(let id, let prompt, let options):
             flushSegment(&turn, in: conversation, retype: false)
-            postChief([.approval(ApprovalRef(request: id, prompt: prompt, options: options))], in: conversation, turn: turn,
-                      key: .make(), retype: true)
+            let ref = ApprovalRef(request: id, prompt: prompt, options: options)
+            // The card takes the place of the tool's own running row, so the command shows once.
+            if let work = workAwaitingApproval(prompt, turn: turn, in: conversation),
+               (try? updateMessage(work.message, in: conversation, { $0.parts = [.approval(ref)] })) != nil {
+                turn.tools[work.tool] = nil
+                turn.approvals[id] = work.message
+            } else if let message = postChief([.approval(ref)], in: conversation, turn: turn, key: .make(), retype: false) {
+                turn.approvals[id] = message.id
+            }
             running[conversation] = turn
+            // The Chief waits for the user now: no typing dots under the card.
+            publish(.typing(conversation, turn.chief, on: false))
+            notifyWorking()
         case .result(let card):
             flushSegment(&turn, in: conversation, retype: false)
             postChief([.work(Self.resultWork(card))], in: conversation, turn: turn, key: .make(), retype: true)
@@ -254,6 +266,8 @@ extension ChiefConversationOwner {
         flushSegment(&turn, in: conversation, retype: false)
         let status: WorkRef.Status = failure == nil && !stopped ? .done : .failed
         for messageID in Set(turn.tools.values) { setWorkStatus(messageID, in: conversation, status, preview: nil) }
+        // A card still waiting when the turn ends (Stop, a failure) was refused: the brain denies open approvals.
+        for (request, messageID) in turn.approvals { settleApproval(request, messageID, in: conversation) }
         // A provisioning row whose calls all ended keeps its own outcome; one still creating settles with the turn.
         if let row = turn.provisioning, turn.provisioningStatus == .running, !turn.tools.values.contains(row) {
             setWorkStatus(row, in: conversation, status, preview: nil)
@@ -283,6 +297,13 @@ extension ChiefConversationOwner {
     /// - Throws: ``HomeRejection/invalid(_:)`` when no open approval has that
     ///   id (`unknown_approval`, `approval_decided`) or the choice is not an option.
     public func answerApproval(conversation: ConversationID, request: String, choice: String) async throws {
+        try decideApproval(conversation: conversation, request: request, choice: choice)
+        await brain.respond(toApproval: request, choice: choice, conversation: conversation)
+    }
+
+    /// Records `choice` on the approval part; the Chief types again once no card of its turn waits.
+    /// The caller tells the brain.
+    func decideApproval(conversation: ConversationID, request: String, choice: String) throws {
         let state = try conversationState(conversation)
         var match: (message: MessageID, part: Int, ref: ApprovalRef)?
         search: for message in state.messages.reversed() {
@@ -301,7 +322,60 @@ extension ChiefConversationOwner {
             ref.decided = choice
             message.parts[found.part] = .approval(ref)
         }
-        await brain.respond(toApproval: request, choice: choice, conversation: conversation)
+        if var turn = running[conversation], turn.approvals.removeValue(forKey: request) != nil {
+            running[conversation] = turn
+            if turn.approvals.isEmpty { publish(.typing(conversation, turn.chief, on: true)) }
+            notifyWorking()
+        }
+    }
+
+    /// The newest approval in `conversation` that waits for an answer (`chief.approve`).
+    ///
+    /// - Parameters:
+    ///   - conversation: The conversation.
+    ///   - request: Only this approval (``ApprovalRef/request``), decided or not; nil: the newest waiting one.
+    /// - Returns: The approval, nil when none matches.
+    public func pendingApproval(in conversation: ConversationID, request: String? = nil) -> ApprovalRef? {
+        guard let state = conversations[conversation] else { return nil }
+        for message in state.messages.reversed() {
+            for case .approval(let ref) in message.parts.reversed() {
+                if let request { if ref.request == request { return ref } } else if ref.decided == nil { return ref }
+            }
+        }
+        return nil
+    }
+
+    /// Whether an approval card of `conversation`'s running turn waits for the user.
+    public func isWaitingForApproval(_ conversation: ConversationID) -> Bool {
+        running[conversation].map { !$0.approvals.isEmpty } ?? false
+    }
+
+    /// The running tool whose call `prompt` asks about: its command or title is in the prompt
+    /// (ChiefToolPolicy.claudePrompt quotes the command), the newest such call.
+    private func workAwaitingApproval(_ prompt: String, turn: ChiefRunningTurn,
+                                      in conversation: ConversationID) -> (tool: String, message: MessageID)? {
+        guard let state = conversations[conversation] else { return nil }
+        var best: (tool: String, message: MessageID, seq: Seq)?
+        for (tool, messageID) in turn.tools where messageID != turn.provisioning {
+            guard let message = state.message(messageID), message.parts.count == 1 else { continue }
+            for case .work(let work) in message.parts where work.status == .running && work.host == nil {
+                let needles = [work.preview, work.title].compactMap { $0 }.map { String($0.prefix(200)) }.filter { !$0.isEmpty }
+                guard needles.contains(where: { prompt.contains($0) }) else { continue }
+                if best.map({ message.seq > $0.seq }) ?? true { best = (tool, messageID, message.seq) }
+            }
+        }
+        return best.map { ($0.tool, $0.message) }
+    }
+
+    /// Marks a card no answer reached as refused (its turn ended).
+    private func settleApproval(_ request: String, _ messageID: MessageID, in conversation: ConversationID) {
+        _ = try? updateMessage(messageID, in: conversation) { message in
+            message.parts = message.parts.map { part in
+                guard case .approval(var ref) = part, ref.request == request, ref.decided == nil else { return part }
+                ref.decided = ref.options.first(where: ChiefToolPolicy.isRefusal) ?? "Deny"
+                return .approval(ref)
+            }
+        }
     }
 
     /// The stats of `conversation`'s last finished turn (this session), nil before one ends.

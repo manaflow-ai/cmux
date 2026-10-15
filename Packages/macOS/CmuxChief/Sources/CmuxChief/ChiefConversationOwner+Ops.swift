@@ -136,8 +136,13 @@ extension ChiefConversationOwner {
     }
 
     /// Records the answer on the question part, then hands it to the Chief as a turn.
+    /// An approval part takes the same op (CmuxHomeCore has no approval op): see ``answerApprovalPart``.
     private func answerQuestion(_ messageID: MessageID, in id: ConversationID, partIndex: Int,
                                 answer: AgentQuestionAnswer) throws -> HomeOpResult {
+        if let message = try conversationState(id).message(messageID), message.parts.indices.contains(partIndex),
+           case .approval(let ref) = message.parts[partIndex] {
+            return try answerApprovalPart(ref, in: id, answer: answer)
+        }
         let respondent = AgentQuestionAnswer.Respondent(participant: me.id.rawValue, displayName: me.displayName)
         let atMs = Int64(now().timeIntervalSince1970 * 1000)
         var answered: AgentQuestion?
@@ -162,5 +167,33 @@ extension ChiefConversationOwner {
                                      replyContext: answered.summary, threadRoot: nil), in: id)
         }
         return HomeOpResult(rev: rev)
+    }
+}
+
+// Approval cards answered from Home.
+extension ChiefConversationOwner {
+    /// The selection item that names an approval's chosen option (Home's `ChiefApprovalAnswer.item`).
+    static let approvalAnswerItem = "approval"
+    /// Present when the user chose "Always Allow" (Home's `ChiefApprovalAnswer.always`).
+    static let approvalAlwaysItem = "always"
+
+    /// An approval part's answer through `HomeOp.answerQuestion`: the chosen option is the
+    /// `approval` item's first option id. With the `always` item and a granting choice the
+    /// command's allow rule is saved first (``ChiefAllowRules``). The part records the choice
+    /// now and the brain hears it right after (``ChiefBrain/respond(toApproval:choice:conversation:)``).
+    func answerApprovalPart(_ ref: ApprovalRef, in id: ConversationID, answer: AgentQuestionAnswer) throws -> HomeOpResult {
+        guard let choice = answer.selections[Self.approvalAnswerItem]?.optionIDs.first else {
+            throw HomeRejection.invalid("invalid_answer")
+        }
+        try decideApproval(conversation: id, request: ref.request, choice: choice)
+        if answer.selections[Self.approvalAlwaysItem] != nil, ChiefToolPolicy.isAllow(choice),
+           let command = ChiefAllowRules.command(inPrompt: ref.prompt) {
+            ChiefAllowRules.shared.load(home)
+            _ = try? ChiefAllowRules.shared.add(command: command)
+        }
+        let brain = self.brain
+        // task-owner: one answer to the brain; ends when the brain took it
+        Task { await brain.respond(toApproval: ref.request, choice: choice, conversation: id) }
+        return HomeOpResult(rev: try conversationState(id).summary.rev)
     }
 }

@@ -64,8 +64,10 @@ final class ChiefMemorySectionView: NSView {
 
     // Not an isolated deinit (Swift 6.0 has none): the main-thread check guards the hop.
     deinit {
-        guard Thread.isMainThread, let observer else { return } // main-proof: returns off the main thread
-        NotificationCenter.default.removeObserver(observer)
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 
     override func viewDidMoveToWindow() {

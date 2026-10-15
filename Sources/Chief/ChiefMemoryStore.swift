@@ -14,9 +14,9 @@ final class ChiefMemoryStore {
     static let shared = ChiefMemoryStore()
 
     /// Posted on the main queue after the files changed.
-    static let didChange = Notification.Name("ChiefMemoryStore.didChange")
+    nonisolated static let didChange = Notification.Name("ChiefMemoryStore.didChange")
     /// `[ChiefMemoryFact]` in ``didChange``'s userInfo: the notes the change added.
-    static let addedKey = "added"
+    nonisolated static let addedKey = "added"
 
     /// Every note, oldest first.
     private(set) var facts: [ChiefMemoryFact] = []

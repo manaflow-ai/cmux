@@ -92,6 +92,7 @@ Environment:
 | `chief conversations` | List Chief conversations, pinned first, then newest (`chief.conversations`): id, unread, flags, title, preview. |
 | `chief read` | Print the newest messages of a conversation as `<time> <author>: <text>` (`chief.read`, `--limit <n>`, default 20, max 200); `--json` gives `author`, `author_kind`, `text`, `at` and `parts` kinds. |
 | `chief stop` | Stop Chief's running reply in a conversation (`chief.stop`). |
+| `chief approve` | Answer Chief's approval card (`chief.approve`): `[<request id>]` (default: the newest waiting card), `--deny`, or `--choice <option>`; default Allow. Prints `OK <request id> <choice>`. The same answer as the card's buttons. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |

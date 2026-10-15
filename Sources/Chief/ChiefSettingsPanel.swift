@@ -1,35 +1,72 @@
 import AppKit
 import CmuxChief
+import CmuxHomeCore
+import Observation
 
 /// Chief's settings, a right panel inside the transcript that the header's
-/// "Chief >" name pill toggles (cmux-next `HomeChiefSidebar`): the avatar,
-/// which agent answers (harness, model, effort; the `chief.*` cmux
-/// settings, applied from the next turn), Chief's memory files, and a new
-/// conversation.
+/// "Chief >" name pill toggles (cmux-next `HomeChiefSidebar`, feat-cmux-next
+/// `Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSidebar.swift`).
+/// Grouped sections, each a rounded card:
+///
+/// - Profile: Chief's name and avatar.
+/// - Brain: harness, model and effort (the `chief.*` cmux settings, applied
+///   from the next turn). Each picker's first item names what the default
+///   resolves to ("Default (Opus 5.5)"), the menus check the current choice,
+///   and a line under Effort says what the level trades (references:
+///   `apps/claude/live/model-picker-open.png`, `model-effort-submenu.png`,
+///   `apps/aside/web/reasoning-menu.webp`).
+/// - Activity: the last turn's engine, time, tool calls and cache share, where
+///   the brain runs, and Show Transcript Log.
+/// - Memory (``ChiefMemorySectionView`` and the memory files) and Conversation.
 @MainActor
 final class ChiefSettingsPanel: NSView {
     static let width: CGFloat = 280
+    private static let inset: CGFloat = 12
+    private static let padding: CGFloat = 12
+    private static let cardWidth = width - 2 * inset
+    private static let contentWidth = cardWidth - 2 * padding
 
+    private let scrollView = NSScrollView()
+    private let document = ChiefSettingsDocumentView()
     private let stack = NSStackView()
-    private let memorySection = ChiefMemorySectionView(width: ChiefSettingsPanel.width - 32)
+    private let titleLabel = NSTextField(labelWithString: ChiefStrings.settingsTitle)
+    private var cards: [ChiefSettingsCard] = []
+
+    private let nameField = NSTextField(string: "")
+    private let avatarField = NSTextField(string: "")
+    /// Choose Picture… without a picture, Remove Picture with one.
+    private let pictureButton = NSButton(title: ChiefStrings.settingsAvatarChoosePicture, target: nil, action: nil)
     private let harness = NSPopUpButton(frame: .zero, pullsDown: false)
     private let model = NSPopUpButton(frame: .zero, pullsDown: false)
     private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let avatarField = NSTextField(string: "")
-    private var captions: [NSTextField] = []
-    private var notes: [NSTextField] = []
-    private var titleLabel = NSTextField(labelWithString: ChiefStrings.settingsTitle)
-    private var shownAvatar = ""
-    /// Choose Picture… without a picture, Remove Picture with one.
-    private let pictureButton = NSButton(title: ChiefStrings.settingsAvatarChoosePicture, target: nil, action: nil)
-    private var hasPicture = false
+    private var effortNote = NSTextField(labelWithString: "")
+    private var statsLabel = NSTextField(labelWithString: "")
+    private var placeLabel = NSTextField(labelWithString: "")
+    private let logButton = NSButton(title: ChiefSettingsStrings.showTranscriptLog, target: nil, action: nil)
+    private let memorySection = ChiefMemorySectionView(width: ChiefSettingsPanel.contentWidth)
+    private var memoryButtons: [NSButton] = []
+    private let newConversationButton = NSButton(title: ChiefStrings.newConversation, target: nil, action: nil)
 
+    private var shownAvatar = ""
+    private var shownName = ""
+    private var hasPicture = false
+    private var stopped = false
+    // task-owner: the latest stats read; replaced by the next, cancelled by stop()
+    private var statsRead: Task<Void, Never>?
+
+    /// The conversation whose last turn the Activity section shows.
+    var conversation: ConversationID? { didSet { if conversation != oldValue { refreshStats() } } }
+
+    /// The name changed (nil: back to "Chief").
+    var onName: (String?) -> Void = { _ in }
     /// The avatar text changed (nil: initials).
     var onAvatar: (String?) -> Void = { _ in }
     /// Choose Picture… was clicked: the host opens the image picker.
     var onChoosePicture: () -> Void = {}
     /// Remove Picture was clicked.
     var onRemovePicture: () -> Void = {}
+    /// Show Transcript Log was clicked.
+    var onShowTranscriptLog: () -> Void = {}
     /// New Conversation was clicked.
     var onNewConversation: () -> Void = {}
     /// Edit About You / Edit Instructions: the host opens the editor.
@@ -44,55 +81,19 @@ final class ChiefSettingsPanel: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(ChiefStrings.settingsTitle)
         setAccessibilityIdentifier("ChiefSettingsPanel")
+        buildScroller()
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        titleLabel.setAccessibilityRole(.staticText)
         stack.addArrangedSubview(titleLabel)
-        stack.setCustomSpacing(14, after: titleLabel)
-
-        avatarField.placeholderString = ChiefStrings.settingsAvatarPlaceholder
-        avatarField.target = self
-        avatarField.action = #selector(avatarChanged)
-        avatarField.setAccessibilityLabel(ChiefStrings.settingsAvatar)
-        addRow(ChiefStrings.settingsAvatar, avatarField)
-        stack.setCustomSpacing(6, after: avatarField)
-        pictureButton.target = self
-        pictureButton.action = #selector(pictureClicked)
-        pictureButton.bezelStyle = .push
-        pictureButton.controlSize = .regular
-        stack.addArrangedSubview(pictureButton)
-        pictureButton.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
-        stack.setCustomSpacing(10, after: pictureButton)
-
-        for (button, label) in [(harness, ChiefStrings.settingsHarness), (model, ChiefStrings.settingsModel),
-                                (effort, ChiefStrings.settingsEffort)] {
-            button.target = self
-            button.action = #selector(picked(_:))
-            button.setAccessibilityLabel(label)
-            addRow(label, button)
-        }
-        addNote(ChiefStrings.settingsNextTurn)
-        if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(22, after: last) }
-
-        addCaption(ChiefStrings.settingsMemory)
-        addNote(ChiefStrings.settingsMemoryNote)
-        // Chief memory (ChiefMemorySectionView): the newest notes, hover ✕ forgets, Show All… opens the sheet.
-        stack.setCustomSpacing(10, after: stack.arrangedSubviews.last ?? titleLabel)
-        memorySection.onShowAll = { [weak self] in ChiefMemoryEditor.present(selecting: .notes, in: self?.window) }
-        stack.addArrangedSubview(memorySection)
-        stack.setCustomSpacing(10, after: memorySection)
-        for (title, action) in [(ChiefStrings.settingsEditProfile, #selector(editProfile)),
-                                (ChiefStrings.settingsEditInstructions, #selector(editInstructions)),
-                                (ChiefStrings.settingsShowMemoryFolder, #selector(showFolder))] {
-            addButton(title, action)
-        }
-        if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(22, after: last) }
-        addCaption(ChiefStrings.settingsConversation)
-        addButton(ChiefStrings.newConversation, #selector(newConversation))
-        addSubview(stack)
+        stack.setCustomSpacing(16, after: titleLabel)
+        buildProfile()
+        buildBrain()
+        buildActivity()
+        buildMemory()
+        buildConversation()
+        chainKeyViews()
         refresh()
+        observeWorking()
     }
 
     @available(*, unavailable)
@@ -100,35 +101,137 @@ final class ChiefSettingsPanel: NSView {
 
     override var isFlipped: Bool { true }
 
-    private func addCaption(_ text: String) {
-        let caption = NSTextField(labelWithString: text)
-        caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-        captions.append(caption)
-        stack.addArrangedSubview(caption)
+    /// Ends the stats read and the working-set observation.
+    func stop() {
+        stopped = true
+        statsRead?.cancel()
     }
 
-    private func addRow(_ label: String, _ control: NSControl) {
-        addCaption(label)
-        control.controlSize = .regular
-        stack.addArrangedSubview(control)
-        control.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
-        stack.setCustomSpacing(10, after: control)
+    // MARK: Building
+
+    private func buildScroller() {
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.scrollerStyle = .overlay
+        scrollView.automaticallyAdjustsContentInsets = false
+        addSubview(scrollView)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 18
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: Self.inset, bottom: 20, right: Self.inset)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(stack)
+        scrollView.documentView = document
+        let clip = scrollView.contentView
+        NSLayoutConstraint.activate([
+            document.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
+            document.topAnchor.constraint(equalTo: clip.topAnchor),
+            document.widthAnchor.constraint(equalTo: clip.widthAnchor),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: document.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+        ])
     }
 
-    private func addNote(_ text: String) {
-        let note = NSTextField(wrappingLabelWithString: text)
-        note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        note.preferredMaxLayoutWidth = Self.width - 32
-        notes.append(note)
-        stack.addArrangedSubview(note)
+    private func card(_ title: String) -> ChiefSettingsCard {
+        let card = ChiefSettingsCard(title: title, width: Self.cardWidth, padding: Self.padding)
+        cards.append(card)
+        stack.addArrangedSubview(card)
+        return card
     }
 
-    private func addButton(_ title: String, _ action: Selector) {
-        let button = NSButton(title: title, target: self, action: action)
+    private func buildProfile() {
+        let profile = card(ChiefSettingsStrings.sectionProfile)
+        configure(nameField, placeholder: ChiefStrings.chiefName, action: #selector(nameChanged))
+        nameField.setAccessibilityIdentifier("ChiefSettingsName")
+        profile.addRow(ChiefSettingsStrings.name, nameField)
+        profile.addCaption(ChiefSettingsStrings.nameHelp, describing: nameField)
+        profile.addGap(12)
+        configure(avatarField, placeholder: ChiefStrings.settingsAvatarPlaceholder, action: #selector(avatarChanged))
+        profile.addRow(ChiefStrings.settingsAvatar, avatarField)
+        configure(pictureButton, action: #selector(pictureClicked))
+        profile.add(pictureButton)
+    }
+
+    private func buildBrain() {
+        let brain = card(ChiefSettingsStrings.sectionBrain)
+        for (index, (button, label)) in [(harness, ChiefStrings.settingsHarness), (model, ChiefStrings.settingsModel),
+                                         (effort, ChiefStrings.settingsEffort)].enumerated() {
+            button.target = self
+            button.action = #selector(picked(_:))
+            button.setAccessibilityIdentifier("ChiefSettings\(["Harness", "Model", "Effort"][index])")
+            brain.addRow(label, button)
+            if button !== effort { brain.addGap(10) }
+        }
+        effortNote = brain.addCaption("", describing: effort)
+        brain.addGap(10)
+        brain.addCaption(ChiefStrings.settingsNextTurn)
+    }
+
+    private func buildActivity() {
+        let activity = card(ChiefSettingsStrings.sectionActivity)
+        statsLabel = activity.addCaption(ChiefSettingsStrings.noTurn)
+        statsLabel.setAccessibilityIdentifier("ChiefSettingsLastTurn")
+        statsLabel.isSelectable = true
+        placeLabel = activity.addCaption("")
+        placeLabel.isSelectable = true
+        activity.addGap(10)
+        configure(logButton, action: #selector(showLog))
+        logButton.toolTip = ChiefSettingsStrings.showTranscriptLogHelp
+        logButton.setAccessibilityHelp(ChiefSettingsStrings.showTranscriptLogHelp)
+        activity.add(logButton)
+    }
+
+    private func buildMemory() {
+        let memory = card(ChiefStrings.settingsMemory)
+        memory.addCaption(ChiefStrings.settingsMemoryNote)
+        memory.addGap(8)
+        // Chief memory (ChiefMemorySectionView): the newest notes, hover ✕ forgets, Show All… opens the sheet.
+        memorySection.onShowAll = { [weak self] in ChiefMemoryEditor.present(selecting: .notes, in: self?.window) }
+        memory.box.addArrangedSubview(memorySection)
+        memory.addGap(10)
+        for (title, action) in [(ChiefStrings.settingsEditProfile, #selector(editProfile)),
+                                (ChiefStrings.settingsEditInstructions, #selector(editInstructions)),
+                                (ChiefStrings.settingsShowMemoryFolder, #selector(showFolder))] {
+            let button = NSButton(title: title, target: nil, action: nil)
+            configure(button, action: action)
+            memoryButtons.append(button)
+            memory.add(button)
+        }
+    }
+
+    private func buildConversation() {
+        let conversation = card(ChiefStrings.settingsConversation)
+        configure(newConversationButton, action: #selector(newConversation))
+        conversation.add(newConversationButton)
+    }
+
+    private func configure(_ field: NSTextField, placeholder: String, action: Selector) {
+        field.placeholderString = placeholder
+        field.font = .systemFont(ofSize: 13)
+        field.target = self
+        field.action = action
+        field.cell?.sendsActionOnEndEditing = true
+        field.lineBreakMode = .byTruncatingTail
+        field.usesSingleLineMode = true
+    }
+
+    private func configure(_ button: NSButton, action: Selector) {
+        button.target = self
+        button.action = action
         button.bezelStyle = .push
         button.controlSize = .regular
-        stack.addArrangedSubview(button)
-        button.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
+    }
+
+    /// Tab moves top to bottom through the panel's controls.
+    private func chainKeyViews() {
+        let order: [NSView] = [nameField, avatarField, pictureButton, harness, model, effort, logButton]
+            + memoryButtons + [newConversationButton]
+        for (view, next) in zip(order, order.dropFirst()) { view.nextKeyView = next }
     }
 
     // MARK: Theme
@@ -137,62 +240,102 @@ final class ChiefSettingsPanel: NSView {
         layer?.backgroundColor = theme.panelFill.cgColor
         appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
         titleLabel.textColor = theme.textPrimary
-        for caption in captions { caption.textColor = theme.textSecondary }
-        for note in notes { note.textColor = theme.textTertiary }
+        for card in cards { card.apply(theme) }
         memorySection.apply(theme)
     }
 
     override func layout() {
         super.layout()
-        let size = stack.fittingSize
-        stack.frame = CGRect(x: 0, y: 0, width: Self.width, height: max(size.height, bounds.height))
+        scrollView.frame = bounds
     }
 
     // MARK: Values
 
-    /// Shows the current engine settings and avatar.
-    func refresh(avatar: String? = nil, hasPicture: Bool? = nil) {
+    /// Shows the current engine settings, and the name and avatar when given.
+    func refresh(avatar: String? = nil, hasPicture: Bool? = nil, name: String? = nil) {
         if let hasPicture {
             self.hasPicture = hasPicture
             pictureButton.title = hasPicture ? ChiefStrings.settingsAvatarRemovePicture : ChiefStrings.settingsAvatarChoosePicture
         }
-        let settings = ChiefService.shared.engineSettings
-        let harnessValue = settings.resolvedHarness
-        fill(harness, CmuxChief.ChiefHarness.allCases.map { ($0.rawValue, $0.rawValue) },
-             current: settings.harness.isEmpty ? nil : settings.harness, includesDefault: true)
-        fill(model, ChiefModelCatalog.models(for: harnessValue).map { ($0.id, $0.displayName) },
-             current: settings.model.isEmpty ? nil : settings.model, includesDefault: true)
-        fill(effort, ChiefModelCatalog.efforts(for: settings.resolvedModel, harness: harnessValue)
-                .map { ($0.id, ChiefStrings.effortName($0.id)) },
-             current: settings.effort.isEmpty ? nil : settings.effort, includesDefault: true)
         if let avatar, avatarField.currentEditor() == nil {
             shownAvatar = avatar
             avatarField.stringValue = avatar
         }
+        if let name, nameField.currentEditor() == nil {
+            shownName = name
+            nameField.stringValue = name
+        }
+        let settings = ChiefService.shared.engineSettings
+        let harnessValue = settings.resolvedHarness
+        fill(harness, CmuxChief.ChiefHarness.allCases.map { ($0.rawValue, $0.displayName) },
+             current: settings.harness.isEmpty ? nil : settings.harness,
+             defaultTitle: ChiefSettingsStrings.defaultItem(CmuxChief.ChiefHarness.claude.displayName))
+        let defaultModel = ChiefModelCatalog.defaultModel(for: harnessValue)
+        fill(model, ChiefModelCatalog.models(for: harnessValue)
+                .map { ($0.id, ChiefSettingsStrings.modelName($0.id, harness: harnessValue.rawValue)) },
+             current: settings.model.isEmpty ? nil : settings.model,
+             defaultTitle: ChiefSettingsStrings.defaultItem(ChiefSettingsStrings.modelName(defaultModel,
+                                                                                           harness: harnessValue.rawValue)))
+        fill(effort, ChiefModelCatalog.efforts(for: settings.resolvedModel, harness: harnessValue)
+                .map { ($0.id, ChiefStrings.effortName($0.id)) },
+             current: settings.effort.isEmpty ? nil : settings.effort, defaultTitle: ChiefStrings.settingsDefault)
+        effortNote.stringValue = ChiefSettingsStrings.effortDescription(settings.effort)
+        effort.setAccessibilityHelp(effortNote.stringValue)
+        placeLabel.stringValue = ChiefService.shared.homeDisplayPath.map(ChiefSettingsStrings.runsOnThisMac) ?? ""
+        placeLabel.isHidden = placeLabel.stringValue.isEmpty
+        refreshStats()
     }
 
-    /// `values` with "Default" first (when offered), keeping a current value
-    /// the catalog does not list.
+    /// `values` after a "Default (…)" item and a separator, keeping a current
+    /// value the catalog does not list; the menu checks the selected item.
     private func fill(_ button: NSPopUpButton, _ values: [(value: String, title: String)], current: String?,
-                      includesDefault: Bool) {
+                      defaultTitle: String) {
         button.removeAllItems()
-        if includesDefault {
-            button.addItem(withTitle: ChiefStrings.settingsDefault)
-            button.lastItem?.representedObject = nil
-        }
+        let menu = button.menu ?? NSMenu()
+        let first = NSMenuItem(title: defaultTitle, action: nil, keyEquivalent: "")
+        menu.addItem(first)
+        menu.addItem(.separator())
         var all = values
         if let current, !all.contains(where: { $0.value == current }) { all.append((current, current)) }
-        for item in all {
-            button.addItem(withTitle: item.title)
-            button.lastItem?.representedObject = item.value
+        var selected = first
+        for value in all {
+            let item = NSMenuItem(title: value.title, action: nil, keyEquivalent: "")
+            item.representedObject = value.value
+            menu.addItem(item)
+            if value.value == current { selected = item }
         }
-        let offset = includesDefault ? 1 : 0
-        if let current, let index = all.firstIndex(where: { $0.value == current }) {
-            button.selectItem(at: index + offset)
-        } else {
-            button.selectItem(at: 0)
+        if button.menu == nil { button.menu = menu }
+        button.select(selected)
+    }
+
+    /// Re-reads the last turn's stats from the owner.
+    private func refreshStats() {
+        statsRead?.cancel()
+        guard let conversation, !stopped else {
+            statsLabel.stringValue = ChiefSettingsStrings.noTurn
+            return
+        }
+        statsRead = Task { [weak self] in
+            let stats = await ChiefService.shared.lastTurnStats(in: conversation)
+            guard !Task.isCancelled, let self else { return }
+            self.statsLabel.stringValue = stats.map(ChiefSettingsStrings.lastTurn) ?? ChiefSettingsStrings.noTurn
         }
     }
+
+    /// A turn's end changes the working set: the stats read again (Observation, no polling).
+    private func observeWorking() {
+        guard !stopped else { return }
+        withObservationTracking {
+            _ = ChiefService.shared.workingConversations
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.refreshStats()
+                self?.observeWorking()
+            }
+        }
+    }
+
+    // MARK: Actions
 
     @objc private func picked(_ sender: NSPopUpButton) {
         var settings = ChiefService.shared.engineSettings
@@ -202,18 +345,27 @@ final class ChiefSettingsPanel: NSView {
             let before = settings.resolvedHarness
             settings.harness = value
             if settings.resolvedHarness != before {
-                // Models belong to one harness; an effort the new default model lacks goes too.
+                // Models belong to one harness.
                 settings.model = ""
-                let offered = ChiefModelCatalog.efforts(for: settings.resolvedModel, harness: settings.resolvedHarness)
-                if !offered.contains(where: { $0.id == settings.effort }) { settings.effort = "" }
             }
         } else if sender === model {
             settings.model = value
         } else {
             settings.effort = value
         }
+        // An effort the new model lacks goes back to the default.
+        let offered = ChiefModelCatalog.efforts(for: settings.resolvedModel, harness: settings.resolvedHarness)
+        if !settings.effort.isEmpty, !offered.contains(where: { $0.id == settings.effort }) { settings.effort = "" }
         ChiefService.shared.setEngineSettings(settings)
         refresh()
+    }
+
+    @objc private func nameChanged() {
+        let text = String(nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        nameField.stringValue = text
+        guard text != shownName else { return }
+        shownName = text
+        onName(text.isEmpty ? nil : text)
     }
 
     @objc private func avatarChanged() {
@@ -228,8 +380,14 @@ final class ChiefSettingsPanel: NSView {
         if hasPicture { onRemovePicture() } else { onChoosePicture() }
     }
 
+    @objc private func showLog() { onShowTranscriptLog() }
     @objc private func editProfile() { onEditMemory(false) }
     @objc private func editInstructions() { onEditMemory(true) }
     @objc private func showFolder() { onShowMemoryFolder() }
     @objc private func newConversation() { onNewConversation() }
+}
+
+/// The panel's scrolling content, top-down.
+final class ChiefSettingsDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }

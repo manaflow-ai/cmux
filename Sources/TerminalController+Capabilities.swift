@@ -331,6 +331,7 @@ extension TerminalController {
             "chief.conversations",
             "chief.read",
             "chief.stop",
+            "chief.approve",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",

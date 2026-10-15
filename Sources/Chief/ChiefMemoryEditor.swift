@@ -154,7 +154,7 @@ final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDeleg
         notesStack.spacing = 2
         notesStack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
         notesStack.translatesAutoresizingMaskIntoConstraints = false
-        let notesDocument = FlippedView()
+        let notesDocument = ChiefMemoryFlippedView()
         notesDocument.translatesAutoresizingMaskIntoConstraints = false
         notesDocument.addSubview(notesStack)
         notesScroll.documentView = notesDocument
@@ -387,6 +387,6 @@ final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDeleg
 }
 
 /// A top-down document view for the notes list.
-private final class FlippedView: NSView {
+private final class ChiefMemoryFlippedView: NSView {
     override var isFlipped: Bool { true }
 }

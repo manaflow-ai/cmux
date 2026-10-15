@@ -220,9 +220,11 @@ enum ChiefRows {
         case folded
     }
 
-    /// Tool-only messages: every part is `.work`, not retracted.
+    /// Tool-only messages: every part is a tool call (`.work` without a `host`), not retracted. A work part
+    /// with a host is a flow's own row (a Cloud machine's provisioning or result card): it stays a row of
+    /// its own, never folded into a run.
     static func isToolOnly(_ item: TranscriptItem) -> Bool {
-        !item.isRetracted && !item.parts.isEmpty && item.parts.allSatisfy { if case .work = $0 { true } else { false } }
+        !item.isRetracted && !item.parts.isEmpty && item.parts.allSatisfy { if case .work(let w) = $0 { w.host == nil } else { false } }
     }
 
     /// Messages drawn as the tool sender (`toolSender`): tool rows and approval cards, which are not the

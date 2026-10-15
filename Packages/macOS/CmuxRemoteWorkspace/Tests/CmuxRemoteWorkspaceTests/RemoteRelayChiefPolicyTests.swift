@@ -9,7 +9,8 @@ import Testing
 @Suite("Remote relay Chief methods")
 struct RemoteRelayChiefPolicyTests {
     static let methods = [
-        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.debug",
+        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve",
+        "chief.debug",
     ]
 
     @Test("chief.* is never forwarded, even for an owned workspace", arguments: methods)

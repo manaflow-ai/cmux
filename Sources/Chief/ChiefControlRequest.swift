@@ -17,12 +17,16 @@ enum ChiefControlRequest: Equatable, Sendable {
     case read(conversation: String?, limit: Int)
     /// `chief.stop`: stops the running turn of one conversation.
     case stop(conversation: String?)
+    /// `chief.approve`: answers an approval card (`request` nil: the newest waiting one) with
+    /// one of its options (`choice`, case-insensitive: "Allow", "Deny").
+    case approve(conversation: String?, request: String?, choice: String)
     /// `chief.debug` (DEBUG builds): drives the shown transcript for automation.
     case debug(ChiefControlDebugAction, conversation: String?)
 
     /// Every method of the family; `chief.debug` answers only in DEBUG builds.
     static let methods: [String] = [
-        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.debug",
+        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve",
+        "chief.debug",
     ]
 
     static let defaultReadLimit = 20
@@ -68,6 +72,12 @@ enum ChiefControlRequest: Equatable, Sendable {
             return .read(conversation: try conversation(params), limit: min(limit, maxReadLimit))
         case "chief.stop":
             return .stop(conversation: try conversation(params))
+        case "chief.approve":
+            guard let choice = try optionalString(params, "choice", maxLength: maxNameLength) else {
+                throw ChiefControlParamError.missing("choice")
+            }
+            return .approve(conversation: try conversation(params), request: try optionalString(params, "request", maxLength: 200),
+                            choice: choice)
         case "chief.debug":
             guard let name = try optionalString(params, "action", maxLength: 64) else {
                 throw ChiefControlParamError.missing("action")

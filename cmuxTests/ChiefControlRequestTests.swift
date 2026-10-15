@@ -21,6 +21,15 @@ import Testing
         #expect(parse("chief.stop", ["conversation": " conv_x "]) == .success(.stop(conversation: "conv_x")))
     }
 
+    @Test func approveNeedsAChoiceAndTakesAnOptionalRequest() {
+        #expect(parse("chief.approve") == .failure(.missing("choice")))
+        #expect(parse("chief.approve", ["choice": "Allow"]) == .success(.approve(conversation: nil, request: nil, choice: "Allow")))
+        #expect(parse("chief.approve", ["request": " scripted-approval-1 ", "choice": "Deny", "conversation": "conv_a"])
+            == .success(.approve(conversation: "conv_a", request: "scripted-approval-1", choice: "Deny")))
+        #expect(parse("chief.approve", ["choice": "  "]) == .failure(.invalid("choice")))
+        #expect(parse("chief.approve", ["choice": true]) == .failure(.invalid("choice")))
+    }
+
     @Test func openTargetsWindowThenWorkspace() {
         #expect(parse("chief.open") == .success(.open(target: ChiefControlWindowTarget(windowID: nil, workspaceID: nil))))
         #expect(parse("chief.open", ["window_id": "window:2", "workspace_id": "ABC"])

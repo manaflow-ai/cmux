@@ -76,6 +76,12 @@ enum ChiefControlFailure: Error, Sendable {
         case .invalid(let reason) where reason == "unknown_conversation":
             .rejected(code: "not_found", message: String(localized: "socket.chief.error.unknownConversation",
                                                          defaultValue: "No Chief conversation has that id."))
+        case .invalid(let reason) where reason == "approval_decided":
+            .rejected(code: "conflict", message: String(localized: "socket.chief.error.approvalDecided",
+                                                        defaultValue: "That approval was already answered."))
+        case .invalid(let reason) where reason == "invalid_choice":
+            .rejected(code: "invalid_params", message: String(localized: "socket.chief.error.invalidChoice",
+                                                              defaultValue: "That is not one of the approval's options."))
         case .invalid(let reason) where reason == "invalid_name":
             .rejected(code: "invalid_params", message: String(localized: "socket.chief.error.invalidName",
                                                               defaultValue: "The sender name must have 1 to 60 characters."))

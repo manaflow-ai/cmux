@@ -75,6 +75,23 @@ extension TerminalController {
                 _ = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
                 let stopped = await owner.stopTurn(conversation: id)
                 return .ok(["conversation": id.rawValue, "stopped": stopped] as [String: Any])
+            case .approve(let conversation, let request, let choice):
+                let owner = try await chiefOwner()
+                let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
+                _ = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
+                guard let ref = await owner.pendingApproval(in: id, request: request) else {
+                    return .err(code: "not_found",
+                                message: request == nil
+                                    ? String(localized: "socket.chief.error.noPendingApproval", defaultValue: "Chief has no approval waiting.")
+                                    : String(localized: "socket.chief.error.unknownApproval", defaultValue: "No Chief approval has that id."),
+                                data: request.map { ["request": $0] })
+                }
+                // "allow", "DENY": the approval's own option of that name.
+                let option = ref.options.first { $0.caseInsensitiveCompare(choice) == .orderedSame } ?? choice
+                try await Self.chiefOwnerCall {
+                    try await owner.answerApproval(conversation: id, request: ref.request, choice: option)
+                }
+                return .ok(["conversation": id.rawValue, "request": ref.request, "choice": option, "decided": true] as [String: Any])
             case .debug(let action, let conversation):
 #if DEBUG
                 return try await chiefDebug(action, conversation: conversation)

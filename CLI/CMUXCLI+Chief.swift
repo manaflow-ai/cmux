@@ -35,6 +35,8 @@ extension CMUXCLI {
           read [--conversation <id>] [--limit <n>] [--json]
                                      Print the newest messages (default 20).
           stop [--conversation <id>] Stop Chief's running reply.
+          approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]
+                                     Answer Chief's approval card (default: allow the newest waiting one).
 
         Subcommands (work without a running cmux):
           home                       Print the Chief home directory.
@@ -89,13 +91,13 @@ extension CMUXCLI {
     private static var chiefUnknownSubcommandMessage: String {
         String(
             localized: "cli.chief.error.unknownSubcommand",
-            defaultValue: "Unknown chief subcommand. Try: open, send, status, conversations, read, stop, home, memory"
+            defaultValue: "Unknown chief subcommand. Try: open, send, status, conversations, read, stop, approve, home, memory"
         )
     }
 
     /// The subcommands that talk to the running app over the socket; the
     /// rest (`home`, `memory`, help) work on files only.
-    static let chiefSocketSubcommands: Set<String> = ["open", "send", "status", "conversations", "read", "stop", "debug"]
+    static let chiefSocketSubcommands: Set<String> = ["open", "send", "status", "conversations", "read", "stop", "approve", "debug"]
 
     /// Whether `cmux chief <args>` needs the socket (the top-level dispatch
     /// routes those to ``runChiefSocketCommand(commandArgs:client:jsonOutput:windowOverride:)``).
@@ -191,6 +193,8 @@ extension CMUXCLI {
         var limit: Int?
         var noReply = false
         var mine = false
+        var deny = false
+        var choice: String?
         var dy: Double?
         var text: String?
         var positionals: [String] = []
@@ -233,6 +237,10 @@ extension CMUXCLI {
                 parsed.noReply = true
             case "--mine":
                 parsed.mine = true
+            case "--deny":
+                parsed.deny = true
+            case "--choice":
+                parsed.choice = try value(arg)
             case "--dy":
                 let raw = try value(arg)
                 guard let dy = Double(raw), dy.isFinite else {
@@ -373,6 +381,16 @@ extension CMUXCLI {
                 print("OK")
             } else {
                 print(String(localized: "cli.chief.stop.idle", defaultValue: "Chief isn't replying."))
+            }
+        case "approve":
+            guard args.positionals.count <= 1 else { try rejectChiefExtraArguments(Array(args.positionals.dropFirst())); return }
+            if let request = args.positionals.first { params["request"] = request }
+            params["choice"] = args.choice ?? (args.deny ? "Deny" : "Allow")
+            let payload = try client.sendV2(method: "chief.approve", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print("OK \(payload["request"] as? String ?? "") \(payload["choice"] as? String ?? "")")
             }
         case "debug":
             // DEBUG builds only; hidden from help. Always prints JSON.

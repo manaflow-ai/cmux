@@ -66,8 +66,10 @@ final class ChiefMemoryNoticeView: NSView {
 
     // Not an isolated deinit (Swift 6.0 has none): the main-thread check guards the hop.
     deinit {
-        guard Thread.isMainThread, let observer else { return } // main-proof: returns off the main thread
-        NotificationCenter.default.removeObserver(observer)
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 
     /// Stops following the memory and the turn state (the transcript closed).
