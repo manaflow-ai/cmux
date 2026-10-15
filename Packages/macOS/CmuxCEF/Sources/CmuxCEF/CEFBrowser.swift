@@ -386,12 +386,12 @@ public final class CEFBrowser {
     /// Opens Chromium's DevTools for the page (Chromium places it).
     public func showDevTools() {
         guard let id = browserID else { return }
-        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.show, 0, 0)
+        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.show.rawValue, 0, 0)
     }
 
     public func closeDevTools() {
         guard let id = browserID else { return }
-        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.close, 0, 0)
+        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.close.rawValue, 0, 0)
     }
 
     /// Runs a DevTools protocol method in process; returns its result JSON.

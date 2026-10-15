@@ -28,8 +28,12 @@ let package = Package(
         .package(path: "../CmuxBrowser"),
     ],
     targets: [
+        // Chromium's EarlyMallocZoneRegistration, installed by an image
+        // constructor before main when the bundle embeds CEF.
+        .target(name: "CmuxCEFMallocZone"),
         .target(
             name: "CmuxCEF",
+            dependencies: ["CmuxCEFMallocZone"],
             // The shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cef/build-cef-shim.sh).
             resources: [
