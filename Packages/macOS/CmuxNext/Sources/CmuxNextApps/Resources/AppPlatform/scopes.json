@@ -1839,6 +1839,7 @@
     "agent.message.mark",
     "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",
