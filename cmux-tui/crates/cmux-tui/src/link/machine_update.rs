@@ -176,7 +176,10 @@ fn pinned_payload() -> Result<(PathBuf, String), Failed> {
         .enable_all()
         .build()
         .map_err(|e| Failed::new("machine_update_failed", e.to_string()))?;
-    match runtime.block_on(cmux_remote::pinned_linux_payload(CLOUD_ARCH)) {
+    match runtime.block_on(cmux_remote::pinned_linux_payload(
+        CLOUD_ARCH,
+        cmux_build_identity::BUILD_IDENTITY,
+    )) {
         Ok(Some((path, sha256))) if apply::is_sha256(&sha256) => Ok((path, sha256)),
         Ok(Some(_)) => {
             Err(Failed::new("machine_update_payload_rejected", "the pinned checksum is malformed"))
@@ -237,7 +240,7 @@ fn stage(
 
 /// Waits for the apply step's recorded outcome; the new build on success.
 fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<String, Failed> {
-    let own = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    let own = cmux_build_identity::BUILD_IDENTITY;
     let deadline = Instant::now() + OUTCOME_TIMEOUT;
     let mut new_seen: Option<Instant> = None;
     while Instant::now() < deadline {

@@ -2,7 +2,7 @@
 
 use super::*;
 
-use super::adoption::{Adoption, adopted_in, session_cwd};
+use super::adoption::{Adoption, adopted_in, start_folder};
 use super::resolve::{Draft, Resolved, draft_meta};
 
 impl Hub {
@@ -90,8 +90,8 @@ impl Hub {
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
         let fam = family.clone();
-        let (cwd, adopted_cwd) =
-            tokio::task::spawn_blocking(move || session_cwd(cwd, recorded, &fam, &cwd_map))
+        let (cwd, adopted_cwd, git) =
+            tokio::task::spawn_blocking(move || start_folder(cwd, recorded, &fam, &cwd_map))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
@@ -119,8 +119,8 @@ impl Hub {
             policy,
             remote,
         });
-        (meta.session_env, meta.chat_store, meta.adopted_cwd) =
-            (session_env, chat_store, adopted_cwd);
+        (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
+            (session_env, chat_store, adopted_cwd, git.branch, git.head);
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -447,7 +447,7 @@ impl Hub {
             };
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
@@ -516,7 +516,9 @@ impl Hub {
                     Some((&session.id, &meta.name)),
                 )
                 .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(|e| {
+                    crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                })?
             }
         } else if self.agent_hosts_enabled() {
             self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
@@ -532,7 +534,9 @@ impl Hub {
                 Some((&session.id, &meta.name)),
             )
             .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| {
+                crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+            })?
         };
         {
             // The shutdown marks itself started, then takes each session's
@@ -817,6 +821,11 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
+        // A probe starts the agent: none while launches are off (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            tracing::info!("agent launch is disabled; model probes skipped");
+            return;
+        }
         let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
