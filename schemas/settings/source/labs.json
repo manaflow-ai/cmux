@@ -40,7 +40,7 @@
           },
           "help": {
             "key": "settings.labs.classicHome.help",
-            "text": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next."
+            "text": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
           },
           "kind": "toggle",
           "default": false,

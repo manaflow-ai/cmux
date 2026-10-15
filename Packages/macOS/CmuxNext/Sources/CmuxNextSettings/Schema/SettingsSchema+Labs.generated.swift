@@ -31,7 +31,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.classicHome", "Classic Home"),
-                help: SettingsText.keyed("settings.labs.classicHome.help", "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next."),
+                help: SettingsText.keyed("settings.labs.classicHome.help", "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.classicHomeDefault),
                 keywords: ["home", "chief", "classic", "dock", "page"]
