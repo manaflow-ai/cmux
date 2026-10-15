@@ -630,6 +630,7 @@
 		081696D3A66545C50AD0598E /* ChecklistInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E3E449BD36EA0670CC7D75C /* ChecklistInputField.swift */; };
 		D78129DCAE6C4D919AE20FF9 /* ChecklistPopoverPointerTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9890AFCF5E5F4F3DA9F00CCC /* ChecklistPopoverPointerTracking.swift */; };
 		ED226C59A21547BB962DB2A5 /* ChecklistSummaryPopoverModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 319C469164C74F2F8E41D2C3 /* ChecklistSummaryPopoverModifier.swift */; };
+		DFA22CFDEA096E4B98111796 /* ChromiumDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */; };
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
@@ -1233,6 +1234,7 @@
 		CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
 		CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
 		CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */ = {isa = PBXBuildFile; productRef = CA53A005CA53A005CA53A005 /* CmuxCanvasUI */; };
+		CEFE3B000000000000000003 /* CmuxCEF in Frameworks */ = {isa = PBXBuildFile; productRef = CEFE3B000000000000000005 /* CmuxCEF */; };
 		303E131D2D8A8F96C08F3825 /* CMUXCLI+AdmittedRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D3513BB67E65A937E22D56 /* CMUXCLI+AdmittedRestore.swift */; };
 		0DFC9ACEAC8FE623B33CEC32 /* CMUXCLI+AgentHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356578A4696939A1CB24F66D /* CMUXCLI+AgentHibernation.swift */; };
 		A12123000000000000000005 /* CMUXCLI+AgentHibernationSessionEnd.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000006 /* CMUXCLI+AgentHibernationSessionEnd.swift */; };
@@ -5361,6 +5363,7 @@
 		3E3E449BD36EA0670CC7D75C /* ChecklistInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistInputField.swift; sourceTree = "<group>"; };
 		9890AFCF5E5F4F3DA9F00CCC /* ChecklistPopoverPointerTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecklistPopoverPointerTracking.swift"; sourceTree = "<group>"; };
 		319C469164C74F2F8E41D2C3 /* ChecklistSummaryPopoverModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecklistSummaryPopoverModifier.swift"; sourceTree = "<group>"; };
+		D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumDebugWindowController.swift; sourceTree = "<group>"; };
 		F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
@@ -9221,6 +9224,7 @@
 				E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */,
 				CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */,
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
+				CEFE3B000000000000000003 /* CmuxCEF in Frameworks */,
 				C10DC1000000000000000004 /* CmuxCloud in Frameworks */,
 				D0F2A0000000000000000003 /* CmuxCloudBannerCore in Frameworks */,
 				D0F3A0000000000000000003 /* CmuxCloudImagePaste in Frameworks */,
@@ -12351,6 +12355,7 @@
 				6E0312C285F7C7C82024BF62 /* UpgradePromptImpression.swift */,
 				899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */,
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
+				D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14046,6 +14051,7 @@
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 				C12758000000000000000005 /* Build Plain Text Paste Worker */,
 				A9E030000000000000000009 /* Reject Bundled Provider Binaries */,
+				CEFE3B000000000000000001 /* Embed CEF */,
 
 			);
 			buildRules = (
@@ -14084,6 +14090,7 @@
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				CA53A005CA53A005CA53A005 /* CmuxCanvasUI */,
+				CEFE3B000000000000000005 /* CmuxCEF */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				D96973000000000000000001 /* CmuxSudoBroker */,
@@ -14361,6 +14368,7 @@
 				CC0033E15A1B2C3D4E5F0010 /* XCLocalSwiftPackageReference "CmuxDiffComments" */,
 				CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */,
 				CA53A004CA53A004CA53A004 /* XCLocalSwiftPackageReference "CmuxCanvasUI" */,
+				CEFE3B000000000000000004 /* XCLocalSwiftPackageReference "CmuxCEF" */,
 				C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */,
 				C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */,
 				C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */,
@@ -14666,6 +14674,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-plain-text-paste-worker.sh\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux-paste-text-worker\" \"${ARCHS}\"\n";
+		};
+		CEFE3B000000000000000001 /* Embed CEF */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Embed CEF";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/scripts/cef/embed-cef.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -15159,6 +15182,7 @@
 				081696D3A66545C50AD0598E /* ChecklistInputField.swift in Sources */,
 				D78129DCAE6C4D919AE20FF9 /* ChecklistPopoverPointerTracking.swift in Sources */,
 				ED226C59A21547BB962DB2A5 /* ChecklistSummaryPopoverModifier.swift in Sources */,
+				DFA22CFDEA096E4B98111796 /* ChromiumDebugWindowController.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				64FC98B1AF19A7558C109173 /* ClickByHintPreview.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
@@ -19808,6 +19832,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCanvasUI;
 		};
+		CEFE3B000000000000000004 /* XCLocalSwiftPackageReference "CmuxCEF" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCEF;
+		};
 		A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CMUXAgentLaunch;
@@ -20171,6 +20199,10 @@
 		CA53A005CA53A005CA53A005 /* CmuxCanvasUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxCanvasUI;
+		};
+		CEFE3B000000000000000005 /* CmuxCEF */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxCEF;
 		};
 		C5A1FED000000000000000C3 /* CmuxSwiftRender */ = {
 			isa = XCSwiftPackageProductDependency;
