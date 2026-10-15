@@ -67,8 +67,23 @@ public final class CEFHostView: NSView {
     /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)
     /// on every geometry update.
     @objc public func cmuxOcclusionRects() -> NSArray {
-        Self.outermost(occlusionRects.map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty })
+        var rects = occlusionRects
+        if let separator = Self.chromiumSeparatorRect(in: bounds) { rects.append(separator) }
+        return Self.outermost(rects.map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty })
             .map { NSValue(rect: $0) } as NSArray
+    }
+
+    /// Chromium's window draws a 1 pt contents separator above the web
+    /// contents (the page is 1 pt shorter than its window), which showed as
+    /// a light line under cmux's toolbar where WebKit has none. A hole over
+    /// that row hides it; what shows instead is the pane behind this view.
+    static let chromiumSeparatorHeight: CGFloat = 1
+
+    /// The top row of `bounds` (this view is not flipped), nil when too small.
+    static func chromiumSeparatorRect(in bounds: CGRect) -> CGRect? {
+        guard bounds.height > chromiumSeparatorHeight * 2, bounds.width > 0 else { return nil }
+        return CGRect(x: bounds.minX, y: bounds.maxY - chromiumSeparatorHeight,
+                      width: bounds.width, height: chromiumSeparatorHeight)
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update.

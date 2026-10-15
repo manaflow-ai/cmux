@@ -212,3 +212,13 @@ import Testing
             == .jsDialogDismissed(browser: 3, token: 1))
     }
 }
+
+@Suite struct CEFHostViewSeparatorTests {
+    /// The hole over Chromium's contents separator is the top row of the
+    /// (unflipped) host view, and only when the view is tall enough.
+    @Test func separatorHoleIsTheTopRow() {
+        let rect = CEFHostView.chromiumSeparatorRect(in: CGRect(x: 0, y: 0, width: 400, height: 300))
+        #expect(rect == CGRect(x: 0, y: 299, width: 400, height: 1))
+        #expect(CEFHostView.chromiumSeparatorRect(in: CGRect(x: 0, y: 0, width: 400, height: 1)) == nil)
+    }
+}
