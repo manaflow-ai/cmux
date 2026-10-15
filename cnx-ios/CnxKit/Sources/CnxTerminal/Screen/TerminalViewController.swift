@@ -990,7 +990,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
         let total = scrollbar.total
         let reader = rowReader
-        guard let anchor = mark.locate(totalRows: total, rowText: { reader.text(TerminalAbsoluteRow($0)) }) else { return }
+        // Every row of the replay, read once (the whole-screen read is not
+        // clamped to the grid; round 9): the rows far from the end are found
+        // by their text too, so output during the drop cannot push the reader
+        // down (T-LIFE-09/15). Rows past the read's trimmed end use the reader.
+        let screen = surface.screenRows()
+        guard let anchor = mark.locate(totalRows: total, rowText: { row in
+            if let screen, row < screen.count { return screen.rows[row] }
+            return reader.text(TerminalAbsoluteRow(row))
+        }) else { return }
         sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
         restoredMark = (mark, anchor)
