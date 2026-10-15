@@ -12,8 +12,8 @@ broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 86 | Reads state and forbids an idempotency key |
-| `mutation` | 190 | Requires an idempotency key and returns a mutation result |
+| `read` | 87 | Reads state and forbids an idempotency key |
+| `mutation` | 193 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -28,7 +28,7 @@ correlation, and idempotency metadata.
 
 | Target | Count | Operations |
 | --- | ---: | --- |
-| `agent` | 6 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.report` |
+| `agent` | 7 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.message.unsend`, `agent.report` |
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `browser_device` | 3 | `browser.devices.add_custom`, `browser.devices.list`, `browser.devices.remove_custom` |
 | `browser_profile` | 2 | `browser.profile.create`, `browser.profile.list` |
