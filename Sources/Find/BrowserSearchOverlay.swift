@@ -1,6 +1,7 @@
 import CmuxFoundation
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import SwiftUI
 
 /// Hosting root for the browser find bar: the overlay plus the cmux accent
@@ -17,6 +18,9 @@ struct BrowserSearchOverlay: View {
     let onPrevious: () -> Void
     let onClose: () -> Void
     let onFieldDidFocus: () -> Void
+    /// Over a Chromium page (a child window), the card's frame becomes a hole in the page so
+    /// the card shows and takes the mouse; `nil` over WebKit.
+    var pageOverlays: BrowserPageOverlayCoordinator? = nil
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
@@ -122,6 +126,7 @@ struct BrowserSearchOverlay: View {
                     }
                 }
             )
+            .browserPageOccluding(pageOverlays, id: "find")
             .padding(padding)
             .offset(dragOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)

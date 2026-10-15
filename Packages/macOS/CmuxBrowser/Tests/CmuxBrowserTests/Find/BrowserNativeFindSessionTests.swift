@@ -77,7 +77,7 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         #expect(driver.calls.isEmpty)
     }
 
-    @Test func aNewRequestAnswersThePendingOneWithNoMatches() async {
+    @Test func aNewRequestAnswersThePendingOneWithNil() async {
         let driver = FakeNativeFindDriver()
         let session = BrowserNativeFindSession(driver: driver)
         var issued = driver.issued.makeAsyncIterator()
@@ -85,7 +85,7 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         _ = await issued.next()
         driver.onFind = { [weak session] _ in session?.receiveResult(count: 1, activeOrdinal: 1, isFinal: true) }
         let second = await session.search(needle: "second")
-        #expect(await first.value == BrowserFindMatchCount(total: 0, selected: nil))
+        #expect(await first.value == nil)
         #expect(second == BrowserFindMatchCount(total: 1, selected: 0))
     }
 
@@ -111,7 +111,7 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         #expect(driver.calls.map(\.findNext) == [false, true, false])
     }
 
-    @Test func cancelPendingAnswersWithNoMatches() async {
+    @Test func cancelPendingAnswersWithNil() async {
         let driver = FakeNativeFindDriver()
         let session = BrowserNativeFindSession(driver: driver)
         var issued = driver.issued.makeAsyncIterator()
@@ -119,7 +119,7 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         _ = await issued.next()
         #expect(session.hasPendingRequest)
         session.cancelPending()
-        #expect(await pending.value == BrowserFindMatchCount(total: 0, selected: nil))
+        #expect(await pending.value == nil)
     }
 
     @Test func anEngineThatCannotSearchAnswersAtOnce() async {

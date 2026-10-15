@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxCEFMallocZone
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -202,6 +203,9 @@ public final class CEFRuntime {
             try initialize(library)
             state = .ready
             windowGuard.start()
+            if cmux_cef_early_malloc_zone_installed() == 0 {
+                logger.error("CEF started without the early malloc zone; a free() racing the framework load can crash")
+            }
             logger.notice("CEF ready shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) initialize=\(ContinuousClock.now - started, privacy: .public)")
             onReady?()
         } catch {
