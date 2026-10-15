@@ -374,3 +374,131 @@ fn agents_events_refuses_bad_arguments_before_reaching_an_owner() {
         assert!(server.backend.sent.borrow().is_empty(), "{arguments} reached an owner");
     }
 }
+
+#[test]
+fn agents_events_leak_nothing_from_other_sessions_when_the_daemon_read_fails() {
+    let topology = |state: &str| {
+        json!({"topology": {"windows": [{"id": "win_a", "workspaces": [
+            {"id": WORKSPACE, "tabs": [{"id": "page_chat", "kind": "page",
+                                        "agent_state": state, "agent_session": "chat_a"}]},
+            {"id": "ws_other", "tabs": [{"id": "page_other", "kind": "page",
+                                         "agent_state": state, "agent_session": "chat_b"}]},
+        ]}]}})
+    };
+    let fake = fake();
+    fake.live.borrow_mut().topology = Some(topology("working"));
+    let mut server = Server::new(fake, None);
+    let after = start(&mut server);
+    // The daemon read fails while another session's chat and dialog change.
+    now(&server, Change::DaemonDown(true));
+    now(&server, Change::Topology(topology("idle")));
+    let mut other = dialog("feed_other");
+    other["terminal_id"] = json!("term_fedcba9876543210fedcba9876543210");
+    now(&server, Change::Feed(json!({"items": [other]})));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    let leaked = answer.to_string();
+    assert!(!leaked.contains("page_other") && !leaked.contains("feed_other"), "{answer}");
+    // The daemon answers again: this session's change comes, the other's not.
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    now(&server, Change::DaemonDown(false));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    let ids = list(&answer)
+        .iter()
+        .map(|event| event["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["page_chat"], "{answer}");
+}
+
+/// Every event from `after` on, one call of `limit` at a time.
+fn walk(server: &mut Server<Fake>, mut after: String, limit: u64) -> (Vec<Value>, String) {
+    let mut seen = Vec::new();
+    for _ in 0..20 {
+        let answer = events(server, json!({"after": after, "limit": limit, "timeout_seconds": 0}));
+        let got = list(&answer);
+        assert!(got.len() as u64 <= limit, "{answer}");
+        after = answer["next_after"].as_str().unwrap().to_owned();
+        if got.is_empty() {
+            return (seen, after);
+        }
+        seen.extend(got);
+    }
+    panic!("no end: {seen:?}");
+}
+
+#[test]
+fn agents_events_keeps_a_reset_that_finds_the_answer_full() {
+    let mut server = Server::new(fake(), None);
+    let mut after = start(&mut server);
+    for name in ["a", "b"] {
+        now(&server, Change::Journal(json!([tab(TAB, name)])));
+        let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+        after = answer["next_after"].as_str().unwrap().to_owned();
+    }
+    // Another daemon that does not know the cursor, and a dialog that fills
+    // a one-event answer first.
+    let fake = fake();
+    fake.live.borrow_mut().feed = Some(json!({"items": [dialog("feed_1")]}));
+    let mut server = Server::new(fake, None);
+    let (seen, _) = walk(&mut server, after, 1);
+    let kinds = seen.iter().map(|event| event["kind"].as_str().unwrap()).collect::<Vec<_>>();
+    assert_eq!(kinds.iter().filter(|kind| **kind == "reset").count(), 1, "{seen:?}");
+    assert_eq!(kinds.iter().filter(|kind| **kind == "dialog").count(), 1, "{seen:?}");
+}
+
+#[test]
+fn agents_events_reports_a_restarted_or_expired_journal_as_a_reset() {
+    for (change, reason) in [
+        (Change::Generation("gen_new"), "generation_changed"),
+        (Change::Expire(1), "cursor_expired"),
+    ] {
+        let mut server = Server::new(fake(), None);
+        let after = start(&mut server);
+        now(&server, Change::Journal(json!([tab(TAB, "a")])));
+        now(&server, change);
+        let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+        let got = list(&answer);
+        assert_eq!(got.len(), 1, "{reason}: {answer}");
+        assert_eq!(got[0]["kind"], "reset", "{reason}");
+        assert_eq!(got[0]["reason"], reason);
+        // It continues from the snapshot's position.
+        let after = answer["next_after"].as_str().unwrap().to_owned();
+        now(&server, Change::Journal(json!([tab(TAB, "b")])));
+        let (seen, _) = walk(&mut server, after, 10);
+        assert_eq!(seen.len(), 1, "{reason}: {seen:?}");
+        assert_eq!(seen[0]["name"], "b");
+    }
+}
+
+#[test]
+fn agents_events_keeps_its_cursor_under_the_size_cap() {
+    let many = (0..2000)
+        .map(|index| dialog(&format!("feed_{index:04}_0123456789abcdef0123456789abcdef")))
+        .collect::<Vec<_>>();
+    let fake = fake();
+    fake.live.borrow_mut().feed = Some(json!({"items": many}));
+    let mut server = Server::new(fake, None);
+    let answer = events(&mut server, json!({"timeout_seconds": 0}));
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    assert!(after.len() <= 64 << 10, "{} bytes", after.len());
+    let got = list(&answer);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(
+        (got[0]["kind"].as_str(), got[0]["reason"].as_str()),
+        (Some("reset"), Some("cursor_too_large"))
+    );
+    // The cursor it gave still works.
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert!(answer["next_after"].as_str().unwrap().len() <= 64 << 10);
+}
+
+#[test]
+fn agents_events_stays_within_its_timeout_when_the_app_is_slow() {
+    let fake = Fake { app_delay: Some(Duration::from_secs(10)), ..fake() };
+    let mut server = Server::new(fake, None);
+    let started = Instant::now();
+    let answer = events(&mut server, json!({"timeout_seconds": 1}));
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
+    assert_eq!(answer["sources"]["app"], false, "{answer}");
+    assert_eq!(answer["timed_out"], true);
+}

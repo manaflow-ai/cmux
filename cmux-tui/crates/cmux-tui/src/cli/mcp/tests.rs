@@ -31,6 +31,9 @@ struct Fake {
     /// This daemon operation answers `selector.not_found` after the delay,
     /// as a wait on a terminal that closes.
     fail_after: Option<(&'static str, Duration)>,
+    /// The app's `feed.list` and `snapshot.get` take this long, and fail
+    /// when it is longer than the caller's timeout.
+    app_delay: Option<Duration>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -46,7 +49,20 @@ struct Live {
     /// [`GENERATION`]. With it, the snapshot carries a cursor and the event
     /// stream resumes from one (`agents_events`).
     journal: Option<Vec<Value>>,
+    /// The journal's generation; [`GENERATION`] when unset.
+    generation: Option<String>,
+    /// Revisions before this one are no longer kept: an older cursor
+    /// expired.
+    oldest: usize,
+    /// Every daemon read fails.
+    daemon_down: bool,
     changes: Vec<(Instant, Change)>,
+}
+
+impl Live {
+    fn generation(&self) -> String {
+        self.generation.clone().unwrap_or_else(|| GENERATION.to_owned())
+    }
 }
 
 /// The fake daemon's journal generation.
@@ -58,6 +74,12 @@ enum Change {
     Topology(Value),
     /// One journal batch: its changes.
     Journal(Value),
+    /// The daemon restarted with a new journal generation.
+    Generation(&'static str),
+    /// The journal dropped the revisions before this one.
+    Expire(usize),
+    /// Daemon reads fail (true) or answer again (false).
+    DaemonDown(bool),
 }
 
 impl Live {
@@ -74,6 +96,9 @@ impl Live {
                 Change::Feed(value) => self.feed = Some(value),
                 Change::Topology(value) => self.topology = Some(value),
                 Change::Journal(changes) => self.journal.get_or_insert_with(Vec::new).push(changes),
+                Change::Generation(generation) => self.generation = Some(generation.to_owned()),
+                Change::Expire(oldest) => self.oldest = oldest,
+                Change::DaemonDown(down) => self.daemon_down = down,
             }
         }
     }
@@ -145,11 +170,14 @@ impl Backend for Fake {
         }
         let mut live = self.live.borrow_mut();
         live.settle();
+        if live.daemon_down {
+            return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
         if let Some(daemon) = &live.daemon {
             let mut daemon = daemon.clone();
             if let Some(journal) = &live.journal {
                 daemon["cursor"] =
-                    json!({"generation": GENERATION, "revision": journal.len().to_string()});
+                    json!({"generation": live.generation(), "revision": journal.len().to_string()});
             }
             return Ok(daemon);
         }
@@ -160,10 +188,18 @@ impl Backend for Fake {
         &self,
         method: &str,
         params: Value,
-        _timeout: Duration,
+        timeout: Duration,
         idempotency_key: Option<&str>,
         mutation: bool,
     ) -> Result<Value, CallFailure> {
+        if let Some(delay) = self.app_delay
+            && matches!(method, "feed.list" | "snapshot.get")
+        {
+            std::thread::sleep(delay.min(timeout));
+            if delay > timeout {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+        }
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
@@ -281,8 +317,13 @@ impl Fake {
             live.settle();
             live.journal.as_ref().map_or(0, Vec::len)
         };
+        let generation = self.live.borrow().generation();
+        let oldest = self.live.borrow().oldest;
         let mut next = match cursor {
-            Some(cursor) if cursor["generation"] == GENERATION => {
+            Some(cursor)
+                if cursor["generation"] == generation.as_str()
+                    && cursor["revision"].as_str().unwrap().parse::<usize>().unwrap() >= oldest =>
+            {
                 let revision = cursor["revision"].as_str().unwrap().parse::<usize>().unwrap();
                 if revision > head() {
                     return Err(CallFailure {
@@ -297,8 +338,14 @@ impl Fake {
                 let revision = head();
                 let item = json!({
                     "kind": "snapshot",
-                    "cursor": {"generation": GENERATION, "revision": revision.to_string()},
-                    "reset_reason": if other.is_some() { "generation_changed" } else { "initial" },
+                    "cursor": {"generation": generation, "revision": revision.to_string()},
+                    "reset_reason": match other {
+                        None => "initial",
+                        Some(cursor) if cursor["generation"] == generation.as_str() => {
+                            "cursor_expired"
+                        }
+                        Some(_) => "generation_changed",
+                    },
                     "snapshot": self.live.borrow().daemon.clone().unwrap_or_else(|| json!({})),
                 });
                 if on_wake(Some(&item)) {
@@ -313,7 +360,7 @@ impl Fake {
                 let changes = self.live.borrow().journal.as_ref().unwrap()[next].clone();
                 let item = json!({
                     "kind": "delta",
-                    "cursor": {"generation": GENERATION, "revision": (next + 1).to_string()},
+                    "cursor": {"generation": generation, "revision": (next + 1).to_string()},
                     "previous_revision": next.to_string(),
                     "revision": (next + 1).to_string(),
                     "changes": changes,

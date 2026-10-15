@@ -65,7 +65,12 @@ fn agents_events_cli_reads_the_daemon_journal_from_a_cursor() {
         got.iter().any(|event| event["kind"] == "tab" && event["id"] == tab.as_str()),
         "the new tab: {answer}"
     );
-    let mut seqs = got.iter().map(|event| event["seq"].as_u64().unwrap()).collect::<Vec<_>>();
+    // What each event names, to check that none repeats across calls.
+    let key = |event: &Value| {
+        let field = |name: &str| event[name].as_str().unwrap_or("").to_owned();
+        format!("{} {} {} {}", field("kind"), field("id"), field("change"), field("state"))
+    };
+    let mut seen = got.iter().map(key).collect::<Vec<_>>();
     let mut after = next(&answer);
 
     // Kinds filter; notification text is cut.
@@ -106,7 +111,7 @@ fn agents_events_cli_reads_the_daemon_journal_from_a_cursor() {
     let agent = got.iter().find(|event| event["kind"] == "agent").expect("an agent event");
     assert_eq!(agent["state"], "working", "{answer}");
     assert_eq!(agent["terminal_id"], terminal.as_str());
-    seqs.extend(got.iter().map(|event| event["seq"].as_u64().unwrap()));
+    seen.extend(got.iter().map(key));
     after = next(&answer);
 
     // A wait answers on the first event, not the timeout. (A shell's title
@@ -124,15 +129,53 @@ fn agents_events_cli_reads_the_daemon_journal_from_a_cursor() {
     let got = events(&answer);
     assert_eq!(got.len(), 1, "{answer}");
     assert_eq!((got[0]["kind"].as_str(), got[0]["state"].as_str()), (Some("agent"), Some("idle")));
-    seqs.extend(got.iter().map(|event| event["seq"].as_u64().unwrap()));
+    seen.extend(got.iter().map(key));
     after = next(&answer);
-    assert_eq!(seqs, (1..=seqs.len() as u64).collect::<Vec<_>>(), "no gaps or duplicates");
+    let agent_id = agent["id"].as_str().unwrap();
+    let once = [
+        format!("notification {} created ", notification["id"].as_str().unwrap()),
+        format!("agent {agent_id} state working"),
+        format!("agent {agent_id} state idle"),
+    ];
+    for once in &once {
+        let count = seen.iter().filter(|key| key.as_str() == once.as_str()).count();
+        assert_eq!(count, 1, "{once}: {seen:?}");
+    }
 
     // Nothing new: the same cursor times out empty, and exits 0.
     let started = Instant::now();
     let answer = read(&["--after", &after, "--kind", "agent", "--timeout", "1"]);
     assert_eq!(events(&answer), Vec::<Value>::new(), "{answer}");
     assert!(started.elapsed() < Duration::from_secs(4), "{:?}", started.elapsed());
+
+    // A one-event walk cuts journal batches and resumes inside them: it
+    // reads exactly what one read from the same cursor reads.
+    for name in ["events-a", "events-b"] {
+        assert_success(&json_cli(&server, &["workspace", "create", "--name", name]));
+    }
+    let two = json_cli(&server, &["notification", "create", "--title", "Two", "--body", "b"]);
+    assert_success(&two);
+    let kinds = "workspace,notification,agent";
+    let observed = |mut event: Value| {
+        // `at` is when a workspace change was read, so it differs.
+        event.as_object_mut().unwrap().remove("at");
+        event
+    };
+    let whole = read(&["--after", &after, "--kind", kinds, "--limit", "200", "--timeout", "0"]);
+    let whole = events(&whole).into_iter().map(observed).collect::<Vec<_>>();
+    assert!(whole.len() >= 3, "two workspaces and a notification: {whole:?}");
+    let (mut walked, mut cursor) = (Vec::new(), after.clone());
+    for _ in 0..100 {
+        let answer = read(&["--after", &cursor, "--kind", kinds, "--limit", "1", "--timeout", "0"]);
+        let got = events(&answer);
+        assert!(got.len() <= 1, "{answer}");
+        cursor = next(&answer);
+        if got.is_empty() {
+            break;
+        }
+        walked.extend(got.into_iter().map(observed));
+    }
+    assert_eq!(walked, whole, "no gaps or duplicates when a batch is cut");
 
     // A person reads one line per event; the cursor goes to stderr.
     report("working");
