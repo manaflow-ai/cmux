@@ -32,6 +32,10 @@ SPECS = {
     # Two tabs, ✕ on cmux: GitHub (green) moves to the lone slot (x0 at
     # 209.33 to 67; Safari's 3l reference tracks the same edge).
     'twoToOne': ('1f853c', 'x0', 209.33, 67.0),
+    # One tab, ✕: the fresh Start Page (black) grows from the lone card's
+    # slot (x0 67.3) to the screen (Safari's D2 tracks the page's x0). Rows
+    # 150-600 pt only (the Dynamic Island and the bars are black too).
+    'lastTab': ('000000', 'x0', 67.3, 0.0, 90, 6, False, (150, 600)),
     # CmuxTabsKit demo (run.sh --app kit): Springs (orange, active) zooms and
     # springs back; ✕ on it moves Note (cream) from row 3 left to row 2
     # right. Its orange tiles are up to ~106 px wide at full size, so the
@@ -55,7 +59,7 @@ def curves():
     return out
 
 
-def track(video, hexc, band_px=90, tol=28, lock_rows=False):
+def track(video, hexc, band_px=90, tol=28, lock_rows=False, rows_pt=None):
     """Per frame (real pts): bbox of the header colour, in points (402 pt wide).
 
     lock_rows: once the header band is found, keep looking in its rows when
@@ -75,6 +79,9 @@ def track(video, hexc, band_px=90, tol=28, lock_rows=False):
     for i in range(n):
         f = np.frombuffer(raw[i * w * h * 3:(i + 1) * w * h * 3], dtype=np.uint8).reshape(h, w, 3).astype(np.int16)
         m = np.abs(f - c).max(axis=2) < tol
+        if rows_pt:
+            m[:int(rows_pt[0] * s)] = False
+            m[int(rows_pt[1] * s):] = False
         # The header band only: rows where the colour runs across at least
         # 60 pt (the page's own coloured bars and dots are narrower).
         band = m.sum(1) >= band_px
@@ -196,6 +203,9 @@ def compare(motion, video):
     mask = (tt >= 0) & (tt <= st[-1])
     delta = np.abs(p[mask] - np.interp(tt[mask], st, saf)) * span
     worst = float(delta.max()) if len(delta) else float('nan')
+    # A crossing closer to the end than one point is below the tracker's
+    # resolution (1.5 px/pt): lastTab's t99 is 0.67 pt from the edge.
+    rows = [r for r in rows if r[0] < 0.99 or span * 0.01 >= 1.0]
     cross_ok = all(abs(d) <= 16.7 for _, _, _, d in rows) and all(o == o for _, o, _, _ in rows)
     ok = (cross_ok or worst <= 2.0) and (at_release or abs(jump) <= 8.0)
     if motion in COUNT_WINDOW:
