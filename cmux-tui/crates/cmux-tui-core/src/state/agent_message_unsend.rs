@@ -113,7 +113,7 @@ pub(crate) fn targets(
 /// The `error` of a `failed` outcome: acpmux did not answer for `recipient`.
 pub(crate) fn unavailable(recipient: &str) -> Value {
     let message = format!("acpmux did not answer for {recipient}; try again");
-    json!({"reason": "acpmux_unavailable", "message": chars(&message, MESSAGE_MAX)})
+    json!({"reason": "acpmux_unavailable", "message": clip(&message, MESSAGE_MAX)})
 }
 
 /// The `error` of a `failed` outcome: a hand-over to `recipient` went out
@@ -122,22 +122,27 @@ pub(crate) fn in_flight(recipient: &str) -> Value {
     let message = format!(
         "acpmux does not hold it for {recipient} yet, but a hand-over may still reach it; try again"
     );
-    json!({"reason": "acpmux_unavailable", "message": chars(&message, MESSAGE_MAX)})
+    json!({"reason": "acpmux_unavailable", "message": clip(&message, MESSAGE_MAX)})
 }
 
 /// The `error` of a `failed` outcome: acpmux refused, with its `reason`.
 pub(crate) fn refused(recipient: &str, reason: &str) -> Value {
     let message = format!("acpmux refused to withdraw it from {recipient} ({reason})");
     json!({"reason": "withdraw_refused", "acpmux_reason": reason,
-        "message": chars(&message, MESSAGE_MAX)})
+        "message": clip(&message, MESSAGE_MAX)})
 }
 
-/// The spec's limit on `error.message`, in characters.
+/// The spec's limit on `error.message`, in UTF-8 bytes.
 const MESSAGE_MAX: usize = 1024;
 
-/// At most `max` characters of `text`.
-pub(crate) fn chars(text: &str, max: usize) -> String {
-    text.chars().take(max).collect()
+/// At most `max` UTF-8 bytes of `text`, cut on a character boundary (the
+/// catalog counts a string's length in bytes).
+pub(crate) fn clip(text: &str, max: usize) -> String {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
 }
 
 /// Apply the unsend to every delivery of `message_id` (or `recipient`'s)
