@@ -158,7 +158,7 @@ final class PaneHostView: NSView {
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
     @discardableResult
-    func setStripClip(_ rect: CGRect?) -> Bool {
+    func setStripClip(_ rect: CGRect?, cornerRadius: CGFloat = 0) -> Bool {
         guard let layer else { return false }
         guard let rect else {
             guard layer.mask != nil else { return false }
@@ -172,10 +172,11 @@ final class PaneHostView: NSView {
             layer.mask = mask
             return mask
         }()
-        guard mask.frame != rect else { return false }
+        guard mask.frame != rect || mask.cornerRadius != cornerRadius else { return false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mask.frame = rect
+        mask.cornerRadius = cornerRadius
         CATransaction.commit()
         return true
     }
