@@ -13,7 +13,7 @@ public enum BrowserAutomationMouseAction: String, Sendable, Equatable {
 /// A mouse button, named as the DevTools protocol names it.
 public enum BrowserAutomationMouseButton: String, Sendable, Equatable {
     /// No button (moves and wheel events).
-    case none
+    case noButton = "none"
     /// The primary button.
     case left
     /// The middle button.

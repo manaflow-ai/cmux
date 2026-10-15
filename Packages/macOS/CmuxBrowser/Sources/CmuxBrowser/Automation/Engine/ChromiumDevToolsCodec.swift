@@ -374,7 +374,7 @@ public struct ChromiumDevToolsCodec: Sendable {
             "x": x,
             "y": y,
             "modifiers": protocolModifiers(modifiers),
-            "button": (button ?? .none).rawValue,
+            "button": (button ?? .noButton).rawValue,
             "clickCount": max(0, clickCount),
         ]
         if action == .wheel {
