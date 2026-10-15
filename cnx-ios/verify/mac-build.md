@@ -1,6 +1,6 @@
 # cmux-next Mac build for the cnx-ios overnight work
 
-Run this Mac build: `~/cnx-ios-builds/20261015-9063df1493-mac-prod/cmux NEXT iOS Test.app` (9063df1493d3)
+Run this Mac build: `~/cnx-ios-builds/20261015-1e5ee66013-mac-prod/cmux NEXT iOS Test.app` (1e5ee6601315)
 
 Branch `feat-cnx-ios-macnext` integrates every Mac-side fix for the cmux-next
 iOS work. It is for dogfood builds only; it never merges anywhere. Each build
@@ -46,6 +46,7 @@ cnx-hostd (fleet side fixed in cmuxterm-hq #2091). Now (b20242a0):
 
 | When (UTC) | SHA | Fleet job | Path | Result |
 | --- | --- | --- | --- | --- |
+| 2026-10-15 08:20 | 1e5ee660 | prod cbf2ed30 (aws-m4pro-3), rig cnx-e2e-1e5ee660 16077cda (linux pool) | `~/cnx-ios-builds/20261015-1e5ee66013-mac-prod/cmux NEXT iOS Test.app` | all checks pass (below) |
 | 2026-10-15 05:20 | 9063df14 | prod cbd41d5d (aws-m4pro-3), rig cnx-e2e-9063df14 79c6e58c (linux pool) | `~/cnx-ios-builds/20261015-9063df1493-mac-prod/cmux NEXT iOS Test.app` | bundle checks pass; live checks below |
 
 ## Verification of 9063df14
@@ -86,3 +87,26 @@ Notes:
 - The default transport in the iOS Demo config is still WebRTC.
 - Not folded: parity commit cc91107b (SECURITY.md and 13742-recommendation.md text for the
   agentcwd decision; the code is already here through feat-cnx-ios-agentcwd).
+
+## Verification of 1e5ee660 (round 2)
+
+Bundle: `codesign --verify --deep --strict` pass; cnx-hostd universal, key `538d774e0f4acec6` =
+this commit's `--print-key` (`cnx-ios/rust` unchanged since 9063df14, so the fleet reused the
+key-addressed binary; its `.version` names commit 9063df14); `browser-stream-v1` present; the
+embedded browser host rendered https://example.com (first frame 740 ms, from a copy on
+mini-cmux10s); the daemon still has the grid hold and the Codex shim fix; the app binary
+carries `workspace_roots_set`.
+
+| Check (rig cnx-e2e-1e5ee660) | Result |
+| --- | --- |
+| Journey to a terminal, WebRTC (mini-cmux10s, r2a) | pass, 6 steps |
+| Browser tab streams, WebRTC | pass: page on the phone 5.0 s after opening the tab |
+| cnx-hostd kill, WebRTC | pass: link up 1.70, 1.83, 1.87 s (WebRTC direct); terminal input after each |
+| WireGuard on (r2b) | pass: Connected in 8.4 s |
+| Browser tab streams, WireGuard | pass: 5.7 s |
+| cnx-hostd kill, WireGuard | pass: link up 1.47, 2.03, 2.11 s (median 2.03, WireGuard relay) |
+| Plain `codex` produces a Feed item (laptop rig, same conditions as round 1) | pass for the Feed item: "Codex · Finished." arrived (screenshot `verify/codex-feed-item.png` in the build folder). The step's second half (an approval as Needs input) did not finish: Codex (GPT-6-Astra, max effort) was still "Working" 2 min 30 s after the file-write prompt, so no approval was asked within the 150 s limit. Not rerun, to keep the Codex run to one turn plus one approval. |
+| `rootsClearPending` live | not observed: the app's `app.iphone.approvers` log lines are not readable over ssh on the mini, and acpmux keeps the list in memory only. Turning iPhone connections off in the rig's settings file stopped cnx-hostd as expected. |
+
+No Keychain prompt or SecurityAgent on either Mac; both rigs quit, their daemons stopped and
+their simulators deleted.
