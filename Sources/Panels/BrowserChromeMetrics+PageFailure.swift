@@ -16,4 +16,13 @@ extension BrowserChromeMetrics {
 
     /// Widest the card gets. Base `480`.
     var unresponsiveCardMaxWidth: CGFloat { 480 * scale }
+
+    /// Space between the card's Exit page and Wait buttons. Base `8`.
+    var unresponsiveCardButtonSpacing: CGFloat { 8 * scale }
+
+    /// Horizontal padding inside a recovery button's label. Base `6`.
+    var pageFailureButtonLabelPadding: CGFloat { 6 * scale }
+
+    /// Inset that keeps the crash page text and the card off the pane edges. Base `16`.
+    var pageFailureHorizontalInset: CGFloat { 16 * scale }
 }
