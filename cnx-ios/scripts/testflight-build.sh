@@ -140,10 +140,11 @@ import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 v=[tuple(map(int,x["attributes"]["version"].split("."))) for x in d["data"]]
 print(".".join(map(str,max(v))) if v else "0")')
-max_build=$(asc_ builds list --app "$app_id" --sort -version --limit 1 --output json | json '
+max_build=$(asc_ builds list --app "$app_id" --paginate --output json | json '
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
-print(d[0]["attributes"]["version"] if d else "0")')
+v=[int(x["attributes"]["version"]) for x in d if x["attributes"]["version"].isdigit()]
+print(max(v) if v else 0)')
 [[ -n "$marketing" ]] || marketing=$(git -C "$repo" show "$sha:cnx-ios/project.yml" | awk '/^    MARKETING_VERSION:/{print $2; exit}')
 [[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
 python3 -I -c 'import sys; a,b=(tuple(map(int,x.split("."))) for x in sys.argv[1:]); sys.exit(0 if a>=b else 1)' "$marketing" "$max_marketing" \
