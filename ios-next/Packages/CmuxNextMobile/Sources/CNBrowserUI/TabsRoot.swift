@@ -18,6 +18,8 @@ public struct TabsRoot: View {
         let model = TabsModel(connection: connection, includesTerminals: true)
         let terminals = TerminalTabs(connection: connection)
         model.terminalImage = { [weak terminals] id in terminals?.thumbnails.images[id] }
+        model.terminalCardOffset = { [weak terminals] id, h in terminals?.thumbnails.cardOffset(id, visibleHeight: h) ?? 0 }
+        model.terminalLiveCardOffset = { [weak terminals] id, h in terminals?.handle(id).cardOffset(visibleHeight: h) ?? 0 }
         model.showTerminalCards = { [weak terminals] ids in terminals?.showCards(ids) }
         model.pauseTerminalCards = { [weak terminals] paused in terminals?.thumbnails.setPaused(paused) }
         model.terminalCardsVisible = { [weak terminals] visible in terminals?.thumbnails.setVisible(visible) }

@@ -86,6 +86,11 @@ final class TabsModel {
     @ObservationIgnored var connection: HostConnection { browser.connection }
     /// Terminal card images (CNTerminalUI's live thumbnails); set by the tabs root.
     @ObservationIgnored var terminalImage: ((String) -> UIImage?)?
+    /// How far a terminal's card image moves up (page points) so its prompt
+    /// shows in a card `visibleHeight` points tall below the status strip.
+    @ObservationIgnored var terminalCardOffset: ((String, CGFloat) -> CGFloat)?
+    /// The same for the terminal's live view (the zoom and the grid).
+    @ObservationIgnored var terminalLiveCardOffset: ((String, CGFloat) -> CGFloat)?
     /// Asks for live thumbnails of these terminal ids (the grid is about to show).
     @ObservationIgnored var showTerminalCards: (([String]) -> Void)?
     /// When the host last moved the grid's cards to new slots (a tab or
@@ -577,6 +582,14 @@ final class TabsModel {
         if let id = TabItem.terminalId(fromKey: key) { return terminalImage?(id) ?? terminalThumbnails[key] }
         if !TabItem.isBrowserKey(key) { return nil }
         return browser.cardImage(key)
+    }
+
+    /// A card's content anchor: how far its snapshot moves up (page points)
+    /// in a card showing `visibleHeight` page points below the strip. A
+    /// terminal's card shows its prompt, not its top rows (Tabs QA #8).
+    func cardContentOffset(_ key: String, visibleHeight: CGFloat) -> CGFloat {
+        guard let id = TabItem.terminalId(fromKey: key) else { return 0 }
+        return terminalCardOffset?(id, visibleHeight) ?? 0
     }
 
     func refreshThumbnails() {

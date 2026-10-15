@@ -329,7 +329,9 @@ struct BrowserScreen: View {
                         Color.clear
                     } else {
                         ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
-                                   pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal)
+                                   pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal,
+                                   contentOffset: content.terminal && zoomTabId != Self.newTabMarker
+                                       ? cardAnchorFraction(g.rect.width) * tabs.cardContentOffset(zoomTabId ?? "", visibleHeight: cardVisibleHeight) : 0)
                             // Safari's new start page sharpens as it grows.
                             .blur(radius: isNewTabZoom && newTabZoom.blurs ? 8 * min(1, max(0, zoomState.progress)) : 0)
                     }
@@ -612,14 +614,20 @@ struct BrowserScreen: View {
         let onPage = zoomState.phase == .page && !chrome.swiping
         // Its static card stands in for it on the settled grid.
         let asCard = zoomState.phase == .overview && gridSettledKey == key
+        // The card shows the prompt, not the top rows: the content moves up
+        // with the zoom's scale (none full screen, all of it as a card).
+        let anchor = cardAnchorFraction(place.rect.width)
+        let liveOffset = anchor > 0 ? anchor * (tabs.terminalLiveCardOffset?(id, cardVisibleHeight) ?? 0) : 0
+        let cardOffset = anchor > 0 ? anchor * tabs.cardContentOffset(key, visibleHeight: cardVisibleHeight) : 0
         ZStack(alignment: .topLeading) {
             terminalContent(id, CGSize(width: size.width, height: size.height - safeTop - pageBottom - 64))
+                .offset(y: -liveOffset)
                 .padding(.top, safeTop)
                 .frame(width: size.width, height: size.height, alignment: .top)
                 .background(Color.cn(\.terminalBackground))
             if !ready {
                 ScaledPage(image: overviewImages[key] ?? tabs.cardImage(key), topColor: .black, startPage: false, tabs: [],
-                           pageSize: size, safeTop: safeTop, strip: 0, terminal: true)
+                           pageSize: size, safeTop: safeTop, strip: 0, terminal: true, contentOffset: cardOffset)
                     .frame(width: size.width, height: size.height)
                     .allowsHitTesting(false)
             }
@@ -647,6 +655,20 @@ struct BrowserScreen: View {
         .opacity(chrome.swiping || asCard ? 0 : (zoomState.phase == .overview ? cardSwipes.opacity(key) : 1))
         .allowsHitTesting(!asCard)
         .accessibilityHidden(!onPage)
+    }
+
+    /// Page points a terminal card shows below its status strip.
+    private var cardVisibleHeight: CGFloat {
+        let l = overviewLayout
+        return l.cardWidth > 0 ? size.width * l.cardHeight / l.cardWidth - safeTop : 0
+    }
+
+    /// How far a rect `width` wide is from full screen (0) to a grid card
+    /// (1): a terminal's content anchor moves with the zoom, no jump.
+    private func cardAnchorFraction(_ width: CGFloat) -> CGFloat {
+        let card = overviewLayout.cardWidth
+        guard size.width > card, card > 0 else { return 0 }
+        return min(1, max(0, (size.width - width) / (size.width - card)))
     }
 
     /// A local page (Mac-only) laid out at full size, scaled into `rect`.

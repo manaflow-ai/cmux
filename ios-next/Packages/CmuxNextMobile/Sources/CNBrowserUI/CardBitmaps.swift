@@ -18,6 +18,8 @@ struct CardBitmapSpec: Hashable, Sendable {
     var topInset: CGFloat
     /// Page background behind and below the image.
     var background: RGBA
+    /// Page points the image moves up (its content anchor, `ScaledPage`).
+    var contentOffset: CGFloat = 0
 
     struct RGBA: Hashable, Sendable {
         var r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat
@@ -108,7 +110,7 @@ final class CardBitmaps {
             guard source.size.width > 0, spec.pageSize.width > 0 else { return }
             let s = size.width / spec.pageSize.width
             context.cgContext.interpolationQuality = .high
-            source.draw(in: CGRect(x: 0, y: spec.topInset * s, width: size.width,
+            source.draw(in: CGRect(x: 0, y: (spec.topInset - spec.contentOffset) * s, width: size.width,
                                    height: size.width * source.size.height / source.size.width))
         }
     }

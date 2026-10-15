@@ -28,6 +28,7 @@ struct TabCard: View {
     /// The card pre-composited at its pixel size (`CardBitmaps`); nil draws
     /// the page live (start pages, or until the bitmap is baked).
     var baked: UIImage?
+    var contentOffset: CGFloat = 0
     var onOpen: () -> Void = {}
     var onClose: () -> Void
 
@@ -89,7 +90,7 @@ struct TabCard: View {
             Image(uiImage: baked).resizable()
         } else {
             ScaledPage(image: image, topColor: topColor, startPage: startPage, tabs: tabs, pageSize: pageSize,
-                       safeTop: safeTop, strip: 0, terminal: item.isTerminal)
+                       safeTop: safeTop, strip: 0, terminal: item.isTerminal, contentOffset: contentOffset)
                 .clipShape(.rect(cornerRadius: radius, style: .continuous))
         }
     }
@@ -128,6 +129,9 @@ struct ScaledPage: View {
     /// A terminal card: the image is the terminal's text, top-aligned on the
     /// terminal background below the status strip.
     var terminal = false
+    /// Page points the terminal's text moves up so its prompt is in the card
+    /// (`TabsModel.cardContentOffset`).
+    var contentOffset: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -148,6 +152,7 @@ struct ScaledPage: View {
                 if let image {
                     Image(uiImage: image).resizable().interpolation(.medium)
                         .frame(width: pageSize.width, height: pageSize.width * image.size.height / max(1, image.size.width))
+                        .offset(y: -contentOffset)
                 }
                 Spacer(minLength: 0)
             }
@@ -231,13 +236,20 @@ struct TabOverview: View {
     @Environment(\.colorScheme) private var colorScheme
 
     /// The card's pre-composited bitmap (nil: draw it live).
+    /// A terminal card's content anchor (its prompt in view) for a card `card`.
+    private func contentOffset(_ tab: TabItem, card: CGRect) -> CGFloat {
+        guard tab.isTerminal, card.width > 0 else { return 0 }
+        return tabs.cardContentOffset(tab.id, visibleHeight: layout.size.width * card.height / card.width - layout.safeTop)
+    }
+
     private func baked(_ tab: TabItem, image: UIImage?, topColor: UIColor, startPage: Bool, card: CGRect) -> UIImage? {
         guard let image, !startPage else { return nil }
         let uiStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         let background = tab.isTerminal ? CNTheme.shared.palette.terminalBackground : topColor
         let spec = CardBitmapSpec(size: card.size, scale: displayScale, radius: layout.cardRadius, pageSize: layout.size,
                                   topInset: tab.isTerminal ? layout.safeTop : 0,
-                                  background: .init(background, style: uiStyle))
+                                  background: .init(background, style: uiStyle),
+                                  contentOffset: contentOffset(tab, card: card))
         return bitmaps.image(for: tab.id, source: image, spec: spec)
     }
 
@@ -352,6 +364,7 @@ struct TabOverview: View {
                 closeOpacity: chrome.closeOpacity, titleOpacity: chrome.titleOpacity,
                 titleOffset: chrome.titleOffset, snapshotHidden: tab.id == hiddenTabId,
                 baked: baked(tab, image: image, topColor: top, startPage: startPage, card: r),
+                contentOffset: contentOffset(tab, card: r),
                 onOpen: { onSelect(tab.id) },
                 onClose: {
                     guard tabs.gridAcceptsCloseTaps else { return }
