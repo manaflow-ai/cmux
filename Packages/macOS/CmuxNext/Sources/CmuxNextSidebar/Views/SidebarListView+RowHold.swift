@@ -48,8 +48,12 @@ struct SidebarRowHold {
 }
 
 extension SidebarListView {
-    /// A drag, its settle or its card's landing runs: row patches wait (`SidebarRowHold`).
-    var holdsRowPatches: Bool { drag != nil || settling != nil || landing != nil }
+    /// A drag, its settle or its card's landing runs: row patches wait (`SidebarRowHold`). OFF: hitch17 (1000
+    /// workspaces, 50 ticking terminals) had 175 and 128 jumps where hitch16 without the hold had none: at a revision
+    /// change the scroll offset moved 758 pt (and 1248 pt) and the rows sprang about 970 pt. Until a release that never
+    /// jumps is proven, patches apply as they come (`rowHoldEnabled`).
+    var holdsRowPatches: Bool { Self.rowHoldEnabled && (drag != nil || settling != nil || landing != nil) }
+    static let rowHoldEnabled = false
 
     /// The sections the list lays out: the model's, with the held rows as they were shown. The drag's hit
     /// geometry and the shown rows use the same ones, so a held height never maps a drop to the wrong slot.
