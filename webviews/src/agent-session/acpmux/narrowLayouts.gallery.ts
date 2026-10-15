@@ -144,6 +144,18 @@ export function narrowProblems(document: Document): string[] {
   if (view.innerWidth >= 340)
     for (const name of document.querySelectorAll(".acpmux-model-name"))
       if (!visible(name)) problems.push("the model is cut to its icon in a pane with room for its name");
+  // The chips and the turn's controls share one line: Send never wraps under the pickers.
+  for (const row of document.querySelectorAll(".acpmux-composer-bar, .nt-pickers")) {
+    const chip = row.querySelector(".acpmux-chips > *");
+    const send = row.querySelector(".acpmux-send, .acpmux-cancel");
+    if (!chip || !send || !visible(chip) || !visible(send)) continue;
+    const middle = (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    };
+    if (Math.abs(middle(chip) - middle(send)) > 4)
+      problems.push(`${row.className.toString().split(" ")[0]}: Send wraps below the chips`);
+  }
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
   for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {
