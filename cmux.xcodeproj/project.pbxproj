@@ -548,6 +548,7 @@
 		F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */; };
 		F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */; };
 		D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */; };
+		9245FEB672C794F67A8F84BC /* BrowserPanel+PageProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6155BD91F9D24A48C685FC1 /* BrowserPanel+PageProcess.swift */; };
 		F15069A000000000000000B1 /* BrowserPanel+PageRestoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15069A000000000000000B2 /* BrowserPanel+PageRestoration.swift */; };
 		C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */; };
 		B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */; };
@@ -5309,6 +5310,7 @@
 		F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserDialogs.swift"; sourceTree = "<group>"; };
 		F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserStreaming.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		B6155BD91F9D24A48C685FC1 /* BrowserPanel+PageProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PageProcess.swift"; sourceTree = "<group>"; };
 		F15069A000000000000000B2 /* BrowserPanel+PageRestoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PageRestoration.swift"; sourceTree = "<group>"; };
 		C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PDFDocumentActions.swift"; sourceTree = "<group>"; };
 		B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PrewarmedWebViewAdoption.swift"; sourceTree = "<group>"; };
@@ -12431,6 +12433,7 @@
 				8E9367F765EC011170028F94 /* ChromiumHelperCrashWatch.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 				E1A6FACFA40A2CFFB7F79C87 /* BrowserPanel+ChromiumHangRecovery.swift */,
+				B6155BD91F9D24A48C685FC1 /* BrowserPanel+PageProcess.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15212,6 +15215,7 @@
 				F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */,
 				F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */,
 				D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */,
+				9245FEB672C794F67A8F84BC /* BrowserPanel+PageProcess.swift in Sources */,
 				F15069A000000000000000B1 /* BrowserPanel+PageRestoration.swift in Sources */,
 				C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */,
 				B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */,

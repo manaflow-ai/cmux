@@ -222,8 +222,11 @@ def leg_sandbox(h: Harness) -> None:
 
 
 def leg_renderer(h: Harness, sid: str) -> None:
+    # The page's own renderer (page_status page_pid), which must be one of the app's renderer helpers.
+    page_pid = int(h.status(sid).get("page_pid") or 0)
     renderers = _children(h.app_pid, "renderer")
-    _must(bool(renderers), "renderer: no Chromium renderer process")
+    _must(page_pid > 0 and page_pid in renderers, f"renderer: page_pid {page_pid} is not one of {renderers}")
+    renderers = [page_pid]
     for pid in renderers:
         os.kill(pid, signal.SIGKILL)
     _wait_for(lambda: h.status(sid).get("prompt") == "crashed", 20, "renderer: Aw, Snap! page")
