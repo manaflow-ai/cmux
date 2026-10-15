@@ -567,6 +567,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // frame, and the fallback's forced move under fast output).
         if Self.jumpAwaitsFrame, !forceScroll, freezeView == nil, abs(scrollView.contentOffset.y - target) > 0.5,
            !targetCovered(target) {
+            // The frame just placed is the only one there is: when it no
+            // longer covers the page (it replaced the reader's frame), the
+            // page shows its rows nearest the target meanwhile (qa11
+            // wt-fling-b: the page waited at the reader's rows, black).
+            if let document, let y = TerminalScrollGate.interimOffset(
+                frame: surface.frame.minY..<surface.frame.maxY, document: 0..<document.contentHeight(cellHeight: cell.height),
+                current: scrollView.contentOffset.y, target: target, viewport: view.bounds.height),
+               abs(y - scrollView.contentOffset.y) > 0.5 {
+                settingOffset = true
+                scrollView.contentOffset.y = y
+                settingOffset = false
+                updateBottomFade()
+            }
             awaitFrame(ticks: 6)
             updateViewport(visibleMinY: target)
             return
@@ -1899,7 +1912,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if dragPinsToComposer { targetContentOffset.pointee = scrollView.contentOffset }
     }
 
-    private func setScrollButton(visible: Bool) {
+    private func setScrollButton(visible requested: Bool) {
+        // Following (a Jump to bottom tap, typing) hides the row at once,
+        // while the page may still wait for the end's frame: the composer
+        // shrinks before the page lands, not in the frames after (qa11 wt-fling-b).
+        let visible = requested && !following
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
         // The composer shows its Jump to bottom row (`TerminalComposer`).
@@ -1923,6 +1940,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
             settingOffset = false
         }
+        setScrollButton(visible: false)
         applyScroll()
         #if DEBUG
         sizingLog.notice("scroll: jump to bottom (decelerating \(self.scrollView.isDecelerating, privacy: .public), tracking \(self.scrollView.isTracking, privacy: .public)) -> offset \(Int(self.scrollView.contentOffset.y), privacy: .public) of \(Int(self.maxOffsetY), privacy: .public)")
