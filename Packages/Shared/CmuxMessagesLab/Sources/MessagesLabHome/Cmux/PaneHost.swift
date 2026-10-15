@@ -58,12 +58,8 @@ final class HostView: NSView {
     weak var liftedThread: UIView?
     /// The window view the thread layer was last searched in.
     var threadLayerSearch: ObjectIdentifier?
-    /// The header band's blur under an open thread view, and the band cut from `threadHost`
-    /// (PaneHost+ThreadLayer.swift).
-    let headerVeil = LayerHostView()
-    let veilBackdrop = ThreadBackdrop()
+    /// A thread or reply view is open (PaneHost+ThreadLayer.swift, followed after every engine change).
     var veilOpen = false
-    var threadBand: CGRect = .null
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
@@ -111,7 +107,6 @@ final class HostView: NSView {
         // and darkens it with the transcript, as Messages does (PaneHost+ThreadLayer.swift).
         addSubview(paneHeader)
         addSubview(threadHost)
-        addSubview(headerVeil)
         liftThreadLayer(demo)
         addSubview(selectionHost)
         // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).
@@ -150,7 +145,7 @@ final class HostView: NSView {
 
     override func layout() {
         super.layout()
-        for v in [below, threadHost, headerVeil, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
+        for v in [below, threadHost, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
             demo.frame = bounds

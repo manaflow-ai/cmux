@@ -35,10 +35,10 @@ final class PaneHeaderView: NSView {
     static let avatarTop: CGFloat = 8
     /// HeaderBar: Messages' pill center, 58 pt from the window top.
     /// The capsule's body (the rect the backing fills and the clicks use): AppKit's glass draws its rim
-    /// 2 pt above and 1 pt below the body (round 6: a 44-71 body measured 42-72), so a 46-71 body gives
-    /// Messages' measured 44-72 (centre 58).
-    static let pillCenterY: CGFloat = 58.5
-    static let pillHeight: CGFloat = 25
+    /// about 2 pt outside the body (round 6: a 44-71 body measured 42-72; round 7: 46-71 measured 44-73),
+    /// so a 46-70 body gives Messages' measured 44-72 (centre 58).
+    static let pillCenterY: CGFloat = 58
+    static let pillHeight: CGFloat = 24
     /// AppKit's glass button draws its capsule this far inside its frame, top and bottom
     /// (round 4 and 5 captures: a 28 pt frame at 44-72 pt drew its rim at 47-69 pt), so
     /// the frame is the drawn capsule outset by it.

@@ -251,25 +251,29 @@ import Testing
 
     // MARK: The header under an open thread or reply view
 
-    /// The header band blurs and darkens with the transcript: a ThreadBackdrop of its own over the band
-    /// opens and closes with the window view's thread view, and the vendored thread layer (its backdrop
-    /// and the thread's rows) draws only below the band, so nothing of it covers the avatar or pill.
-    @Test func theHeaderBandBlursWithAnOpenThreadView() throws {
+    /// One backdrop: the vendored thread layer sits over the live header, unmasked (the header band and
+    /// the transcript blur and darken as one, no seam). The thread's rows are clipped out of the header
+    /// band, each by a band mask whose top edge is the band's bottom in pane coordinates.
+    @Test func theThreadRowsAreClippedOutOfTheHeaderBand() throws {
         let (controller, _, demo) = Self.pane()
         let host = controller.host
         host.layoutSubtreeIfNeeded()
-        let band = CGRect(x: 0, y: 0, width: host.bounds.width, height: Fixture.headerHeight)
-        #expect(host.veilBackdrop.root.superlayer === host.headerVeil.root)
-        #expect(host.veilBackdrop.root.frame == band)
-        let below = try #require(host.threadHost.root.mask)
-        #expect(below.frame.minY == band.maxY)
-        #expect(!below.frame.intersects(band))
-        #expect(!host.veilOpen)
+        #expect(host.threadHost.root.mask == nil)
         controller.dispatch(.reply(PartRef(messageId: "m1", partIndex: 0)))
         #expect(demo.threadOpen)
         #expect(host.veilOpen)
+        host.needsLayout = true
+        host.layoutSubtreeIfNeeded()
+        let thread = try #require(HostView.threadLayerView(of: demo))
+        let dim = thread.subviews.first?.layer
+        let rows = (thread.layer.sublayers ?? []).filter { $0 !== dim }
+        #expect(!rows.isEmpty)
+        for row in rows {
+            let mask = try #require(row.mask)
+            #expect(mask.name == HostView.bandMaskName)
+            #expect(abs(row.frame.minY + mask.frame.minY - Fixture.headerHeight) < 0.001)
+        }
         controller.dispatch(.closeThread)
-        #expect(!demo.threadOpen)
         #expect(!host.veilOpen)
     }
 }

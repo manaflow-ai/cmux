@@ -67,44 +67,69 @@ extension HostView {
         CATransaction.commit()
     }
 
-    /// cmux: under an open thread or reply view the header's avatar and pill blur and darken with the
-    /// transcript (Messages: the avatar 237 -> 103, its letter and the pill's title faint), and nothing
-    /// of the thread view draws over them. No vendored layer is moved for it, and no mask cuts a
-    /// backdrop at the controls' edges:
-    /// - `threadHost` (the vendored thread layer: its backdrop and the thread's rows) draws only below
-    ///   the header band (a rectangular mask from `Fixture.headerHeight` down), so a thread row passes
-    ///   under the header, as under Messages' titlebar;
-    /// - `headerVeil`, over the header band only, holds a ThreadBackdrop of its own (the vendored class:
-    ///   the same live Gaussian blur, radius `ThreadBackdrop.radius`, and tint, 5.5 + 0.384 x in) over
-    ///   the whole band, opened and closed in the same turn as the window view's (`followThread`), so
-    ///   the band, the avatar and the pill included, blurs and darkens on the same frames and curve as
-    ///   the transcript below it.
-    /// Round 6 had a backdrop masked to the controls' shapes: its blur ended at the shapes' edges (a
-    /// light rim, the shapes dark and flat). Over the whole band the blur runs past the controls into
-    /// the band as the vendored one does past every edge. Updated on layout and after every engine change.
+    /// cmux: under an open thread or reply view the header (its avatar and pill) blurs and darkens with
+    /// the transcript, and no thread row draws over it. One backdrop does it: the vendored thread layer
+    /// (ThreadBackdrop, then the thread's rows) sits over the live header in `threadHost`, unmasked, so
+    /// the header band and the transcript are one blur and one tint, on the same frames, with no seam
+    /// (round 7: a second backdrop over the band joined the vendored one with a 5.4-level step at 80 pt
+    /// and ran 0-3 frames behind it).
+    ///
+    /// The thread's rows are clipped out of the header band instead, each by a mask of its own (the
+    /// row layers stay where the vendored view put them): the mask's top edge sits at the band's bottom
+    /// (`Fixture.headerHeight`) in pane coordinates. A row flying in or out (ThreadBackdrop.fly, a
+    /// keyframe animation of its `position.y`) carries its mask with it, so the mask gets the inverse
+    /// keyframes on the same duration and begin time: its edge stays at the band's bottom on every
+    /// frame. A row passes under the header, as under Messages' titlebar. Called after every engine
+    /// change (the vendored view adds rows and their flights during a dispatch) and on layout.
     func clipThreadToHeader() {
-        let band = CGRect(x: 0, y: 0, width: bounds.width, height: min(Fixture.headerHeight, bounds.height))
-        guard band != threadBand || veilBackdrop.root.superlayer !== headerVeil.root else { return }
-        threadBand = band
+        guard let thread = liftedThread, thread.layer.superlayer === threadHost.root,
+              let dim = thread.subviews.first?.layer else { return }
+        let band = min(Fixture.headerHeight, bounds.height)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if veilBackdrop.root.superlayer !== headerVeil.root { headerVeil.root.addSublayer(veilBackdrop.root) }
-        veilBackdrop.frame = band
-        let below = (threadHost.root.mask) ?? CALayer()
-        below.actions = ["bounds": NSNull(), "position": NSNull()]
-        below.backgroundColor = NSColor.black.cgColor
-        below.frame = CGRect(x: -4096, y: band.maxY, width: bounds.width + 8192, height: max(0, bounds.height - band.maxY) + 4096)
-        threadHost.root.mask = below
+        for row in thread.layer.sublayers ?? [] where row !== dim {
+            Self.clipRow(row, belowY: band)
+        }
     }
 
-    /// The veil's backdrop opens and closes with the window view's thread view, after every engine
-    /// change, in the same turn as the vendored open or close (ThreadBackdrop.animate: the same blur
-    /// radius, tint, durations and curve, begun at the same commit).
+    /// The row's mask: everything at or below `y` (the thread layer's coordinates), following the row's flight.
+    static func clipRow(_ row: CALayer, belowY y: CGFloat) {
+        if let other = row.mask, other.name != Self.bandMaskName { return }  // a mask of the vendored view's own: left alone
+        let mask = row.mask ?? CALayer()
+        mask.name = Self.bandMaskName
+        mask.actions = ["bounds": NSNull(), "position": NSNull()]
+        mask.backgroundColor = NSColor.black.cgColor
+        // The model frame: the row at its final place; the mask's top at `y` in the thread layer.
+        let top = y - row.frame.minY
+        let frame = CGRect(x: -4096, y: top, width: row.bounds.width + 8192, height: max(0, row.bounds.height - top) + 4096)
+        if mask.frame != frame { mask.frame = frame }
+        if row.mask !== mask { row.mask = mask }
+        // The flight: the inverse keyframes, once per flight (a flight is known by its values).
+        let fly = row.animation(forKey: "thread.fly") as? CAKeyframeAnimation
+        let values = (fly?.values as? [NSNumber])?.map(\.doubleValue)
+        // The followed flight's values, kept on the mask (CALayer's key-value storage).
+        guard values != mask.value(forKey: Self.followedKey) as? [Double] else { return }
+        mask.setValue(values, forKey: Self.followedKey)
+        mask.removeAnimation(forKey: "cmux.band")
+        guard let fly, let values else { return }
+        let rowY = row.position.y, maskY = mask.position.y
+        let k = CAKeyframeAnimation(keyPath: "position.y")
+        k.values = values.map { NSNumber(value: Double(maskY) - ($0 - Double(rowY))) }
+        k.keyTimes = fly.keyTimes
+        k.duration = fly.duration
+        k.calculationMode = fly.calculationMode
+        k.beginTime = fly.beginTime
+        k.fillMode = fly.fillMode
+        k.timingFunctions = fly.timingFunctions
+        mask.add(k, forKey: "cmux.band")
+    }
+
+    static let bandMaskName = "cmux.threadBand", followedKey = "cmuxFollowedFlight"
+
+    /// The thread view's open state, followed after every engine change.
     func followThread(open: Bool) {
         clipThreadToHeader()
-        guard open != veilOpen else { return }
         veilOpen = open
-        veilBackdrop.animate(open: open)
     }
 
     /// The thread layer lives in `threadHost` (tests, the DEBUG socket).
