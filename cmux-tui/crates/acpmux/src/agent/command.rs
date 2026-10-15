@@ -56,6 +56,8 @@ pub(crate) fn harness_command(
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
+    // The session's workspace is for its computer use server only (agent_displays.rs).
+    env.remove(crate::agent_displays::WORKSPACE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
     // Startup files changed since the last read: refresh in the background.

@@ -22,7 +22,7 @@ use tokio::sync::{broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
-pub use windows_socket::{UnixListener, bind_unix, serve_unix};
+pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
 /// How one connection receives one attached session's live records.
 #[derive(Debug, Clone, Default)]

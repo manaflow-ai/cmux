@@ -7213,6 +7213,14 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "scrollback_not_kept": {
+          "required": false,
+          "description": "True when the closed terminal's archived screen was dropped to keep the archive byte budget: the tab reopens in its directory without its old scrollback. Absent otherwise.",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false

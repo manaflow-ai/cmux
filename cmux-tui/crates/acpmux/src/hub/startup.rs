@@ -28,7 +28,7 @@ impl Hub {
         if login_env {
             // A cache whose fingerprint matches applies at once; the shell
             // runs only when needed, and agent spawns wait for it (at most
-            // `login_env::TIMEOUT`) only when nothing else can stand in.
+            // two `login_env::TIMEOUT` reads) only when nothing else can stand in.
             let plan = tokio::task::spawn_blocking(crate::login_env::begin)
                 .await
                 .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });

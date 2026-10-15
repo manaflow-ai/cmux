@@ -136,7 +136,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
-        liveLine.show(live?.activity)
+        // The line closes one display frame after the reply took the bubble's place, never with it (cx-zz30r).
+        if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
     }
 
     /// The whole current value; unchanged values return before any work.

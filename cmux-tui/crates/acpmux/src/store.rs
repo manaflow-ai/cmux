@@ -166,6 +166,12 @@ pub struct SessionMeta {
     /// every spawn. Never copied to a fork or a handoff.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub session_env: BTreeMap<String, String>,
+    /// The cmux workspace this session works in, as the client named it
+    /// (`_meta.acpmux.workspaceId` on session/new or session/fork; a fork
+    /// keeps its parent's). It picks the computer use display in
+    /// per-workspace display mode (`agent_displays.rs`). Lowercase UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     /// The harness store of an adopted chat that no profile's store holds
     /// (a subrouter account home, a root the person added; cx-vx54). acpmux
     /// found it in its own chat index, never in a request; every spawn runs

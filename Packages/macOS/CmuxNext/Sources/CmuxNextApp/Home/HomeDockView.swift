@@ -4,9 +4,9 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextPages
 
-/// The docked Home's two views over `HomeDockSwitchView` (cx-ebm.59.5): Messages, the native
-/// MessagesLab list and transcript (`TopHomePageView`, the same view classic Home shows), and
-/// Channels, hq-ec's `home-channels` page (it draws no switch of its own). Messages -> Channels
+/// The docked Home's two views over `HomeDockSwitchView` (cx-ebm.59.5, cx-frn2y): Messages, the native
+/// MessagesLab list and transcript (`TopHomePageView`, the same view classic Home shows; the sidebar's
+/// Home entry), and Channels, hq-ec's `home-channels` page (the sidebar's Channels entry). Messages -> Channels
 /// opens `#/conversation/<id>[/message/<id>]` in the page; Channels -> Messages asks the page for
 /// its selection (`home.currentSelection`).
 final class HomeDockView: HomeDockSwitchView {
@@ -87,15 +87,5 @@ final class HomeDockView: HomeDockSwitchView {
     override func close() {
         super.close()
         channels?.close()
-    }
-}
-
-nonisolated enum HomeDockStrings {
-    static var invalidView: String {
-        String(localized: "homeDock.switch.invalidView", defaultValue: "Home has two views: messages and channels.", table: "Handlers", bundle: .module)
-    }
-
-    static var classicHasOneView: String {
-        String(localized: "homeDock.switch.classic", defaultValue: "Classic Home has only the Messages view.", table: "Handlers", bundle: .module)
     }
 }

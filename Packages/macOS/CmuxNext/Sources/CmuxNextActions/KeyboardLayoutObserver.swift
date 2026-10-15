@@ -11,10 +11,10 @@ import Carbon.HIToolbox
 /// has no suspension behavior), not a selector observer: a selector into
 /// this main-actor class trapped when the notice arrived off main. The C
 /// callback names no observer; it hops to main and calls every live one.
-final class KeyboardLayoutObserver {
+public final class KeyboardLayoutObserver {
     private let onChange: @MainActor () -> Void
 
-    init(onChange: @escaping @MainActor () -> Void) {
+    public init(onChange: @escaping @MainActor () -> Void) {
         self.onChange = onChange
         Self.live.removeAll { $0.value == nil }
         Self.live.append(Weak(self))
