@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCEF
 import CmuxCloud
 import CmuxComputerUse
@@ -117,6 +118,19 @@ final class HostSettingsActions: SettingsHostActions {
 
     func isChromiumBrowserEngineBundled() -> Bool {
         CEFRuntime.shared.layout != nil
+    }
+
+    func openBrowserExtensionsManagement() {
+        // Explicitly Chromium: chrome://extensions does not exist in WebKit.
+        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        else { return }
+        _ = workspace.newBrowserSurface(
+            inPane: paneId,
+            url: BrowserExtensionPage.management.url,
+            focus: true,
+            engine: .chromium
+        )
     }
 
     func clearBrowserHistory() {

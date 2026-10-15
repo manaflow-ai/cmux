@@ -479,6 +479,15 @@
 		279D03070EB4EF6D9A2759C5 /* BrowserEngineSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCB9513322321D01C4B712B9 /* BrowserEngineSocketTests.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
+		CEFE0E000000000000000066 /* BrowserExtensionActionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */; };
+		CEFE0E0000000000000000CA /* BrowserExtensionAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E0000000000000000C9 /* BrowserExtensionAnchor.swift */; };
+		CEFE0E0000000000000000CE /* BrowserExtensionAnchorReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E0000000000000000CD /* BrowserExtensionAnchorReader.swift */; };
+		CEFE0E0000000000000000CC /* BrowserExtensionAnchorSet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E0000000000000000CB /* BrowserExtensionAnchorSet.swift */; };
+		CEFE0E000000000000000002 /* BrowserExtensionDialogPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000001 /* BrowserExtensionDialogPresenter.swift */; };
+		CEFE0E000000000000000004 /* BrowserExtensionPromptSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000003 /* BrowserExtensionPromptSheetView.swift */; };
+		CEFE0E00000000000000006A /* BrowserExtensionsMenuRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000069 /* BrowserExtensionsMenuRow.swift */; };
+		CEFE0E000000000000000068 /* BrowserExtensionsMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000067 /* BrowserExtensionsMenuView.swift */; };
+		CEFE0E00000000000000006C /* BrowserExtensionToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E00000000000000006B /* BrowserExtensionToolbar.swift */; };
 		BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */; };
 		129980000000000000000001 /* BrowserFailedNavigationReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129980000000000000000002 /* BrowserFailedNavigationReloadTests.swift */; };
 		D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */; };
@@ -540,6 +549,7 @@
 		D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */; };
 		DE70C0DE0000000000000007 /* BrowserPanel+EngineFeatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE70C0DE0000000000000008 /* BrowserPanel+EngineFeatures.swift */; };
 		E8DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift */; };
+		CEFE0E000000000000000006 /* BrowserPanel+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000005 /* BrowserPanel+Extensions.swift */; };
 		F15069A000000000000000A1 /* BrowserPanel+FormStateTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15069A000000000000000A2 /* BrowserPanel+FormStateTracking.swift */; };
 		E66AE765BA60B55B26C90EC9 /* BrowserPanel+HiddenMemoryBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C365461AA42F333782E0AC29 /* BrowserPanel+HiddenMemoryBudget.swift */; };
 		A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MX00 /* BrowserPanel+MediaPlayback.swift */; };
@@ -1284,6 +1294,7 @@
 		6D9C51AB30A64B1ABC819144 /* CMUXCLI+AutoNamingHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211168 /* CMUXCLI+AutoNamingHooks.swift */; };
 		6D9C51AB30A64B1ABC819145 /* CMUXCLI+AutoNamingSummarizers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211169 /* CMUXCLI+AutoNamingSummarizers.swift */; };
 		A12451000000000000000002 /* CMUXCLI+BrowserDownload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12451000000000000000001 /* CMUXCLI+BrowserDownload.swift */; };
+		CEFE0E00000000000000000A /* CMUXCLI+BrowserExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000009 /* CMUXCLI+BrowserExtension.swift */; };
 		DF42531B26A5E149BC263C79 /* CMUXCLI+BrowserRepl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EA23FD5F4147585610132E4 /* CMUXCLI+BrowserRepl.swift */; };
 		8056A0000000000000000002 /* CMUXCLI+BrowserViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8056A0000000000000000001 /* CMUXCLI+BrowserViewport.swift */; };
 		B9000074A1B2C3D4E5F60719 /* CMUXCLI+CampfireExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000075A1B2C3D4E5F60719 /* CMUXCLI+CampfireExtension.swift */; };
@@ -3859,6 +3870,7 @@
 		A12451000000000000000004 /* TerminalController+BrowserDownloadHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12451000000000000000003 /* TerminalController+BrowserDownloadHistory.swift */; };
 		9874FB5B355515AFE8925C06 /* TerminalController+BrowserEmulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */; };
 		147D2ADE962AE550D238594A /* TerminalController+BrowserEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0713E95C4FCFB5A84EFD38 /* TerminalController+BrowserEngine.swift */; };
+		CEFE0E000000000000000008 /* TerminalController+BrowserExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000007 /* TerminalController+BrowserExtensions.swift */; };
 		C12791C00000000000000004 /* TerminalController+BrowserImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791C00000000000000003 /* TerminalController+BrowserImport.swift */; };
 		45E6B5FF5624FF345E149ADF /* TerminalController+BrowserRawInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26930C4CD0BFCE82BFD30A3A /* TerminalController+BrowserRawInput.swift */; };
 		157D17626EF0EC8B98525DCE /* TerminalController+BrowserRepl.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC616BEADB26FE7A9AD00228 /* TerminalController+BrowserRepl.swift */; };
@@ -5234,6 +5246,15 @@
 		FCB9513322321D01C4B712B9 /* BrowserEngineSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserEngineSocketTests.swift"; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
+		CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionActionButton.swift"; sourceTree = "<group>"; };
+		CEFE0E0000000000000000C9 /* BrowserExtensionAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionAnchor.swift"; sourceTree = "<group>"; };
+		CEFE0E0000000000000000CD /* BrowserExtensionAnchorReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionAnchorReader.swift"; sourceTree = "<group>"; };
+		CEFE0E0000000000000000CB /* BrowserExtensionAnchorSet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionAnchorSet.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000001 /* BrowserExtensionDialogPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionDialogPresenter.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000003 /* BrowserExtensionPromptSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionPromptSheetView.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000069 /* BrowserExtensionsMenuRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionsMenuRow.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000067 /* BrowserExtensionsMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionsMenuView.swift"; sourceTree = "<group>"; };
+		CEFE0E00000000000000006B /* BrowserExtensionToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionToolbar.swift"; sourceTree = "<group>"; };
 		BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationHandler.swift; sourceTree = "<group>"; };
 		129980000000000000000002 /* BrowserFailedNavigationReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFailedNavigationReloadTests.swift; sourceTree = "<group>"; };
 		D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFileDropNavigationGuard.swift; sourceTree = "<group>"; };
@@ -5295,6 +5316,7 @@
 		D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+ElementPicker.swift"; sourceTree = "<group>"; };
 		DE70C0DE0000000000000008 /* BrowserPanel+EngineFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+EngineFeatures.swift"; sourceTree = "<group>"; };
 		E9DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+EnginePage.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000005 /* BrowserPanel+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+Extensions.swift"; sourceTree = "<group>"; };
 		F15069A000000000000000A2 /* BrowserPanel+FormStateTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+FormStateTracking.swift"; sourceTree = "<group>"; };
 		C365461AA42F333782E0AC29 /* BrowserPanel+HiddenMemoryBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+HiddenMemoryBudget.swift"; sourceTree = "<group>"; };
 		A500MX00 /* BrowserPanel+MediaPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MediaPlayback.swift"; sourceTree = "<group>"; };
@@ -5998,6 +6020,7 @@
 		5257257034CA4729B1211168 /* CMUXCLI+AutoNamingHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AutoNamingHooks.swift"; sourceTree = "<group>"; };
 		5257257034CA4729B1211169 /* CMUXCLI+AutoNamingSummarizers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AutoNamingSummarizers.swift"; sourceTree = "<group>"; };
 		A12451000000000000000001 /* CMUXCLI+BrowserDownload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+BrowserDownload.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000009 /* CMUXCLI+BrowserExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+BrowserExtension.swift"; sourceTree = "<group>"; };
 		6EA23FD5F4147585610132E4 /* CMUXCLI+BrowserRepl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+BrowserRepl.swift"; sourceTree = "<group>"; };
 		8056A0000000000000000001 /* CMUXCLI+BrowserViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+BrowserViewport.swift"; sourceTree = "<group>"; };
 		B9000075A1B2C3D4E5F60719 /* CMUXCLI+CampfireExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CampfireExtension.swift"; sourceTree = "<group>"; };
@@ -8433,6 +8456,7 @@
 		A12451000000000000000003 /* TerminalController+BrowserDownloadHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserDownloadHistory.swift"; sourceTree = "<group>"; };
 		30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserEmulation.swift"; sourceTree = "<group>"; };
 		EF0713E95C4FCFB5A84EFD38 /* TerminalController+BrowserEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserEngine.swift"; sourceTree = "<group>"; };
+		CEFE0E000000000000000007 /* TerminalController+BrowserExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserExtensions.swift"; sourceTree = "<group>"; };
 		C12791C00000000000000003 /* TerminalController+BrowserImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserImport.swift"; sourceTree = "<group>"; };
 		26930C4CD0BFCE82BFD30A3A /* TerminalController+BrowserRawInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserRawInput.swift"; sourceTree = "<group>"; };
 		AC616BEADB26FE7A9AD00228 /* TerminalController+BrowserRepl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserRepl.swift"; sourceTree = "<group>"; };
@@ -11577,6 +11601,16 @@
 				B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */,
 				B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */,
 				C0DE47010000000000000002 /* BrowserPanel+WebContentTermination.swift */,
+				CEFE0E0000000000000000CD /* BrowserExtensionAnchorReader.swift */,
+				CEFE0E0000000000000000CB /* BrowserExtensionAnchorSet.swift */,
+				CEFE0E0000000000000000C9 /* BrowserExtensionAnchor.swift */,
+				CEFE0E00000000000000006B /* BrowserExtensionToolbar.swift */,
+				CEFE0E000000000000000069 /* BrowserExtensionsMenuRow.swift */,
+				CEFE0E000000000000000067 /* BrowserExtensionsMenuView.swift */,
+				CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */,
+				CEFE0E000000000000000005 /* BrowserPanel+Extensions.swift */,
+				CEFE0E000000000000000003 /* BrowserExtensionPromptSheetView.swift */,
+				CEFE0E000000000000000001 /* BrowserExtensionDialogPresenter.swift */,
 				B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */,
 				B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */,
 				AC7B24C10000000000000002 /* BrowserAuthCallbackNavigationPolicy.swift */,
@@ -11599,6 +11633,7 @@
 				805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */,
 				805600000000000000000006 /* TerminalController+BrowserViewport.swift */,
 				A12451000000000000000003 /* TerminalController+BrowserDownloadHistory.swift */,
+				CEFE0E000000000000000007 /* TerminalController+BrowserExtensions.swift */,
 				8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */,
 				B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */,
 				C2035A010000000000000002 /* BrowserErrorPage.swift */,
@@ -12593,6 +12628,7 @@
 				5257257034CA4729B1211169 /* CMUXCLI+AutoNamingSummarizers.swift */,
 				8056A0000000000000000001 /* CMUXCLI+BrowserViewport.swift */,
 				A12451000000000000000001 /* CMUXCLI+BrowserDownload.swift */,
+				CEFE0E000000000000000009 /* CMUXCLI+BrowserExtension.swift */,
 				C72280000000000000000001 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift */,
 				79390008AA11BB22CC33DD08 /* CMUXCLI+ClaudeHookDeliveryTarget.swift */,
 				B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */,
@@ -15152,6 +15188,15 @@
 				E8D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift in Sources */,
 				E8346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
+				CEFE0E000000000000000066 /* BrowserExtensionActionButton.swift in Sources */,
+				CEFE0E0000000000000000CA /* BrowserExtensionAnchor.swift in Sources */,
+				CEFE0E0000000000000000CE /* BrowserExtensionAnchorReader.swift in Sources */,
+				CEFE0E0000000000000000CC /* BrowserExtensionAnchorSet.swift in Sources */,
+				CEFE0E000000000000000002 /* BrowserExtensionDialogPresenter.swift in Sources */,
+				CEFE0E000000000000000004 /* BrowserExtensionPromptSheetView.swift in Sources */,
+				CEFE0E00000000000000006A /* BrowserExtensionsMenuRow.swift in Sources */,
+				CEFE0E000000000000000068 /* BrowserExtensionsMenuView.swift in Sources */,
+				CEFE0E00000000000000006C /* BrowserExtensionToolbar.swift in Sources */,
 				BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */,
 				D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
@@ -15186,6 +15231,7 @@
 				D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */,
 				DE70C0DE0000000000000007 /* BrowserPanel+EngineFeatures.swift in Sources */,
 				E8DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift in Sources */,
+				CEFE0E000000000000000006 /* BrowserPanel+Extensions.swift in Sources */,
 				F15069A000000000000000A1 /* BrowserPanel+FormStateTracking.swift in Sources */,
 				E66AE765BA60B55B26C90EC9 /* BrowserPanel+HiddenMemoryBudget.swift in Sources */,
 				A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */,
@@ -16972,6 +17018,7 @@
 				A12451000000000000000004 /* TerminalController+BrowserDownloadHistory.swift in Sources */,
 				9874FB5B355515AFE8925C06 /* TerminalController+BrowserEmulation.swift in Sources */,
 				147D2ADE962AE550D238594A /* TerminalController+BrowserEngine.swift in Sources */,
+				CEFE0E000000000000000008 /* TerminalController+BrowserExtensions.swift in Sources */,
 				C12791C00000000000000004 /* TerminalController+BrowserImport.swift in Sources */,
 				45E6B5FF5624FF345E149ADF /* TerminalController+BrowserRawInput.swift in Sources */,
 				157D17626EF0EC8B98525DCE /* TerminalController+BrowserRepl.swift in Sources */,
@@ -17646,6 +17693,7 @@
 				6D9C51AB30A64B1ABC819144 /* CMUXCLI+AutoNamingHooks.swift in Sources */,
 				6D9C51AB30A64B1ABC819145 /* CMUXCLI+AutoNamingSummarizers.swift in Sources */,
 				A12451000000000000000002 /* CMUXCLI+BrowserDownload.swift in Sources */,
+				CEFE0E00000000000000000A /* CMUXCLI+BrowserExtension.swift in Sources */,
 				DF42531B26A5E149BC263C79 /* CMUXCLI+BrowserRepl.swift in Sources */,
 				8056A0000000000000000002 /* CMUXCLI+BrowserViewport.swift in Sources */,
 				B9000074A1B2C3D4E5F60719 /* CMUXCLI+CampfireExtension.swift in Sources */,

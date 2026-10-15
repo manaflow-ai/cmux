@@ -377,6 +377,7 @@ extension CMUXCLI {
         browser frame <selector|main>
         browser dialog <accept|dismiss> [text]
         browser download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>]
+        browser <surface> \(Self.browserExtensionUsage)
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]

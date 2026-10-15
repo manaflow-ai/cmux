@@ -1,3 +1,4 @@
+import AppKit
 import CmuxBrowser
 import CmuxCEF
 import CmuxCEFBrowser
@@ -18,6 +19,8 @@ final class BrowserEngineRuntime {
     static let shared = BrowserEngineRuntime()
 
     let registry: BrowserEngineRegistry
+    /// Chrome extension stores and prompts of the Chromium engine (set at launch).
+    private(set) var chromiumExtensions: CEFBrowserExtensions?
     let fallbackNotices: BrowserEngineFallbackNoticeLedger
     private let resolver = BrowserEngineResolver()
     private let environment: [String: String]
@@ -63,9 +66,31 @@ final class BrowserEngineRuntime {
     /// Chromium runtime. Called once at launch.
     func registerBundledEngines() {
         guard registry.provider(for: .chromium) == nil else { return }
+        let extensions = CEFBrowserExtensions(
+            runtime: .shared,
+            window: { browserID in
+                // The asking tab's window, else a visible cmux window; none aborts the prompt.
+                CEFRuntime.shared.browser(id: browserID)?.hostView.window.flatMap { $0.isVisible ? $0 : nil }
+                    ?? NSApp.windows.first { $0.isVisible && $0.isMainWindow }
+                    ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.parent == nil && !($0 is NSPanel) }
+            },
+            present: { content, icon, window in
+                // Cut the sheet out of every Chromium page in that window (their windows sit above it).
+                let overlays = (AppDelegate.shared?.allMainWindowTabManagersForDebug() ?? [])
+                    .flatMap(\.tabs)
+                    .flatMap { $0.panels.values.compactMap { $0 as? BrowserPanel } }
+                    .filter { $0.enginePage != nil && $0.extensionPageWindow === window }
+                    .map(\.pageOverlays)
+                return await BrowserExtensionDialogPresenter().present(
+                    content, icon: icon, in: window, overlays: overlays
+                )
+            }
+        )
+        chromiumExtensions = extensions
         registry.register(CEFBrowserEngineProvider(
             runtime: .shared,
-            devToolsLayoutStore: BrowserDevToolsLayoutStore(defaults: defaults)
+            devToolsLayoutStore: BrowserDevToolsLayoutStore(defaults: defaults),
+            extensions: extensions.stores
         ))
     }
 

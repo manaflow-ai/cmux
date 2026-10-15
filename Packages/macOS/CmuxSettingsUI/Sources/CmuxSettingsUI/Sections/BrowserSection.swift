@@ -156,6 +156,13 @@ public struct BrowserSection: View {
                 isChromiumBundled: hostActions.isChromiumBrowserEngineBundled()
             )
 
+            // Chrome Extensions (Chromium builds only; design spec §10)
+            BrowserExtensionsSettingsRow(
+                controlWidth: Self.columnWidth,
+                isChromiumBundled: hostActions.isChromiumBrowserEngineBundled(),
+                onManage: { hostActions.openBrowserExtensionsManagement() }
+            )
+
             // Default Search Engine
             SettingsCardRow(
                 configurationReview: .json("browser.defaultSearchEngine"),

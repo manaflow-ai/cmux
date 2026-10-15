@@ -1,5 +1,6 @@
 public import CmuxBrowser
 public import CmuxCEF
+public import CmuxCEFExtensions
 import Foundation
 
 /// The Chromium engine for browser panels.
@@ -19,14 +20,19 @@ import Foundation
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     private let runtime: CEFRuntime
     private let devToolsLayoutStore: BrowserDevToolsLayoutStore
+    private let extensions: CEFExtensionStores?
 
     /// Creates the provider.
     /// - Parameters:
     ///   - runtime: The process's CEF runtime.
     ///   - devToolsLayoutStore: Remembers the DevTools dock side and sizes across pages.
-    public init(runtime: CEFRuntime, devToolsLayoutStore: BrowserDevToolsLayoutStore) {
+    ///   - extensions: The extension stores pages join, or nil for pages without extensions.
+    public init(
+        runtime: CEFRuntime, devToolsLayoutStore: BrowserDevToolsLayoutStore, extensions: CEFExtensionStores? = nil
+    ) {
         self.runtime = runtime
         self.devToolsLayoutStore = devToolsLayoutStore
+        self.extensions = extensions
     }
 
     /// Always ``BrowserEngineKind/chromium``.
@@ -71,7 +77,8 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
         return CEFBrowserPage(
             browser: browser,
             shim: { [runtime] in runtime.shim },
-            devToolsLayoutStore: devToolsLayoutStore
+            devToolsLayoutStore: devToolsLayoutStore,
+            extensions: extensions
         )
     }
 }

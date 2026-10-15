@@ -20189,6 +20189,17 @@ struct CMUXCLI {
             return
         }
 
+        if subcommand == "extension" || subcommand == "extensions" {
+            try runBrowserExtensionCommand(
+                surfaceRaw: surfaceRaw,
+                subArgs: subArgs,
+                client: client,
+                jsonOutput: effectiveJSONOutput,
+                idFormat: effectiveIDFormat
+            )
+            return
+        }
+
         if subcommand == "download" {
             try runBrowserDownloadCommand(
                 surfaceRaw: surfaceRaw,
@@ -23423,6 +23434,7 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              \(Self.browserExtensionUsage)
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               \(String(localized: "cli.browser.cookies.help", defaultValue: "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"))
