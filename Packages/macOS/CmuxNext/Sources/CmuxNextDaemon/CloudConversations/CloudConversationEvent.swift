@@ -58,10 +58,14 @@ public enum CloudConversationsEvent: Sendable, Hashable {
     case inboxReset(seq: UInt64, account: String? = nil)
     case subscriptionState(CloudSubscriptionState)
     case sessionNeeded(CloudSessionNeeded)
+    /// A Cloud Chief's live run frame (`chief-live-v1` through the daemon).
+    case live(ConversationLive)
+    /// A Cloud Chief's run after an append (`cloud-conversation-runs-v1`).
+    case runChanged(ConversationRunChanged)
 
     public static let eventNames: Set<String> = [
         "cloud-conversation-changed", "cloud-conversation-resynced", "cloud-inbox-changed", "cloud-inbox-reset",
-        "cloud-subscription-state", "cloud-session-needed",
+        "cloud-subscription-state", "cloud-session-needed", "cloud-conversation-live", "cloud-conversation-run-changed",
     ]
 
     private struct InboxReset: Decodable {
@@ -82,6 +86,8 @@ public enum CloudConversationsEvent: Sendable, Hashable {
         case "cloud-inbox-reset": try reset(from: decoder.decode(InboxReset.self, from: line))
         case "cloud-subscription-state": .subscriptionState(try decoder.decode(CloudSubscriptionState.self, from: line))
         case "cloud-session-needed": .sessionNeeded(try decoder.decode(CloudSessionNeeded.self, from: line))
+        case "cloud-conversation-live": .live(try decoder.decode(ConversationLive.self, from: line))
+        case "cloud-conversation-run-changed": .runChanged(try decoder.decode(ConversationRunChanged.self, from: line))
         default: nil
         }
     }

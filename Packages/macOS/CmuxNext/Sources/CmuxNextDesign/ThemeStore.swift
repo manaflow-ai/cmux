@@ -166,7 +166,7 @@ public final class ThemeStore {
     /// config stays light).
     private func refresh(_ window: NSWindow, crossfade: Bool = false) {
         window.appearance = window.themeScope.appearance
-        if crossfade, window.isVisible { ColorTransition.current.crossfade(window.contentView?.layer) }
+        if crossfade { ColorTransition.current.fade(window) }
         if let contentView = window.contentView { Self.invalidate(contentView) }
         window.invalidateShadow()
     }

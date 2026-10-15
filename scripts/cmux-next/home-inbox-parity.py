@@ -2,14 +2,18 @@
 """Tagged-app check: the native Messages list reads the daemon's Home rows (`home-inbox`, home-inbox-v1), so the
 Messages and Channels views show one list (cx-ebm.59.5 parity; hq-ec PARITY.md gaps 1, 2, 9, 13).
 
-Home is the home workspace with the `home-dock` tab (Messages by default, Channels behind the switch). On the Chief
+Home is the home workspace with the `home-dock` tab (Messages by default, Channels as the sidebar's second entry,
+enabled in this check's cmux.json). On the Chief
 home's own daemon (its Unix socket, as the user) the check makes a second Chief (an agent of class mux with its own
 name), a pinned channel and a plain channel, then checks through the app's control socket:
 - the Messages list shows the daemon's rows in the daemon's order, with each Chief's own name and the daemon's pins;
 - the Channels page lists the same conversations in the same order;
 - a pin in Messages shows in Channels, an unpin in Channels shows in Messages, Mark as Unread in Messages shows in
   Channels, Mark as Read in Channels shows in Messages (each view through its own menu handler);
-- a Chief's typing shows in the Messages transcript and ends when its reply posts (the owner sends no typing-off).
+- a Chief's typing shows in the Messages transcript and ends when its reply posts (the owner sends no typing-off);
+- the build's daemon (owners ["cloud"]) says the Cloud state; signed out or unavailable, the list keeps the local rows;
+  unavailable shows one quiet line, signed out none (muted Cloud rows need a signed-in Cloud account, which this host
+  has not).
 Screenshots of each step. Runs on cmux-lawrence-2 through
 `nx-remote --needs gui --app-from-fleet cmux --tag <tag> --ref <sha> -- 'python3 scripts/cmux-next/home-inbox-parity.py'`
 with an isolated HOME and Chief home under /tmp; it launches the app itself and ends with quitEndSessions,
@@ -109,7 +113,8 @@ os.makedirs(os.path.join(CHIEF, "optchat"), exist_ok=True)
 os.makedirs(HOME, exist_ok=True)
 open(os.path.join(CHIEF, "optchat", "settings.json"), "w").write('{"backup": {"remote": false}}\n')
 open(os.path.join(CHIEF, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
-open(os.path.join(SCRATCH, "cmux.json"), "w").write("{}")
+# Channels is off by default (cx-frn2y); this check uses both views.
+open(os.path.join(SCRATCH, "cmux.json"), "w").write('{"home": {"channelsEnabled": true}}')
 open(os.path.join(SCRATCH, "ghostty"), "w").write("")
 env = {k: v for k, v in os.environ.items() if k in ("USER", "LOGNAME", "TMPDIR", "SHELL", "LANG", "CLAUDE_CODE_OAUTH_TOKEN")}
 env.update({"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
@@ -256,6 +261,24 @@ try:
     check("the second Chief is named %s in Messages" % scout_name, native_row(scout).get("title") == scout_name, native_row(scout))
     check("the pinned channel is first in Messages", (native_list() or [{}])[0].get("id") == pinned, native_list())
     shot("1-messages-list")
+
+    # Cloud rows come from the build's own daemon (its Cloud lease), asked by the app with owners ["cloud"]. Signed
+    # out here: the local rows stay and the list says so in one quiet line. The state is the app's own answer.
+    app_path = chief_socket("cmux-app-%s" % TAG)
+    if check("the build's daemon socket answers", bool(app_path), TAG):
+        try:
+            Line(app_path).request("home-inbox", owners=["cloud"])
+            check("the build's daemon serves home-inbox with owners", True)
+        except (OSError, RuntimeError, ValueError) as error:
+            check("the build's daemon serves home-inbox with owners", False, str(error))
+        cloud = poll(lambda: dock().get("messages_cloud"), 30)
+        check("the app has the Cloud state from the build's daemon", cloud in ("included", "signed_out", "unavailable"), dock().get("messages_cloud"))
+        note = poll(lambda: dock().get("messages_note"), 15) if cloud == "unavailable" else None
+        if cloud == "unavailable":
+            check("Messages shows the quiet unavailable note", note == "Cloud conversations are not available right now.", dock().get("messages_note"))
+        else:
+            check("Messages shows no Cloud note while %s" % cloud, not dock().get("messages_note"), dock().get("messages_note"))
+        check("the local rows stay with the Cloud state %s" % cloud, made <= {r.get("id") for r in native_list()}, native_list())
 
     # The same list in Channels.
     run("home.switchView", {"view": "channels"})
