@@ -131,6 +131,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.stackBranchDirectory` | boolean | `false` | Render the git branch and working directory on separate lines instead of sharing one line. |
 | `sidebar.pathLastSegmentOnly` | boolean | `false` | Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
+| `sidebar.statusEntryLimit` | integer or `"all"` | `3` | Maximum status rows shown before Show more. Use 0 or `"all"` to keep every status row visible. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
 | `sidebar.showCloudDeviceIcons` | boolean | `true` | Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
@@ -143,6 +144,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showAgentUsage` | boolean | `false` | Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
+| `sidebar.showProgramStatus` | boolean | `true` | Show the OSC 7501 program status row in the sidebar. Program status reports and events remain available to other consumers. |
 | `sidebar.compactAgentStatus` | boolean | `false` | Fold a workspace's agent status, branch, pull request and unread rows into one colored icon before the title, with the details in its tooltip. Rows you added yourself keep their lines. |
 | `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
