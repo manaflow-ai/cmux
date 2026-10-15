@@ -909,6 +909,34 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIn("format-patch", script)
                 self.assertFalse(any("secrets." in json.dumps(step) for step in spec["steps"]))
 
+    def run_format(self, bun: str) -> dict:
+        """Run regen-linux's real step script for `kinds: format` with a stub bun."""
+        step = next(s for s in self.jobs["regen-linux"]["steps"] if "check:fix" in s.get("run", ""))
+        with tempfile.TemporaryDirectory() as tmp:
+            work, bin_dir, temp = Path(tmp, "work"), Path(tmp, "bin"), Path(tmp, "temp")
+            for path in (work / "webviews", bin_dir, temp):
+                path.mkdir(parents=True)
+            (bin_dir / "bun").write_text(f"#!/bin/sh\n{bun}\n")
+            (bin_dir / "bun").chmod(0o755)
+            subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "KINDS": "format",
+                   "RUNNER_TEMP": str(temp), "SERVER_URL": "https://github.com",
+                   "REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "1"}
+            subprocess.run(["bash", "-c", step["run"]], cwd=work, env=env, check=True,
+                           capture_output=True)
+            return json.loads((temp / "result/result.json").read_text())
+
+    def test_a_failed_install_is_not_a_clean_format(self):
+        # Codex CI audit (#20763): `bun install && bun run check:fix || echo`
+        # turned a failed install into {"ok": true} with no patch, which the
+        # controller reads as "nothing to fix".
+        result = self.run_format('[ "$1" = install ] && exit 1; exit 0')
+        self.assertFalse(result["ok"], result)
+        self.assertIn("bun install", result["error"])
+
+    def test_check_fix_leftovers_still_keep_what_it_fixed(self):
+        self.assertTrue(self.run_format('[ "$1" = install ] && exit 0; exit 1')["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()
