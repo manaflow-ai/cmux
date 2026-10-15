@@ -47,6 +47,15 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
         return TerminalDocumentLayout(originRow: origin, endRow: end)
     }
 
+    /// The document while a finger or a deceleration owns the page: the new
+    /// rows (`totalRows` grew from `previousTotal`) are added at the end and
+    /// nothing is read from the screen (a read takes Ghostty's terminal lock,
+    /// which a parse holds). The page is measured again when the gesture ends.
+    public func grown(fromTotal previousTotal: Int, toTotal totalRows: Int) -> TerminalDocumentLayout {
+        let added = max(0, totalRows - previousTotal)
+        return TerminalDocumentLayout(originRow: originRow, endRow: min(max(totalRows, endRow), endRow + added))
+    }
+
     /// Content y of absolute `row`'s top edge.
     public func contentY(ofRow row: Int, cellHeight: CGFloat) -> CGFloat {
         CGFloat(row - originRow) * cellHeight

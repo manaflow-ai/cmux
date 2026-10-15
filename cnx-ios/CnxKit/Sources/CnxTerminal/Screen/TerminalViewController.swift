@@ -141,6 +141,38 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
     private var scrollMeter = ScrollMeter()
+    /// G-04: in-app frame intervals (`-CnxFrameLog`).
+    private lazy var frameLog: TerminalFrameLog = {
+        let log = TerminalFrameLog(surfaceName: model.title, frameDuration: 1.0 / Double(max(60, UIScreen.main.maximumFramesPerSecond)))
+        log.phaseProvider = { [weak self] in
+            guard let self else { return "gone" }
+            switch self.scroll.state {
+            case .following: return "following"
+            case .reading: return "reading"
+            case .interacting: return "interacting"
+            }
+        }
+        return log
+    }()
+
+    /// Times `body` as the screen's main-thread work in this frame and marks
+    /// it with a signpost (G-04). DEBUG only; release builds call `body`.
+    private func measured<T>(_ name: StaticString, _ body: () -> T) -> T {
+        guard TerminalFrameLog.isEnabled else { return body() }
+        let state = TerminalFrameLog.signposter.beginInterval(name)
+        let start = CACurrentMediaTime()
+        measureDepth += 1
+        defer {
+            measureDepth -= 1
+            // Nested work is already inside the outer interval's time.
+            if measureDepth == 0 { frameLog.work(CACurrentMediaTime() - start) }
+            TerminalFrameLog.signposter.endInterval(name, state)
+        }
+        return body()
+    }
+    private var measureDepth = 0
+    #else
+    private func measured<T>(_ name: StaticString, _ body: () -> T) -> T { body() }
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -422,7 +454,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
         surface.onUserInput = { [weak self] in self?.revealCursorForInput() }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
-        surface.onPresent = { [weak self] in self?.surfacePresented() }
+        surface.onPresent = { [weak self] in
+            guard let self else { return }
+            self.measured("present") { self.surfacePresented() }
+        }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
             self.model.surfaceFocused = focused
@@ -450,6 +485,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         registerEdgeEffectScrollView()
+        #if DEBUG
+        frameLog.start()
+        #endif
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
@@ -637,6 +675,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        #if DEBUG
+        frameLog.stop()
+        #endif
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
     }
 
@@ -704,6 +745,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 armReplayDeadline()
             }
             replayGate.received(data.count, isReset: isReset, at: CACurrentMediaTime())
+            #if DEBUG
+            if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
+            #endif
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
             model.ingest(event)
@@ -748,7 +792,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// `TerminalOutputQueue.frameBudget` bytes) when the previous one is
     /// parsed, applying alternate screen switches in order on the way.
     private func pumpOutput() {
-        while !feedInFlight, let step = output.next() {
+        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting)) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
@@ -766,7 +810,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     transform = nil
                 }
                 let raw = data.count
-                surface.feed(data, transform: transform) { [weak self] in self?.outputProcessed(raw) }
+                surface.feed(data, transform: transform) { [weak self] in
+                    guard let self else { return }
+                    self.measured("output-batch") { self.outputProcessed(raw) }
+                }
             }
         }
         if outputPaused, output.isUnderLowWater {
@@ -909,26 +956,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func surfaceEvent(_ event: TerminalSurfaceEvent) {
         switch event {
         case .scrollbar(let total, let offset, let visible):
-            scrollbar = (total, offset, visible)
-            let restoring = readingMarkAwaitsReport
-            if restoring { restoreReadingMark() }
-            updateDocument()
-            if restoring { applyScroll() }
-            #if DEBUG
-            if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm scrollbar %@", debugState) }
-            #endif
-            if placesFromReport, !model.isTUI { place(atRow: offset) }
-            // Whatever moved Ghostty's viewport (a request, a cursor probe
-            // restoring an older row), it must cover the visible rows; a
-            // report that leaves them uncovered asks again. Without this, a
-            // reattach replay left the probe's restore at row 0 while the
-            // screen showed the bottom: a blank page.
-            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            measured("scrollbar") { scrollbarReported(total: total, offset: offset, visible: visible) }
         case .cellSize:
             view.setNeedsLayout()
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
+    }
+
+    private func scrollbarReported(total: Int, offset: Int, visible: Int) {
+        scrollbar = (total, offset, visible)
+        let restoring = readingMarkAwaitsReport
+        if restoring { restoreReadingMark() }
+        updateDocument()
+        if restoring { applyScroll() }
+        #if DEBUG
+        if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm scrollbar %@", debugState) }
+        #endif
+        if placesFromReport, !model.isTUI { place(atRow: offset) }
+        // Whatever moved Ghostty's viewport (a request, a cursor probe
+        // restoring an older row), it must cover the visible rows; a
+        // report that leaves them uncovered asks again. Without this, a
+        // reattach replay left the probe's restore at row 0 while the
+        // screen showed the bottom: a blank page.
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
     }
 
     // MARK: Held frame (R2-3)
@@ -998,6 +1049,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let under = !model.isTUI && !following && scrollView.contentOffset.y < maxOffsetY - 1
         let alpha: CGFloat = under ? 1 : 0
         if bottomFade.alpha != alpha { bottomFade.alpha = alpha }
+        // The soft scroll edge blurs what is under the composer. At the
+        // bottom the last row rests on the card and nothing is under it: no
+        // edge effect over the last row (user report 2026-10-14).
+        if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
     }
 
     // MARK: Layout
@@ -1083,6 +1138,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // cursor moves Ghostty's viewport for a moment, so it is not repeated
         // for reports that only moved the viewport (scrolling).
         guard scrollbar.total != documentTotal || document == nil || outputSinceProbe else { return }
+        // A finger or a deceleration owns the page: grow the end by the new
+        // rows and read nothing under Ghostty's lock (user report
+        // 2026-10-14: a drag stuttered while an agent streamed). The page is
+        // measured again when the gesture ends (settleScroll).
+        if scroll.isInteracting, let current = document, scrollbar.total >= documentTotal, !placesFromReport {
+            let next = current.grown(fromTotal: documentTotal, toTotal: scrollbar.total)
+            documentTotal = scrollbar.total
+            measureAfterGesture = true
+            if next != current {
+                document = next
+                scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+            }
+            return
+        }
         // The scrollback shrank (`clear`, ESC [3J): the rows the user was
         // reading are gone. Follow the prompt again, like Terminal.
         if scrollbar.total < documentTotal, scrollbar.total <= max(surface.grid.rows, 1) { scroll.reset() }
@@ -1191,7 +1260,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm request %d (current %d visibleTop %d)", top, current, visibleTop) }
         #endif
-        surface.scroll(toRow: top)
+        measured("viewport-request") { surface.scroll(toRow: top) }
     }
 
     /// A frame was presented: put the surface where its rows belong, in the
@@ -1424,6 +1493,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The finger lifted (or the deceleration ended): follow within two rows
     /// of the bottom, else read here, anchored to the top row.
+    /// The document grew without a measure during a gesture (updateDocument).
+    private var measureAfterGesture = false
+
     private func settleScroll() {
         #if DEBUG
         if scrollMeter.frames > 0 {
@@ -1433,6 +1505,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         guard !model.isTUI, cell.height > 0 else { return }
         scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
+        if measureAfterGesture {
+            measureAfterGesture = false
+            outputSinceProbe = true
+            updateDocument()
+        }
         #if DEBUG
         sizingLog.notice("scroll: settled -> \(String(describing: self.scroll.state), privacy: .public) (offset \(Int(self.scrollView.contentOffset.y), privacy: .public), bottom \(Int(self.maxOffsetY), privacy: .public))")
         #endif
@@ -1451,10 +1528,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The composer shows its Jump to bottom row (`TerminalComposer`).
     }
 
+    /// Jump to bottom: one tap lands at the live bottom and follows, whatever
+    /// the page is doing (user report 2026-10-14: mid-fling the tap did
+    /// nothing, since UIKit's deceleration kept the offset). The deceleration
+    /// stops and a drag in progress is cancelled, so nothing else owns the page.
     func scrollToBottom(animated: Bool) {
         fling?.stop()
+        fling = nil
         scroll.jumpToBottom()
+        if scrollView.isTracking || scrollView.isDragging {
+            let pan = scrollView.panGestureRecognizer
+            pan.isEnabled = false
+            pan.isEnabled = true
+        }
+        if scrollView.isDecelerating {
+            settingOffset = true
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+            settingOffset = false
+        }
         applyScroll()
+        #if DEBUG
+        sizingLog.notice("scroll: jump to bottom (decelerating \(self.scrollView.isDecelerating, privacy: .public), tracking \(self.scrollView.isTracking, privacy: .public)) -> offset \(Int(self.scrollView.contentOffset.y), privacy: .public) of \(Int(self.maxOffsetY), privacy: .public)")
+        #endif
     }
 
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven

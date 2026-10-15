@@ -28,8 +28,11 @@ public struct TerminalOutputQueue: Sendable {
     /// a batch, and the main thread takes the same lock for a viewport request
     /// and the row reads, so a large batch stalls a drag or a fling.
     public static func budget(interacting: Bool) -> Int {
-        frameBudget
+        interacting ? interactingBudget : frameBudget
     }
+    /// 16 KB parses in well under a millisecond, and 16 KB a frame is still
+    /// 1.9 MB/s at 120 Hz.
+    public static let interactingBudget = 16 << 10
     public static let highWater = 8 << 20
     public static let lowWater = 2 << 20
 

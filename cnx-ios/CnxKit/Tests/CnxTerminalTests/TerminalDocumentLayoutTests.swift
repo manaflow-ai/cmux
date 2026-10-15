@@ -162,3 +162,13 @@ import Testing
         }
     }
 }
+
+@Suite struct TerminalDocumentGrowthTests {
+    @Test func aGestureGrowsTheEndByTheNewRows() {
+        let layout = TerminalDocumentLayout(originRow: 10, endRow: 500)
+        // 500 rows, the end 4 rows above the scrollback's end (a TUI's hints held).
+        #expect(layout.grown(fromTotal: 504, toTotal: 510) == TerminalDocumentLayout(originRow: 10, endRow: 506))
+        // No new rows (a viewport report while scrolling): unchanged.
+        #expect(layout.grown(fromTotal: 504, toTotal: 504) == layout)
+    }
+}
