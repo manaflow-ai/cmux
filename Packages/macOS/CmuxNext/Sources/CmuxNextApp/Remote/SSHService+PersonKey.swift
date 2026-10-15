@@ -39,7 +39,7 @@ extension SSHService {
             var proved = false
             for attempt in 1...2 where !proved {
                 guard let nonce = AcpmuxSecretKey.newNonce() else { return .noRandomness }
-                let (reply, error) = await RemotePersonHolds.ask(host, nonce: nonce, environment: environment)
+                let (reply, error) = await host.personHolds(nonce: nonce, environment: environment)
                 if Task.isCancelled { return .failed("cancelled") }
                 // No answer at all: the call itself failed; ask again once.
                 guard let reply else { if attempt == 2 { return .failed(error) }; continue }
