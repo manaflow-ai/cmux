@@ -75,7 +75,7 @@ pub(super) fn outdated_identity(identity: &Value, needed: &[&str]) -> Option<Out
         return None;
     }
     let build = build_id(identity).map(str::to_owned);
-    if build.as_deref() == Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY) {
+    if build.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY) {
         return None;
     }
     Some(Outdated { missing, build })
