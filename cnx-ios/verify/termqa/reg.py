@@ -274,14 +274,18 @@ def s1350(sim, mac, j, agent, name):
     rows_seen = [t for t in texts if t.startswith("#00")]
     cards0 = sorted(e.label for e in sim.find(kind="Button") if (e.label or "").startswith("e2e-"))
     # + -> New Claude Chat (refused by the Mac's cwd policy).
-    plus = [e for e in sim.find(kind="Button") if (e.label or "") in ("New Tab", "Add", "+", "New tab")]
+    # The grid bar's (+) is a pop-up "New": "New Claude Chat" (old builds) or
+    # "New Agent Chat With…" -> Claude (newer builds).
+    plus = sim.find(label="New", kind="PopUpButton")
     labels, menu = [], None
     if plus:
-        sim.long_press(*plus[0].center, seconds=0.8); touch("tap", 1.0)
-        menu = sim.wait(label="New Claude Chat", timeout=4)
-        if not menu:
-            sim.tap_el(plus[0]); touch("tap")
-            menu = sim.wait(label="New Claude Chat", timeout=4)
+        sim.tap_el(plus[0]); touch("tap")
+        i, _ = sim.wait_any([dict(label="New Claude Chat"), dict(label="New Agent Chat With…")], timeout=4)
+        if i == 0:
+            menu = sim.find(label="New Claude Chat")[0]
+        elif i == 1:
+            sim.tap_el(sim.find(label="New Agent Chat With…")[0]); touch("tap")
+            menu = sim.wait(contains="Claude", timeout=4)
     if menu:
         sim.tap_el(menu); touch("tap")
         t_end = time.time() + 4
