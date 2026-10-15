@@ -21,10 +21,10 @@ struct CLIChiefDispatchPlanTests {
         #expect(options.focus == nil)
     }
 
-    @Test func defaultsToCodexWithYolo() throws {
+    @Test func defaultsToCodexWithNormalPermissions() throws {
         let options = try ChiefDispatchOptions.parse(["--", "do it"])
         #expect(options.agent == .codex)
-        #expect(options.agentCommand == ["codex", "--yolo"])
+        #expect(options.agentCommand == ["codex"])
         #expect(!options.waitWorking)
     }
 
@@ -32,7 +32,7 @@ struct CLIChiefDispatchPlanTests {
         let options = try ChiefDispatchOptions.parse([
             "--agent=codex", "--agent-arg", "-m", "--agent-arg=--search", "--no-focus", "--timeout=90", "task",
         ])
-        #expect(options.agentCommand == ["codex", "--yolo", "-m", "--search"])
+        #expect(options.agentCommand == ["codex", "-m", "--search"])
         #expect(options.focus == false)
         #expect(options.timeout == 90)
         #expect(options.waitWorking, "--timeout implies --wait-working")
