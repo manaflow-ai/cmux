@@ -1171,7 +1171,7 @@ export const ShieldIcon = ({ shield }: { shield?: string }) => (
   </Icon>
 );
 /** A mode that asks first (Claude's default and plan, Codex read-only): the shield with a check. */
-export const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
+const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
   <Icon shield={shield}>
     <path d={SHIELD} />
     <path d="m5.9 8.1 1.5 1.5 2.8-2.9" />
@@ -1179,7 +1179,7 @@ export const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
 );
 /** A mode that acts without asking within its limits (accept edits, Codex auto, Claude's don't
  * ask): the plain shield. */
-export const ShieldPlainIcon = ({ shield }: { shield?: string }) => (
+const ShieldPlainIcon = ({ shield }: { shield?: string }) => (
   <Icon shield={shield}>
     <path d={SHIELD} />
   </Icon>
