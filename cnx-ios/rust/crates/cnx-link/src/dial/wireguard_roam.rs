@@ -67,6 +67,10 @@ pub(super) enum Control {
     Blackhole,
 }
 
+/// This side's endpoints to announce, and which of them are its TURN
+/// relayed addresses.
+type Announcement = (Vec<String>, Vec<String>);
+
 /// The roaming messages (JSON in one overlay UDP datagram).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
@@ -115,7 +119,7 @@ pub(super) struct Session {
     /// This side's endpoints as last offered to the peer.
     endpoints: Mutex<Vec<String>>,
     follow: Mutex<Option<JoinHandle<()>>>,
-    announce: Mutex<Option<mpsc::UnboundedSender<(Vec<String>, Vec<String>)>>>,
+    announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
     roaming: tokio::sync::Mutex<()>,
     last_roam: Mutex<Option<Timeline>>,
@@ -380,7 +384,7 @@ async fn run_control(
     peer: SocketAddr,
     control: mpsc::UnboundedSender<Control>,
     net: Arc<Mutex<Option<Arc<WgNet>>>>,
-    mut announce: mpsc::UnboundedReceiver<(Vec<String>, Vec<String>)>,
+    mut announce: mpsc::UnboundedReceiver<Announcement>,
     path_epoch: Arc<watch::Sender<u64>>,
 ) {
     let mut generation = 0u64;
