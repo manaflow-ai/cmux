@@ -63,7 +63,12 @@ public struct BrowserPageAutomation {
     /// PNG bytes of the visible viewport.
     public func captureViewportPNG() async throws(BrowserAutomationPageError) -> Data {
         if speaksDevTools {
-            let json = try await devTools("Page.captureScreenshot", codec.screenshotParams)
+            // Chromium captures device pixels; clip to the visible viewport
+            // and scale by 1/devicePixelRatio so the PNG is its CSS size, as
+            // WebKit's is.
+            let metrics = try? await evaluate(codec.viewportMetricsScript, form: .expression, world: .page)
+            let params = codec.cssScreenshotParams(viewportMetrics: metrics) ?? codec.screenshotParams
+            let json = try await devTools("Page.captureScreenshot", params)
             return try codec.screenshotPNG(fromJSON: json)
         }
         let image: NSImage
