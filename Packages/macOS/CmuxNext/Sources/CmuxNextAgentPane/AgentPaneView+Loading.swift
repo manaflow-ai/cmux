@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -9,16 +9,16 @@ import CmuxNextWakeups
 /// daemon takes), and never shows the page's frames before the handshake. A chat's page then fades
 /// in over it (Leo 2026-10-14, as the Claude app switches to a chat it had not loaded: quick but
 /// seen); a New Tab page replaces it in one step.
-final class AgentPaneLoadingView: NSView {
+public final class AgentPaneLoadingView: NSView {
     /// The shared busy mark (`appearance.statusIndicator.style`; `none` draws only the background).
     let indicator = StatusIndicatorView()
     static let markSide: CGFloat = 18
     /// How long the mark waits: a page that paints sooner shows only its background before it
-    /// fades in, never a mark that pops up and goes.
-    static let markDelay: Duration = .milliseconds(500)
+    /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
+    /// showed (`PanePaintHold.limit`), so the mark never shows the moment a hold gives up.
+    static let markDelay: Duration = .milliseconds(800)
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
-    /// What waits for the page to show (``AgentPaneView/whenRevealed(_:)``).
-    var revealWaiters: [() -> Void] = []
+    private var revealWaiters: [() -> Void] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -60,8 +60,33 @@ final class AgentPaneLoadingView: NSView {
         indicator.isHidden = true
     }
 
-    /// The page shows: everything waiting for it runs.
-    func revealed() {
+    /// Runs `body` once the page shows: after its fade, if it fades; now if it shows. It
+    /// shows once this has left the pane, which it joins before the page can paint.
+    public func whenRevealed(_ body: @escaping () -> Void) {
+        if superview == nil { body() } else { revealWaiters.append(body) }
+    }
+
+    /// Leaves over `page`, which stayed clear under it. Fading, in ``MotionFade/fadeIn``: this
+    /// background fades out over the page, or, hidden over the pane's last frame of the page (a
+    /// launch image, cleared once this ends), the page fades in over that. A chat already shown
+    /// never gets here: it draws no loading state again, so switching back to it is instant.
+    func leave(over page: NSView, fades: Bool) {
+        hideMark()
+        let overImage = isHidden
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if !fades || !overImage { page.alphaValue = 1 }
+        CATransaction.commit()
+        guard fades else { return left(page) }
+        Motion.animate(.fadeIn, in: self, {
+            if overImage { page.animator().alphaValue = 1 } else { animator().alphaValue = 0 }
+        }, completion: { [weak self, weak page] in self?.left(page) })
+    }
+
+    private func left(_ page: NSView?) {
+        page?.alphaValue = 1
+        removeFromSuperview()
+        alphaValue = 1
         let waiters = revealWaiters
         revealWaiters = []
         for waiter in waiters { waiter() }
@@ -77,7 +102,7 @@ extension AgentPaneView {
     /// frame, and the pane stays clear above it. No effect once the page has painted.
     public var showsLoadingState: Bool {
         get { loadingView.superview != nil && !loadingView.isHidden }
-        set { loadingView.isHidden = !newValue }
+        set { if !model.hasPainted { loadingView.isHidden = !newValue } }
     }
 
     /// Shows the loading state over a page that has not painted; the page's first frame ends it.
@@ -91,38 +116,9 @@ extension AgentPaneView {
         model.whenPainted { [weak self] in self?.endLoadingState() }
     }
 
-    /// The page shows and the loading state goes. A chat fades in, in ``MotionFade/fadeIn``: its
-    /// background fades out over the page, or the page fades in over its last frame's image (the
-    /// pane's launch image, cleared once this ends, ``whenRevealed(_:)``). A New Tab page shows in
-    /// one frame (b235e5f5d752). A chat already shown never gets here: it painted once and draws
-    /// no loading state again, so switching back to it is instant.
-    func endLoadingState() {
-        loadingView.hideMark()
-        let overImage = !showsLoadingState
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if model.newTab != nil || !overImage { pageContent.alphaValue = 1 }
-        CATransaction.commit()
-        guard model.newTab == nil else { return finishLoadingState() }
-        Motion.animate(.fadeIn, in: self, {
-            if overImage { pageContent.animator().alphaValue = 1 } else { loadingView.animator().alphaValue = 0 }
-        }, completion: { [weak self] in self?.finishLoadingState() })
-    }
-
-    private func finishLoadingState() {
-        pageContent.alphaValue = 1
-        loadingView.removeFromSuperview()
-        loadingView.alphaValue = 1
-        loadingView.revealed()
-    }
-
-    /// Runs `body` once the page shows: at once for a page that shows, else once its loading
-    /// state has gone (after its fade).
-    public func whenRevealed(_ body: @escaping () -> Void) {
-        if loadingView.superview != nil { return loadingView.revealWaiters.append(body) }
-        if model.hasPainted { return body() }
-        model.whenPainted(body)
-    }
+    /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``): a
+    /// chat fades in, a New Tab page or a page a pane holds hidden for its swap shows in one frame.
+    func endLoadingState() { loadingView.leave(over: pageContent, fades: model.newTab == nil && alphaValue > 0) }
 
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }
