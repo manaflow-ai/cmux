@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+use cmux_agent_pane_policy::build_identity::{BuildIdentity, NIGHTLY_BUNDLE_ID};
 use serde::Deserialize;
 
 use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF};
@@ -949,8 +950,10 @@ fn stop_lock_holder(lock: &Path) {
 fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
     // Without HOME the person's default home cannot be ruled out: keep all.
     let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
+    // NIGHTLY's Chief home, named by the build identity resolver.
+    let nightly = BuildIdentity::new(Some(NIGHTLY_BUNDLE_ID), None);
     let shared_default =
-        std::fs::canonicalize(PathBuf::from(user).join(".cmux/chief/default")).ok();
+        std::fs::canonicalize(nightly.chief_home(Path::new(&user), "default")).ok();
     let Ok(canonical) = std::fs::canonicalize(home) else { return };
     if shared_default.as_deref() == Some(canonical.as_path()) {
         return;
