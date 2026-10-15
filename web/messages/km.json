@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "ម៉ាស៊ីនមិនឆ្លើយតប",
       "message": "ម៉ាស៊ីននេះមិនបានឆ្លើយតបទាន់ពេល ដូច្នេះសំណើមិនអាចបញ្ចប់បានទេ។",
-      "action": "ផ្អាកម៉ាស៊ីន បន្ទាប់មកបន្តវា ហើយព្យាយាមម្ដងទៀត។ នៅក្នុងកម្មវិធី Mac សូមជ្រើស ផ្អាកម៉ាស៊ីន បន្ទាប់មក បន្តម៉ាស៊ីន។ នៅក្នុងទែមីណាល់ សូមដំណើរការ cmux vm pause '<machine>' បន្ទាប់មក cmux vm resume '<machine>'។"
+      "action": "ទាក់ទងផ្នែកជំនួយដោយផ្តល់ Trace ID មុនពេលបង្កើតម៉ាស៊ីនថ្មី។"
     },
     "inProgress": {
       "title": "នៅតែកំពុងដំណើរការ",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go គាំទ្រ 2 vCPU, RAM 4 GiB និងថាស 16 GiB។",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "បានប្រើកូតាគណនា {plan} អស់ហើយ",
+      "computeMessage": "គម្រោង {plan} របស់អ្នកបានប្រើម៉ោងគណនា {included} សម្រាប់រយៈពេលចេញវិក្កយបត្រនេះអស់ហើយ។ ម៉ោងគណនាមួយគឺ 1 vCPU ជាមួយអង្គចងចាំ 2 GB ដំណើរការរយៈពេលមួយម៉ោង។ ម៉ាស៊ីនរបស់អ្នកអាចចាប់ផ្តើមម្តងទៀតនៅ {resetDate}។",
+      "computeAction": "ម៉ាស៊ីនដែលបានផ្អាករក្សាទុកឯកសាររបស់វា។ សូមទាក់ទងផ្នែកជំនួយ ប្រសិនបើអ្នកត្រូវការការគណនាបន្ថែមមុន {resetDate}។",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "បានប្រើកូតាឌីស {plan} អស់ហើយ",
+      "storageMessage": "គម្រោង {plan} របស់អ្នករួមបញ្ចូលឌីសសរុប {included} GB សម្រាប់ម៉ាស៊ីនដែលបានរក្សាទុកទាំងអស់។ ម៉ាស៊ីនដែលបានរក្សាទុកប្រើ {used} GB ហើយសំណើនេះត្រូវការ {requested} GB។",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "ធនធាន Cloud VM មិនគ្រប់គ្រាន់",

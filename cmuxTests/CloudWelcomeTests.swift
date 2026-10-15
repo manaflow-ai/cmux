@@ -311,6 +311,36 @@ struct CloudWelcomeTests {
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: false, isPro: false) == .openCloud)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: false) == .upgrade)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: true) == .enable)
+
+        // A free account that has accepted membership in a shared team can use
+        // that team's Cloud scope without buying a personal Pro subscription.
+        #expect(CloudWelcomeNextStep.resolve(
+            isAuthenticated: true,
+            isPlanKnown: true,
+            isPro: false,
+            hasCloudTeamAccess: true
+        ) == .enable)
+    }
+
+    @Test("only an additional accepted team opens Cloud for a free personal account")
+    func sharedTeamAccessRequiresMoreThanPersonalTeam() {
+        #expect(!CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 0))
+        #expect(!CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 1))
+        #expect(CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 2))
+    }
+
+    @Test("a shared team does not turn a personal free scope into Pro")
+    func sharedTeamAccessOnlyOpensCloud() {
+        #expect(!CloudMachinesEnablementView.shouldRequirePro(
+            isPlanKnown: true,
+            isProActive: false,
+            hasCloudTeamAccess: true
+        ))
+        #expect(CloudMachinesEnablementView.shouldRequirePro(
+            isPlanKnown: true,
+            isProActive: false,
+            hasCloudTeamAccess: false
+        ))
     }
 
     @Test("feature clips keep their stable product order")

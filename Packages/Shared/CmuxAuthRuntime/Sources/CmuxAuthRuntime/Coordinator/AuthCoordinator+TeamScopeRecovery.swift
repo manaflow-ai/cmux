@@ -80,7 +80,13 @@ extension AuthCoordinator {
     func noteTeamScopeFailure(_ error: any Error) {
         if let rateLimit = AuthRateLimit(error: error) {
             let streak = (teamScopeRateLimit?.streak ?? 0) + 1
-            teamScopeRateLimit = (streak, rateLimit.retryAfter)
+            let delay = Self.teamScopeRateLimitDelay(
+                retryAfter: rateLimit.retryAfter,
+                streak: streak,
+                jitter: Double.random(in: 0.5...1.0)
+            )
+            teamScopeRateLimit = (streak, delay)
+            rateLimitTelemetry.rateLimited(.sessionCheck, rateLimit: rateLimit, backoff: delay, attempt: streak)
         } else {
             teamScopeRateLimit = nil
         }
@@ -93,11 +99,9 @@ extension AuthCoordinator {
     func teamScopeRecoveryWait(afterAttempt attempt: Int) -> Duration {
         let normal = Self.teamScopeRecoveryDelay(afterAttempt: attempt)
         guard let rateLimit = teamScopeRateLimit else { return normal }
-        return max(normal, Self.teamScopeRateLimitDelay(
-            retryAfter: rateLimit.retryAfter,
-            streak: rateLimit.streak,
-            jitter: Double.random(in: 0.5...1.0)
-        ))
+        // The jittered delay is drawn once per 429, so the reported backoff
+        // is the wait the loop actually takes.
+        return max(normal, rateLimit.delay)
     }
 
     static func teamScopeRateLimitDelay(retryAfter: Duration?, streak: Int, jitter: Double) -> Duration {

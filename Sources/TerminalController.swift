@@ -13502,7 +13502,8 @@ class TerminalController {
                 from: targetSurface,
                 orientation: direction.orientation,
                 insertFirst: direction.insertFirst,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
@@ -16073,7 +16074,8 @@ class TerminalController {
             autoRefreshMetadata: false,
             preserveFocusWhenUnfocused: false,
             inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }

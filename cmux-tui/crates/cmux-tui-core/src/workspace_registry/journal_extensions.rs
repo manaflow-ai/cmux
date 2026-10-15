@@ -321,6 +321,7 @@ struct PreparedJournalSegment {
     metadata: JournalSegment,
     compressed: Vec<u8>,
     digest: [u8; 32],
+    kinds: Vec<String>,
 }
 
 pub(super) fn create_journal_extensions_schema(
@@ -411,6 +412,12 @@ pub(super) fn create_journal_extensions_schema(
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
            sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
          );
+         CREATE TABLE IF NOT EXISTS journal_segment_kinds (
+           segment_id TEXT NOT NULL,
+           kind TEXT NOT NULL,
+           PRIMARY KEY(segment_id, kind),
+           FOREIGN KEY(segment_id) REFERENCES journal_segments(segment_id)
+         ) WITHOUT ROWID;
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
          BEGIN
@@ -2627,6 +2634,7 @@ impl WorkspaceRegistry {
         let segments =
             prepared_segments.iter().map(|segment| segment.metadata.clone()).collect::<Vec<_>>();
         for segment in prepared_segments {
+            let kinds = segment.kinds.clone();
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -2643,6 +2651,12 @@ impl WorkspaceRegistry {
                     i64::try_from(segment.metadata.sealed_at_ms)?,
                 ],
             )?;
+            for kind in kinds {
+                tx.execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                    params![segment.metadata.segment_id, kind],
+                )?;
+            }
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -2727,6 +2741,7 @@ impl JournalSegmentSealPlan {
             uncompressed.push(b'[');
             let mut start_sequence = None;
             let mut record_count = 0_u64;
+            let mut kinds = BTreeSet::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -2743,6 +2758,7 @@ impl JournalSegmentSealPlan {
                         record.sequence
                     );
                     let sequence = record.sequence;
+                    let kind = record.kind.clone();
                     let record = session_journal::journal_record_for_archive(&record);
                     let record_bytes = serde_json::to_vec(&record)?;
                     anyhow::ensure!(
@@ -2760,6 +2776,7 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
                     }
@@ -2800,6 +2817,7 @@ impl JournalSegmentSealPlan {
                 },
                 compressed,
                 digest,
+                kinds: kinds.into_iter().collect(),
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;

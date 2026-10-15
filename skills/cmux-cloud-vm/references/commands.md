@@ -152,6 +152,16 @@ cmux vm stats <id> [--json]            # alias: cmux vm top
 
 Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `asleep` and is not woken. `--json`: `{id, state: awake|asleep, cpu_percent, cpus, memory_used_mb, memory_total_mb, disk_used_mb, disk_total_mb}`. The router uses this to pick the least-loaded pool machine.
 
+### `cmux vm restart`
+
+```bash
+cmux vm restart <id> [--json]
+```
+
+Requests hard recovery through a provider control-plane operation that discards a frozen guest's memory and boots its existing disk. The server currently rejects this action when the provider does not advertise a verified restart capability; the Freestyle API in this release exposes pause/start only, and pause/start resumes the same memory rather than recovering a frozen guest. The machine's disk and identity are preserved when a provider advertises the operation.
+
+Socket `vm.restart` is the same capability-gated recovery action used by the macOS machine menu and iOS Cloud controls. It does not run a guest command or infer guest health from provider-running state.
+
 ### `cmux vm resize`
 
 ```bash
@@ -805,7 +815,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.stats` | `vm stats`; the router's load scoring |
 | `vm.env_set` | `vm env set` |
 | `vm.file_put` | `vm push` |
-| `vm.pause`, `vm.resume` | `vm pause`, `vm resume` |
+| `vm.pause`, `vm.resume`, `vm.restart` | `vm pause`, `vm resume`, `vm restart` |
 | `vm.reflection` | `vm self` |
 | `vm.snapshot_list`, `vm.snapshot_delete` | `cmux rpc vm.snapshot_list`, `cmux rpc vm.snapshot_delete` |
 | `vm.terminal_output`, `vm.terminal_wait_exit` | `vm terminal output`, `vm terminal wait-exit` |
@@ -851,6 +861,7 @@ The current CLI also exposes these machine-scoped operations:
 cmux vm self <id> [<path>] [--json]
 cmux vm pause <id>
 cmux vm resume <id>
+cmux vm restart <id>
 cmux vm dev <id> [<folder>] [--name <workspace>] [--layout <file>] [--no-open]
 cmux vm layout export <id> [<workspace>] [--raw]
 cmux vm layout apply <id> <file>|- [--name <workspace>] [--workspace <empty-workspace>]

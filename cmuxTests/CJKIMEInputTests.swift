@@ -1206,6 +1206,98 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
 }
 
 @MainActor
+final class VietnameseIMEBackspaceRegressionTests: XCTestCase {
+    func testBackspaceCommitsPreeditThenDeletesOneCharacter() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+                surface.releaseHostedSurfaceForTesting()
+                window.orderOut(nil)
+            }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            XCTAssertNotNil(surface.surface, "Expected native surface before dispatching composed input")
+
+            guard let view = findGhosttyNSView(in: hostedView) else {
+                XCTFail("Expected hosted GhosttyNSView")
+                return
+            }
+
+            view.setMarkedText("iêt", selectedRange: NSRange(location: 3, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+
+            // macOS Vietnamese Telex on Backspace: commit the preedit, then request deleteBackward:.
+            installCJKIMEInterpretKeyEventsSwizzle()
+            cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+                guard candidateView === view else { return false }
+                candidateView.insertText("iêt", replacementRange: NSRange(location: NSNotFound, length: 0))
+                candidateView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+                return true
+            }
+            defer { cjkIMEInterpretKeyEventsHook = nil }
+
+            var presses: [(keycode: UInt32, text: String?)] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+                presses.append((keyEvent.keycode, keyEvent.text.map { String(cString: $0) }))
+            }
+
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "\u{7f}",
+                charactersIgnoringModifiers: "\u{7f}",
+                isARepeat: false,
+                keyCode: 51
+            ) else {
+                XCTFail("Failed to create Backspace event")
+                return
+            }
+
+            window.makeFirstResponder(view)
+            view.keyDown(with: event)
+
+            XCTAssertFalse(view.hasMarkedText())
+            XCTAssertEqual(presses.map(\.text), ["iêt", nil], "Committed preedit must reach the terminal before the Backspace")
+            XCTAssertEqual(presses.last?.keycode, 51, "The Backspace requested via deleteBackward: must be forwarded without text")
+        }
+    }
+}
+
+@MainActor
 final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
     func testKeyDownDoesNotLeakJamoWhileMarkedTextIsActive() async {
         await AppContextSerialGate.withExclusiveAppContext {

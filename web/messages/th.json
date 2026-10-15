@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "เครื่องไม่ตอบสนอง",
       "message": "เครื่องนี้ไม่ตอบสนองภายในเวลาที่กำหนด จึงดำเนินการคำขอให้เสร็จไม่ได้",
-      "action": "หยุดเครื่องชั่วคราว แล้วทำงานต่อ จากนั้นลองอีกครั้ง ในแอป Mac ให้เลือก หยุดเครื่องชั่วคราว แล้วเลือก ทำงานเครื่องต่อ ในเทอร์มินัล ให้เรียกใช้ cmux vm pause '<machine>' แล้วตามด้วย cmux vm resume '<machine>'"
+      "action": "ติดต่อฝ่ายสนับสนุนพร้อมรหัสการติดตามก่อนสร้างเครื่องใหม่"
     },
     "inProgress": {
       "title": "ยังดำเนินการอยู่",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go รองรับ 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "ใช้โควตาการประมวลผลของ {plan} หมดแล้ว",
+      "computeMessage": "แพ็กเกจ {plan} ของคุณใช้ชั่วโมงประมวลผล {included} ชั่วโมงของรอบการเรียกเก็บเงินนี้หมดแล้ว หนึ่งชั่วโมงประมวลผลคือ 1 vCPU พร้อมหน่วยความจำ 2 GB ทำงานหนึ่งชั่วโมง เครื่องของคุณจะเริ่มทำงานได้อีกครั้งในวันที่ {resetDate}",
+      "computeAction": "เครื่องที่หยุดชั่วคราวจะเก็บไฟล์ไว้ โปรดติดต่อฝ่ายสนับสนุนหากต้องการการประมวลผลเพิ่มก่อนวันที่ {resetDate}",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "ใช้โควตาดิสก์ของ {plan} หมดแล้ว",
+      "storageMessage": "แพ็กเกจ {plan} ของคุณมีดิสก์รวม {included} GB สำหรับเครื่องที่บันทึกไว้ทั้งหมด เครื่องที่บันทึกไว้ใช้ {used} GB และคำขอนี้ต้องการ {requested} GB",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "ทรัพยากร Cloud VM ไม่พอ",

@@ -952,6 +952,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(unsupported.stderr.contains("Unexpected method vm.pause"), unsupported.stderr)
     }
 
+    func testVMRestartSendsTheProviderRecoveryMethod() throws {
+        let (restarted, log) = try runVMCommandAgainstMock(
+            "vm-restart",
+            arguments: ["vm", "restart", "frozen-vm"]
+        ) { method, params in
+            method == "vm.restart" ? ["id": params["id"] ?? "?", "status": "running"] : nil
+        }
+        XCTAssertEqual(restarted.status, 0, "stdout=\(restarted.stdout) stderr=\(restarted.stderr)")
+        XCTAssertEqual(log.methods, ["vm.restart"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.restart")?["id"] as? String, "frozen-vm")
+        XCTAssertTrue(restarted.stdout.contains("OK frozen-vm restarted (status=running)"), restarted.stdout)
+    }
+
     func testVMTerminalWaitExitReportsTheOutcomeAndFailsWhilePending() throws {
         let (exited, exitLog) = try runVMCommandAgainstMock(
             "vm-wait-exit",

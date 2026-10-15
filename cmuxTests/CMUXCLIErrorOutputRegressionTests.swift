@@ -4836,6 +4836,7 @@ final class UnixSocketResponder {
     let path: String
     private let responses: [String]
     private let responseDelay: TimeInterval
+    private let onRequest: (@Sendable (String) -> Void)?
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
     private var stopped = false
@@ -4846,7 +4847,12 @@ final class UnixSocketResponder {
         try self.init(path: path, responses: [response], responseDelay: responseDelay)
     }
 
-    init(path: String, responses: [String], responseDelay: TimeInterval = 0) throws {
+    init(
+        path: String,
+        responses: [String],
+        responseDelay: TimeInterval = 0,
+        onRequest: (@Sendable (String) -> Void)? = nil
+    ) throws {
         guard !responses.isEmpty else {
             throw NSError(
                 domain: NSCocoaErrorDomain,
@@ -4857,6 +4863,7 @@ final class UnixSocketResponder {
         self.path = path
         self.responses = responses
         self.responseDelay = responseDelay
+        self.onRequest = onRequest
 
         unlink(path)
         listenerFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -4984,6 +4991,7 @@ final class UnixSocketResponder {
                 responseIndex = requests.count
                 requests.append(line)
                 lock.unlock()
+                onRequest?(line)
             }
             if responseDelay > 0 {
                 Thread.sleep(forTimeInterval: responseDelay)

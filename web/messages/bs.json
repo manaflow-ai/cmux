@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Mašina ne odgovara",
       "message": "Ova mašina nije odgovorila na vrijeme, pa zahtjev nije mogao biti završen.",
-      "action": "Pauzirajte mašinu, zatim je nastavite i pokušajte ponovo. U Mac aplikaciji odaberite Pauziraj mašinu, zatim Nastavi mašinu. U terminalu pokrenite cmux vm pause '<machine>', zatim cmux vm resume '<machine>'."
+      "action": "Obratite se podršci s ID-om praćenja prije nego što napravite novu mašinu."
     },
     "inProgress": {
       "title": "Još je u toku",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Kvota računanja za {plan} je potrošena",
+      "computeMessage": "Vaš {plan} plan je potrošio svojih {included} računskih sati za ovaj obračunski period. Jedan računski sat je 1 vCPU sa 2 GB memorije tokom jednog sata. Vaše mašine se ponovo mogu pokrenuti {resetDate}.",
+      "computeAction": "Pauzirane mašine zadržavaju svoje datoteke. Kontaktirajte podršku ako vam treba više računanja prije {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Kvota diska za {plan} je potrošena",
+      "storageMessage": "Vaš {plan} plan uključuje ukupno {included} GB diska za sve sačuvane mašine. Sačuvane mašine koriste {used} GB, a ovaj zahtjev treba {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Nema dovoljno Cloud VM resursa",

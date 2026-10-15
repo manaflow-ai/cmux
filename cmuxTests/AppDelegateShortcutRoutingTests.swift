@@ -5,6 +5,7 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
+import WebKit
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
@@ -12516,6 +12517,90 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.webView.performKeyEquivalent(with: commandReturn))
         XCTAssertEqual(probe.callCount, 0, "Focus mode must consume unhandled Cmd+Return instead of falling through to the app menu")
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+    }
+
+    func testBrowserFocusModeReturnDoesNotRouteWebInspectorResponderToPage() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === harness.webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.inspectorReturn", focusWebView: false)
+        )
+        let inspectorView = FakeWKInspectorContainerView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        inspectorView.addSubview(FocusableTestView(frame: inspectorView.bounds))
+        harness.webView.addSubview(inspectorView)
+        XCTAssertTrue(harness.window.makeFirstResponder(inspectorView.subviews[0]))
+
+        guard let event = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [.command],
+            keyCode: 36,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        _ = harness.window.performKeyEquivalent(with: event)
+
+        XCTAssertTrue(forwardedEvents.isEmpty)
+        XCTAssertTrue(harness.window.firstResponder === inspectorView.subviews[0])
+    }
+
+    func testBrowserFocusModeReturnDoesNotRouteForeignWebContentResponderToPage() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+        guard let pageSuperview = harness.webView.superview else {
+            XCTFail("Expected the page web view to be attached")
+            return
+        }
+
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === harness.webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.foreignWebContentReturn", focusWebView: false)
+        )
+        // WebKit docks the inspector frontend as a sibling web view whose class
+        // names do not have to match the inspector heuristic.
+        let foreignWebView = WKWebView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        let nestedContainer = NSView(frame: foreignWebView.bounds)
+        let nestedResponder = FocusableTestView(frame: nestedContainer.bounds)
+        nestedContainer.addSubview(nestedResponder)
+        foreignWebView.addSubview(nestedContainer)
+        pageSuperview.addSubview(foreignWebView)
+        defer { foreignWebView.removeFromSuperview() }
+        XCTAssertTrue(harness.window.makeFirstResponder(nestedResponder))
+
+        guard let event = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [.command],
+            keyCode: 36,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        _ = harness.window.performKeyEquivalent(with: event)
+
+        XCTAssertTrue(forwardedEvents.isEmpty)
+        XCTAssertTrue(harness.window.firstResponder === nestedResponder)
     }
 
     func testShowNotificationsShortcutYieldsToFocusedBrowserPane() {

@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Машина не відповідає",
       "message": "Ця машина не відповіла вчасно, тому запит не вдалося виконати.",
-      "action": "Призупиніть машину, потім відновіть її та спробуйте ще раз. У застосунку для Mac виберіть «Призупинити машину», потім «Відновити машину». У терміналі виконайте cmux vm pause '<machine>', потім cmux vm resume '<machine>'."
+      "action": "Зверніться до служби підтримки, вказавши ідентифікатор трасування, перш ніж створювати нову машину."
     },
     "inProgress": {
       "title": "Ще виконується",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Обчислювальний ліміт {plan} вичерпано",
+      "computeMessage": "Тариф {plan} використав {included} обчислювальних годин за цей розрахунковий період. Обчислювальна година — це 1 vCPU з 2 ГБ пам'яті протягом однієї години. Машини знову можна буде запустити {resetDate}.",
+      "computeAction": "Призупинені машини зберігають свої файли. Зверніться до підтримки, якщо вам потрібно більше обчислень до {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Ліміт диска {plan} вичерпано",
+      "storageMessage": "Тариф {plan} включає {included} ГБ диска на всі збережені машини. Збережені машини займають {used} ГБ, а цьому запиту потрібно {requested} ГБ.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Недостатньо ресурсів Cloud VM",

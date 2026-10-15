@@ -5009,117 +5009,47 @@ final class BrowserInputEventPerformanceTests: XCTestCase {
 }
 
 
-final class BrowserReturnKeyDownRoutingTests: XCTestCase {
-    func testRoutesForReturnWhenBrowserFirstResponder() {
-        XCTAssertTrue(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: true,
-                flags: []
-            )
-        )
+@Suite
+struct BrowserReturnKeyDownRoutingTests {
+    @Test(arguments: [UInt16(36), 76], [NSEvent.ModifierFlags(), .shift, .command, .capsLock])
+    func routesReturnToBrowser(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
+        #expect(shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+            keyCode: keyCode,
+            firstResponderIsBrowser: true,
+            flags: flags
+        ))
     }
 
-    func testRoutesForKeypadEnterWhenBrowserFirstResponder() {
-        XCTAssertTrue(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 76,
-                firstResponderIsBrowser: true,
-                flags: []
-            )
-        )
+    @Test(arguments: [NSEvent.ModifierFlags.command.union(.shift), .option, .control])
+    func leavesOtherModifiedReturnOnNormalRoute(flags: NSEvent.ModifierFlags) {
+        #expect(!shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+            keyCode: 36,
+            firstResponderIsBrowser: true,
+            flags: flags
+        ))
     }
 
-    func testDoesNotRouteForNonEnterKey() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 13,
-                firstResponderIsBrowser: true,
-                flags: []
-            )
-        )
+    @Test(arguments: [UInt16(36), 76], [NSEvent.ModifierFlags(), .shift, .command])
+    func leavesMarkedTextToIME(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
+        #expect(!shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+            keyCode: keyCode,
+            firstResponderIsBrowser: true,
+            firstResponderHasMarkedText: true,
+            flags: flags
+        ))
     }
 
-    func testDoesNotRouteWhenFirstResponderIsNotBrowser() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: false,
-                flags: []
-            )
-        )
-    }
-
-    func testDoesNotRouteReturnWhenBrowserFirstResponderHasMarkedText() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: true,
-                firstResponderHasMarkedText: true,
-                flags: []
-            )
-        )
-    }
-
-    func testDoesNotRouteKeypadEnterWhenBrowserFirstResponderHasMarkedText() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 76,
-                firstResponderIsBrowser: true,
-                firstResponderHasMarkedText: true,
-                flags: []
-            )
-        )
-    }
-
-    func testRoutesForShiftReturnWhenBrowserFirstResponder() {
-        XCTAssertTrue(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: true,
-                flags: [.shift]
-            )
-        )
-    }
-
-    func testDoesNotRouteForCommandShiftReturnWhenBrowserFirstResponder() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: true,
-                flags: [.command, .shift]
-            )
-        )
-    }
-
-    func testDoesNotRouteForCommandReturnWhenBrowserFirstResponder() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: true,
-                flags: [.command]
-            )
-        )
-    }
-
-    func testDoesNotRouteForOptionReturnWhenBrowserFirstResponder() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: true,
-                flags: [.option]
-            )
-        )
-    }
-
-    func testDoesNotRouteForControlReturnWhenBrowserFirstResponder() {
-        XCTAssertFalse(
-            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-                keyCode: 36,
-                firstResponderIsBrowser: true,
-                flags: [.control]
-            )
-        )
+    @Test func ignoresOtherKeysAndResponders() {
+        #expect(!shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+            keyCode: 13,
+            firstResponderIsBrowser: true,
+            flags: []
+        ))
+        #expect(!shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+            keyCode: 36,
+            firstResponderIsBrowser: false,
+            flags: []
+        ))
     }
 }
 
