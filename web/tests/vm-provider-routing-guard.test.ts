@@ -81,7 +81,8 @@ function machine(options: { newLauncher?: boolean; fresh?: boolean } = {}): Mach
       "#!/bin/sh",
       `printf '%s\\n' "$*" >> ${JSON.stringify(calls)}`,
       'case "$*" in',
-      `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(catalog)} ;;`,
+      // FAKE_CATALOG_STATUS answers the catalog with that status instead (403 with the server's no-account error).
+      `  */opencode/config*) if [ -n "\${FAKE_CATALOG_STATUS-}" ]; then printf '%s\\n%s' '{"error":{"message":"No OpenCode account is shared with this team."}}' "$FAKE_CATALOG_STATUS"; else printf '%s\\n200' ${JSON.stringify(catalog)}; fi ;;`,
       `  *) printf '%s' '{"teamId":"t","agents":{"claude":true,"codex":true,"opencode":true}}' ;;`,
       "esac",
       "",
@@ -131,8 +132,8 @@ async function cmux(m: Machine, ...args: string[]) {
 }
 
 /** Runs the guard the way the Mac does: `sh -c <script> cmux-provider-routing <openai> <anthropic>`. */
-async function guard(m: Machine, openai: string, anthropic: string) {
-  const result = await runChild("sh", ["-c", GUARD, "cmux-provider-routing", openai, anthropic], { env: env(m) });
+async function guard(m: Machine, openai: string, anthropic: string, extra: Record<string, string> = {}) {
+  const result = await runChild("sh", ["-c", GUARD, "cmux-provider-routing", openai, anthropic], { env: { ...env(m), ...extra } });
   expect(result.stdout).toBe("");
   return result;
 }
@@ -302,6 +303,27 @@ describe("today's image, guarded: a user's key reaches its provider, never CodeR
 
     // Every write the image makes to the model-plane copy lands in /dev/null.
     expect(readlinkSync(m.planeCopy)).toBe("/dev/null");
+  });
+
+  test("an OpenCode catalog that cannot be fetched keeps the OpenAI key off the machine until a retry succeeds", async () => {
+    const m = machine({ fresh: true });
+    // A transient failure: a team-mode launch would fetch again with the
+    // user's key, so the guard fails and the Mac does not deliver the key.
+    expect((await guard(m, "direct", "keep", { FAKE_CATALOG_STATUS: "503" })).status).not.toBe(0);
+    expect(existsSync(path.join(m.home, ".config/cmux/opencode-team.json"))).toBe(false);
+    // The next sync, once the fetch succeeds.
+    rmSync(path.join(m.home, ".cache/cmux"), { recursive: true, force: true });
+    expect((await guard(m, "direct", "keep")).status).toBe(0);
+    expect(JSON.parse(readFileSync(path.join(m.home, ".config/cmux/opencode-team.json"), "utf8")).provider.go.options.apiKey).toBe(PLACEHOLDER);
+  });
+
+  test("a team with no OpenCode account, or a user who chose own mode, does not block the key", async () => {
+    const none = machine({ fresh: true });
+    expect((await guard(none, "direct", "keep", { FAKE_CATALOG_STATUS: "403" })).status).toBe(0);
+    const own = machine({ fresh: true });
+    mkdirSync(path.join(own.home, ".config/cmux/agent-auth"), { recursive: true });
+    writeFileSync(path.join(own.home, ".config/cmux/agent-auth/opencode"), "own\n");
+    expect((await guard(own, "direct", "keep", { FAKE_CATALOG_STATUS: "503" })).status).toBe(0);
   });
 
   test("Claude Code with the user's Anthropic key or bearer token never gets the CodeRouter pair", async () => {

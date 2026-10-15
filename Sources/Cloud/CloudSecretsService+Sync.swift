@@ -390,12 +390,12 @@ route "$openai" OPENAI_BASE_URL https://api.openai.com/v1
 route "$anthropic" ANTHROPIC_BASE_URL https://api.anthropic.com
 
 # The image's agent-config, run in a shell that carries only the baked plane
-# (as the machine's first login shell does), then $1. Its writes to the
-# model-plane copy land in /dev/null (step 1).
+# (as the machine's first login shell does), then $1, whose status it returns.
+# Its writes to the model-plane copy land in /dev/null (step 1).
 plane_shell() {
   [ -f "$etc/agent-config.sh" ] && [ -f "$etc/model-plane.env" ] || return 0
   bash -c 'unset OPENAI_BASE_URL OPENAI_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN; . "$1/model-plane.env"; . "$1/agent-config.sh"; '"$1" \
-    cmux-routing "$etc" </dev/null >/dev/null 2>&1 || :
+    cmux-routing "$etc" </dev/null >/dev/null 2>&1
 }
 
 # 3. codex: a cmux-generated config names the model router as its provider
@@ -405,7 +405,7 @@ plane_shell() {
 # config yet; the first shell would write the model router's provider, so
 # write it now and switch it below.
 codex_cfg="${CODEX_HOME:-$home/.codex}/config.toml"
-if user_key "$openai" && ! grep -qs '^model_provider' "$codex_cfg"; then plane_shell :; fi
+if user_key "$openai" && ! grep -qs '^model_provider' "$codex_cfg"; then plane_shell : || :; fi
 if [ -f "$codex_cfg" ] && ! grep -qs cmux_codex_user_key_provider "$etc/agent-auth.sh"; then
   if user_key "$openai"; then
     if grep -qx 'model_provider = "cmux"' "$codex_cfg"; then
@@ -428,7 +428,20 @@ fi
 # Fetch them now in a plane-only shell (the placeholder), so a launch finds
 # them in place, then give those providers the public placeholder.
 if user_key "$openai" && [ -n "$plane" ] && grep -qs 'os.environ\["OPENAI_API_KEY"\]' "$etc/agent-config.sh"; then
-  plane_shell cmux_ensure_opencode_config
+  fetched=0
+  plane_shell cmux_ensure_opencode_config || fetched=$?
+  # Still no providers after a failed fetch: a team-mode launch would fetch
+  # again, with the user's key as its credential, so the key must not land
+  # yet (the Mac retries on the next sync). 78 is the team having no OpenCode
+  # account: the launch resolves to the user's own sign-in instead, unless
+  # the user chose team mode against it. A user who chose own mode never
+  # fetches.
+  if [ "$fetched" -ne 0 ] && [ "$fetched" -ne 78 ] \
+    && [ ! -e "$home/.config/cmux/opencode-team.json" ] \
+    && [ ! -e "${XDG_CONFIG_HOME:-$home/.config}/opencode/opencode.json" ] \
+    && [ "$(head -n 1 "$home/.config/cmux/agent-auth/opencode" 2>/dev/null | tr -d '[:space:]')" != own ]; then
+    status=1
+  fi
 fi
 if command -v python3 >/dev/null 2>&1; then
   python3 - "$plane" "$home/.config/cmux/opencode-team.json" "${XDG_CONFIG_HOME:-$home/.config}/opencode/opencode.json" <<'CMUX_OPENCODE_ROUTING' || status=1
@@ -515,7 +528,44 @@ extension CloudSecretsService {
 
     /// Runs the routing guard on the machine. Names and constants only.
     func applyProviderRouting(_ routing: CloudSecretsProviderRouting, machineID: String) async throws {
-        let result = try await transport.exec(machineID, routing.command)
-        try Self.requireShimSuccess(result, machineID: machineID)
+        try await routing.apply(machineID: machineID, exec: transport.exec)
+    }
+}
+
+extension CloudSecretsProviderRouting {
+    /// The routing that protects the provider keys among `names`, which are about
+    /// to be written into a machine's env outside Cloud Secrets (`vm.env_set`), or
+    /// nil when there are none. It never releases anything: endpoints for every
+    /// other provider are kept as they are.
+    init?<Names: Sequence>(protectingNames names: Names) where Names.Element == String {
+        let routing = CloudSecretsProviderRouting(effectiveNames: names).protectingOnly
+        guard routing.hasUserProviderKey else { return nil }
+        self = routing
+    }
+
+    /// Runs this routing's guard on the machine over `exec` (names and constants
+    /// only) and throws unless it succeeded.
+    func apply(
+        machineID: String,
+        exec: @Sendable (_ machineID: String, _ command: String) async throws -> VMExecResult
+    ) async throws {
+        let result = try await exec(machineID, command)
+        try CloudSecretsService.requireShimSuccess(result, machineID: machineID)
+    }
+
+    /// Delivers `entries` to a machine outside Cloud Secrets (`vm.env_set`): when
+    /// any is a provider key, the guard runs first, and a guard that fails keeps
+    /// every value off the machine. The one guarded path for writes that name a
+    /// provider key.
+    static func deliverGuarded<Outcome: Sendable>(
+        machineID: String,
+        entries: [CloudEnvDelivery.Entry],
+        exec: @Sendable (_ machineID: String, _ command: String) async throws -> VMExecResult,
+        deliver: @Sendable ([CloudEnvDelivery.Entry]) async throws -> Outcome
+    ) async throws -> Outcome {
+        if let routing = CloudSecretsProviderRouting(protectingNames: entries.map(\.key)) {
+            try await routing.apply(machineID: machineID, exec: exec)
+        }
+        return try await deliver(entries)
     }
 }

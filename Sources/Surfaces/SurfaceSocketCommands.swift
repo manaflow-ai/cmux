@@ -779,6 +779,10 @@ extension TerminalController {
     /// gains (or overwrites) those variables. Values travel over the machine's link into
     /// the in-VM `cmux env receive` (see `CloudEnvDelivery`): never through `vm.exec`, a
     /// command line, or a terminal's visible screen. The result names keys only.
+    /// When an entry is a provider key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+    /// `ANTHROPIC_AUTH_TOKEN`), the Cloud Secrets routing guard runs first, so the key
+    /// reaches its provider and never cmux model routing
+    /// (``CloudSecretsProviderRouting/deliverGuarded(machineID:entries:exec:deliver:)``).
     nonisolated func socketWorkerVMEnvSetResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "cli.vm.env.setRequiresIdRunCmuxVmLsTo", defaultValue: "vm.env_set requires `id`. Run `cmux vm ls` to find one."))
@@ -799,7 +803,12 @@ extension TerminalController {
         }
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
-            let outcome = try await provider.deliverEnvironment(entries)
+            let outcome = try await CloudSecretsProviderRouting.deliverGuarded(
+                machineID: vmId,
+                entries: entries,
+                exec: CloudSecretsService.Transport.live.exec,
+                deliver: { try await provider.deliverEnvironment($0) }
+            )
             var count = entries.count
             var path: Any = NSNull()
             if case .ok(let keys, let reported) = outcome {

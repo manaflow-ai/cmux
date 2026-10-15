@@ -296,6 +296,60 @@ struct CloudSecretsServiceTests {
         #expect(recorder.events == ["deliver:NPM_TOKEN"])
     }
 
+    // MARK: - vm.env_set provider routing
+
+    @Test func envSetRoutesAProviderKeyBeforeDeliveringIt() async throws {
+        let recorder = RecordingTransport()
+        let transport = recorder.transport
+        let entries = [
+            CloudEnvDelivery.Entry(key: "OPENAI_API_KEY", value: "sk-proj-env-set"),
+            CloudEnvDelivery.Entry(key: "OTHER", value: "x"),
+        ]
+
+        try await CloudSecretsProviderRouting.deliverGuarded(
+            machineID: "m1", entries: entries, exec: transport.exec,
+            deliver: { try await transport.deliver("m1", $0) }
+        )
+
+        // Protecting only: OpenAI's endpoint is added, Anthropic's left as it is.
+        #expect(recorder.events == [
+            "exec:" + CloudSecretsProviderRouting(openAI: .direct, anthropic: .keep).command,
+            "deliver:OPENAI_API_KEY,OTHER",
+        ])
+        #expect(!recorder.commands.contains { $0.contains("sk-proj-env-set") })
+    }
+
+    @Test func envSetWithTheUsersOwnEndpointAddsNone() async throws {
+        let routing = try #require(CloudSecretsProviderRouting(protectingNames: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]))
+        #expect(routing == CloudSecretsProviderRouting(openAI: .keep, anthropic: .user))
+        #expect(routing.companionEndpoints.isEmpty)
+        #expect(CloudSecretsProviderRouting(protectingNames: ["OPENAI_BASE_URL", "DATABASE_URL"]) == nil)
+    }
+
+    @Test func envSetWithoutAProviderKeyRunsNoGuard() async throws {
+        let recorder = RecordingTransport()
+        let transport = recorder.transport
+        try await CloudSecretsProviderRouting.deliverGuarded(
+            machineID: "m1", entries: [CloudEnvDelivery.Entry(key: "DATABASE_URL", value: "postgres://x")],
+            exec: transport.exec, deliver: { try await transport.deliver("m1", $0) }
+        )
+        #expect(recorder.commands.isEmpty)
+        #expect(recorder.events == ["deliver:DATABASE_URL"])
+    }
+
+    @Test func envSetKeepsAProviderKeyOffAMachineWhoseGuardFailed() async throws {
+        let recorder = RecordingTransport()
+        recorder.execExitCode = { _ in 1 }
+        let transport = recorder.transport
+        await #expect(throws: (any Error).self) {
+            try await CloudSecretsProviderRouting.deliverGuarded(
+                machineID: "m1", entries: [CloudEnvDelivery.Entry(key: "ANTHROPIC_API_KEY", value: "sk-ant-env-set")],
+                exec: transport.exec, deliver: { try await transport.deliver("m1", $0) }
+            )
+        }
+        #expect(recorder.deliveries.isEmpty)
+    }
+
     // MARK: - Socket parameters
 
     @Test func scopeParsingAcceptsWireValuesAndResolvesProjects() throws {
