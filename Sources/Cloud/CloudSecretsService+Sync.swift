@@ -389,10 +389,23 @@ route() {
 route "$openai" OPENAI_BASE_URL https://api.openai.com/v1
 route "$anthropic" ANTHROPIC_BASE_URL https://api.anthropic.com
 
+# The image's agent-config, run in a shell that carries only the baked plane
+# (as the machine's first login shell does), then $1. Its writes to the
+# model-plane copy land in /dev/null (step 1).
+plane_shell() {
+  [ -f "$etc/agent-config.sh" ] && [ -f "$etc/model-plane.env" ] || return 0
+  bash -c 'unset OPENAI_BASE_URL OPENAI_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN; . "$1/model-plane.env"; . "$1/agent-config.sh"; '"$1" \
+    cmux-routing "$etc" </dev/null >/dev/null 2>&1 || :
+}
+
 # 3. codex: a cmux-generated config names the model router as its provider
 # and authenticates it with OPENAI_API_KEY. Launchers older than the
 # per-launch precedence get the user's key provider in the file instead.
+# A brand-new machine whose first sync runs before its first shell has no
+# config yet; the first shell would write the model router's provider, so
+# write it now and switch it below.
 codex_cfg="${CODEX_HOME:-$home/.codex}/config.toml"
+if user_key "$openai" && ! grep -qs '^model_provider' "$codex_cfg"; then plane_shell :; fi
 if [ -f "$codex_cfg" ] && ! grep -qs cmux_codex_user_key_provider "$etc/agent-auth.sh"; then
   if user_key "$openai"; then
     if grep -qx 'model_provider = "cmux"' "$codex_cfg"; then
@@ -409,9 +422,14 @@ if [ -f "$codex_cfg" ] && ! grep -qs cmux_codex_user_key_provider "$etc/agent-au
   fi
 fi
 
-# 4. OpenCode: older images wrote the model router's providers with
+# 4. OpenCode: the image writes the model router's providers with
 # {env:OPENAI_API_KEY} as their key, which is the user's key once they have
-# one. Those providers get the public placeholder instead.
+# one, and its launch fetches them with OPENAI_API_KEY as the credential.
+# Fetch them now in a plane-only shell (the placeholder), so a launch finds
+# them in place, then give those providers the public placeholder.
+if user_key "$openai" && [ -n "$plane" ] && grep -qs 'os.environ\["OPENAI_API_KEY"\]' "$etc/agent-config.sh"; then
+  plane_shell cmux_ensure_opencode_config
+fi
 if command -v python3 >/dev/null 2>&1; then
   python3 - "$plane" "$home/.config/cmux/opencode-team.json" "${XDG_CONFIG_HOME:-$home/.config}/opencode/opencode.json" <<'CMUX_OPENCODE_ROUTING' || status=1
 import json, os, sys, tempfile
@@ -454,12 +472,6 @@ for name in files:
     os.chmod(temporary, mode)
     os.replace(temporary, name)
 CMUX_OPENCODE_ROUTING
-fi
-# An older OpenCode launch fetches the model router's providers with
-# OPENAI_API_KEY as its credential. Fetch them now with the placeholder, so
-# a launch finds them in place and never sends the user's key.
-if user_key "$openai" && [ -n "$plane" ] && grep -qs 'os.environ\["OPENAI_API_KEY"\]' "$etc/agent-config.sh"; then
-  OPENAI_API_KEY=$placeholder CMUX_CODEROUTER_URL=$plane bash -c 'unset OPENAI_BASE_URL; . "$1" >/dev/null 2>&1; OPENAI_API_KEY=cmux-vm-edge-placeholder; export OPENAI_API_KEY; cmux_ensure_opencode_config' cmux-routing "$etc/agent-config.sh" </dev/null >/dev/null 2>&1 || :
 fi
 exit "$status"
 """#

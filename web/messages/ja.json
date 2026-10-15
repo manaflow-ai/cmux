@@ -4887,7 +4887,7 @@
       "providerKeysDesc": "Cloudマシン上のコーディングエージェントは、cmuxモデルルーティングを使えます。チームの共有アカウントで動作し、認証情報をマシンに置きません。自分のキーが常に優先されます。Cloudシークレットにプロバイダーのキーがあると、そのプロバイダーへの通信はあなたのキーで直接プロバイダーに送られます。cmuxモデルルーティングは、キーを登録していないプロバイダーにだけ使われます。",
       "providerKeysOpenAI": "<code>OPENAI_API_KEY</code>があると、cmuxはマシンの<code>OPENAI_BASE_URL</code>を<code>https://api.openai.com/v1</code>にも設定します。SDK、スクリプト、Codexはキーを OpenAIに送ります。",
       "providerKeysAnthropic": "<code>ANTHROPIC_API_KEY</code>または<code>ANTHROPIC_AUTH_TOKEN</code>があると、cmuxは<code>ANTHROPIC_BASE_URL</code>を<code>https://api.anthropic.com</code>に設定します。Claude CodeとAnthropic SDKはキーをAnthropicに送ります。",
-      "providerKeysOwnEndpoint": "プロキシなど独自のエンドポイントを使うには、<code>OPENAI_BASE_URL</code>または<code>ANTHROPIC_BASE_URL</code>もCloudシークレットに追加してください。cmuxは設定したエンドポイントをそのまま使います。",
+      "providerKeysOwnEndpoint": "プロキシなど独自のエンドポイントを使うには、<code>OPENAI_BASE_URL</code>または<code>ANTHROPIC_BASE_URL</code>もCloudシークレットに追加してください。シェル、スクリプト、SDKは設定したエンドポイントを使います。CodexはOpenAIキーを引き続きOpenAIに送ります。",
       "providerKeysRemove": "キーを削除すると、そのプロバイダーはcmuxモデルルーティングに戻ります。実行中のシェルは起動時のエンドポイントを使い続けるので、新しいターミナルを開いてください。",
       "providerKeysNever": "cmuxはプロバイダーキーを<code>~/.config/cmux/env</code>の外にコピーせず、cmuxモデルルーティングにも送りません。",
       "scopesTitle": "スコープ",

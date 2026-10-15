@@ -3,9 +3,7 @@
 # direct process spawn, resolves this machine's sign-in mode
 # (/etc/cmux/agent-auth.sh) before starting the pinned executable: team mode
 # keeps the CodeRouter provider agent-config.sh generated, own mode starts
-# codex on its built-in provider so `codex login` is what it uses, and a
-# user's own OPENAI_API_KEY (Cloud Secrets, `cmux env set`, an export) goes to
-# OpenAI directly in either mode.
+# codex on its built-in provider so `codex login` is what it uses.
 # `cr use own|team` switches it; a switch applies to the next launch. No
 # errexit: a HOME the config generators cannot write must still start codex.
 if [ "$#" -eq 1 ]; then
@@ -14,17 +12,8 @@ fi
 . /etc/cmux/agent-config.sh
 . /etc/cmux/agent-auth.sh
 cmux_codex_apply_auth_mode
-# Overrides go ahead of the caller's arguments, so a -c the caller passes
-# still wins. A user's own OpenAI key always reaches OpenAI (or their own
-# endpoint) through the cmux-openai-key provider, never CodeRouter.
-case "${cmux_codex_provider-}" in
-  openai) exec /usr/local/libexec/cmux-codex-real -c 'model_provider="openai"' "$@" ;;
-  key)
-    exec /usr/local/libexec/cmux-codex-real \
-      -c "model_provider=\"$cmux_codex_user_key_provider\"" \
-      -c "model_providers.$cmux_codex_user_key_provider={ name = \"OpenAI\", base_url = \"$cmux_codex_key_base\", env_key = \"OPENAI_API_KEY\", wire_api = \"responses\" }" \
-      "$@"
-    ;;
-  cmux) exec /usr/local/libexec/cmux-codex-real -c 'model_provider="cmux"' "$@" ;;
-esac
+if [ "$cmux_codex_own_provider" = 1 ]; then
+  # Ahead of the caller's arguments, so a -c the caller passes still wins.
+  exec /usr/local/libexec/cmux-codex-real -c 'model_provider="openai"' "$@"
+fi
 exec /usr/local/libexec/cmux-codex-real "$@"

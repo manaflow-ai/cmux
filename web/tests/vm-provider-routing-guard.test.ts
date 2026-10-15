@@ -13,7 +13,9 @@ import { runChild } from "./helpers/run-child";
 // therefore runs one names-only guard over vm.exec on every sync that needs
 // it. The guard's source of truth is the Swift string in
 // Sources/Cloud/CloudSecretsService+Sync.swift; this file runs those exact
-// bytes against a machine shaped like an older image.
+// bytes against a machine running today's baked devbox files
+// (services/vms/images/devbox: agent-config.sh, agent-auth.sh, launchers),
+// which carry no precedence of their own, and drives their launchers after.
 
 setDefaultTimeout(30_000);
 
@@ -37,10 +39,24 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-type Machine = { root: string; home: string; etc: string; bin: string; envFile: string; planeCopy: string; codex: string };
+const templateDir = path.join(import.meta.dirname, "../services/vms/images/devbox");
+const AGENTS = ["claude", "codex", "opencode"] as const;
+type Agent = (typeof AGENTS)[number];
 
-/** A machine from an image older than the precedence: baked plane, an older agent-config, the adapter as `cmux`. */
-function machine(options: { newLauncher?: boolean } = {}): Machine {
+type Machine = {
+  root: string; home: string; etc: string; bin: string; envFile: string; planeCopy: string; codex: string; calls: string;
+  launchers: Record<Agent, string>;
+};
+
+/**
+ * A machine on today's image: the baked plane, the baked agent-config.sh and
+ * agent-auth.sh (paths pointed into this machine), the agent launchers in
+ * front of fake agents that print their env and arguments, the adapter as
+ * `cmux`, and a fake `curl` that answers the account check and the OpenCode
+ * catalog and logs every call. `fresh` is a brand-new machine whose first
+ * sync runs before its first shell: no codex config yet.
+ */
+function machine(options: { newLauncher?: boolean; fresh?: boolean } = {}): Machine {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-routing-guard-"));
   roots.push(root);
   const home = path.join(root, "home");
@@ -48,19 +64,45 @@ function machine(options: { newLauncher?: boolean } = {}): Machine {
   const bin = path.join(root, "bin");
   for (const dir of [home, etc, bin, path.join(home, ".config/cmux"), path.join(home, ".codex")]) mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(etc, "model-plane.env"), renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv(ALIAS)));
-  // The older agent-config's OpenCode fetch authenticates with OPENAI_API_KEY;
-  // this stand-in records the key it would send.
+  const routed = (text: string) => text
+    .replaceAll("/etc/cmux/model-plane.env", path.join(etc, "model-plane.env"))
+    .replaceAll("/etc/cmux/agent-config.sh", path.join(etc, "agent-config.sh"))
+    .replaceAll("/etc/cmux/agent-auth.sh", path.join(etc, "agent-auth.sh"));
+  writeFileSync(path.join(etc, "agent-config.sh"), routed(readFileSync(path.join(templateDir, "agent-config.sh"), "utf8")));
   writeFileSync(
-    path.join(etc, "agent-config.sh"),
+    path.join(etc, "agent-auth.sh"),
+    readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8") + (options.newLauncher ? "cmux_codex_user_key_provider=cmux-openai-key\n" : ""),
+  );
+  const calls = path.join(root, "curl.calls");
+  const catalog = JSON.stringify({ provider: { go: { options: { baseURL: `${ORIGIN}/api/coderouter/opencode/proxy/go`, apiKey: "crt_catalog-token" } } } });
+  writeFileSync(
+    path.join(bin, "curl"),
     [
-      "cmux_ensure_opencode_config() {",
-      '  # key = os.environ["OPENAI_API_KEY"]',
-      `  printf '%s %s\\n' "$OPENAI_API_KEY" "$CMUX_CODEROUTER_URL" > ${JSON.stringify(path.join(root, "opencode-fetch"))}`,
-      "}",
+      "#!/bin/sh",
+      `printf '%s\\n' "$*" >> ${JSON.stringify(calls)}`,
+      'case "$*" in',
+      `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(catalog)} ;;`,
+      `  *) printf '%s' '{"teamId":"t","agents":{"claude":true,"codex":true,"opencode":true}}' ;;`,
+      "esac",
       "",
     ].join("\n"),
   );
-  writeFileSync(path.join(etc, "agent-auth.sh"), options.newLauncher ? "cmux_codex_user_key_provider=cmux-openai-key\n" : "# 2026-10-13 launcher\n");
+  chmodSync(path.join(bin, "curl"), 0o755);
+  const launchers = {} as Record<Agent, string>;
+  for (const agent of AGENTS) {
+    const real = path.join(root, `${agent}-real`);
+    writeFileSync(real, [
+      "#!/bin/sh",
+      ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENCODE_CONFIG"]
+        .map((name) => `printf "${name}=%s\\n" "\${${name}-<unset>}"`),
+      'printf "args=%s\\n" "$*"',
+      "",
+    ].join("\n"));
+    chmodSync(real, 0o755);
+    launchers[agent] = path.join(root, agent);
+    writeFileSync(launchers[agent], routed(readFileSync(path.join(templateDir, `cmux-${agent}`), "utf8")).replaceAll(`/usr/local/libexec/cmux-${agent}-real`, real));
+    chmodSync(launchers[agent], 0o755);
+  }
   writeFileSync(path.join(bin, "cmux"), GUEST_CMUX_SHIM);
   chmodSync(path.join(bin, "cmux"), 0o755);
   // Every machine has the daemon, and the shim refuses daemon verbs (`env`
@@ -69,9 +111,11 @@ function machine(options: { newLauncher?: boolean } = {}): Machine {
   writeFileSync(path.join(bin, "cmux-tui"), "#!/bin/sh\nexit 0\n");
   chmodSync(path.join(bin, "cmux-tui"), 0o755);
   const codex = path.join(home, ".codex/config.toml");
-  writeFileSync(codex, `model_provider = "cmux"\n\n[model_providers.cmux]\nname = "cmux"\nbase_url = "${ORIGIN}/v1"\nenv_key = "OPENAI_API_KEY"\n`);
+  if (!options.fresh) {
+    writeFileSync(codex, `model_provider = "cmux"\n\n[model_providers.cmux]\nname = "cmux"\nbase_url = "${ORIGIN}/v1"\nenv_key = "OPENAI_API_KEY"\n`);
+  }
   return {
-    root, home, etc, bin, codex,
+    root, home, etc, bin, codex, calls, launchers,
     envFile: path.join(home, ".config/cmux/env"),
     planeCopy: path.join(home, ".config/cmux/model-plane.env"),
   };
@@ -132,8 +176,8 @@ describe("Cloud Secrets provider routing guard (running machines)", () => {
     const fixed = JSON.parse(readFileSync(global, "utf8"));
     expect(fixed.provider.cmux.options.apiKey).toBe(PLACEHOLDER);
     expect(fixed.provider.mine.options.apiKey).toBe("{env:OPENAI_API_KEY}");
-    // The older OpenCode fetch already ran, with the placeholder.
-    expect(readFileSync(path.join(m.root, "opencode-fetch"), "utf8")).toBe(`${PLACEHOLDER} ${ORIGIN}\n`);
+    // The team file was already in place: no fetch.
+    expect(existsSync(m.calls)).toBe(false);
     // A shell that sources the machine env after the plane sends the key to OpenAI.
     const shell = await runChild("sh", ["-c", `. ${m.etc}/model-plane.env; . "$HOME/.config/cmux/env"; printf '%s|%s' "$OPENAI_BASE_URL" "$OPENAI_API_KEY"`], { env: env(m) });
     expect(shell.stdout).toBe(`${OPENAI}|${USER_KEY}`);
@@ -206,6 +250,84 @@ describe("Cloud Secrets provider routing guard (running machines)", () => {
     const m = machine();
     writeFileSync(path.join(m.bin, "cmux"), "#!/bin/sh\nexit 1\n");
     expect((await guard(m, "direct", "plane")).status).not.toBe(0);
+  });
+});
+
+/** Starts <agent> the way a terminal on today's image does: baked plane, agent-config, the machine env, the launcher. */
+async function launch(m: Machine, agent: Agent, prefix = "") {
+  const result = await runChild(
+    "/bin/bash",
+    ["-c", `. ${m.etc}/model-plane.env; . ${m.etc}/agent-config.sh; [ -f "$HOME/.config/cmux/env" ] && . "$HOME/.config/cmux/env"; ${prefix} ${m.launchers[agent]} --resume x`],
+    { env: env(m) },
+  );
+  expect(result.status).toBe(0);
+  return Object.fromEntries(result.stdout.trim().split("\n").map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
+}
+
+describe("today's image, guarded: a user's key reaches its provider, never CodeRouter", () => {
+  const ANTHROPIC_KEY = "sk-ant-user-routing-key";
+
+  test("a brand-new machine's first sync routes before the first shell, then every agent and SDK goes direct", async () => {
+    const m = machine({ fresh: true });
+    // The Mac's first sync: the guard (protecting only), then the key over the link.
+    expect((await guard(m, "direct", "keep")).status).toBe(0);
+    await cmux(m, "env", "set", `OPENAI_API_KEY=${USER_KEY}`);
+    expect((await guard(m, "direct", "plane")).status).toBe(0);
+
+    // codex: the config the first shell would have written exists, on the user's key provider.
+    const codex = readFileSync(m.codex, "utf8");
+    expect(codex).toContain('model_provider = "cmux-openai-key"');
+    expect(codex).toContain(`base_url = "${ORIGIN}/v1"`);
+    // OpenCode: fetched once with the placeholder; its providers carry the placeholder.
+    const calls = readFileSync(m.calls, "utf8");
+    expect(calls).toContain(`authorization: Bearer ${PLACEHOLDER}`);
+    expect(calls).not.toContain(USER_KEY);
+    const team = readFileSync(path.join(m.home, ".config/cmux/opencode-team.json"), "utf8");
+    expect(JSON.parse(team).provider.go.options.apiKey).toBe(PLACEHOLDER);
+
+    const sdk = await runChild("/bin/bash", ["-c", `. ${m.etc}/model-plane.env; . ${m.etc}/agent-config.sh; . "$HOME/.config/cmux/env"; bash -c '. ${m.etc}/agent-config.sh; printf "%s|%s" "$OPENAI_BASE_URL" "$OPENAI_API_KEY"'`], { env: env(m) });
+    expect(sdk.stdout).toBe(`${OPENAI}|${USER_KEY}`);
+
+    const codexEnv = await launch(m, "codex");
+    expect(codexEnv.args).toBe("--resume x");
+    expect(codexEnv.OPENAI_API_KEY).toBe(USER_KEY);
+    expect(codexEnv.OPENAI_BASE_URL).toBe(OPENAI);
+
+    const callsBefore = readFileSync(m.calls, "utf8");
+    const opencodeEnv = await launch(m, "opencode");
+    expect(opencodeEnv.OPENCODE_CONFIG).toBe(path.join(m.home, ".config/cmux/opencode-team.json"));
+    // No second fetch, so no request carried the user's key.
+    expect(readFileSync(m.calls, "utf8").replace(callsBefore, "")).not.toContain("opencode/config");
+    expect(readFileSync(m.calls, "utf8")).not.toContain(USER_KEY);
+
+    // Every write the image makes to the model-plane copy lands in /dev/null.
+    expect(readlinkSync(m.planeCopy)).toBe("/dev/null");
+  });
+
+  test("Claude Code with the user's Anthropic key or bearer token never gets the CodeRouter pair", async () => {
+    for (const [name, value] of [["ANTHROPIC_API_KEY", ANTHROPIC_KEY], ["ANTHROPIC_AUTH_TOKEN", "user-bearer-token"]]) {
+      const m = machine();
+      await guard(m, "keep", "direct");
+      await cmux(m, "env", "set", `${name}=${value}`);
+      const claude = await launch(m, "claude");
+      expect(claude.ANTHROPIC_BASE_URL).toBe("https://api.anthropic.com");
+      expect(claude[name]).toBe(value);
+      expect(claude.ANTHROPIC_API_KEY).not.toBe(PLACEHOLDER);
+    }
+  });
+
+  test("codex own mode with a codex login uses the user's key with OpenAI (never CodeRouter)", async () => {
+    const m = machine();
+    mkdirSync(path.join(m.home, ".config/cmux/agent-auth"), { recursive: true });
+    writeFileSync(path.join(m.home, ".config/cmux/agent-auth/codex"), "own\n");
+    writeFileSync(path.join(m.home, ".codex/auth.json"), JSON.stringify({ tokens: { access_token: "at" } }));
+    await guard(m, "direct", "plane");
+    await cmux(m, "env", "set", `OPENAI_API_KEY=${USER_KEY}`);
+    const codexEnv = await launch(m, "codex");
+    // Today's launcher overrides only a provider named "cmux"; the config names
+    // the user's key provider, at OpenAI.
+    expect(codexEnv.args).toBe("--resume x");
+    expect(readFileSync(m.codex, "utf8")).toContain(`[model_providers.cmux-openai-key]\nname = "OpenAI"\nbase_url = "${OPENAI}"`);
   });
 });
 
