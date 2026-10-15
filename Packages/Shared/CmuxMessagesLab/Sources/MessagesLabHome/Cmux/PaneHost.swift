@@ -226,11 +226,11 @@ final class HostView: NSView {
         CATransaction.commit()
     }
 
-    /// A backing scale change (the window moved to a display with another scale): the transcript follows its own
-    /// window's scale (ChatController.followWindowScale, PaneHost+Scale.swift).
+    /// A backing scale change (the window moved to a display with another scale or colour space): the transcript
+    /// follows its own window's display in one display change (ChatController.followDisplay, PaneHost+Scale.swift).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        controller?.followWindowScale()
+        controller?.followDisplay(backingChanged: true)
     }
 
     /// A tab shown again (it or a container was hidden): it may have missed a scale change while hidden.
@@ -466,9 +466,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         } else {
             demo.setInactive(!Self.args.contains("--active"))
         }
-        observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.windowDidChangeScreen() })
-        followWindowScale()
-        windowDidChangeScreen()
+        observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.followDisplay() })
+        followDisplay()
     }
 
     static func warmUp() {
@@ -719,5 +718,5 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func windowDidResize() { host.needsLayout = true }
 
-    // windowDidChangeScreen: PaneHost+Scale.swift (this pane's rows only).
+    // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
 }
