@@ -14,9 +14,12 @@ round: not touched. Simulator work here is on `cnx-termqa-impl` with the Demo bu
 | D1 keyboard hide overshoot | **not reproduced** on the simulator: 30 hides, 0 reversals (`1ac1e149` scenario) | below |
 | Following cost (present reads every frame) | **reduced** (red `daca9746`, green `59125147`): work p99 2.81 -> 2.22 ms | below |
 | D11 no saved frame after a kill | **cause fixed** (red `0d768942`, green `58b54bdf`); rig re-check needed (live link only) | below |
-| V5-5 closed tab's session lingers | **fixed** (`see SHAs`): the close path now stops the session | below |
+| V5-5 closed tab's session lingers | **fixed** (`193e31d8`): the close path now stops the session | below |
 | V5-4 new tab replays the open tab; 39 vs 42 rows | **analysed, not fixed** (Mac side) | below |
 | D6 onboarding Continue | **not reproduced, not fixed** | below |
+| G-14 text selection | **implemented, simulator** (red `a589944e`, model `3a7eb7de`, UI `451e2715`) | below |
+| G-17 red-run runner, T-REG rows | **not started** | Next |
+| D10, V2-6, 60-minute sessions, D7 re-check | **not started** (rig busy) | Next |
 | Rig link-status reader returns "" | **fixed** (`c793f8e2`): reads the Filter button's value; mock checked, rig not run | below |
 
 ### V5-6 active card
@@ -127,3 +130,65 @@ the next step or finishes. No code path drops the tap; the round-1 report (3 tap
 later worked) is consistent with the setup plan changing under the page (`setupSteps` is
 `[.team, .pairMac]` until `planSetup` runs, which waits for `asksNotifications`). Not reproduced; needs
 the real onboarding with a real account (the rig's phone is paired, so a fresh simulator is required).
+
+### G-14 (text selection)
+
+`TerminalTextSelection` (portable, 5 tests) and `TerminalSelectionController` (iOS): a long press
+(0.45 s) selects the word under the finger (paths, URLs and flags are one word; a trailing `.`/`:` is
+not), moving on extends it; two iOS handles (caret plus knob, 44 pt touch area) move either end, and a
+handle dragged past the other swaps them; the edit menu offers Copy and Select All; a tap clears. The
+highlight is in the scroll view's content (it scrolls with the rows) and follows history prunes. Copy
+trims each row's trailing blanks and trailing empty rows; Select All copies the whole screen
+(`screenText`, scrollback included).
+
+Simulator (`cnx-termqa-impl`, demo terminal, real HID long press and drags via axe):
+`r7-g14-sel-1.jpg` (word `once_cell`, handles, menu), `-2` (Select All; Copy gave 4892 characters from
+`Last login`), `-3` (word `cnx-hostd`), a handle drag over 3 rows copied
+`cnx-hostd v0.1.0 (/Users/aziz/cmux-next/cnx-ios/rust/cnx-hostd)\n    Checking proc-macro2 v1.0.92\n    Checking unicode-ident v1.0.14`
+(the soft-wrapped row joined), `-4` (after scrolling up, the word under the finger).
+
+Limits: a handle stops at the rows the surface holds (the visible rows and 48 margin rows each side),
+with no autoscroll while dragging; a selection longer than that only through Select All. Not in TUI mode
+(alternate screen). VoiceOver: the handles are labelled; no rotor actions yet.
+
+**Finding for the scroll code (not fixed):** Ghostty's `GHOSTTY_POINT_SCREEN` y is not the scrollbar's
+absolute row. On the simulator demo terminal, `sb=456/305` and the viewport's top row read back at screen
+y 109 (offset 196); screen y past the last screen row clamps to it (every y >= 200 returned the same
+row). `TerminalSurfaceView.rowText`, `lastNonBlankRow(from:through:)` and `leadingBlankRows(through:)`
+pass absolute rows as screen y, so `updateDocument`'s rows below the cursor and the blank origin scan
+can read the wrong rows (an example: after `clear` without `ESC[3J` the document stayed `0+457` with the
+prompt at screen row 13 and blank rows on screen). Selection uses viewport rows instead. Next round:
+check this on the rig's mirror and move those readers to viewport rows (or derive the offset).
+
+## SHAs (feat-cnx-ios-termqa, after merging origin/feat-cnx-ios `9b8deeb8` and `2f5ef34c`)
+
+| SHA | Change |
+| --- | --- |
+| `e2fe44ff` red, `0ad88455` | V5-6 active card: IOSurface snapshot, static active card, crop ends at the composer |
+| `b0765db8` | FrameClock / FrameLogSwitch / FrameLogFile shared by the feed and terminal recorders |
+| `1ac1e149` | D1 scenario (mock Codex, `kbcodex` phase, `kbcodex.py`) |
+| `daca9746` red, `59125147` | following reads a band of rows |
+| `0d768942` red, `58b54bdf` | D11 save schedule |
+| `c793f8e2` | link-status reader (Filter button value) |
+| `193e31d8` | V5-5 closed tab stops its session |
+| `a589944e` red, `3a7eb7de`, `451e2715` | G-14 selection |
+
+Tests: CnxKit on mini-cmux11s, `CnxTerminalTests`: 154 of 154 (43 suites); `FrameIntervalStatsTests` 2 of 2.
+CmuxTabsKit: no diff against origin/feat-cnx-ios. iOS builds: Demo, `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`,
+into `build/impl-dd`.
+
+## Next (in order)
+
+1. On the rig when it is free (real link, commands typed on the phone): the 60-minute Codex and Claude
+   Code sessions per transport; the D7 60 s Codex follow re-check (`motion.py` at 60 fps); V5-6 on the
+   rig (grid with Codex active: the card shows Codex's prompt); D11 (kill without backgrounding, relaunch:
+   the dimmed saved frame shows); V5-5 (close a tab, drop the link: no line for its surface); the
+   transport switch with the new link-status reader; T-SIZE-05 with real Codex for D1; G-14 over real
+   Codex output and scrollback.
+2. The `GHOSTTY_POINT_SCREEN` row finding above (document end and origin scans).
+3. V5-4: log the `resized` event's grid at + -> New Terminal; skip the reset for an unchanged grid once
+   the daemon's `pending` semantics are confirmed.
+4. G-17 runner (build an old SHA into its own derived data, install on a second simulator, run a scenario
+   on old and new, write both verdicts), then the T-REG rows.
+5. D10, V2-6, D6 (fresh simulator, real onboarding), T-LIFE-08.
+6. G-14 follow-ups: autoscroll while dragging a handle past the rendered rows; TUI-mode selection.
