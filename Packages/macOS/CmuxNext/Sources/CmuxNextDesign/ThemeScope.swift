@@ -361,15 +361,26 @@ public final class ThemeScope {
 
     private func repaint(animated: Bool) {
         let transition = ColorTransition.current
-        let fade = animated && !transition.isInstant
-        for view in roots.allObjects {
-            if fade { transition.crossfade(view.layer) }
-            Self.invalidate(view)
+        if animated, !transition.isInstant {
+            // One fade per window, before anything repaints: the whole window for a scope that owns
+            // windows, else the areas of the views this scope roots.
+            var regions: [ObjectIdentifier: (window: NSWindow, views: [NSView]?)] = [:]
+            for window in windows.allObjects { regions[ObjectIdentifier(window)] = (window, nil) }
+            for view in roots.allObjects {
+                guard let window = view.window else { continue }
+                let id = ObjectIdentifier(window)
+                if let entry = regions[id] {
+                    if let views = entry.views { regions[id] = (window, views + [view]) }
+                } else {
+                    regions[id] = (window, [view])
+                }
+            }
+            for entry in regions.values { transition.fade(entry.window, regions: entry.views) }
         }
+        for view in roots.allObjects { Self.invalidate(view) }
         for window in windows.allObjects {
             window.appearance = appearance
             guard let content = window.contentView else { continue }
-            if fade { transition.crossfade(content.layer) }
             Self.invalidate(content)
             window.invalidateShadow()
         }

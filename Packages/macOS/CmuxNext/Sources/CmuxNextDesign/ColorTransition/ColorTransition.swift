@@ -9,7 +9,7 @@ public import CmuxTheme
 /// (``animate(_:to:)``: OKLab or sRGB keyframes on the render server, so a quick A, B, C
 /// switch retargets from the blend in flight and never jumps back), a view subtree whose colors
 /// cannot be interpolated one by one (terminal surfaces, chrome drawn in `draw(_:)`) crossfades
-/// (``crossfade(_:)``), and web pages transition their theme variables with the same duration
+/// (``fade(_:regions:)``), and web pages transition their theme variables with the same duration
 /// and curve (``cssTransition``). Every curve, the spring's timing and the color mix come from
 /// cmux-motion (`CCmuxMotionFFI`: `cmux_motion_ease`, `cmux_motion_cubic_bezier`,
 /// `cmux_motion_spring_progress_monotone`, `cmux_motion_mix_rgba`); nothing here keeps its own
@@ -169,37 +169,14 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         layer.add(animation, forKey: key)
     }
 
-    /// Crossfades everything `layer` draws from its last frame to its next one (a theme switch
-    /// recoloring in place: no layout change, no restart). For what has no single color to
-    /// blend: terminal surfaces, views that draw their own colors. Instant: nothing.
+    /// Fades `window` (or only `regions` of it) from what it shows now to its next frame: for what
+    /// has no single color to blend (terminal surfaces, views that draw their own colors). The
+    /// window's current composited frame lies over it and fades out on ``curve``
+    /// (`WindowColorFade`), so a second change mid-fade starts from the blend on screen. Call it
+    /// before the change commits. Instant: nothing.
     @MainActor
-    public func crossfade(_ layer: CALayer?) {
-        guard let layer, !isInstant else { return }
-        let transition = CATransition()
-        transition.type = .fade
-        transition.duration = seconds
-        // A CATransition takes one Core Animation timing function, not samples: the named curves
-        // map to Core Animation's own (cmux-motion's easeOut and easeInOut are those curves), a
-        // custom Bezier to its control points, and a spring to ease-out over its arrival time.
-        transition.timingFunction = crossfadeTiming
-        layer.add(transition, forKey: "cmux.themeCrossfade")
-    }
-
-    /// Crossfades each view's layer (window chrome on a workspace switch: its text and fills
-    /// change with the colors, the content beside it does not fade).
-    @MainActor
-    public func crossfade(_ views: [NSView]) {
-        for view in views { crossfade(view.layer) }
-    }
-
-    private var crossfadeTiming: CAMediaTimingFunction {
-        switch curve {
-        case .easeOut, .spring: CAMediaTimingFunction(name: .easeOut)
-        case .easeInOut: CAMediaTimingFunction(name: .easeInEaseOut)
-        case .linear: CAMediaTimingFunction(name: .linear)
-        case .cubicBezier(let x1, let y1, let x2, let y2):
-            CAMediaTimingFunction(controlPoints: Float(min(max(x1, 0), 1)), Float(y1), Float(min(max(x2, 0), 1)), Float(y2))
-        }
+    public func fade(_ window: NSWindow, regions: [NSView]? = nil) {
+        WindowColorFade.forWindow(window).fade(window, regions: regions, transition: self)
     }
 
     // MARK: Web pages

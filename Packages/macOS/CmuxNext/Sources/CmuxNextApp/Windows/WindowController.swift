@@ -220,15 +220,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.sameTurn.syncNow(rows: index == nil)
         root.show(controller.contentView)
         // The workspace's theme first, so the chrome repaints once. The chrome (sidebar, titlebar)
-        // crossfades into the new colors and the backdrop blends (appearance.colorTransition); the
+        // fades from what it shows now and the backdrop blends (appearance.colorTransition); the
         // content swap itself never fades.
         let before = themeScope.tokens
         services.themes.contentDidShow(controller)
-        if controller.themeScope.tokens != before {
-            // The swap and the sidebar rows above commit first, so only the recolor fades.
-            CATransaction.flush()
-            ColorTransition.current.crossfade([root.sidebar, root.titlebar])
-        }
+        if controller.themeScope.tokens != before, let window { ColorTransition.current.fade(window, regions: [root.sidebar, root.titlebar]) }
         themeScope.show(controller.themeScope)
         trimParked()
         startupObservation?.cancel()
