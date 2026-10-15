@@ -88,7 +88,9 @@ class Stage:
     def __init__(self, root):
         source = os.environ["NX_APP"]
         self.app = os.path.join(root, "cmux STAGING.app")
-        shutil.copytree(source, self.app, symlinks=True)
+        # The copy is made inside the source bundle: skip that stage folder itself.
+        shutil.copytree(source, self.app, symlinks=True,
+                        ignore=lambda folder, names: [n for n in names if n.startswith("legacy-adopt-")])
         info = os.path.join(self.app, "Contents/Info.plist")
         with open(info, "rb") as handle:
             plist = plistlib.load(handle)
