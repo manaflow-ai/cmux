@@ -196,7 +196,7 @@ final class ChiefSettingsPanel: NSView {
         homeLink.action = #selector(showHome)
         homeLink.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         homeLink.alignment = .left
-        homeLink.setAccessibilityIdentifier("ChiefSettingsShowHome")
+        homeLink.setAccessibilityIdentifier("ChiefSettingsShowInFinder")
         activity.box.addArrangedSubview(homeLink)
         activity.addGap(10)
         configure(logButton, action: #selector(showLog))
