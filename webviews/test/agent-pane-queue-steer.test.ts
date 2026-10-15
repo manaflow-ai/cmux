@@ -6,7 +6,7 @@
 // stand-in acpmux that replays a recorded chat: a turn that opened a pull request and is still
 // writing its reply, with prompts queued behind it.
 //
-// - The queued prompts sit under the pull request bar, over the composer's location strip (the
+// - The queued prompts sit under the pull request bar, over the composer (the
 //   bottom stack's order, #20521), never under either; under "Queued", and a long one opens whole
 //   (acpmux lists only a 200-character preview; the pane keeps the text its `queued` record had).
 // - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
@@ -274,9 +274,10 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.waitForTimeout(200);
       const list = await page.locator(".acpmux-composer-queue").boundingBox();
       const bar = await dock.boundingBox();
-      const strip = await page.locator(".acpmux-composer-strip").boundingBox();
+      // A chat that has sent shows no location strip (#20869): the queue stands on the card.
+      const composer = await page.locator(".acpmux-composer-box").boundingBox();
       expect(bar!.y + bar!.height).toBeLessThanOrEqual(list!.y + 1);
-      expect(list!.y + list!.height).toBeLessThanOrEqual(strip!.y + 1);
+      expect(list!.y + list!.height).toBeLessThanOrEqual(composer!.y + 1);
       expect(await page.locator(".acpmux-queue-header").innerText()).toContain("Queued");
       const long = page.locator(".acpmux-queued-text", { hasText: "the pr thing" });
       await long.click();
@@ -345,7 +346,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const list = await box(".acpmux-composer-queue");
       const scroller = await box(".acpmux-scroll");
       const dock = await box(".acpmux-pr-dock");
-      const strip = await box(".acpmux-composer-strip");
+      const composer = await box(".acpmux-composer-box");
       // Every queued prompt shows whole: the list never hides part of one.
       for (const row of await page.locator(".acpmux-queued").all()) {
         const r = (await row.boundingBox())!;
@@ -353,13 +354,13 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         expect(r.y + r.height).toBeLessThanOrEqual(list.y + list.height + 1);
       }
       // The transcript ends above the question, the question above the pull requests, the pull
-      // requests above the queue and the queue above the composer's strip.
+      // requests above the queue and the queue above the composer.
       const card = await box(".acpmux-permission-card");
       expect(scroller.y + scroller.height).toBeLessThanOrEqual(card.y + 1);
       expect(card.y + card.height).toBeLessThanOrEqual(dock.y + 1);
       expect(dock.y + dock.height).toBeLessThanOrEqual(list.y + 1);
       // The queue shows its own bottom edge: nothing below tucks it under.
-      expect(list.y + list.height).toBeLessThanOrEqual(strip.y + 1);
+      expect(list.y + list.height).toBeLessThanOrEqual(composer.y + 1);
       await page.close();
     });
 

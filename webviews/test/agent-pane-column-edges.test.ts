@@ -15,7 +15,8 @@ import { warmViteServer } from "./support/warmDevServer";
 type Frame = { entry: string; variant: string; edge: string; blocks: Record<string, string> };
 
 await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
-  /** The frames and, in each, the blocks that sit in the column, by selector. */
+  /** The frames and, in each, the blocks that sit in the column, by selector. A chat that has sent
+   *  shows no location strip (#20869), so only New Tab's frame names it. */
   const FRAMES: Frame[] = [
     {
       entry: "agent-pane.bottom-stack",
@@ -25,7 +26,6 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         transcript: ".acpmux-row:not(.acpmux-user)",
         permission: ".acpmux-asks-stack > *",
         queue: ".acpmux-composer-queue",
-        strip: ".acpmux-composer-strip",
       },
     },
     {
@@ -36,7 +36,6 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         "trust ask": ".acpmux-trust-ask",
         "trust note": ".acpmux-composer-remote-note",
         queue: ".acpmux-composer-queue",
-        strip: ".acpmux-composer-strip",
       },
     },
     {
@@ -46,7 +45,6 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       blocks: {
         transcript: ".acpmux-row:not(.acpmux-user)",
         "PR dock": ".acpmux-pr-dock > *",
-        strip: ".acpmux-composer-strip",
       },
     },
     {
@@ -149,35 +147,39 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     expect({ missing, offenders }).toEqual({ missing: [], offenders: [] });
   });
 
-  /** Runs in the page: how the strip meets the card under it, and the queue the strip. */
+  /** Runs in the page: how the block right on the card (the strip, or the queue once a chat's first
+   *  send hid the strip, #20869) meets it, and the queue the block under it. */
   function joins({ edge }: { edge: string }) {
     const strip = document.querySelector(".acpmux-composer-strip");
+    const queue = document.querySelector(".acpmux-composer-queue");
+    const head = strip ?? queue;
     const card = document.querySelector(edge);
-    if (!strip || !card) return null;
-    const s = strip.getBoundingClientRect();
+    if (!head || !card) return null;
+    const h = head.getBoundingClientRect();
     const c = card.getBoundingClientRect();
     const radius = (el: Element, corner: string) => parseFloat(getComputedStyle(el).getPropertyValue(corner)) || 0;
-    const queue = document.querySelector(".acpmux-composer-queue");
     const rows = queue ? [...queue.querySelectorAll(".acpmux-queued")] : [];
     const last = rows.at(-1)?.getBoundingClientRect();
     return {
-      // The strip stands right on the card, side by side to the half pixel.
-      left: c.left - s.left,
-      right: c.right - s.right,
-      gap: c.top - s.bottom,
+      head: strip ? "strip" : "queue",
+      // The block stands right on the card, side by side to the half pixel.
+      left: c.left - h.left,
+      right: c.right - h.right,
+      gap: c.top - h.bottom,
       // Where they meet nothing rounds: a rounded corner pulls the side rim in and breaks it.
-      stripBottom: radius(strip, "border-bottom-left-radius") + radius(strip, "border-bottom-right-radius"),
+      headBottom: radius(head, "border-bottom-left-radius") + radius(head, "border-bottom-right-radius"),
       cardTop: radius(card, "border-top-left-radius") + radius(card, "border-top-right-radius"),
-      // One rim goes round both: the card's rim layer reaches up to the strip's top, and the strip
-      // draws none of its own. Two rims broke at the join at 1x and took two tones on focus.
-      rimTop: c.top + (parseFloat(getComputedStyle(card, "::before").top) || 0) - s.top,
-      stripRim: getComputedStyle(strip).boxShadow,
-      // The queue's last row keeps room above the strip: its descenders never touch the strip.
+      // One rim goes round the strip and the card: the card's rim layer reaches up to the strip's
+      // top, and the strip draws none of its own. Two rims broke at the join at 1x and took two
+      // tones on focus. With no strip the layer stays on the card.
+      rimTop: strip ? c.top + (parseFloat(getComputedStyle(card, "::before").top) || 0) - h.top : 0,
+      stripRim: strip ? getComputedStyle(strip).boxShadow : "none",
+      // The queue's last row keeps room above what is under it: its descenders never touch it.
       queueRoom: queue && last ? Math.round(queue.getBoundingClientRect().bottom - last.bottom) : null,
     };
   }
 
-  test("the strip and the card meet square in one rim, and the queue keeps room above the strip", async () => {
+  test("the strip or queue and the card meet square in one rim, and the queue keeps room above", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const JOINS = [
       { entry: "agent-pane.composer", variant: "idle", edge: ".acpmux-composer-box" },
@@ -202,10 +204,10 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
           continue;
         }
         if (Math.abs(join.left) > 0.5 || Math.abs(join.right) > 0.5)
-          offenders.push(`${label} strip sides ${join.left}/${join.right}px off the card's`);
-        if (Math.abs(join.gap) > 0.5) offenders.push(`${label} strip ${join.gap}px from the card`);
-        if (join.stripBottom || join.cardTop)
-          offenders.push(`${label} rounded join (strip bottom ${join.stripBottom}, card top ${join.cardTop})`);
+          offenders.push(`${label} ${join.head} sides ${join.left}/${join.right}px off the card's`);
+        if (Math.abs(join.gap) > 0.5) offenders.push(`${label} ${join.head} ${join.gap}px from the card`);
+        if (join.headBottom || join.cardTop)
+          offenders.push(`${label} rounded join (${join.head} bottom ${join.headBottom}, card top ${join.cardTop})`);
         if (Math.abs(join.rimTop) > 0.5)
           offenders.push(`${label} card rim starts ${join.rimTop}px below the strip's top`);
         if (join.stripRim !== "none") offenders.push(`${label} strip draws its own rim (${join.stripRim})`);

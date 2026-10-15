@@ -456,16 +456,16 @@
    strip's radius. Two rims, the strip's and the card's, broke at the join (half a pixel of mask at
    1x) and took two tones once the card had focus (live captures, 2026-10-14). The card's top
    corners square off under the strip. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box,
 .nt-screen .nt-composer:has(.acpmux-composer-strip) .nt-box {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box,
 .nt-composer:has(.acpmux-composer-strip) .nt-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box::before,
 .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
   content: "";
   position: absolute;
@@ -478,13 +478,20 @@
   pointer-events: none;
 }
 
+/* After a chat's first send there is no strip (#20869): a queue stands right on the card, and the
+   rim layer stays on the card. */
+.acpmux-composer:not(:has(> .acpmux-composer-strip)) > .acpmux-composer-box::before {
+  top: 0;
+}
+
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
 .acpmux-composer-strip .acpmux-location-button,
 .acpmux-composer-strip .acpmux-location-readonly { height: 22px; }
-/* Queued prompts (ComposerQueue.tsx) stack right above the strip at the column's edges, so the
-   queue, the strip and the card read as one surface; the queue takes the strip's top corners, the
-   strip's square off under it and its top hairline gives way to the queue's sides. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
+/* Queued prompts (ComposerQueue.tsx) stack right above the strip, or the card when there is no
+   strip, at the column's edges, so the queue, the strip and the card read as one surface; the queue
+   takes the rounded top corners, what is under it squares off and its top hairline gives way to the
+   queue's sides. */
+.acpmux-composer > .acpmux-composer-queue {
   border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0;
 }
 .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
