@@ -22,6 +22,8 @@ const FIRST: &str = "<title>Desk clamp</title><p>Jaw 3°</p>";
 /// The id the chat gives `FIRST` (webviews test/render-update.test.tsx).
 const FIRST_ID: &str = "r680bc59027";
 const SECOND: &str = "<title>Desk clamp</title><p>Jaw 5°</p>";
+/// `SECOND`'s own id, which the chat gives it only when it is drawn fresh.
+const SECOND_ID: &str = "ra7e83ab227";
 
 #[test]
 fn a_render_naming_an_earlier_render_id_updates_that_page_in_place() {
@@ -63,6 +65,29 @@ fn a_render_naming_an_earlier_render_id_updates_that_page_in_place() {
 
     assert_eq!(malformed["isError"], true, "{malformed}");
     assert_eq!(malformed["structuredContent"]["state"], "not_run");
+}
+
+#[test]
+fn a_render_naming_an_updated_page_by_its_own_hash_is_refused_until_that_page_is_drawn_fresh() {
+    let answers = serve(&[
+        json!({"html": FIRST}),
+        json!({"id": FIRST_ID, "html": SECOND}),
+        json!({"id": SECOND_ID, "html": FIRST}),
+        json!({"html": SECOND}),
+        json!({"id": SECOND_ID, "html": FIRST}),
+    ]);
+    let [_, update, own_hash, fresh, named] = answers.as_slice() else {
+        panic!("five answers expected: {answers:?}")
+    };
+    assert_eq!(update["structuredContent"]["id"], FIRST_ID, "{update}");
+    // The update's page goes by its card's id; its own hash names no card.
+    assert_eq!(own_hash["isError"], true, "{own_hash}");
+    assert_eq!(own_hash["structuredContent"]["state"], "not_run");
+    // Drawn fresh, the same page is a card of its own, and its id updates it.
+    assert_eq!(fresh["structuredContent"]["id"], SECOND_ID, "{fresh}");
+    assert_eq!(named["isError"], false, "{named}");
+    assert_eq!(named["structuredContent"]["id"], SECOND_ID, "{named}");
+    assert_eq!(named["structuredContent"]["updated"], true, "{named}");
 }
 
 /// One `tools/call` to `render` per argument set, in order, from one

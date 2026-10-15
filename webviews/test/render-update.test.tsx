@@ -61,7 +61,7 @@ const FIRST_ID = "r680bc59027";
 const SECOND = "<title>Desk clamp</title><p>Jaw 5°</p>";
 
 /// One ended render tool call, as the transcript holds it.
-const call = (id: string, input: Record<string, unknown>): AcpmuxRow => ({
+const call = (id: string, input: Record<string, unknown>, status = "completed", output?: string): AcpmuxRow => ({
   id: `row-${id}`,
   version: 1,
   at: 0,
@@ -70,7 +70,7 @@ const call = (id: string, input: Record<string, unknown>): AcpmuxRow => ({
     {
       kind: "tool",
       text: "mcp__cmux__render",
-      tool: { id, title: "mcp__cmux__render", status: "completed", inputSummary: JSON.stringify(input) },
+      tool: { id, title: "mcp__cmux__render", status, inputSummary: JSON.stringify(input), output },
     },
   ],
 });
@@ -162,4 +162,57 @@ test("the updated card opens its page in the side panel with the earlier page as
   expect(count()).toBe("2/2");
   act(() => button("Previous version")!.click());
   expect(count()).toBe("1/2");
+});
+
+const titles = () => cards().map((card) => card.querySelector(".acpmux-render-card-title")?.textContent);
+const THIRD = "<title>Desk clamp</title><p>Jaw 7°</p>";
+
+test("a chain of updates each naming the first page shows the last, with every page a version", async () => {
+  const third = call("toolu_5", { id: FIRST_ID, html: THIRD, title: "Desk clamp, final" });
+  const opened: { kind: "html"; lang: string; code: string; render?: string }[] = [];
+  await draw([original, update, third], (artifact) => opened.push(artifact as (typeof opened)[number]));
+  expect(titles()).toEqual(["Desk clamp, final"]);
+  act(() => button("Open preview")!.click());
+  const { renderPages, renderVersions } = await import("../src/agent-session/acpmux/conversation/renderCall");
+  const versions = renderVersions(renderPages([original, update, third]), opened[0]!);
+  expect(versions?.map((version) => version.code)).toEqual([FIRST, SECOND, THIRD]);
+});
+
+test("an update that only renames the page shows the new title", async () => {
+  await draw([original, call("toolu_6", { id: FIRST_ID, html: FIRST, title: "Desk clamp, renamed" })]);
+  expect(titles()).toEqual(["Desk clamp, renamed"]);
+});
+
+test("a refused update draws nothing and leaves the card as it was", async () => {
+  // A harness that reports the refusal as failed, and one that reports it as completed.
+  const refusal = JSON.stringify({ error: { code: "invalid", message: "render has no page" }, state: "not_run" });
+  await draw([
+    original,
+    call("toolu_7", { id: FIRST_ID, html: SECOND, title: "Failed" }, "failed", refusal),
+    call("toolu_8", { id: FIRST_ID, html: THIRD, title: "Refused" }, "completed", refusal),
+  ]);
+  expect(titles()).toEqual(["Desk clamp"]);
+});
+
+test("a streaming delta reads no render input again and keeps the cards' pages", async () => {
+  const { renderPages } = await import("../src/agent-session/acpmux/conversation/renderCall");
+  const rows = [original, update];
+  const pages = renderPages(rows);
+  await draw(rows);
+  const parse = JSON.parse;
+  let parsed = 0;
+  JSON.parse = ((text: string, reviver?: Parameters<typeof parse>[1]) => {
+    if (typeof text === "string" && text.includes("<title>")) parsed += 1;
+    return parse(text, reviver);
+  }) as typeof JSON.parse;
+  try {
+    const delta: AcpmuxRow = { id: "answer", version: 1, at: 0, kind: "assistant", text: "Here is the", streaming: true };
+    const next = [...rows, delta];
+    expect(renderPages(next)).toBe(pages);
+    await draw(next);
+    expect(renderPages([...rows, { ...delta, version: 2, text: "Here is the clamp" }])).toBe(pages);
+  } finally {
+    JSON.parse = parse;
+  }
+  expect(parsed).toBe(0);
 });
