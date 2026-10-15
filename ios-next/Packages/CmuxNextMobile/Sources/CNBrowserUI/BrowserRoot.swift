@@ -315,6 +315,11 @@ struct BrowserScreen: View {
             if let terminal = tabs.activeTerminal, let key = tabs.activeKey, !(creatingTab && zoomState.phase == .page),
                zoomState.phase != .overview || gridSettledKey == nil || gridSettledKey == key {
                 terminalLayer(terminal.id, key: key)
+                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                    // The grid's bottom bar stays on top of it: a terminal
+                    // zooming into a card that reaches the bar covered (+) and
+                    // the count (re-audit 3 #11, real host).
+                    .mask { BarCutout(bar: overviewLayout.barRect, shown: overviewShown) }
             }
 
             if zoomState.phase == .animating || zoomState.phase == .interactive {
@@ -1428,4 +1433,22 @@ struct DisplacedOverlay: View {
     }
 }
 
+/// A mask showing everything but the grid's bottom bar, as far as the
+/// bar's controls have faded in (`shown`, 0 on the page, 1 on the grid).
+struct BarCutout: View {
+    var bar: CGRect
+    var shown: Double
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+            Rectangle()
+                .frame(width: bar.width, height: bar.height + 16)
+                .offset(x: bar.minX, y: bar.minY - 8)
+                .opacity(min(1, max(0, shown)))
+                .blendMode(.destinationOut)
+        }
+        .compositingGroup()
+    }
+}
 #endif
