@@ -178,9 +178,18 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(true), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
         case "click":
             // A left click at x, y (window points, bottom-left origin: the space of "rows") through the real mouse path;
-            // `count` 2: a double click. Answers the open thread too.
-            guard let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else { return .object(["error": .string("click needs x and y")]) }
-            let clicked = view.debugClick(atWindow: CGPoint(x: x, y: y), count: params["count"]?.intValue ?? 1)
+            // `count` 2: a double click. `key` (a row key from "rows") clicks that row's body centre where the row
+            // is now (a click after a send that moved the rows hits the same bubble). Answers the open thread too.
+            let point: CGPoint
+            if let key = params["key"]?.stringValue {
+                guard let row = view.debugRowFrames().first(where: { $0.key == key }) else { return .object(["error": .string("no shown row \(key)")]) }
+                point = CGPoint(x: row.frame.midX, y: row.frame.midY)
+            } else if let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue {
+                point = CGPoint(x: x, y: y)
+            } else {
+                return .object(["error": .string("click needs key, or x and y")])
+            }
+            let clicked = view.debugClick(atWindow: point, count: params["count"]?.intValue ?? 1)
             return .object(["ok": .bool(clicked), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
         case "paste":
             // The main menu's Paste to this window's first responder, as AppKit sends it from a key window

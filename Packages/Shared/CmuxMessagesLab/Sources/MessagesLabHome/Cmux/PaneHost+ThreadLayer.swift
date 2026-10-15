@@ -68,15 +68,25 @@ extension HostView {
     }
 
     // cmux: under an open thread or reply view the transcript and the whole header, avatar and name
-    // pill, blur and darken under ONE backdrop: the vendored thread layer (ThreadBackdrop, then the
-    // thread's rows) sits over the live header in `threadHost`, unmasked, so everything changes on the
-    // backdrop's own frames, and its rows render once, uncut, wherever their flights take them (round
-    // 9: per-row masks duplicated and cut rows; round 10: Messages' tp0600 frame shows the avatar a soft
-    // blurred blob, not only dimmed).
+    // pill, blur and darken, and the thread's rows pass under the header, as under Messages' titlebar.
+    // The vendored thread layer (ThreadBackdrop, then the rows) sits in `threadHost`, unmasked, under the
+    // header; the header takes the backdrop's blur and tint itself (PaneHeaderView.setThreadBlur), on the
+    // vendored animations' own timing, read here. Rows render once, uncut (round 9); none draws over the
+    // avatar on a close (round 10: a row flying back to its place under the header covered the avatar
+    // for 0.35 s while the thread layer was over the header).
 
-    /// The thread view's open state, followed after the engine changes that matter.
+    /// The vendored backdrop's layers (ThreadBackdrop: its root holds the blur, when the system has one,
+    /// then the tint), read for their animations' timing; nil if the layout changes upstream.
+    var vendoredBackdropRoot: CALayer? { liftedThread?.subviews.first?.layer.sublayers?.first }
+
+    /// The thread view's open state, followed after the engine changes that matter: the header blurs and
+    /// dims with the backdrop, on its animations' begin time, duration and curve.
     func followThread(open: Bool) {
         veilOpen = open
+        let parts = vendoredBackdropRoot?.sublayers ?? []
+        let tint = parts.last?.animation(forKey: "thread") as? CABasicAnimation
+        let blur = parts.count > 1 ? parts.first?.animation(forKey: "thread") as? CABasicAnimation : nil
+        paneHeader.setThreadBlur(open: open, blur: blur ?? tint, tint: tint)
     }
 
     /// The thread layer holds rows (a thread view open or closing).

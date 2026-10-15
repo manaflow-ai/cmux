@@ -103,10 +103,10 @@ final class HostView: NSView {
         addSubview(below)
         addSubview(scrollView)
         addSubview(headerBackdrop)
-        // cmux: the in-pane header under the thread layer, so an open thread or reply view blurs
-        // and darkens it with the transcript, as Messages does (PaneHost+ThreadLayer.swift).
-        addSubview(paneHeader)
+        // cmux: the thread layer under the header; the header takes the thread view's blur and tint
+        // itself (PaneHost+ThreadLayer.swift), so rows flying under it never cover it.
         addSubview(threadHost)
+        addSubview(paneHeader)
         liftThreadLayer(demo)
         addSubview(selectionHost)
         // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).

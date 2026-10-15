@@ -251,35 +251,41 @@ import Testing
 
     // MARK: The header under an open thread or reply view
 
-    /// One backdrop: the vendored thread layer sits over the whole live header (avatar and pill) and the
-    /// transcript, unmasked, and the thread's rows render unmasked above it; nothing of the header is
-    /// above the thread layer, so it all blurs and dims on the backdrop's frames.
-    @Test func underAnOpenThreadOneBackdropCoversTheWholeHeader() throws {
+    /// The vendored thread layer (backdrop and rows) sits under the header, unmasked; the header takes the
+    /// backdrop's blur and tint itself on the vendored animations' timing, so rows pass under the avatar
+    /// and the pill, and the whole header blurs and dims with the transcript.
+    @Test func underAnOpenThreadTheHeaderBlursOverTheThreadLayer() throws {
         let (controller, _, demo) = Self.pane()
         let host = controller.host
-        host.paneHeader.title = "Chief"
+        let header = host.paneHeader
+        header.title = "Chief"
         host.needsLayout = true
         host.layoutSubtreeIfNeeded()
         #expect(host.threadHost.root.mask == nil)
         let views = host.subviews
         let threadIndex = try #require(views.firstIndex(of: host.threadHost))
-        #expect((views.firstIndex(of: host.paneHeader) ?? Int.max) < threadIndex)
-        #expect(host.paneHeader.avatar.superview === host.paneHeader)
-        #expect(host.paneHeader.avatar.isDescendant(of: host.paneHeader))
+        #expect((views.firstIndex(of: header) ?? -1) > threadIndex)
+        #expect(header.avatar.superview === header)
+        #expect(header.layer?.filters == nil)
         controller.dispatch(.reply(PartRef(messageId: "m1", partIndex: 0)))
         host.needsLayout = true
         host.layoutSubtreeIfNeeded()
         #expect(demo.threadOpen)
-        #expect(host.veilOpen)
+        #expect(header.threadBlurOpen)
+        #expect(header.layer?.filters?.count == 1)
+        #expect(header.threadTint.superlayer === header.layer)
+        #expect(header.threadTint.compositingFilter as? String == "sourceAtop")
+        #expect(abs(header.threadTint.opacity - Float(1 - ThreadBackdrop.gain)) < 0.0001)
+        let vendoredTint = try #require(host.vendoredBackdropRoot?.sublayers?.last?.animation(forKey: "thread") as? CABasicAnimation)
+        let ours = try #require(header.threadTint.animation(forKey: "cmux.thread.tint") as? CABasicAnimation)
+        #expect(ours.duration == vendoredTint.duration)
         let thread = try #require(HostView.threadLayerView(of: demo))
-        #expect(thread.layer.superlayer === host.threadHost.root)
         let dim = thread.subviews.first?.layer
         let rows = (thread.layer.sublayers ?? []).filter { $0 !== dim }
         #expect(!rows.isEmpty)
         #expect(rows.allSatisfy { $0.mask == nil })
-        #expect(!host.paneHeader.pillGlass.isHidden)
-        #expect(host.paneHeader.pillGlass.frame == host.paneHeader.pill.frame)
+        #expect(header.pillGlass.frame == header.pill.frame)
         controller.dispatch(.closeThread)
-        #expect(!host.veilOpen)
+        #expect(!header.threadBlurOpen)
     }
 }
