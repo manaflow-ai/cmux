@@ -159,8 +159,14 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function open(chat: Chat, width: number, height = 700): Promise<Page> {
+  /// The page runs as on a loaded CI runner: rows draw a frame or more after the reply grows, so the
+  /// view must follow what is drawn, not an estimate a later frame takes back (cx-next-ghostty-config).
+  const LOADED = 6;
+
+  async function open(chat: Chat, width: number, height = 700, loaded = false): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
+    if (loaded)
+      await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: LOADED });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}`);
@@ -172,14 +178,31 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   /// What a painted frame shows: how far the view sits above the transcript's end, where it is
   /// scrolled to, and how far the last line of text sits above the view's bottom; or, given
-  /// `text`, the top of the row that holds it.
-  type Frame = { fromEnd: number; scrollTop: number; lastLine: number; top: number | null; glides: number };
+  /// `text`, the top of the row that holds it, and where the row is placed under the thread's glide.
+  /// `glided` sums the glides the thread started since the frame before.
+  type Frame = {
+    fromEnd: number;
+    scrollTop: number;
+    lastLine: number;
+    top: number | null;
+    placed: number | null;
+    glides: number;
+    glided: number;
+  };
   /// Reads every painted frame until `stop`.
   const watch = (page: Page, text?: string) =>
     page.evaluate((text) => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      let glided = 0;
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (keyframes, options) {
+        if (this.classList.contains("acpmux-thread") && Array.isArray(keyframes))
+          glided += Number(/translateY\((-?[\d.]+)px\)/.exec(String(keyframes[0]?.transform))?.[1] ?? 0);
+        return animate.call(this, keyframes, options);
+      };
       const sample = () => {
         const view = scroller.getBoundingClientRect();
+        const thread = document.querySelector<HTMLElement>(".acpmux-thread");
         const lines = [...scroller.querySelectorAll("p")];
         const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
         const row = text
@@ -191,14 +214,23 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           scrollTop: Math.round(scroller.scrollTop),
           lastLine: Math.round(view.bottom - (lines.at(-1)?.getBoundingClientRect().bottom ?? view.bottom)),
           top: row ? Math.round(row.getBoundingClientRect().top) : null,
-          glides: document.querySelector(".acpmux-thread")?.getAnimations().length ?? 0,
+          placed: row ? row.getBoundingClientRect().top - new DOMMatrix(getComputedStyle(thread!).transform).m42 : null,
+          glides: thread?.getAnimations().length ?? 0,
+          glided: glided - (glided = 0),
         };
       };
       const frames: unknown[] = [];
       (window as any).__frames = frames;
+      // A frame paints at the viewport its animation frame saw: the rendering steps apply a
+      // resize before that callback, and no task runs between it and the paint. A resize that
+      // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
+      // not yet placed), so that read is not a frame.
       const tick = () => {
         if ((window as any).__frames !== frames) return;
-        setTimeout(() => frames.push(sample()), 0);
+        const painted = `${innerWidth}x${innerHeight}`;
+        setTimeout(() => {
+          if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
+        }, 0);
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -211,6 +243,14 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       return frames as never;
     });
   };
+  /// The frames whose row moved by more than the glides started with it: a step drawn at once.
+  /// A step under half a pixel does not glide, and a frame can take two (estimate, drawn height).
+  const snapped = (frames: Frame[]) =>
+    frames.flatMap((frame, index) => {
+      const before = frames[index - 1];
+      if (!before || before.placed === null || frame.placed === null) return [];
+      return Math.abs(before.placed - frame.placed - frame.glided) > 1 ? [[before, frame]] : [];
+    });
   /// The frames whose text moved down on screen from the frame before: a jump back.
   const movedDown = (frames: Frame[]) =>
     frames.flatMap((frame, index) =>
@@ -310,7 +350,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   test("a streaming reply keeps the view at its end, through a growing command and a queue", async () => {
     const chat = newChat();
-    const page = await open(chat, 900);
+    const page = await open(chat, 900, 700, true);
     const atRest = await restingLastLine(page);
     await watch(page, "Paragraph 20.");
     for (let index = 25; index <= 34; index++) {
@@ -373,7 +413,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   test("a reply streamed a few words at a time scrolls smoothly: its last line holds still at the bottom", async () => {
     const chat = newChat();
-    const page = await open(chat, 900);
+    const page = await open(chat, 900, 700, true);
     const atRest = await restingLastLine(page);
     await watch(page, "Paragraph 20.");
     const words = (paragraph(25) + paragraph(26) + paragraph(27)).split(/(?<= )/);
@@ -383,12 +423,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     }
     await page.getByText("Paragraph 27.", { exact: false }).waitFor();
     const frames = await stop(page);
-    // Each new line glides the text up (acp-streaming.md "Scroll"): never down and back, never more
-    // than a line in one frame, and the newest line comes to rest where the last one did.
+    // Each new line glides the text up (acp-streaming.md "Scroll"): never down and back, never
+    // drawn at once, at any frame rate, and the newest line comes to rest where the last one did.
     expect(movedDown(frames)).toEqual([]);
     expect(backwards(frames)).toEqual([]);
-    const steps = frames.slice(1).map((frame, index) => (frames[index]!.top ?? 0) - (frame.top ?? 0));
-    expect(Math.max(...steps)).toBeLessThanOrEqual(23);
+    expect(snapped(frames)).toEqual([]);
     // The view comes to rest where it started; the last frames read show where it was going.
     const rest = await restingLastLine(page);
     expect({
@@ -407,7 +446,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // their drawn heights at the new width before it paints. That is the resize, not growth, so
     // nothing slides: the last line sits where it rests in every painted frame.
     const chat = newChat();
-    const page = await open(chat, 760);
+    const page = await open(chat, 760, 700, true);
     const atRest = await restingLastLine(page);
     await watch(page);
     for (const widths of [
