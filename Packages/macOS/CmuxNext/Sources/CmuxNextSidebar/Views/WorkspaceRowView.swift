@@ -292,7 +292,7 @@ final class WorkspaceRowView: SidebarRowView {
 
         // Members indent under their group header; the members' line is
         // one layer per group under the rows (SidebarListView+GroupLines).
-        let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
+        let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : layoutElbow(head: b)
         let (th, sh, top, cy) = textMetrics(head: b)
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).

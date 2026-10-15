@@ -27,10 +27,13 @@ extension SidebarModel {
     }
 
     /// Whether `new` (the patched `old`) changes which rows the list draws. The active row keeps
-    /// its status bucket while it stays active (`SidebarGrouping.held`): a patch, not a move.
+    /// its status bucket while it stays active (`SidebarGrouping.held`): a patch, not a move. With
+    /// elbow children, a new parent moves the row.
     func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace) -> Bool {
         if groupsByFolder && old.folder != new.folder { return true }
         if groupsByStatus {
+            // Elbow children: a row that gains, loses or changes its parent moves under it.
+            if grouping.elbowsChildren && old.parentWorkspace != new.parentWorkspace { return true }
             let before = settledGrouping().bucket(old)
             if before != SidebarStatusBucket(new) {
                 guard new.id == activeWorkspaceID else { return true }
