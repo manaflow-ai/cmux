@@ -10,12 +10,19 @@ public import Foundation
 /// keep their own recovery (`BrowserPanel+WebContentTermination.swift`).
 public struct ChromiumPageFailureState: Equatable, Sendable {
     public enum Failure: Equatable, Sendable {
-        /// The renderer ended. `restoresWhenShown` is true when the pane was
-        /// hidden and may bring the page back by itself once shown.
-        case crashed(ChromiumCrashPageVariant, restoresWhenShown: Bool)
+        /// The renderer ended. `isRepeat` is true when it ended within
+        /// ``ChromiumPageFailureState/repeatWindow`` of the pane's previous
+        /// crash (Chrome then says "Can't open this page"). `restoresWhenShown`
+        /// is true when the pane was hidden and may bring the page back by
+        /// itself once shown.
+        case crashed(BrowserPageProcessExit, isRepeat: Bool, restoresWhenShown: Bool)
         /// The renderer stopped responding (Wait / Exit page).
         case unresponsive
     }
+
+    /// A crash this soon after the pane's previous one is a repeat
+    /// (Chrome's sad-tab reload window).
+    public static let repeatWindow: TimeInterval = 10
 
     public private(set) var failure: Failure?
     private var reloadGuard = BrowserCrashReloadGuard()
@@ -27,7 +34,7 @@ public struct ChromiumPageFailureState: Equatable, Sendable {
     /// pane waiting to restore by itself shows nothing (it reloads on show).
     public var showsPrompt: Bool {
         switch failure {
-        case .crashed(_, let restoresWhenShown): !restoresWhenShown
+        case .crashed(_, _, let restoresWhenShown): !restoresWhenShown
         case .unresponsive: true
         case nil: false
         }
@@ -41,10 +48,10 @@ public struct ChromiumPageFailureState: Equatable, Sendable {
     public mutating func apply(_ event: BrowserPageEvent, at now: Date, paneVisible: Bool) {
         switch event {
         case .processTerminated(let exit):
-            let variant = ChromiumCrashPageVariant(exit: exit, at: now, previousCrash: lastCrash)
+            let isRepeat = lastCrash.map { now.timeIntervalSince($0) < Self.repeatWindow } ?? false
             lastCrash = now
             let restores = reloadGuard.allowsAutomaticRestore(at: now, paneWasVisible: paneVisible)
-            failure = .crashed(variant, restoresWhenShown: restores)
+            failure = .crashed(exit, isRepeat: isRepeat, restoresWhenShown: restores)
         case .unresponsiveChanged(let unresponsive):
             if unresponsive {
                 if failure == nil { failure = .unresponsive }
@@ -62,7 +69,7 @@ public struct ChromiumPageFailureState: Equatable, Sendable {
     /// The pane was shown. Returns true when the panel should reload the
     /// page now (it crashed while hidden and may restore by itself).
     public mutating func paneShown() -> Bool {
-        guard case .crashed(_, true) = failure else { return false }
+        guard case .crashed(_, _, true) = failure else { return false }
         failure = nil
         return true
     }

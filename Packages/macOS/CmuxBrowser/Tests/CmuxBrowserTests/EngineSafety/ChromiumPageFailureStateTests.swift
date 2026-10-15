@@ -11,7 +11,8 @@ import Testing
         var state = ChromiumPageFailureState()
         state.apply(crash, at: start, paneVisible: true)
         #expect(state.failure == .crashed(
-            ChromiumCrashPageVariant(isRepeat: false, isOutOfMemory: false, errorCode: "SIGSEGV"),
+            BrowserPageProcessExit(kind: .crashed, status: SIGSEGV),
+            isRepeat: false,
             restoresWhenShown: false
         ))
         #expect(state.showsPrompt)
@@ -41,12 +42,16 @@ import Testing
         state.apply(crash, at: start, paneVisible: true)
         state.userReloaded()
         state.apply(.processTerminated(.init(kind: .outOfMemory)), at: start.addingTimeInterval(4), paneVisible: true)
-        guard case .crashed(let variant, _) = state.failure else {
+        guard case .crashed(let exit, let isRepeat, _) = state.failure else {
             Issue.record("expected a crash page")
             return
         }
-        #expect(variant.isRepeat)
-        #expect(variant.isOutOfMemory)
+        #expect(isRepeat)
+        #expect(exit.kind == .outOfMemory)
+        // A crash after the repeat window is a first crash again.
+        state.userReloaded()
+        state.apply(crash, at: start.addingTimeInterval(4 + ChromiumPageFailureState.repeatWindow), paneVisible: true)
+        if case .crashed(_, true, _) = state.failure { Issue.record("late crash counted as a repeat") }
     }
 
     @Test func committedNavigationClearsTheFailure() {
@@ -67,11 +72,11 @@ import Testing
         state.answeredUnresponsive(terminate: true)
         #expect(state.failure == .unresponsive)
         state.apply(.processTerminated(.init(kind: .killed, status: SIGKILL)), at: start, paneVisible: true)
-        guard case .crashed(let variant, false) = state.failure else {
+        guard case .crashed(let exit, _, false) = state.failure else {
             Issue.record("expected a crash page after Exit page")
             return
         }
-        #expect(variant.errorCode == "SIGKILL")
+        #expect(exit.codeDescription == "SIGKILL")
     }
 
     @Test func pageRecoveringClearsTheHangOnly() {
