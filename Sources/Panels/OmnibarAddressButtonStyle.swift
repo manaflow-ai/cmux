@@ -1,20 +1,25 @@
 import SwiftUI
 
 struct OmnibarAddressButtonStyle: ButtonStyle {
+    /// Shows the pressed fill while something the button opened stays open
+    /// (an extension popup). Off by default, so existing buttons are unchanged.
+    var isActive = false
+
     func makeBody(configuration: Configuration) -> some View {
-        OmnibarAddressButtonStyleBody(configuration: configuration)
+        OmnibarAddressButtonStyleBody(configuration: configuration, isActive: isActive)
     }
 }
 
 private struct OmnibarAddressButtonStyleBody: View {
     let configuration: OmnibarAddressButtonStyle.Configuration
+    let isActive: Bool
 
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
     private var backgroundOpacity: Double {
         guard isEnabled else { return 0.0 }
-        if configuration.isPressed { return 0.16 }
+        if configuration.isPressed || isActive { return 0.16 }
         if isHovered { return 0.08 }
         return 0.0
     }

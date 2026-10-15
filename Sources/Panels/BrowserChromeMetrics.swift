@@ -58,5 +58,20 @@ struct BrowserChromeMetrics: Equatable {
     /// Square hit target of the back/forward/reload buttons. Base `26`.
     var buttonHitSize: CGFloat { scaled(26) }
 
+    /// Edge of a Chromium extension action icon inside its accessory button. Base `16`.
+    var extensionActionIconSize: CGFloat { scaled(16) }
+
+    /// Row height of the Extensions popover (matches the profile popover rows). Base `24`.
+    var extensionsMenuRowHeight: CGFloat { scaled(24) }
+
+    /// Minimum width of the Extensions popover. Base `280`.
+    var extensionsMenuMinimumWidth: CGFloat { scaled(280) }
+
+    /// Edge of an extension icon in the Extensions popover rows. Base `16`.
+    var extensionsMenuIconSize: CGFloat { scaled(16) }
+
+    /// Most pinned extension actions shown in the toolbar row (design spec §3a).
+    static let maximumPinnedExtensionActions = 6
+
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }

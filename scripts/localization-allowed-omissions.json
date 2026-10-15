@@ -5140,5 +5140,25 @@
         ]
       }
     }
+  },
+  "browser.extensions.webStore": {
+    "source": "Chrome Web Store",
+    "identityLocales": {
+      "de": "Chrome Web Store is the store's product name; Chrome shows it untranslated in this locale. The translated entry is still required.",
+      "es": "Chrome Web Store is the store's product name; Chrome shows it untranslated in this locale. The translated entry is still required.",
+      "fr": "Chrome Web Store is the store's product name; Chrome shows it untranslated in this locale. The translated entry is still required."
+    }
+  },
+  "browser.toolbar.extensions": {
+    "source": "Extensions",
+    "identityLocales": {
+      "fr": "Extensions is the French word for this label (Chrome uses it). The translated entry is still required."
+    }
+  },
+  "browser.extensions.options": {
+    "source": "Options",
+    "identityLocales": {
+      "fr": "Options is the French word for this label (Chrome uses it). The translated entry is still required."
+    }
   }
 }

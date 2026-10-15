@@ -1205,6 +1205,7 @@ struct BrowserPanelView: View {
                 if isChromeCompact {
                     browserActiveModeButtonWithShortcutHint
                     browserScreenshotCopiedIndicator
+                    browserExtensionToolbar
                     browserProfileButton
                     browserThemeModeButton
                     browserOverflowMenu
@@ -1213,6 +1214,7 @@ struct BrowserPanelView: View {
                     // immediately before the trailing More affordance.
                     browserActiveModeButtonWithShortcutHint
                     browserScreenshotCopiedIndicator
+                    browserExtensionToolbar
                     if activeToolbarMode != .design {
                         BrowserDesignModeToolbarButton(
                             controller: panel.designModeController,
@@ -1515,6 +1517,23 @@ struct BrowserPanelView: View {
         }
     }
 
+    /// Pinned extension actions and the Extensions button; Chromium panels
+    /// with installed extensions only (design spec §3a). Empty otherwise.
+    @ViewBuilder
+    private var browserExtensionToolbar: some View {
+        if let host = panel.extensionHost {
+            BrowserExtensionToolbar(
+                host: host,
+                metrics: chromeMetrics,
+                isCompact: isChromeCompact,
+                spacing: browserToolbarAccessorySpacing,
+                tint: devToolsColorOption.color(accent: cmuxAccent),
+                pageLeadingX: { [panel] in panel.extensionPageLeadingX() },
+                onChoice: { [panel] choice in panel.handleExtensionMenuChoice(choice) }
+            )
+        }
+    }
+
     private var developerToolsButton: some View {
         Button(action: {
             openDevTools()
@@ -1586,6 +1605,16 @@ struct BrowserPanelView: View {
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
             BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
+            if panel.extensionHost != nil {
+                Divider()
+                Button(action: { panel.handleExtensionMenuChoice(.manage) }) {
+                    Label(
+                        String(localized: "browser.extensions.manageMenu", defaultValue: "Manage Extensions…"),
+                        systemImage: "puzzlepiece.extension"
+                    )
+                }
+                .accessibilityIdentifier("BrowserOverflowManageExtensionsButton")
+            }
             if isChromeCompact {
                 Divider()
                 BrowserDesignModeOverflowMenuButton(

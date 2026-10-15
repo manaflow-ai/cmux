@@ -1,9 +1,11 @@
+public import CoreGraphics
+
 /// A browser page that hosts Chromium extensions.
 ///
 /// The Chromium engine's page conforms; the WebKit page does not, so callers
-/// test `panel.page as? any BrowserExtensionHosting` and report that
-/// extensions need the Chromium engine otherwise. Pages advertising
-/// ``BrowserEngineCapabilities/extensions`` conform.
+/// test `page as? any BrowserExtensionHosting` and report that extensions
+/// need the Chromium engine otherwise. Conformers are `@Observable`, so a
+/// view reading ``extensionActions`` or ``openExtensionPopup`` updates.
 @MainActor
 public protocol BrowserExtensionHosting: AnyObject {
     /// The page's profile extension store (shared by every page of the profile).
@@ -12,4 +14,17 @@ public protocol BrowserExtensionHosting: AnyObject {
     var extensionTab: any BrowserExtensionTab { get }
     /// The toolbar actions for this page, in Chromium's toolbar order.
     var extensionActions: [BrowserExtensionAction] { get }
+    /// The extension whose action popup is open, if any.
+    var openExtensionPopup: String? { get }
+    /// Runs an extension's toolbar action; its popup hangs below `anchor`
+    /// (the button's frame, in the page view's coordinates, top-left origin).
+    @discardableResult
+    func runExtensionAction(_ id: String, anchor: CGRect) -> Bool
+    /// Closes the open action popup.
+    func hideExtensionPopup()
+    /// Re-reads the page's toolbar actions.
+    func refreshExtensionActions()
+    /// Shows Chromium's own menu for an extension (site access and more) at
+    /// a point in AppKit screen coordinates.
+    func showExtensionActionMenu(_ id: String, atScreenPoint point: CGPoint)
 }
