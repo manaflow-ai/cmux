@@ -11,6 +11,20 @@ public enum HomeDockMode: String, CaseIterable, Sendable {
     /// Whether the view may show: Messages always; Channels while `home.channelsEnabled` is on (the
     /// palette's Enable Channels; Lawrence 2026-10-15).
     @MainActor public var isEnabled: Bool { self == .messages || DesignSettings.shared.homeChannelsEnabled }
+
+    /// Refusals of `home.switchView` and of the page's `cmux.host.home.switchView`.
+    public static var invalidViewMessage: String {
+        String(localized: "homeDock.switch.invalidView", defaultValue: "Home has two views: messages and channels.", bundle: .module)
+    }
+
+    public static var channelsOffMessage: String {
+        String(localized: "homeDock.switch.channelsOff", defaultValue: "Channels is off. Turn it on with Enable Channels in the command palette.",
+               bundle: .module)
+    }
+
+    public static var classicMessage: String {
+        String(localized: "homeDock.switch.classic", defaultValue: "Classic Home has only the Messages view.", bundle: .module)
+    }
 }
 
 /// The selection a switch carries over (the permalink's parts).

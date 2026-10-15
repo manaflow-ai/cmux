@@ -65,12 +65,12 @@ extension AppActions {
     /// handed over. The one path of the sidebar's Channels entry, the palette, the CLI and MCP. Refused
     /// for Channels while it is off, and in classic Home (one view).
     static func switchHomeView(_ services: AppServices, _ invocation: ActionInvocation) {
-        guard !services.home.dock.isClassic else { return services.registry.refuse(HomeDockStrings.classicHasOneView) }
+        guard !services.home.dock.isClassic else { return services.registry.refuse(HomeDockMode.classicMessage) }
         let named = invocation["view"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let view = named.flatMap(HomeDockView.Mode.init(rawValue:))
-        guard named == nil || view != nil else { return services.registry.refuse(HomeDockStrings.invalidView) }
+        guard named == nil || view != nil else { return services.registry.refuse(HomeDockMode.invalidViewMessage) }
         let target = view ?? services.home.dockMode.other
-        guard target.isEnabled else { return services.registry.refuse(HomeDockStrings.channelsOff) }
+        guard target.isEnabled else { return services.registry.refuse(HomeDockMode.channelsOffMessage) }
         withDock(services) { $0.switchTo(target) }
     }
 }

@@ -44,7 +44,10 @@ final class HomeDockTab: InternalPageProvider {
         return view
     }
 
-    func tabClosed(_ key: String) { views.removeValue(forKey: key)?.close() }
+    func tabClosed(_ key: String) {
+        views.removeValue(forKey: key)?.close()
+        services?.home.dockMode = .messages // no dock view shows Channels now
+    }
 
     /// Runs `body` on store tab `tabID`'s view now, or once the tab first shows.
     func whenShown(_ tabID: String, services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
@@ -92,7 +95,7 @@ final class HomeSwitchPageRoute: PageProvider {
         guard let view = fields["view"]?.stringValue.flatMap(HomeDockView.Mode.init(rawValue:)) else {
             throw PageError(code: "cmux.home.invalid_view", message: "view must be messages or channels", retryable: false)
         }
-        guard view.isEnabled else { throw PageError(code: "cmux.home.channels_off", message: HomeDockStrings.channelsOff, retryable: false) }
+        guard view.isEnabled else { throw PageError(code: "cmux.home.channels_off", message: HomeDockMode.channelsOffMessage, retryable: false) }
         let conversation = fields["conversation"]?.stringValue
         let message = fields["message"]?.stringValue
         if let conversation, !HomeDockSelection.isLinkID(conversation) || !(message.map(HomeDockSelection.isLinkID) ?? true) {

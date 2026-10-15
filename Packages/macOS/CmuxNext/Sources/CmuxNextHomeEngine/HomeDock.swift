@@ -155,7 +155,8 @@ public final class HomeDock {
         view.tasks.append(Task { [weak view] in
             for await enabled in ObservationStream({ DesignSettings.shared.homeChannelsEnabled }) where !enabled {
                 guard let view else { return }
-                if view.mode == .channels { view.switchTo(.messages) }
+                // Not only when Channels shows now: a switch to it in flight lands first, then this one (in order).
+                view.switchTo(.messages)
             }
         })
     }

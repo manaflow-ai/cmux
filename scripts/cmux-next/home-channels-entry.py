@@ -195,9 +195,10 @@ def palette_run(pid, text, title, shot_name):
         return False
     for ch in text:
         cua("press_key", {"pid": pid, "key": "space" if ch == " " else ch})
-    found = poll(lambda: (lambda p: p and title in p[1])(palette_window(pid, main["window_id"])), 10)
-    rpc("debug.palette.capture", {"path": os.path.join(OUT, shot_name + ".png")})
-    if not check("the palette lists %r after typing %r" % (title, text), bool(found)):
+    # The palette's own answer (debug.palette.capture: query and selected row) decides; Return runs only `title`.
+    state = lambda: rpc("debug.palette.capture", {"path": os.path.join(OUT, shot_name + ".png")}) or {}
+    found = poll(lambda: state().get("selected") == title, 10)
+    if not check("the palette selects %r after typing %r" % (title, text), bool(found), {"palette": state(), "ax": bool(palette_window(pid, main["window_id"]))}):
         cua("press_key", {"pid": pid, "key": "escape"})
         return False
     cua("press_key", {"pid": pid, "key": "return"})
@@ -327,8 +328,6 @@ try:
                           op={"kind": "message.send", "client_msg_id": "pin%d-m-%s" % (n, stamp), "parts": [{"type": "text", "text": "pin %d" % n}]})
             pins.append(conv)
         poll(lambda: all(native_row(c) for c in pins), 30)
-        seeded = drive("legacy_pins", pins=[pins[2], pins[0]])
-        check("the old per-Mac pins are seeded (pin2, pin0)", seeded.get("ok") is True and seeded.get("pins") == [pins[2], pins[0]], seeded)
 
     # Enable Channels from the palette with real keys.
     run("home.openConversation", {"conversation": pins[1]}) if pins else None
@@ -398,6 +397,12 @@ try:
     check("the CLI's home disable-channels runs", not refused(reply), reply)
     check("the CLI's disable hides the entry and selects Home", bool(poll(lambda: channels_item() is None, 15)) and bool(in_mode("messages")),
           {"items": items(), "dock": dock()})
+
+    # Last in launch 1, right before the quit (no owner change in between): this Mac's old Messages-list pins, which the
+    # next launch moves into the daemon.
+    if pins:
+        seeded = drive("legacy_pins", pins=[pins[2], pins[0]])
+        check("the old per-Mac pins are seeded (pin2, pin0)", seeded.get("ok") is True and seeded.get("pins") == [pins[2], pins[0]], seeded)
 finally:
     quit_app(app)
 

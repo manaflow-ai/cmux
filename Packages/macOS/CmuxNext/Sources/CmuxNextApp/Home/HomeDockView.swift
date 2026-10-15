@@ -89,18 +89,3 @@ final class HomeDockView: HomeDockSwitchView {
         channels?.close()
     }
 }
-
-nonisolated enum HomeDockStrings {
-    static var invalidView: String {
-        String(localized: "homeDock.switch.invalidView", defaultValue: "Home has two views: messages and channels.", table: "Handlers", bundle: .module)
-    }
-
-    static var channelsOff: String {
-        String(localized: "homeDock.switch.channelsOff", defaultValue: "Channels is off. Turn it on with Enable Channels in the command palette.",
-               table: "Handlers", bundle: .module)
-    }
-
-    static var classicHasOneView: String {
-        String(localized: "homeDock.switch.classic", defaultValue: "Classic Home has only the Messages view.", table: "Handlers", bundle: .module)
-    }
-}
