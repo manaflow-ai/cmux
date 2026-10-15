@@ -307,7 +307,7 @@ export type SubscriptionAnalyticsReport = SubscriptionMetrics & {
   };
 };
 
-/** `<bundle>.<plan>.monthly` names its plan; anything else has none. */
+/** `<bundle>.<plan>.<monthly|yearly>` names its plan; anything else has none. */
 function planFromProductId(productId: string | null): string | null {
   const parts = productId?.split(".") ?? [];
   return parts.length >= 3 ? parts[parts.length - 2] ?? null : null;

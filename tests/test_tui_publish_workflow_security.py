@@ -295,7 +295,7 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
     artifacts = workflow("cmux-tui-artifacts.yml")
     trusted = ("github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || "
                "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')")
-    for job in ("publish", "publish-tree", "publish-tree-daemon-tested", "notify-unpublished-tree"):
+    for job in ("publish", "publish-tree", "notify-unpublished-tree"):
         body = workflow_job(artifacts, job)
         assert f"github.event_name == 'push' || {trusted})" in body, job
     # A dispatch from another branch stays build-only.
@@ -2364,49 +2364,32 @@ if __name__ == "__main__":
 
 def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
-    # so feat-cmux-next trees publish without them; nightly-next promotion still
-    # needs them, through the daemon-tests.json marker that publish-tree-tested
-    # writes. Chief 2026-10-14 (cx-kfbom): any other ref (branch pushes, pull
-    # requests) publishes a shared tree key only after its daemon tests passed,
-    # with the marker written first, because a feat-cmux-next push that finds
-    # the key published does not run them (tree c77d397b3a9f). A lane-branch
-    # push publishes without them and writes no marker (daemon_tests false;
-    # tests/test_cmux_tui_lane_daemon_tests.py). 2026-10-14: publish-tree must
-    # not even need the daemon-test job, or it waits for it to end; those refs
-    # publish from publish-tree-daemon-tested, which runs publish-tree's steps
-    # (tests/test_cmux_tui_feat_publish_order.py).
+    # so trees publish without them; nightly-next promotion still needs them,
+    # through the daemon-tests.json marker that publish-tree-tested writes.
+    # cx-y0nf2: that holds on every ref, pins, next-batch/*, main and pull
+    # requests included. cx-kfbom had made those publish after the tests,
+    # marker first, because a feat-cmux-next push that found tree c77d397b3a9f
+    # published did not test it; tree-preflight (daemon_tested) and
+    # tree-owner-wait (unmarked) now test such a tree, so no publisher needs
+    # the tests or writes the marker (tests/test_cmux_tui_feat_publish_order.py).
     import yaml
     jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
     marker_script = "scripts/ci/cmux-tui-mark-daemon-tested.sh"
-    assert "cmux-next-daemon-tests" not in jobs["publish-tree"]["needs"]
-    assert jobs["publish-tree-daemon-tested"]["steps"] == jobs["publish-tree"]["steps"]
-    for name in ("publish-tree-daemon-tested", "publish-pr-tree"):
+    assert "publish-tree-daemon-tested" not in jobs
+    for name in ("publish-tree", "publish-pr-tree"):
         job = jobs[name]
-        assert "cmux-next-daemon-tests" in job["needs"], name
-        assert "needs.cmux-next-daemon-tests.result == 'success'" in job["if"], name
-        assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in job["if"], name
-    for name in ("publish-tree", "publish-tree-daemon-tested", "publish-pr-tree"):
-        job = jobs[name]
-        names = [step.get("name", "") for step in job["steps"]]
-        mark = names.index("Mark the tree daemon-tested before publishing it")
-        publish = next(i for i, step in enumerate(names) if step.startswith("Publish the") and "trusted helper" in step)
-        assert mark < publish, name
-        assert marker_script in job["steps"][mark]["run"], name
-        # A pull_request_target run's github.ref is the base branch
-        # (feat-cmux-next): the PR publisher marks unconditionally.
-        expected_if = ("${{ github.ref != 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true' }}"
-                       if name != "publish-pr-tree" else None)
-        assert job["steps"][mark].get("if") == expected_if, name
-    # feat-cmux-next itself keeps publishing without waiting for the tests.
-    assert ("(github.ref == 'refs/heads/feat-cmux-next' || needs.tree-preflight.outputs.daemon_tests != 'true')"
-            in jobs["publish-tree"]["if"])
-    assert ("github.ref != 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true'"
-            in jobs["publish-tree-daemon-tested"]["if"])
+        assert "cmux-next-daemon-tests" not in job["needs"], name
+        assert "cmux-next-daemon-tests" not in job["if"], name
+        assert "daemon_tests" not in job["if"], name
+        assert marker_script not in str(job["steps"]), name
+        assert '"daemonTests": "separate"' in str(job["steps"]), name
     marker = jobs["publish-tree-tested"]
-    assert {"publish-tree", "publish-tree-daemon-tested", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
+    assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
+    assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
     assert marker["environment"] == "artifacts"
     assert marker_script in str(marker["steps"])
+    assert [name for name, job in jobs.items() if marker_script in str(job.get("steps", ""))] == ["publish-tree-tested"]
     script_text = (ROOT / marker_script).read_text()
     assert "daemon-tests.json" in script_text
     assert "--write-once" in script_text
@@ -2414,8 +2397,6 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
-    for name in ("publish-tree", "publish-tree-daemon-tested", "publish-pr-tree"):
-        assert '"daemonTests": "separate"' in str(jobs[name]["steps"]), name
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
     assert "daemon-tests.json" in script and '"separate"' in script
 
