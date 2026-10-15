@@ -239,9 +239,12 @@ struct TabOverview<Source: TabsDataSource>: View {
             .blur(radius: 10 * (1 - shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
-            // Glass ignores inherited opacity; keep hidden controls out of
-            // the hierarchy instead.
-            if shown > 0 {
+            // Glass ignores inherited opacity, so the hidden controls are
+            // parked off screen (and out of the accessibility tree) instead
+            // of leaving the hierarchy: building their glass in the zoom's
+            // first frames made those frames late.
+            let parked = shown <= 0
+            Group {
                 Group {
                     if selecting { selectControls } else { topControls }
                 }
@@ -251,6 +254,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                     .opacity(shown)
                     .allowsHitTesting(controlsInteractive)
             }
+            .offset(y: parked ? layout.size.height * 2 : 0)
+            .accessibilityHidden(parked)
         }
         .frame(width: layout.size.width, height: layout.size.height)
     }
@@ -295,8 +300,9 @@ struct TabOverview<Source: TabsDataSource>: View {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
         }
-        // Under its lifted long-press preview the card is hidden.
-        .opacity(swipes.menuCard == tab.id ? 0 : 1)
+        // Under its lifted long-press preview, and while it is dragged to
+        // another slot (the dragged card is the card), the card is hidden.
+        .opacity(swipes.menuCard == tab.id || dragging == tab.id ? 0 : 1)
         .overlay(alignment: .topLeading) {
             if selecting { SelectionMark(selected: selection.contains(tab.id), width: r.width, height: r.height, radius: layout.cardRadius) }
         }

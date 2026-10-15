@@ -67,6 +67,13 @@ struct SafariCurve: Hashable, Sendable {
         0.9208, 0.9335, 0.9462, 0.9546, 0.9635, 0.969, 0.9754, 0.9807, 0.9817, 0.9872,
         0.9876, 0.9916, 0.9938, 0.9938, 0.9938, 0.9938, 0.9938, 0.9964, 1.0, 1.0,
     ])
+    /// A card released after a right drag springing back to its slot, from the turnaround: Safari, 3 runs (cmux-next re-audit 3 3i).
+    static let snapBackRight = SafariCurve(samples: [
+        0.0, 0.0137, 0.033, 0.0686, 0.1279, 0.1828, 0.244, 0.3175, 0.3899, 0.4595,
+        0.5208, 0.5763, 0.6328, 0.6903, 0.7326, 0.7715, 0.8083, 0.8389, 0.8647, 0.885,
+        0.9023, 0.9217, 0.9415, 0.9435, 0.9593, 0.9605, 0.9783, 0.9802, 0.9802, 0.9802,
+        0.9802, 0.9974, 1.0, 1.0,
+    ])
     /// The fresh page after the last tab closed, from the lone card's slot: Safari, 2 runs (D2).
     static let lastTab = SafariCurve(samples: [
         0.0, 0.0345, 0.1288, 0.1968, 0.3057, 0.4051, 0.5059, 0.5842, 0.6575, 0.7234,

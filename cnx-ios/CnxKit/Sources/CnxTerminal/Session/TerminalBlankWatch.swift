@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// The page must never show the terminal's background where rows belong
@@ -32,6 +33,26 @@ public struct TerminalBlankWatch: Equatable, Sendable {
         let bottom = min(visibleBottom, documentRows.upperBound)
         guard bottom > top else { return true }
         return top >= presentedTop && bottom <= presentedTop + surfaceRows
+    }
+
+    /// Points of the legible band (`legible`, content y: below the top
+    /// inset, above the composer) inside the document (`document`) that the
+    /// frame on screen (`frame`, the surface's span) does not cover.
+    public static func uncoveredHeight(frame: Range<CGFloat>, document: Range<CGFloat>, legible: Range<CGFloat>) -> CGFloat {
+        let lower = max(document.lowerBound, legible.lowerBound)
+        let upper = min(document.upperBound, legible.upperBound)
+        guard upper > lower else { return 0 }
+        let coveredLower = max(lower, frame.lowerBound)
+        let coveredUpper = min(upper, frame.upperBound)
+        return (upper - lower) - max(0, coveredUpper - coveredLower)
+    }
+
+    /// The frame log's `blank` (VERIFY-round8): a person sees the page's
+    /// background where rows belong, at least a row's height of it (a sliver
+    /// at an edge, rows under the composer or the keyboard are not seen).
+    public static func showsBlank(frame: Range<CGFloat>, document: Range<CGFloat>, legible: Range<CGFloat>,
+                                  cellHeight: CGFloat) -> Bool {
+        uncoveredHeight(frame: frame, document: document, legible: legible) >= max(1, cellHeight)
     }
 
     /// One display frame. True: recover now.

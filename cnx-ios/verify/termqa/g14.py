@@ -60,6 +60,16 @@ def expected(a, b):
     return "\n".join(row(i, stamp=False, color=False) for i in range(a, b + 1))
 
 
+def exact_text(text, n):
+    """The copy is exact when it is one contiguous piece of the rows as printed (a selection
+    may start and end inside a row: word granularity, or a handle dropped mid-row)."""
+    ids = [int(m.group(1)) for m in re.finditer(r"^#(\d{7})", text, re.M)]
+    if not ids:
+        return False
+    a, b = max(1, ids[0] - 1), min(n, ids[-1] + 1)
+    return text.strip("\n") in expected(a, b)
+
+
 def scroll_case(n=600):
     sim, mac, j = ctx()
     tq.paste_composer(f"clear; python3 ~/tqf/hist.py {n}")
@@ -88,7 +98,7 @@ def scroll_case(n=600):
     text = pbpaste(sim)
     ids = [int(m.group(1)) for m in re.finditer(r"^#(\d{7})", text, re.M)]
     first, last = (ids[0], ids[-1]) if ids else (None, None)
-    exact = bool(ids) and text.strip("\n") == expected(first, last)
+    exact = exact_text(text, n)
     res = {"case": "scroll", "n": n, "first_visible_before": top_id, "pressed_row": id_press,
            "copied": copied, "first": first, "last": last, "rows": len(ids),
            "scrolled_rows_above_visible": (top_id - first) if first else None,
@@ -99,7 +109,7 @@ def scroll_case(n=600):
 
 def tui_case(n=200):
     sim, mac, j = ctx()
-    tq.paste_composer(f"clear; python3 ~/tqf/hist.py {n} > /tmp/g14-rows.txt; vim -u NONE -c 'set mouse=a' +40 /tmp/g14-rows.txt")
+    tq.paste_composer(f"clear; python3 ~/tqf/hist.py {n} | perl -pe 's/\\e\\[[0-9;]*m//g' | cut -c1-40 > /tmp/g14-rows.txt; vim -n -u NONE -c 'set mouse=a' +40 /tmp/g14-rows.txt")
     time.sleep(3)
     j.hide_keyboard()
     time.sleep(1.5)
@@ -122,11 +132,22 @@ def tui_case(n=200):
     time.sleep(0.8)
     text = pbpaste(sim)
     ids = [int(m.group(1)) for m in re.finditer(r"^#(\d{7})", text, re.M)]
-    exact = bool(ids) and text.strip("\n") == expected(ids[0], ids[-1])
-    # Leave vim from the phone.
-    j.keybar("Escape")
-    tq.paste_composer(":q!")
-    return {"case": "tui", "pressed_row": id0, "copied": copied, "rows": ids[:1] + ids[-1:], "count": len(ids),
+    # The file holds each row's first 40 plain characters (no colour, no wrap in vim), so
+    # the screen rows are the file's lines; a selection may end inside a row.
+    lines = "\n".join(row(i, stamp=False, color=False)[:40] for i in range(max(1, ids[0] - 1), ids[-1] + 2)) if ids else ""
+    rs = lambda t: "\n".join(l.rstrip() for l in t.split("\n"))  # copy drops trailing blanks, as on the Mac
+    exact = bool(ids) and rs(text.strip("\n")) in rs(lines)
+    # Leave vim from the phone (the key bar shows with the keyboard).
+    if not sim.keyboard():
+        sim.tap_el(sim.find(ident="terminal.composer.field")[0]); time.sleep(1.2)
+    # A pasted ":q!" reaches vim as bracketed paste (inserted text); suspend it with
+    # Control z from the key bar instead, then kill the job from the shell.
+    j.keybar("Escape"); time.sleep(0.4)
+    j.keybar("Control"); time.sleep(0.4)
+    z = sim.find(label="z", kind="Button") or sim.find(label="Z", kind="Button")
+    sim.tap_el(z[0]); time.sleep(1.5)
+    tq.paste_composer("kill -9 %1; clear")
+    return {"case": "tui", "text": text[:600], "pressed_row": id0, "copied": copied, "rows": ids[:1] + ids[-1:], "count": len(ids),
             "exact_match": exact, "pass": bool(copied and exact and ids and ids[0] == id0 and len(ids) >= 4)}
 
 

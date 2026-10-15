@@ -128,20 +128,23 @@ public struct TerminalTabCard: View {
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
                 let started = model.controller?.started == true
-                switch TerminalCardContent.choose(sessionStarted: started,
-                                                  connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                  hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText) {
+                let content = TerminalCardContent.choose(sessionStarted: started,
+                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText)
+                switch content {
                 case .connecting:
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,
                                            showsLabel: !isReattaching)
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
-                case .snapshot:
+                case .snapshot, .savedFrame:
                     if let image = model.snapshot {
                     let scale = geo.size.width / max(1, image.size.width)
-                    // The card ends 12 pt under the composer: the toolbar's band below it is blank.
+                    // A still holds the rows only (qa11): the card ends just under the
+                    // last row, which rests on the composer card's top at rest.
+                    let composer = ComposerMetrics().restingCardHeight(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight)
                     let crop = TerminalCardCrop(width: geo.size.width, imageHeight: image.size.height * scale,
-                                                bottomTrim: max(0, insets.bottom - 12) * scale)
+                                                bottomTrim: max(0, insets.bottom + composer - 6) * scale)
                     // The newest rows and the prompt at the card's bottom edge (V5-6).
                     Image(uiImage: image)
                         .resizable()
@@ -150,6 +153,9 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
+                        // A frame from an earlier launch stands in, dimmed like a page
+                        // that is not live, until the Mac's screen arrives (T-TABS-01).
+                        .opacity(content.isCurrent ? 1 : 0.55)
                     }
                 case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {
@@ -180,12 +186,14 @@ struct TerminalCardScreenText: View {
     let width: CGFloat
 
     var body: some View {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        // Trailing blank rows are the empty screen below the prompt.
-        let shown = lines.lastIndex(where: { $0.contains(where: { !$0.isWhitespace }) }).map { Array(lines[...$0]) } ?? []
-        let columns = max(40, shown.map(\.count).max() ?? 40)
+        let all = TerminalCardScreenLines.shown(text, capacity: .max)
+        let columns = max(40, all.map(\.count).max() ?? 40)
         // A Menlo cell is about 0.6 em wide.
         let size = min(13, max(5, (width - 12) / (CGFloat(columns) * 0.6)))
+        // Only the card's visible part counts: the last rows that fit, the prompt at the bottom (qa11).
+        let lineHeight = UIFont.monospacedSystemFont(ofSize: size, weight: .regular).lineHeight
+        let shown = TerminalCardScreenLines.shown(text, capacity: TerminalCardScreenLines.capacity(
+            visibleHeight: width * TerminalCardCrop.cardAspect, topInset: topInset, lineHeight: lineHeight))
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(shown.enumerated()), id: \.offset) { _, line in
                 Text(String(line).isEmpty ? " " : String(line))

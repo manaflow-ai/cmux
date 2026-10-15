@@ -7,5 +7,7 @@ set -euo pipefail
 here=${0:a:h}
 kit=${here:h:h}/CnxKit
 host=${CNXKIT_TEST_HOST:-mini-cmux11s-mac-mini}
-rsync -a --delete $kit/Sources $kit/Tests $kit/Package.swift ${host}:termqa-test/cnx-ios/CnxKit/
-ssh $host "cd ~/termqa-test/cnx-ios/CnxKit && find Sources Tests -name '*.swift' -exec touch {} + && swift test --filter '${1:?filter}' 2>&1 | grep -E 'error:|✘|failed|passed after|Test run with|issue' | tail -${2:-40}"
+dir=${CNXKIT_TEST_DIR:-termqa-test}  # one per concurrent agent
+ssh $host "mkdir -p ~/${dir}/cnx-ios/CnxKit"
+rsync -a --delete $kit/Sources $kit/Tests $kit/Package.swift ${host}:${dir}/cnx-ios/CnxKit/
+ssh $host "mkdir -p ~/${dir}/cnx-ios/CnxKit && cd ~/${dir}/cnx-ios/CnxKit && find Sources Tests -name '*.swift' -exec touch {} + && swift test --filter '${1:?filter}' 2>&1 | grep -E 'error:|✘|failed|passed after|Test run with|issue' | tail -${2:-40}"

@@ -479,6 +479,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func overviewWillAppear() {
+        let inactive = (workspace?.tabs ?? []).filter { $0.kind == .terminal && $0.id != activeTabID }
+        if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         guard let id = activeTabID else { return }
         if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }

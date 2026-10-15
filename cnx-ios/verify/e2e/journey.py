@@ -471,7 +471,13 @@ class Journey:
 
     def s_workspace_list(self):
         self.back_to_list()
-        mac = [w["name"] for w in self.mac.cmux("workspace", "list", json_out=True)]
+        rows = self.mac.cmux("workspace", "list", json_out=True) or []
+        # The Mac's home workspace (`kind` "home") is never a phone Workspaces row:
+        # the phone has its own Home tab (CnxLive `DaemonTree`, `homeWorkspaces`).
+        # Matched by kind like the phone, never by name: a workspace named "Home"
+        # is still a row.
+        mac = [w["name"] for w in rows if w.get("kind") != "home"]
+        has_kind = any("kind" in w for w in rows)
         deadline = time.time() + 20
         phone = []
         while time.time() < deadline:
@@ -482,7 +488,9 @@ class Journey:
         missing = [n for n in mac if n not in phone]
         extra = [n for n in phone if n not in mac]
         check(self.ws_name in phone, f"seeded workspace {self.ws_name} missing on the phone; phone shows {phone}")
-        check(not missing and not extra, f"list mismatch: missing {missing}, extra {extra}")
+        check(not missing and not extra, f"list mismatch: missing {missing}, extra {extra}"
+                                          + ("" if has_kind else " (the Mac's workspace list has no `kind`, so its home "
+                                                                 "workspace could not be left out)"))
         return f"{len(phone)} rows match the Mac ({', '.join(phone[:6])})"
 
     def s_create_workspace(self):

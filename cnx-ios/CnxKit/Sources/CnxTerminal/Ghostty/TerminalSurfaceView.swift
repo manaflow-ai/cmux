@@ -458,6 +458,54 @@ final class TerminalSurfaceView: UIView {
 
     private static let snapshotContext = CIContext(options: [.cacheIntermediates: false])
 
+    /// The rows of the presented frame that `clip` (this view's points)
+    /// shows, copied out of Ghostty's IOSurface on the main thread (a memcpy
+    /// of those rows), to be turned into an image on any thread
+    /// (`PresentedCopy.makeImage`). The Core Image render of the frame took
+    /// 150-214 ms of the main thread every 15 s while output streamed (V8
+    /// claim 7); the copy is what the main thread still pays.
+    func presentedCopy(clip: CGRect) -> TerminalPresentedCopy? {
+        guard let sublayer = layer.sublayers?.first, let contents = sublayer.contents else { return nil }
+        let source = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
+        guard CFGetTypeID(source) == IOSurfaceGetTypeID(), sublayer.frame.width > 0, sublayer.frame.height > 0 else { return nil }
+        let visible = sublayer.frame.intersection(clip)
+        guard !visible.isNull, !visible.isEmpty else { return nil }
+        let width = IOSurfaceGetWidth(source), height = IOSurfaceGetHeight(source)
+        let bytesPerElement = IOSurfaceGetBytesPerElement(source)
+        guard width > 0, height > 0, bytesPerElement > 0 else { return nil }
+        let sy = CGFloat(height) / sublayer.frame.height
+        let firstRow = max(0, min(height, Int(floor((visible.minY - sublayer.frame.minY) * sy))))
+        let lastRow = max(firstRow, min(height, Int(ceil((visible.maxY - sublayer.frame.minY) * sy))))
+        guard lastRow > firstRow else { return nil }
+        let properties: [String: Any] = [
+            kIOSurfaceWidth as String: width,
+            kIOSurfaceHeight as String: lastRow - firstRow,
+            kIOSurfaceBytesPerElement as String: bytesPerElement,
+            kIOSurfacePixelFormat as String: IOSurfaceGetPixelFormat(source),
+        ]
+        guard let copy = IOSurfaceCreate(properties as CFDictionary) else { return nil }
+        IOSurfaceLock(source, .readOnly, nil)
+        IOSurfaceLock(copy, [], nil)
+        let sourceRow = IOSurfaceGetBytesPerRow(source), copyRow = IOSurfaceGetBytesPerRow(copy)
+        let rowBytes = min(sourceRow, copyRow, width * bytesPerElement)
+        let from = IOSurfaceGetBaseAddress(source), to = IOSurfaceGetBaseAddress(copy)
+        for row in 0..<(lastRow - firstRow) {
+            memcpy(to + row * copyRow, from + (firstRow + row) * sourceRow, rowBytes)
+        }
+        IOSurfaceUnlock(copy, [], nil)
+        IOSurfaceUnlock(source, .readOnly, nil)
+        // The colour space and other attachments, so the copy renders like the frame.
+        if let values = IOSurfaceCopyAllValues(source) { IOSurfaceSetValues(copy, values) }
+        let sx = CGFloat(width) / sublayer.frame.width
+        let rowsFrame = CGRect(x: sublayer.frame.minX, y: sublayer.frame.minY + CGFloat(firstRow) / sy,
+                               width: sublayer.frame.width, height: CGFloat(lastRow - firstRow) / sy)
+        let columns = CGRect(x: (visible.minX - sublayer.frame.minX) * sx, y: 0, width: visible.width * sx,
+                             height: CGFloat(lastRow - firstRow)).integral
+        return TerminalPresentedCopy(surface: copy, columns: columns,
+                             frame: CGRect(x: visible.minX, y: rowsFrame.minY, width: visible.width, height: rowsFrame.height))
+    }
+
+
     /// One hash per cell row of the frame on screen (`rowHeight` px rows),
     /// sampled from the IOSurface Ghostty presented: two pixel lines through
     /// the glyphs, every third pixel. The screen matches consecutive frames'
@@ -701,4 +749,26 @@ extension TerminalSurfaceView: TerminalRowTextSource {
     func text(_ row: TerminalScreenRow) -> String? { readRows(tag: GHOSTTY_POINT_SCREEN, from: row.index, through: row.index) }
     func text(screenRowsThrough last: TerminalScreenRow) -> String? { readRows(tag: GHOSTTY_POINT_SCREEN, from: 0, through: last.index) }
 }
+/// Rows of a presented frame, copied (`presentedCopy`).
+struct TerminalPresentedCopy: @unchecked Sendable {
+    let surface: IOSurfaceRef
+    /// The copy's pixel columns that are shown (top-left origin).
+    let columns: CGRect
+    /// Where those pixels go, in the surface view's points.
+    let frame: CGRect
+
+    private nonisolated(unsafe) static let context = CIContext(options: [.cacheIntermediates: false])
+
+    /// The image, on any thread (Core Image's context is thread safe).
+    func makeImage() -> CGImage? {
+        let image = CIImage(ioSurface: unsafeBitCast(surface, to: IOSurface.self))
+        guard !image.extent.isEmpty else { return nil }
+        // Core Image's origin is at the bottom; the columns span every row.
+        let extent = CGRect(x: columns.minX, y: image.extent.height - columns.maxY, width: columns.width,
+                            height: columns.height).intersection(image.extent)
+        guard !extent.isEmpty else { return nil }
+        return Self.context.createCGImage(image, from: extent)
+    }
+}
+
 #endif
