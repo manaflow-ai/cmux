@@ -3,6 +3,7 @@ import CNCore
 import CNTransport
 import Foundation
 import Observation
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -87,6 +88,16 @@ final class TabsModel {
     @ObservationIgnored var terminalImage: ((String) -> UIImage?)?
     /// Asks for live thumbnails of these terminal ids (the grid is about to show).
     @ObservationIgnored var showTerminalCards: (([String]) -> Void)?
+    /// When the host last moved the grid's cards to new slots (a tab or
+    /// terminal opened or closed on the Mac), on the media clock. The
+    /// user's own closes do not count: a second ✕ during their reflow closes
+    /// the card that slid under the finger, as in Safari.
+    @ObservationIgnored var gridChangedAt: CFTimeInterval = 0
+    /// A card's close button acts only once a host-driven reflow has
+    /// stopped: a tap aimed at one card while such a reflow slid another
+    /// under the finger closed the wrong tab (re-audit 2, real host).
+    var gridAcceptsCloseTaps: Bool { GridTapGuard.accepts(now: CACurrentMediaTime(), changedAt: gridChangedAt) }
+
     /// Set by the screen: zoom out to the grid, then remove `key`'s card
     /// (a terminal that ended on the Mac; "Back to Terminals").
     @ObservationIgnored var backToGridRemoving: ((String) -> Void)?
@@ -261,6 +272,8 @@ final class TabsModel {
     }
 
     func handle(_ push: HostPush) {
+        let before = items.map(\.id)
+        defer { if items.map(\.id) != before { gridChangedAt = CACurrentMediaTime() } }
         browser.handle(push)
         if case .browserClosed = push {
             // Same transaction as the browser model's animated removal.

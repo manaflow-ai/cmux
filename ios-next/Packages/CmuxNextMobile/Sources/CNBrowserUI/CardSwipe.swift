@@ -94,3 +94,10 @@ struct CardGestures: Equatable, Sendable {
         pressed != card && reordering != card
     }
 }
+
+/// Close taps wait for the grid to stop moving.
+struct GridTapGuard: Equatable, Sendable {
+    /// About the reflow spring's settle time.
+    static let settle: Double = 0.45
+    static func accepts(now: Double, changedAt: Double) -> Bool { now - changedAt >= settle }
+}

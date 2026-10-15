@@ -339,7 +339,10 @@ struct TabOverview: View {
                 titleOffset: chrome.titleOffset, snapshotHidden: tab.id == hiddenTabId,
                 baked: baked(tab, image: image, topColor: top, startPage: startPage, card: r),
                 onOpen: { onSelect(tab.id) },
-                onClose: { Task { _ = await onClose(tab.id) } })
+                onClose: {
+                    guard tabs.gridAcceptsCloseTaps else { return }
+                    Task { _ = await onClose(tab.id) }
+                })
             .contentShape(.rect)
             // During the zoom to the grid a tap is kept and opens the card
             // once the grid has settled (Safari queues it).

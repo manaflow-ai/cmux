@@ -619,6 +619,7 @@ struct BrowserScreen: View {
             // The card's close button (drawn here because this layer covers
             // the card); tappable on the settled grid.
             Button {
+                guard tabs.gridAcceptsCloseTaps else { return }
                 Task { _ = await tabs.closeOptimistic(key, animation: motion.resolve(motion.reflow)) }
             } label: {
                 CardCloseGlyph().padding(4).contentShape(.rect)

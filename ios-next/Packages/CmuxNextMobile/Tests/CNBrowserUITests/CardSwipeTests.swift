@@ -58,4 +58,11 @@ struct CardSwipeTests {
         #expect(CardGestures.swipeAllowed(card: "a", pressed: nil, reordering: nil))
         #expect(CardGestures.swipeAllowed(card: "a", pressed: "b", reordering: nil))
     }
+
+    /// Re-audit 2: a close tap during a reflow hit a card that had slid
+    /// under the finger. Close taps wait for the grid to settle.
+    @Test func closeTapsWaitForTheReflow() {
+        #expect(!GridTapGuard.accepts(now: 10.2, changedAt: 10.0))
+        #expect(GridTapGuard.accepts(now: 10.5, changedAt: 10.0))
+    }
 }
