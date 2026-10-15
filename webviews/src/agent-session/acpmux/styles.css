@@ -126,7 +126,8 @@
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel){background:var(--acpmux-send-off-bg);color:var(--acpmux-send-off-fg)}
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover{background:color-mix(in srgb,var(--agent-text) 22%,transparent)}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
-.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
+/* A picker on the dropdown layer (ui/README.md, "Layers and transparency"): above a field's suggestions on the New Tab page (Leo 10-15: the model menu opened under them). */
+.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:var(--layer-dropdown);width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
@@ -346,7 +347,7 @@
 .acpmux-diff-filter input{all:unset;flex:1;min-width:0;font:13px system-ui,-apple-system,"Helvetica Neue",sans-serif;color:var(--agent-text)}
 .acpmux-diff-filter input::placeholder{color:var(--agent-muted)}
 .acpmux-diff-tree-empty{padding:6px 16px;color:var(--agent-muted);font-size:12px}
-.acpmux-file-header{display:flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 16px;border-bottom:1px solid var(--agent-border);background:var(--agent-page-bg);color:var(--agent-text)}
+.acpmux-file-header{display:flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 16px;border-bottom:1px solid var(--agent-border);background:var(--agent-page-bg);color:var(--agent-text);font-weight:400}
 .acpmux-diff-file[data-collapsed] .acpmux-file-header{border-bottom:0}
 .acpmux-file-icon{flex:none;color:var(--agent-muted)}
 .acpmux-fh-name{display:flex;align-items:center;min-width:0;border:0;padding:0;background:none;color:inherit;font:inherit;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:var(--text-detail);white-space:nowrap;cursor:pointer}

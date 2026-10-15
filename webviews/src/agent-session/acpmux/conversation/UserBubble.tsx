@@ -4,14 +4,16 @@
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
 // it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Copy is on the prompt's right-click
 // menu (Copy Message; Leo dogfood 2026-10-13: one hover action); the `hover-actions` experiment's
-// "all" arm keeps it under the bubble.
-import { useContext, useLayoutEffect, useRef, useState } from "react";
-import type { AcpmuxRow } from "../model";
+// "all" arm keeps it under the bubble. The images a prompt sent show above its bubble, each opening
+// the image viewer (Leo, 2026-10-13: they vanished once sent).
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { AcpmuxRow, PromptImage } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useT } from "../i18n";
 import { copyText } from "./clipboard";
 import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
+import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
@@ -40,6 +42,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   }
   return (
     <>
+      {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">{text}</div>
       {text && !row.failed && !row.queued && (copies || branch || through !== undefined) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
@@ -103,6 +106,40 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
         </div>
       )}
     </>
+  );
+}
+
+function SentImages({ images }: { images: readonly PromptImage[] }) {
+  return (
+    <div className="cv-user__images">
+      {images.map((image) => (
+        <SentImage key={image.id} image={image} />
+      ))}
+    </div>
+  );
+}
+
+/// One sent image, read from acpmux by its id; nothing shows until it is read, or when it cannot be.
+function SentImage({ image }: { image: PromptImage }) {
+  const t = useT();
+  const { promptImage } = useContext(TurnActionsContext);
+  const openImage = useContext(ImageViewerContext);
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    void promptImage?.(image.id).then((url) => live && setSrc(url));
+    return () => {
+      live = false;
+    };
+  }, [promptImage, image.id]);
+  if (!src) return null;
+  const alt = image.name ?? "";
+  const thumbnail = <img src={src} alt={alt} decoding="async" />;
+  if (!openImage) return thumbnail;
+  return (
+    <button type="button" aria-label={alt || t("image.view")} onClick={() => openImage(src, alt)}>
+      {thumbnail}
+    </button>
   );
 }
 

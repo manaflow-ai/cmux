@@ -1,13 +1,11 @@
-import CmuxNextDaemon
-import CmuxNextSettings
 import Foundation
 import Observation
 
-/// Whether a pane shows its horizontal tab bar (cx-soza): the pane's own
-/// Show Tab Bar choice, else its kind's `tabs.tabBar.<kind>`. Every pane,
-/// agent chats and the chat dock included, shows it by default: only the
-/// person hides it, with Show Tab Bar in the command palette (Lawrence
-/// 2026-10-15, cx-v4dmy) or `tabs.tabBar.<kind>: never`.
+/// Whether a pane shows its horizontal tab bar (cx-soza). Every pane, agent
+/// chats and the chat dock included, shows it: the only way to hide one is
+/// Hide Tab Bar in the command palette or the pane's menu (Lawrence
+/// 2026-10-15, cx-v4dmy, cx-5425v). The retired `tabs.tabBar.<kind>`
+/// settings are no longer read.
 @Observable
 final class PaneTabBarChoices {
     /// The panes remembered, newest last; older choices are dropped.
@@ -26,7 +24,8 @@ final class PaneTabBarChoices {
         }
     }
 
-    /// Pane `paneKey`'s own choice: shown, hidden, or none (its kind decides).
+    /// Pane `paneKey`'s own choice: hidden (false), or none (shown). An older
+    /// saved `true` reads as shown too.
     func choice(for paneKey: String) -> Bool? { shown[paneKey] }
 
     func set(_ value: Bool?, for paneKey: String) {
@@ -40,45 +39,7 @@ final class PaneTabBarChoices {
     }
 }
 
-enum PaneTabBar {
-    /// Whether the pane hides its tab bar: its own choice, else its kind's
-    /// mode. Automatic shows it, like Always: nothing hides it on its own.
-    static func hides(choice: Bool?, mode: PaneTabBarMode) -> Bool {
-        if let choice { return !choice }
-        switch mode {
-        case .auto, .always: return false
-        case .never: return true
-        }
-    }
-
-    /// The pane's kind for its default: agent chats only, browsers only
-    /// (New Tab pages count as neither beside other tabs), anything else a
-    /// terminal pane. A pane of New Tab pages only is an agent pane: the page
-    /// is the chat it becomes, so its tab bar never changes on the first send
-    /// (cx-ncc.58).
-    static func kind(_ tabs: [(isChat: Bool, isBrowser: Bool, isPage: Bool)]) -> PaneTabBarKind {
-        let held = tabs.filter { !$0.isPage }
-        if held.isEmpty, !tabs.isEmpty { return .agent }
-        if !held.isEmpty, held.allSatisfy({ $0.isChat }) { return .agent }
-        if !held.isEmpty, held.allSatisfy({ $0.isBrowser && !$0.isChat }) { return .browser }
-        return .terminal
-    }
-}
-
 extension PaneController {
-    /// The pane's kind for `tabs.tabBar.<kind>`.
-    var tabBarKind: PaneTabBarKind {
-        let agentTabs = services.agentTabs
-        let tabs = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab in
-            (isChat: ChatColumnPlacement.isChat(tab, services: services), isBrowser: tab.kind == .browser,
-             isPage: agentTabs.isNewTabPage(tab.id))
-        } + (state?.localBrowserTabs[paneKey] ?? []).map { _ in (isChat: false, isBrowser: true, isPage: false) }
-        return PaneTabBar.kind(tabs)
-    }
-
-    /// Whether the pane hides its tab bar now.
-    var hidesTabBar: Bool {
-        let mode = (services.settings?.snapshot.paneTabBars ?? PaneTabBarDefaults())[tabBarKind]
-        return PaneTabBar.hides(choice: services.paneTabBars.choice(for: paneKey), mode: mode)
-    }
+    /// Whether the pane hides its tab bar now: only when the person hid it.
+    var hidesTabBar: Bool { services.paneTabBars.choice(for: paneKey) == false }
 }
