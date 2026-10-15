@@ -14,13 +14,13 @@ final class TabHoverCardView: NSView {
 
     static var cardWidth: CGFloat { thumbnailSize.width + 2 * padding }
 
-    private let titleLabel = NSTextField(wrappingLabelWithString: "")
-    private let subtitleLabel = NSTextField(wrappingLabelWithString: "")
+    let titleLabel = NSTextField(wrappingLabelWithString: "")
+    let subtitleLabel = NSTextField(wrappingLabelWithString: "")
     private var subtitleTop: NSLayoutConstraint?
     private var subtitleCollapsed: NSLayoutConstraint?
     /// The program's own words on its status (OSC 7501, cx-6so.36.9): one line, apart from the
     /// card's own facts above it and in a quieter color, so program text never reads as cmux's.
-    private let detailLabel = NSTextField(labelWithString: "")
+    let detailLabel = NSTextField(labelWithString: "")
     private var detailTop: NSLayoutConstraint?
     private var detailCollapsed: NSLayoutConstraint?
     private let thumbnail = NSView()
@@ -208,5 +208,13 @@ final class TabHoverCardView: NSView {
         }
         layer.actions = landing ? ["contents": Motion.crossfadeAction] : nil
         Motion.transaction(landing ? .crossfade : nil) { layer.contents = image }
+    }
+}
+
+extension TabHoverCardView: HoverCardTextReporting {
+    /// The card's shown lines, top to bottom (`debug.hover_cards`, tests).
+    var reportedLines: [String] {
+        [titleLabel, subtitleLabel, detailLabel].filter { !$0.isHidden }.map(\.stringValue).filter { !$0.isEmpty }
+            + (resources.isHidden ? [] : resources.lines)
     }
 }

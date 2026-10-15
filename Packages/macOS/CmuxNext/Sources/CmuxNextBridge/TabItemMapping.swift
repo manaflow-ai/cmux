@@ -16,7 +16,7 @@ public struct TabItemMapping {
 
     /// `asset` draws a stored image or SVG user icon (``TabUserIcon``).
     public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false,
-                     asset: (String) -> TabImage? = { _ in nil }) -> StripTabItem {
+                     asset: (String) -> TabImage? = { _ in nil }, turns: AgentTurnStateStore = .shared) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let title = title(tab, fallbackTitle: fallbackTitle)
