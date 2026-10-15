@@ -72,6 +72,78 @@ extension TerminalController {
         }
     }
 
+    /// `browser.viewport.set` from the socket worker. A WebKit panel runs the
+    /// unchanged main-actor body in one hop; a Chromium panel applies the
+    /// override over DevTools and replies once it is in place, with the
+    /// engine's error if it fails.
+    nonisolated func v2BrowserViewportSetOnWorker(params: [String: Any]) -> V2CallResult {
+        let engineTarget: (page: any BrowserPage, workspaceId: UUID, surfaceId: UUID, refusal: V2CallResult?)? = v2MainSync {
+            guard let tabManager = v2ResolveTabManager(params: params),
+                  let context = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager).context,
+                  let page = context.browserPanel.automationEnginePage else {
+                return nil
+            }
+            return (
+                page,
+                context.workspaceId,
+                context.surfaceId,
+                v2EngineAgentRefusal(context.browserPanel, surfaceId: context.surfaceId)
+            )
+        }
+        guard let engineTarget else {
+            return v2MainSync { v2BrowserViewportSetWKWebView(params: params) }
+        }
+        if let refusal = engineTarget.refusal {
+            return refusal
+        }
+        let requested: BrowserViewport?
+        if params["reset"] as? Bool == true || params["mode"] as? String == "native" {
+            requested = nil
+        } else {
+            guard let width = v2StrictInt(params, "width"),
+                  let height = v2StrictInt(params, "height"),
+                  let viewport = BrowserViewport(width: width, height: height) else {
+                // The main-actor body owns the parameter errors' exact shape.
+                return v2MainSync { v2BrowserViewportSetWKWebView(params: params) }
+            }
+            requested = viewport
+        }
+        let page = engineTarget.page
+        let outcome: Result<Void, any Error>? = v2AwaitEnginePage(timeout: 5.0) {
+            do {
+                try await BrowserPageAutomation(page: page).setViewportOverride(
+                    width: requested?.width,
+                    height: requested?.height
+                )
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+        switch outcome {
+        case nil:
+            return v2EngineAutomationTimeout(surfaceId: engineTarget.surfaceId)
+        case .failure(let error):
+            return v2EngineAutomationError(error, surfaceId: engineTarget.surfaceId)
+        case .success:
+            var payload: [String: Any] = [
+                "workspace_id": engineTarget.workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: engineTarget.workspaceId),
+                "surface_id": engineTarget.surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: engineTarget.surfaceId),
+                "mode": requested == nil ? "native" : "emulated",
+                "exact": true,
+                "pane_resized": false,
+                "presentation": requested == nil ? "native" : "device_metrics",
+            ]
+            if let requested {
+                payload["width"] = requested.width
+                payload["height"] = requested.height
+            }
+            return .ok(payload)
+        }
+    }
+
     /// `browser.viewport.set` on a page that emulates its own viewport
     /// (Chromium device metrics): the page lays out at exactly the requested
     /// CSS size while the pane keeps its size, like WebKit's emulated mode.
