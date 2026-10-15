@@ -1024,7 +1024,7 @@ const DEPARTED_GRID_HOLD_ENV: &str = "CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS";
 fn departed_grid_hold() -> Duration {
     #[cfg(debug_assertions)]
     {
-        static HOLD: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+        static HOLD: OnceLock<Duration> = OnceLock::new();
         *HOLD.get_or_init(|| {
             std::env::var(DEPARTED_GRID_HOLD_ENV)
                 .ok()
