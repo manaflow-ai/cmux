@@ -16,7 +16,7 @@ struct WebKitBrowserPageParityTests {
     private struct Loaded {
         let server: BrowserReplTestHTTPServer
         let webView: WKWebView
-        let loads: EmulationTestNavigationDelegate
+        let loads: ParityNavigationDelegate
         let page: WebKitBrowserPage
         func url(_ path: String) -> URL { URL(string: "http://127.0.0.1:\(server.port)\(path)")! }
     }
@@ -31,7 +31,7 @@ struct WebKitBrowserPageParityTests {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 240), configuration: configuration)
-        let loads = EmulationTestNavigationDelegate()
+        let loads = ParityNavigationDelegate()
         webView.navigationDelegate = loads
         let result = Loaded(server: server, webView: webView, loads: loads, page: WebKitBrowserPage(webView: webView))
         try await load(result, "/first")
@@ -174,7 +174,7 @@ struct WebKitBrowserPageParityTests {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let restored = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 240), configuration: configuration)
-        let loads = EmulationTestNavigationDelegate()
+        let loads = ParityNavigationDelegate()
         restored.navigationDelegate = loads
         let finished = loads.nextFinish()
         restored.interactionState = data
@@ -202,5 +202,36 @@ struct WebKitBrowserPageParityTests {
 
         #expect(loaded.webView.pageZoom == 1.25)
         #expect(loaded.page.state.pageZoom == 1.25)
+    }
+}
+
+/// Ends each pending waiter when the main-frame load finishes or fails.
+@MainActor
+final class ParityNavigationDelegate: NSObject, WKNavigationDelegate {
+    private var finishers: [AsyncThrowingStream<Void, any Error>.Continuation] = []
+
+    /// Registers before the load starts, so a fast load cannot be missed.
+    func nextFinish() -> Task<Void, any Error> {
+        let (stream, continuation) = AsyncThrowingStream<Void, any Error>.makeStream()
+        finishers.append(continuation)
+        return Task { for try await _ in stream {} }
+    }
+
+    private func finish(_ error: (any Error)?) {
+        let pending = finishers
+        finishers.removeAll()
+        pending.forEach { $0.finish(throwing: error) }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        finish(nil)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        finish(error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        finish(error)
     }
 }
