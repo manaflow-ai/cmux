@@ -232,7 +232,12 @@ failed, relay), not the restart; it belongs with V2-6.
 
 ## Next (in order)
 
-0. After the verifier frees the rig: install this branch's head on `cnx-termqa-1` and re-check D7
+0. PR 20809 (04:55Z): `cmux/reservation` is now success (no live reservation). One red check:
+   `cmux-next daemon tests (same-tree)`, run 38678417607, `BranchAgentPresenceTests.hookToolCallsReachTheTabAndTurnEndClearsThem`
+   (`timed out: reading presence`, 13 s). Failed job re-run (attempt 2) was still running at handoff:
+   `~/.local/bin/glaeda-gh wait run manaflow-ai/cmux/38678417607`. If it fails again, check whether the
+   attach's 1 s viewer-size barrier delays that test's attach. Do not merge.
+1. After the verifier frees the rig: install this branch's head on `cnx-termqa-1` and re-check D7
    (60 s Codex follow, `motion.py` at 60 fps), the pin with Codex and Claude Code, and Jump to bottom
    on real output; then V2-6, D10, D6, T-LIFE-08, the 60-minute sessions, G-14. Non-rig: D1, D11, D12.
 
