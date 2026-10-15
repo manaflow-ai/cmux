@@ -54,6 +54,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
+        "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),
