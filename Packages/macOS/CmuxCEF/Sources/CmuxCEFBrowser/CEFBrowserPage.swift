@@ -37,7 +37,7 @@ public final class CEFBrowserPage: BrowserPage {
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
         .devTools, .devToolsProtocol, .trustedInput, .snapshots, .paneFullscreen,
-        .crossOriginFrames, .userScripts, .findMatchCount,
+        .crossOriginFrames, .userScripts, .findMatchCount, .downloads,
     ]
 
     /// Wraps a CEF browser and starts receiving its events.
