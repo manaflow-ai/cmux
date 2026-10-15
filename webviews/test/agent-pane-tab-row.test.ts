@@ -210,4 +210,18 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     });
     await page.close();
   });
+
+  test("the same row offered again (a reloaded page's handshake) gets the width reported again", async () => {
+    const page = await openChat();
+    await offer(page, { height: 28, trailingInset: 40 });
+    await page.waitForFunction(() => ((window as Recorder).__tabRowCalls ?? []).length > 0);
+    const first = ((await calls(page)) as { width: number }[]).at(-1);
+    expect(first?.width).toBeGreaterThan(0);
+    // The App forgot the width (its page said ready again) and offers the row it offered before.
+    await page.evaluate(() => ((window as Recorder).__tabRowCalls!.length = 0));
+    await offer(page, { height: 28, trailingInset: 40 });
+    await page.waitForFunction(() => ((window as Recorder).__tabRowCalls ?? []).length > 0);
+    expect(((await calls(page)) as { width: number }[]).at(-1)).toEqual(first);
+    await page.close();
+  });
 });
