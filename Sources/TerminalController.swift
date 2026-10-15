@@ -9763,6 +9763,17 @@ class TerminalController {
         return nil
     }
 
+    /// The browser a command that names no surface falls back to: the one
+    /// live browser, or, when none is live yet, the one restore placeholder.
+    /// Placeholders never make a single live browser ambiguous.
+    nonisolated static func v2SoleBrowserTabID(in panels: some Collection<any Panel>) -> UUID? {
+        let live = panels.filter { $0 is BrowserPanel }
+        if live.count == 1 { return live.first?.id }
+        guard live.isEmpty else { return nil }
+        let placeholders = panels.filter(v2IsBrowserTab)
+        return placeholders.count == 1 ? placeholders.first?.id : nil
+    }
+
     /// A live browser or a browser restore placeholder: what `tree` lists as a browser.
     /// The browser a command that names no surface falls back to: the one
     /// live browser, or, when none is live yet, the one restore placeholder.
@@ -10769,6 +10780,8 @@ class TerminalController {
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
+        case "browser.input_mouse": return v2BrowserInputMouse(params: params)
+        case "browser.input_keyboard": return v2BrowserInputKeyboard(params: params)
         case "browser.geolocation.set": return v2BrowserGeolocationSet(params: params)
         case "browser.offline.set": return v2BrowserOfflineSet(params: params)
         case "browser.input_mouse": return v2BrowserInputMouse(params: params)

@@ -129,12 +129,28 @@ public final class BrowserAutomationNavigationCoordinator {
         }
     }
 
-    /// The navigation a replacement names: the given one, or, when the app
-    /// replaces the load at action-policy time and so has none to name, the
-    /// active navigation if it has not started provisionally yet.
-    private func replacedNavigation(named navigationID: ObjectIdentifier?) -> ObjectIdentifier? {
-        if let navigationID { return navigationID }
-        return activeNavigationDidStartProvisionally ? nil : activeNavigationID
+    /// The navigation a replacement replaces: the named one when it is the
+    /// active navigation. The app replaces a load at action-policy time,
+    /// before its provisional start, and then names no navigation, or the
+    /// previous page's navigation still in flight. That counts as the active
+    /// navigation while it has not started provisionally and the replaced
+    /// request is for the transaction's target (a page's own navigation
+    /// restarted in the same window is not the automation's).
+    private func replacedNavigation(
+        named navigationID: ObjectIdentifier?,
+        requestURL: URL? = nil
+    ) -> ObjectIdentifier? {
+        if let navigationID, navigationID == activeNavigationID { return navigationID }
+        guard !activeNavigationDidStartProvisionally else { return nil }
+        if let activeTargetURL {
+            guard let requestURL,
+                  let request = BrowserAutomationNavigationURL(requestURL),
+                  let target = BrowserAutomationNavigationURL(activeTargetURL),
+                  request == target else {
+                return nil
+            }
+        }
+        return activeNavigationID
     }
 
     /// Keeps an active transaction pending while an app-owned replacement is prepared.
@@ -149,9 +165,10 @@ public final class BrowserAutomationNavigationCoordinator {
     ///   - navigationID: Identity of the navigation the app is about to cancel.
     public func willReplaceNavigation(
         instanceID: UUID,
-        navigationID: ObjectIdentifier?
+        navigationID: ObjectIdentifier?,
+        requestURL: URL? = nil
     ) {
-        guard let navigationID = replacedNavigation(named: navigationID),
+        guard let navigationID = replacedNavigation(named: navigationID, requestURL: requestURL),
               let activeTicket,
               activeTicket.instanceID == instanceID,
               activeNavigationID == navigationID else {
@@ -176,7 +193,13 @@ public final class BrowserAutomationNavigationCoordinator {
         replacedNavigationID: ObjectIdentifier?,
         replacementNavigationID: ObjectIdentifier?
     ) {
-        guard let replacedNavigationID = replacedNavigation(named: replacedNavigationID),
+        // A replacement that names no navigation, or a stale one, is accepted
+        // only after its `willReplaceNavigation` matched the target and set
+        // the pending id.
+        let namesActive = replacedNavigationID != nil && replacedNavigationID == activeNavigationID
+        guard let replacedNavigationID = namesActive
+                ? replacedNavigationID
+                : (activeNavigationDidStartProvisionally ? nil : pendingReplacementNavigationID),
               let activeTicket,
               activeTicket.instanceID == instanceID,
               activeNavigationID == replacedNavigationID,
