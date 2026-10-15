@@ -220,6 +220,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.diffViewerFocused, "diffViewerFocused"),
         (.filePreviewFocused, "filePreviewFocused"),
         (.markdownFocused, "markdownFocused"),
+        (.markdownReadOnlyFocused, "markdownReadOnlyFocused"),
+        (.markdownEditorFocused, "markdownEditorFocused"),
         (.rightSidebarFocused, "rightSidebarFocused"),
         (.fileExplorerFocused, "fileExplorerFocused"),
         (.textBoxFocused, "textBoxFocused"),

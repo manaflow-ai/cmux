@@ -27941,6 +27941,33 @@
     },
     {
       "cli" : "liveInput",
+      "cli_name" : "browser markdown-go-to-top",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "markdownGoToTop",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Markdown: Go to Top",
+      "title_key" : "action.markdownGoToTop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
       "cli_name" : "action list-next",
       "context_menu" : "liveInput",
       "context_menus" : [

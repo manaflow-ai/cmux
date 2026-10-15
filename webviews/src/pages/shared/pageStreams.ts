@@ -16,6 +16,8 @@ export type PageCommandName =
   | "reset"
   | "save"
   | "link"
+  // The markdown page: `markdownGoToTop` (a user's `g g` in a read-only page).
+  | "goToTop"
   // The code editor page (pages/editor/keys.ts).
   | "findNext"
   | "findPrevious"
