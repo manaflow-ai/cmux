@@ -1,7 +1,7 @@
 import { isAdminUser } from "../../admin/access";
 import { isGoPlanEnabled } from "../goPlanFlag";
 import { resolveIosPaywall, type IosPaywallRequest } from "../paywall/iosPaywall";
-import type { IosPaywallConfig } from "../paywall/validator";
+import type { IosPaywallConfig, IosPaywallLayout } from "../paywall/validator";
 import {
   resolveProPlanStatus,
   stripeBillingStatusForUser,
@@ -45,6 +45,8 @@ export type AppleAccountTokenApp = {
    * experiments as the production channel.
    */
   readonly bundleIdHeader?: string | null;
+  /** Paywall layouts this app can draw (`x-cmux-paywall-layouts`). */
+  readonly paywallLayouts?: readonly IosPaywallLayout[];
 };
 
 export type AppleAccountTokenResponse = {
@@ -171,37 +173,39 @@ function purchasesGrant(
 }
 
 /**
- * The trial the account may be offered (assigned to the trial arm, App Store
- * app, purchasable, free plan, trial configured, never trialed) and the end
- * of a trial it is in now.
+ * Whether the account could get the trial in this app (App Store app,
+ * purchasable, free plan, trial configured, never trialed), before its
+ * paywall arm is known. The paywall serves the trial arm only then, and the
+ * trial is offered only to an eligible account in the trial arm.
  */
-async function accountTrialState(
+async function accountTrialEligible(
   userId: string,
   input: {
     readonly deps: AppleAccountTokenDependencies;
-    readonly paywallVariant: string | null;
     readonly bundleIdHeader: string | null;
     readonly purchasable: boolean;
-    readonly status: { readonly planId: string; readonly billingSource: PersonalBillingSource };
+    readonly status: { readonly planId: string };
   },
-): Promise<{ readonly offer: TrialOffer | null; readonly endsAt: Date | null }> {
+): Promise<boolean> {
   const trial = input.deps.trial;
-  if (!trial) return { offer: null, endsAt: null };
-  const candidate = input.paywallVariant === TRIAL_PAYWALL_VARIANT
-    && input.bundleIdHeader?.trim() === TRIAL_BUNDLE_ID
+  if (!trial) return false;
+  const candidate = input.bundleIdHeader?.trim() === TRIAL_BUNDLE_ID
     && input.purchasable
     && input.status.planId === "free"
     && isTrialConfigured(input.deps.env ?? process.env);
-  // Trial lookups fail closed (no offer, no trial badge) and never fail the
-  // account-token response that sells the regular plans.
-  const offer = candidate && await trial.accountTrialed(userId).then((trialed) => !trialed, () => false)
-    ? trialOffer()
-    : null;
-  // A free-trial period runs on the Go guard but is the Pro subscription.
-  const endsAt = input.status.billingSource === "apple" && input.status.planId === "go"
-    ? await trial.activeTrialEndsAt(userId).catch(() => null)
-    : null;
-  return { offer, endsAt };
+  // Trial lookups fail closed (no offer) and never fail the account-token
+  // response that sells the regular plans.
+  return candidate && await trial.accountTrialed(userId).then((trialed) => !trialed, () => false);
+}
+
+/** The end of the trial the account is in now (a free-trial period runs on the Go guard but is the Pro subscription). */
+async function accountTrialEndsAt(
+  userId: string,
+  deps: AppleAccountTokenDependencies,
+  status: { readonly planId: string; readonly billingSource: PersonalBillingSource },
+): Promise<Date | null> {
+  if (!deps.trial || status.billingSource !== "apple" || status.planId !== "go") return null;
+  return await deps.trial.activeTrialEndsAt(userId).catch(() => null);
 }
 
 /** `POST /api/billing/apple/account-token`. */
@@ -229,22 +233,20 @@ export async function appleAccountTokenResponse(
       .filter((billingPeriod) => (app.billingPeriods ?? ["monthly"]).includes(billingPeriod))
       .map((billingPeriod) => ({ productId: appleProductId(bundleId, planId, billingPeriod), planId, billingPeriod })))
     : [];
+  const [trialEligible, trialEndsAt] = await Promise.all([
+    accountTrialEligible(user.id, { deps, bundleIdHeader: app.bundleIdHeader ?? null, purchasable: reason === null, status }),
+    accountTrialEndsAt(user.id, deps, status),
+  ]);
   const paywall = deps.paywall
     ? await deps.paywall(user, {
       bundleIdHeader: app.bundleIdHeader ?? null,
       purchasable: reason === null && products.length > 0,
       currentPlanId: status.planId,
+      supportedLayouts: app.paywallLayouts,
+      trialEligible,
     })
     : undefined;
-  const trial = await accountTrialState(user.id, {
-    deps,
-    paywallVariant: paywall?.variant ?? null,
-    bundleIdHeader: app.bundleIdHeader ?? null,
-    purchasable: reason === null,
-    status,
-  });
-  const offer = trial.offer;
-  const trialEndsAt = trial.endsAt;
+  const offer = trialEligible && paywall?.variant === TRIAL_PAYWALL_VARIANT ? trialOffer() : null;
   return {
     appAccountToken,
     eligible: reason === null,

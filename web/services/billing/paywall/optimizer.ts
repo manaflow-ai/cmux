@@ -391,6 +391,8 @@ export type OptimizerDecision = {
   readonly target: Readonly<Record<string, number>>;
   readonly probabilityBest: Readonly<Record<string, number>>;
   readonly retire: readonly string[];
+  /** Queued variants this run makes live (live-arm cap). */
+  readonly promote: readonly string[];
   readonly srm: SrmResult;
   readonly halted: boolean;
   readonly reasons: readonly string[];
@@ -430,11 +432,62 @@ function thompsonTarget(
   return rollouts;
 }
 
+/** Variants to retire now: challengers with enough exposures and almost no chance of being best. */
+function retirements(definition: ExperimentDefinition, live: readonly VariantStats[], pBest: Readonly<Record<string, number>>, reasons: string[]): string[] {
+  const policy = definition.policy;
+  const retire = live
+    .filter((stat) => stat.variant !== definition.controlVariant
+      && stat.exposures >= policy.retireMinExposures
+      && (pBest[stat.variant] ?? 0) < policy.retireBelowProbability)
+    .map((stat) => stat.variant);
+  for (const variant of retire) {
+    reasons.push(`retire ${variant}: P(best)=${(pBest[variant] ?? 0).toFixed(4)} < ${policy.retireBelowProbability} after ${live.find((stat) => stat.variant === variant)?.exposures} exposures`);
+  }
+  return retire;
+}
+
+/** Queued variants (0%, never retired) promoted, in flag order, to fill the live-arm cap. */
+function promotions(
+  definition: ExperimentDefinition,
+  flag: Pick<PostHogFlag, "variants">,
+  stats: readonly VariantStats[],
+  liveCount: number,
+  retiredBefore: ReadonlySet<string>,
+  reasons: string[],
+): VariantStats[] {
+  const room = Math.max(0, definition.policy.maxLiveArms - liveCount);
+  const queued = flag.variants
+    .filter((variant) => variant.rolloutPercentage === 0 && !retiredBefore.has(variant.key))
+    .slice(0, room)
+    .map((variant) => stats.find((stat) => stat.variant === variant.key)
+      ?? { variant: variant.key, exposures: 0, conversions: 0, exposuresSinceChange: 0, secondary: {}, guardrails: {} });
+  for (const stat of queued) reasons.push(`promote ${stat.variant}: fewer than ${definition.policy.maxLiveArms} live arms`);
+  return queued;
+}
+
+/** The split for the arms that stay or become live; every other variant goes to 0%. */
+function armSplit(
+  definition: ExperimentDefinition,
+  arms: readonly VariantStats[],
+  pBest: Readonly<Record<string, number>>,
+  reasons: string[],
+): Record<string, number> {
+  const policy = definition.policy;
+  const short = arms.filter((stat) => stat.exposures < policy.minExposuresPerVariant);
+  if (short.length > 0) {
+    reasons.push(`hold equal split: ${short.map((stat) => `${stat.variant} has ${stat.exposures}/${policy.minExposuresPerVariant} exposures`).join(", ")}`);
+    return integerRollouts(Object.fromEntries(arms.map((stat) => [stat.variant, 1])));
+  }
+  reasons.push(`Thompson sampling: traffic follows P(best), control floor ${Math.round(policy.controlFloor * 100)}%`);
+  return thompsonTarget(definition, arms, pBest);
+}
+
 export function decideAllocation(
   definition: ExperimentDefinition,
   flag: Pick<PostHogFlag, "variants">,
   stats: readonly VariantStats[],
   random: () => number,
+  retiredBefore: ReadonlySet<string> = new Set(),
 ): OptimizerDecision {
   const policy = definition.policy;
   const current = Object.fromEntries(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage]));
@@ -444,7 +497,7 @@ export function decideAllocation(
   const srm = sampleRatioMismatch(stats.filter((stat) => known.has(stat.variant)), current, policy.srmAlpha);
   const pBest = live.length > 0 ? probabilityBest(live, random) : {};
   const hold = (reason: string, halted = false): OptimizerDecision => ({
-    current, target: current, probabilityBest: pBest, retire: [], srm, halted, reasons: [...reasons, reason], changed: false,
+    current, target: current, probabilityBest: pBest, retire: [], promote: [], srm, halted, reasons: [...reasons, reason], changed: false,
   });
   if (srm.tested && srm.mismatch) {
     return hold(`halted: sample ratio mismatch (chi-square ${srm.chiSquare.toFixed(2)}, p=${srm.pValue.toExponential(2)} < ${policy.srmAlpha}); no traffic change until it is explained`, true);
@@ -452,29 +505,16 @@ export function decideAllocation(
   if (!live.some((stat) => stat.variant === definition.controlVariant)) {
     return hold("halted: control is not live in the flag; restore it before the optimizer moves traffic", true);
   }
-  const short = live.filter((stat) => stat.exposures < policy.minExposuresPerVariant);
-  if (short.length > 0) {
-    const equal = integerRollouts(Object.fromEntries(live.map((stat) => [stat.variant, 1])));
-    const changed = live.some((stat) => equal[stat.variant] !== current[stat.variant]);
-    reasons.push(`hold equal split: ${short.map((stat) => `${stat.variant} has ${stat.exposures}/${policy.minExposuresPerVariant} exposures`).join(", ")}`);
-    return { current, target: changed ? equal : current, probabilityBest: pBest, retire: [], srm, halted: false, reasons, changed };
-  }
-  const retire = live
-    .filter((stat) => stat.variant !== definition.controlVariant
-      && stat.exposures >= policy.retireMinExposures
-      && (pBest[stat.variant] ?? 0) < policy.retireBelowProbability)
-    .map((stat) => stat.variant);
-  for (const variant of retire) {
-    reasons.push(`retire ${variant}: P(best)=${(pBest[variant] ?? 0).toFixed(4)} < ${policy.retireBelowProbability} after ${live.find((stat) => stat.variant === variant)?.exposures} exposures`);
-  }
+  // Retirement needs every live arm past the minimum sample, like any traffic move.
+  const ready = live.every((stat) => stat.exposures >= policy.minExposuresPerVariant);
+  const retire = ready ? retirements(definition, live, pBest, reasons) : [];
   const remaining = live.filter((stat) => !retire.includes(stat.variant));
-  const target = thompsonTarget(definition, remaining, pBest);
-  for (const variant of Object.keys(current)) target[variant] ??= 0;
+  const promoted = promotions(definition, flag, stats, remaining.length, new Set([...retiredBefore, ...retire]), reasons);
+  const split = armSplit(definition, [...remaining, ...promoted], pBest, reasons);
+  const target: Record<string, number> = Object.fromEntries(flag.variants.map((variant) => [variant.key, split[variant.key] ?? 0]));
   const changed = Object.keys(target).some((variant) => target[variant] !== current[variant]);
-  reasons.push(changed
-    ? `Thompson sampling: traffic follows P(best), control floor ${Math.round(policy.controlFloor * 100)}%`
-    : "Thompson sampling: allocation unchanged");
-  return { current, target, probabilityBest: pBest, retire, srm, halted: false, reasons, changed };
+  if (!changed) reasons.push("allocation unchanged");
+  return { current, target, probabilityBest: pBest, retire, promote: promoted.map((stat) => stat.variant), srm, halted: false, reasons, changed };
 }
 
 // One optimizer run.
@@ -482,7 +522,8 @@ export function decideAllocation(
 export type VariantSnapshot = {
   readonly variant: string;
   readonly name: string | null;
-  readonly status: "live" | "retired";
+  /** `queued`: at 0% and never retired, waiting for a live slot. */
+  readonly status: "live" | "retired" | "queued";
   readonly rolloutBefore: number;
   readonly rolloutAfter: number;
   readonly exposures: number;
@@ -620,6 +661,9 @@ function changeLog(
       changes.push({ ...base, kind: "payload_invalid", variant: variant.variant, reason: "payload fails the copy validator; control is served instead", details: { errors: variant.payloadErrors } });
     }
   }
+  for (const variant of decision.promote) {
+    changes.push({ ...base, kind: "variant_promoted", variant, reason: decision.reasons.find((reason) => reason.startsWith(`promote ${variant}`)) ?? "promoted", details: null });
+  }
   for (const variant of decision.retire) {
     changes.push({ ...base, kind: "variant_retired", variant, reason: decision.reasons.find((reason) => reason.startsWith(`retire ${variant}`)) ?? "retired", details: { probabilityBest: decision.probabilityBest[variant] ?? null } });
   }
@@ -707,14 +751,22 @@ async function reportedTrialRetention(api: PostHogApi, definition: ExperimentDef
   }
 }
 
+/** Variants retired by an earlier run; a 0% variant not in this set is queued. */
+async function retiredVariants(definition: ExperimentDefinition, log: PaywallExperimentLog | null): Promise<ReadonlySet<string>> {
+  if (!log) return new Set();
+  const changes = await log.changes(definition.key, 1000);
+  return new Set(changes.filter((change) => change.kind === "variant_retired" && change.variant).map((change) => change.variant!));
+}
+
 function runDecision(
   definition: ExperimentDefinition,
   flag: PostHogFlag,
   found: PostHogFlag | null,
   stats: readonly VariantStats[],
   now: Date,
+  retiredBefore: ReadonlySet<string>,
 ): OptimizerDecision {
-  const decision = decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`));
+  const decision = decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`), retiredBefore);
   if (!found || found.active) return decision;
   return {
     ...decision,
@@ -729,6 +781,7 @@ function variantSnapshots(
   flag: PostHogFlag,
   stats: readonly VariantStats[],
   decision: OptimizerDecision,
+  retiredBefore: ReadonlySet<string>,
 ): VariantSnapshot[] {
   return flag.variants.map((variant) => {
     const stat = stats.find((item) => item.variant === variant.key);
@@ -738,7 +791,7 @@ function variantSnapshots(
     return {
       variant: variant.key,
       name: variant.name ?? null,
-      status: after > 0 ? "live" : "retired",
+      status: after > 0 ? "live" : retiredBefore.has(variant.key) || decision.retire.includes(variant.key) ? "retired" : "queued",
       rolloutBefore: variant.rolloutPercentage,
       rolloutAfter: after,
       exposures: stat?.exposures ?? 0,
@@ -761,8 +814,9 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
   const allocationSince = await srmWindowStart(definition, log);
   const stats = await fetchVariantStats(api, definition, flag.variants.map((variant) => variant.key), allocationSince);
   const trialRetention = await reportedTrialRetention(api, definition);
-  const decision = runDecision(definition, flag, found, stats, now);
-  const variants = variantSnapshots(definition, flag, stats, decision);
+  const retiredBefore = await retiredVariants(definition, log);
+  const decision = runDecision(definition, flag, found, stats, now, retiredBefore);
+  const variants = variantSnapshots(definition, flag, stats, decision, retiredBefore);
   if (!input.dryRun) {
     if (!found) throw new Error(`Flag ${definition.flagKey} does not exist; create it before a live run`);
     if (!log) throw new Error("A live run needs the experiment log (DATABASE_URL)");
@@ -790,7 +844,7 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
     ...(trialRetention ? { trialRetention } : {}),
   };
   const wasHalted = previous?.halted === true;
-  const logged = apply ? decision : { ...decision, changed: false, retire: [] };
+  const logged = apply ? decision : { ...decision, changed: false, retire: [], promote: [] };
   const changes = changeLog(definition, variants, logged, previous, input.actor)
     // Log a halt once, when it starts; the run's report repeats it daily.
     .filter((change) => change.kind !== "srm_halt" || !wasHalted);

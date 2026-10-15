@@ -12,7 +12,7 @@ import { TRIAL_QUANTITIES } from "./facts";
 import { validateIosPaywallPayload, type ValidationResult } from "./validator";
 
 /** The `ios-paywall-v1` arm that offers the iOS Pro free trial (apple/trialConfig.ts). */
-export const IOS_TRIAL_VARIANT = "pro-trial-7d";
+export const IOS_TRIAL_VARIANT = "trial-timeline";
 
 /** Copy rules for one iOS variant: trial wording and trial quantities only in the trial arm. */
 export function iosPaywallCopyContext(variant: string, trialAvailable: boolean) {
@@ -41,6 +41,11 @@ export type ExperimentPolicy = {
   readonly retireBelowProbability: number;
   /** Halt all changes when the sample-ratio-mismatch test p-value is below this. */
   readonly srmAlpha: number;
+  /**
+   * At most this many arms (control included) get traffic at once; queued
+   * variants (0%, never retired) are promoted in flag order as challengers retire.
+   */
+  readonly maxLiveArms: number;
 };
 
 export type ExperimentDefinition = {
@@ -88,6 +93,7 @@ export const DEFAULT_EXPERIMENT_POLICY: ExperimentPolicy = {
   retireMinExposures: 300,
   retireBelowProbability: 0.02,
   srmAlpha: 0.001,
+  maxLiveArms: 4,
 };
 
 /**

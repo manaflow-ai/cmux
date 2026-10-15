@@ -5,6 +5,7 @@ import * as proModule from "../services/billing/pro";
 import * as teamResolutionModule from "../services/billing/teamResolution";
 import * as paywallStoreModule from "../services/billing/paywall/store";
 import * as serverEventsModule from "../services/analytics/serverEvents";
+import * as trialStoreModule from "../services/billing/apple/trialStore";
 import { IOS_PAYWALL_CONTROL, IOS_PAYWALL_V1_SEED } from "../services/billing/paywall/iosPaywallV1";
 import type { ServerEventInput } from "../services/analytics/serverEvents";
 
@@ -51,6 +52,14 @@ mock.module("../services/billing/paywall/store", () => ({
   }),
 }));
 
+const trialedAccounts = new Set<string>();
+mock.module("../services/billing/apple/trialStore", () => ({
+  ...trialStoreModule,
+  databaseTrialStore: () => ({
+    claim: async (userId: string) => (trialedAccounts.has(userId) ? { userId, status: "started" } : null),
+  }),
+}));
+
 const events: ServerEventInput[] = [];
 mock.module("../services/analytics/serverEvents", () => ({
   ...serverEventsModule,
@@ -86,7 +95,7 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters
 const paywallRoute = await import("../app/api/billing/paywall/route");
 const accountTokenRoute = await import("../app/api/billing/apple/account-token/route");
 
-function request(path: string, method: "GET" | "POST", bundleId = "com.cmux.app") {
+function request(path: string, method: "GET" | "POST", bundleId = "com.cmux.app", layouts?: string) {
   return new Request(`https://cmux.test${path}`, {
     method,
     headers: {
@@ -96,13 +105,17 @@ function request(path: string, method: "GET" | "POST", bundleId = "com.cmux.app"
       "x-cmux-storekit-environment": "Production",
       "x-cmux-billing-periods": "monthly,yearly",
       "content-type": "application/json",
+      ...(layouts === undefined ? {} : { "x-cmux-paywall-layouts": layouts }),
     },
     ...(method === "POST" ? { body: "{}" } : {}),
   });
 }
 
-async function paywallFor(bundleId = "com.cmux.app") {
-  const response = await paywallRoute.GET(request("/api/billing/paywall", "GET", bundleId));
+const ALL_LAYOUTS = "cards,comparison,focus,checklist,planTabs,hero,trialTimeline";
+
+/** `layouts: null` sends no `x-cmux-paywall-layouts` header (an older app). */
+async function paywallFor(bundleId = "com.cmux.app", layouts: string | null = ALL_LAYOUTS) {
+  const response = await paywallRoute.GET(request("/api/billing/paywall", "GET", bundleId, layouts ?? undefined));
   expect(response.status).toBe(200);
   return (await response.json() as { paywall: Record<string, unknown> }).paywall;
 }
@@ -116,12 +129,13 @@ beforeEach(() => {
   events.length = 0;
   flagAnswer = "off";
   flagCalls = 0;
+  trialedAccounts.clear();
 });
 
 describe("GET /api/billing/paywall", () => {
   test("serves every seeded variant from its flag payload and records the exposure", async () => {
     // The trial arm is covered below: it is served only when the trial is configured.
-    for (const variant of IOS_PAYWALL_V1_SEED.filter((item) => item.key !== "pro-trial-7d")) {
+    for (const variant of IOS_PAYWALL_V1_SEED.filter((item) => item.key !== "trial-timeline")) {
       assignments.clear();
       events.length = 0;
       flagAnswer = { variant: variant.key, payload: variant.payload };
@@ -216,16 +230,27 @@ describe("the trial arm", () => {
   };
 
   test("is never served while the trial cannot be granted, and its trial copy passes only for it", async () => {
-    flagAnswer = { variant: "pro-trial-7d", payload: seed("pro-trial-7d").payload };
+    flagAnswer = { variant: "trial-timeline", payload: seed("trial-timeline").payload };
     expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
     expect(events).toHaveLength(0);
     Object.assign(process.env, trialEnv);
     try {
-      expect((await paywallFor()).variant).toBe("pro-trial-7d");
+      const timeline = await paywallFor();
+      expect(timeline).toMatchObject({ variant: "trial-timeline", layout: "trialTimeline" });
+      expect(timeline).not.toHaveProperty("fallbackLayout");
+      // An app that cannot draw the timeline gets the same arm in its fallback layout.
+      expect(await paywallFor("com.cmux.app", null)).toMatchObject({ variant: "trial-timeline", layout: "focus" });
       // The same trial wording in another arm is refused.
       assignments.clear();
-      flagAnswer = { variant: "comparison", payload: { ...seed("comparison").payload, headline: seed("pro-trial-7d").payload.headline } };
+      flagAnswer = { variant: "comparison", payload: { ...seed("comparison").payload, headline: seed("trial-timeline").payload.headline } };
       expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+      // While the trial exists, an account that already trialed is in no arm at all.
+      assignments.clear();
+      events.length = 0;
+      trialedAccounts.add("user-a");
+      flagAnswer = { variant: "comparison", payload: seed("comparison").payload };
+      expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+      expect(events).toHaveLength(0);
     } finally {
       for (const key of Object.keys(trialEnv)) delete process.env[key];
     }
@@ -241,5 +266,35 @@ describe("POST /api/billing/apple/account-token", () => {
     currentUser = { ...currentUser!, primaryEmail: "dev@manaflow.ai" };
     const staff = await (await accountTokenRoute.POST(request("/api/billing/apple/account-token", "POST"))).json() as Record<string, unknown>;
     expect(staff.staff).toBe(true);
+  });
+});
+
+describe("layouts the app can draw", () => {
+  test("an app without the layouts header gets cards for a newer layout; the arm does not change", async () => {
+    flagAnswer = { variant: "checklist-pro-monthly", payload: seed("checklist-pro-monthly").payload };
+    const old = await paywallFor("com.cmux.app", null);
+    expect(old).toMatchObject({ variant: "checklist-pro-monthly", layout: "cards" });
+    expect(old.entryPointHeadlines).toEqual({ locked_vm_size: "Bigger VMs come with Pro", limit: "Need more Cloud VMs?" });
+    expect((await paywallFor()).layout).toBe("checklist");
+    expect(events.map((event) => event.properties?.paywall_layout)).toEqual(["cards", "checklist"]);
+  });
+
+  test("trialTimeline goes only to trial-eligible users; others get its fallback, which is never sent", async () => {
+    const timeline = { ...seed("hero-pro").payload, layout: "trialTimeline", fallbackLayout: "hero" };
+    flagAnswer = { variant: "hero-pro", payload: timeline };
+    const served = await paywallFor();
+    expect(served.layout).toBe("hero");
+    expect(served).not.toHaveProperty("fallbackLayout");
+    assignments.clear();
+    flagAnswer = { variant: "hero-pro", payload: { ...seed("hero-pro").payload, layout: "trialTimeline" } };
+    expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+  });
+
+  test("entry-point headlines are validated like the headline", async () => {
+    for (const entryPointHeadlines of [{ limit: "Unlimited Cloud VMs" }, { unknown_place: "Need more Cloud VMs?" }, { limit: "x".repeat(61) }]) {
+      assignments.clear();
+      flagAnswer = { variant: "hero-pro", payload: { ...seed("hero-pro").payload, entryPointHeadlines } };
+      expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+    }
   });
 });
