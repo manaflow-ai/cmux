@@ -15,6 +15,8 @@ import CmuxHomeCore
 ///   memory: <note> · Undo" (saved outside one), Undo in the accent (`ChatIntents.undoMemory`).
 ///   After Undo it reads "Removed from memory: <note>". It scrolls with the transcript, so it
 ///   never sits over another line.
+/// - A stopped turn: the same centred 11 pt secondary line, "Stopped" (the owner's localized
+///   title of a `chief.stopped:` part), where the Chief's reply ends after the user's Stop.
 ///
 /// References (cmux-design-references): apps/t3-code/web/computer-use-log.png (a failed request
 /// marked and actionable in the work log), topics/status-and-progress.md (one status line at a
@@ -38,6 +40,19 @@ extension ChiefRows {
         var forgotten: Bool
     }
 
+    /// A stopped turn's row (its text is the owner's localized title).
+    struct Stopped: Codable, Hashable {
+        var id: String
+        var text: String
+    }
+
+    /// A stopped turn's system row (CmuxChief's `ChiefConversationOwner.stoppedSessionPrefix`, the same id).
+    static let stoppedKind = "cmux.chief.stopped"
+    static let stoppedPrefix = "chief.stopped:"
+
+    /// A stopped turn's work part.
+    static func isStopped(_ work: WorkRef) -> Bool { work.host == nil && work.session.hasPrefix(stoppedPrefix) }
+
     /// The memory part's session: `chief.memory:t:<id>` (in a turn) or `chief.memory:s:<id>`.
     static func memory(_ work: WorkRef) -> Memory? {
         guard isMemory(work) else { return nil }
@@ -58,6 +73,9 @@ extension ChiefRows {
             return ChiefRows.part(kind: ChiefRows.failureKind, ChiefRows.Failure(id: work.session, text: work.title, retry: retry))
         }
         if let memory = ChiefRows.memory(work) { return ChiefRows.part(kind: ChiefRows.memoryKind, memory) }
+        if ChiefRows.isStopped(work) {
+            return ChiefRows.part(kind: ChiefRows.stoppedKind, ChiefRows.Stopped(id: work.session, text: work.title))
+        }
         return nil
     }
 
@@ -331,5 +349,60 @@ final class ChiefMemoryRowView: NSView {
             self.sent = false
             self.undoButton.isEnabled = true
         }
+    }
+}
+
+// MARK: Stopped row
+
+final class ChiefStoppedRowProvider: TranscriptCustomRowProvider {
+    static let shared = ChiefStoppedRowProvider()
+
+    let kind = ChiefRows.stoppedKind
+    var measuresOffMain: Bool { true }
+    func layout(for part: CustomPart) -> CustomRowLayout { .fullWidth }
+
+    func measure(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { CGSize(width: maxWidth, height: ChiefMemoryRowProvider.height) }
+    func estimate(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { measure(part, maxWidth: maxWidth) }
+    func makeView() -> CustomRowPlatformView { ChiefStoppedRowView() }
+
+    func configure(_ view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) {
+        guard let v = view as? ChiefStoppedRowView, let s = part.decode(ChiefRows.Stopped.self) else { return }
+        v.show(s.text)
+    }
+
+    func prepareForReuse(_ view: CustomRowPlatformView) { (view as? ChiefStoppedRowView)?.show("") }
+
+    func handleKey(_ key: CustomRowKey, view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) -> Bool { false }
+
+    func plainText(_ part: CustomPart) -> String? { part.decode(ChiefRows.Stopped.self)?.text }
+}
+
+/// The stopped row's view: one centred secondary line, like the memory row without its link.
+final class ChiefStoppedRowView: NSView {
+    private var text = ""
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityIdentifier("ChiefStoppedRow")
+    }
+    required init?(coder: NSCoder) { nil }
+    override var isFlipped: Bool { true }
+
+    func show(_ text: String) {
+        self.text = text
+        setAccessibilityLabel(text)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let line = NSAttributedString(string: text, attributes: [
+            .font: ChiefMemoryRowProvider.font, .foregroundColor: Fixture.secondaryText,
+        ])
+        let size = line.size()
+        line.draw(at: NSPoint(x: ((bounds.width - size.width) / 2).rounded(), y: ((bounds.height - size.height) / 2).rounded()))
     }
 }

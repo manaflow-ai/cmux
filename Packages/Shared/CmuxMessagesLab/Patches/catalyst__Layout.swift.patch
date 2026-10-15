@@ -26,19 +26,29 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -1005,6 +1011,11 @@
+@@ -1004,6 +1010,11 @@
+                 }
              }
              prev = m; prevIndex = idx
-         }
++        }
 +        // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
 +        // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
 +        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
 +            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
-+        }
+         }
          if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
              rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+@@ -1011,7 +1022,8 @@
+         // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
+         // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
+         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
+-            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
++            // cmux-classic: 4 pt gap, so RowDrawing's line sits 6 pt under the approval card it speaks for.
++            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 4, height: 16))
          }
-@@ -1098,7 +1109,7 @@
+         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
+         return rows
+@@ -1098,7 +1110,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -47,7 +57,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1117,7 +1128,7 @@
+@@ -1117,7 +1129,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -56,7 +66,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1167,7 +1178,8 @@
+@@ -1167,7 +1179,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -66,7 +76,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1200,7 +1212,8 @@
+@@ -1200,7 +1213,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

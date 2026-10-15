@@ -1022,7 +1022,8 @@ enum RowBuilder {
         // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
         // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
-            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
+            // cmux-classic: 4 pt gap, so RowDrawing's line sits 6 pt under the approval card it speaks for.
+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 4, height: 16))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows

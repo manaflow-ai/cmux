@@ -153,8 +153,14 @@ import Testing
         #expect(await brain.log.interrupts == [conversation])
         #expect(await ChiefFixture.eventually { await brain.log.terminations == 1 })
         let messages = try await owner.snapshot(of: conversation, tail: 10).messages
-        #expect(messages.last?.plainText == "partial")
+        #expect(messages.dropLast().last?.plainText == "partial")
         if case .work(let work) = messages[1].parts.first { #expect(work.status == .failed) } else { Issue.record("no work part") }
+        // A quiet "Stopped" row marks where the reply ends (ChiefConversationOwner+Notices.swift).
+        guard case .work(let stoppedRow)? = messages.last?.parts.first, messages.last?.parts.count == 1 else {
+            Issue.record("no stopped row"); return
+        }
+        #expect(stoppedRow.session.hasPrefix(ChiefConversationOwner.stoppedSessionPrefix))
+        #expect(stoppedRow.title == "Stopped" && stoppedRow.host == nil && stoppedRow.status == .done)
         #expect(await owner.stopTurn(conversation: conversation) == false)
     }
 
@@ -230,7 +236,7 @@ import Testing
         let id = try #require(result.conversation)
         let inbox = await owner.inbox()
         let summary = try #require(inbox.conversations.first(where: { $0.id == id }))
-        let researcher = try #require(summary.participants.first(where: \.isChief))
+        let researcher = try #require(summary.participants.first(where: { $0.isChief }))
         #expect(researcher.displayName == "Research")
         #expect(researcher.id != ChiefConversationOwner.chiefID)
         #expect(await recorder.events.contains {

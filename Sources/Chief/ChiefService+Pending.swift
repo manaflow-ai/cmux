@@ -18,15 +18,21 @@ extension ChiefService {
     /// conversation, so it re-reads only when that conversation changes.
     /// Idle conversations answer false without reading the transcript.
     func hasPendingApproval(_ conversation: ConversationID) -> Bool {
-        guard workingConversations.contains(conversation), let store = storeIfStarted else { return false }
+        pendingApprovalPrompt(conversation) != nil
+    }
+
+    /// The prompt of the approval `conversation`'s running turn waits on, nil when none waits
+    /// (the list's preview says "Waiting for you" then, never the typing dots).
+    func pendingApprovalPrompt(_ conversation: ConversationID) -> String? {
+        guard workingConversations.contains(conversation), let store = storeIfStarted else { return nil }
         _ = store.transcriptVersion[conversation]
         // An approval belongs to the running turn: it sits among the newest rows.
         for item in store.transcript(for: conversation).suffix(Self.pendingApprovalScanLimit).reversed() {
             for part in item.parts {
-                if case .approval(let ref) = part, ref.decided == nil { return true }
+                if case .approval(let ref) = part, ref.decided == nil { return ref.prompt }
             }
         }
-        return false
+        return nil
     }
 
     /// How many of the newest rows hold the running turn's approval.

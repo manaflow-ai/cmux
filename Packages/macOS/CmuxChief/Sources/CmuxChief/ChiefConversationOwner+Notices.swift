@@ -2,13 +2,26 @@ public import CmuxHomeCore
 import Foundation
 
 // The owner's system rows besides a failed turn's (`failureSessionPrefix`): a failed turn's Try
-// Again, and the "Chief will remember" rows of saved memory notes.
+// Again, the "Chief will remember" rows of saved memory notes, and a stopped turn's "Stopped".
 extension ChiefConversationOwner {
     /// The session prefix of a saved memory note's work part (Home's `ChiefRows.memoryPrefix`, the
     /// same id; change both): `chief.memory:t:<note id>` for a note saved during a turn,
     /// `chief.memory:s:<note id>` for one saved outside a turn. Its title is the note; `.failed`
     /// once the note was forgotten through the row's Undo.
     public static let memorySessionPrefix = "chief.memory:"
+
+    /// The session prefix of the quiet "Stopped" row a stopped turn posts (Home's
+    /// `ChiefRows.stoppedPrefix`, the same id; change both): `chief.stopped:<uuid>`. Its title
+    /// is the row's text in the user's language.
+    public static let stoppedSessionPrefix = "chief.stopped:"
+
+    /// The user stopped a turn (``stopTurn(conversation:)``): one quiet system row marks where the
+    /// Chief's reply ends, after the turn's last message, in its thread.
+    func postStoppedNotice(in conversation: ConversationID, author: ParticipantID, threadRoot: MessageID?) {
+        let work = WorkRef(session: Self.stoppedSessionPrefix + UUID().uuidString.lowercased(), title: ChiefText.turnStopped,
+                           status: .done, preview: nil)
+        _ = try? commitMessage(in: conversation, author: author, parts: [.work(work)], key: .make(), threadRoot: threadRoot)
+    }
 
     /// Runs the user's newest message of `conversation` again, as a new turn with the same text,
     /// pictures and thread (a failed turn's Try Again). No message is posted: the transcript keeps

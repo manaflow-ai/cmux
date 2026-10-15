@@ -20,7 +20,7 @@ import Testing
         // One stage: one tool call, one card. Nothing chained, nothing expanded.
         #expect(stages.count == 1)
         let words = stages[0]
-        #expect(!words.contains(where: \.expands))
+        #expect(!words.contains(where: { $0.expands }))
         #expect(Array(words.prefix(3).map(\.text)) == ["cmux", "chief", "dispatch"])
         // The task reaches the CLI as a single word after `--`.
         let texts = words.map(\.text)
@@ -67,6 +67,6 @@ import Testing
         let stages = try #require(ChiefShellLexer.stages(of: command))
         #expect(stages.count == 1)
         #expect(stages[0].last?.text == "Fix the README's install steps.")
-        #expect(!stages[0].contains(where: \.expands))
+        #expect(!stages[0].contains(where: { $0.expands }))
     }
 }

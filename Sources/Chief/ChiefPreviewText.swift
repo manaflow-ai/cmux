@@ -3,9 +3,8 @@ import CmuxHomeCore
 import Foundation
 
 /// One-line conversation list previews for the Chief: Markdown flattened to
-/// what the transcript shows, and a waiting approval said as a request
-/// ("Needs your approval: cmux new-workspace --name Scratch") instead of the
-/// card's raw prompt ("Run `…`?").
+/// what the transcript shows, and a waiting approval said as the transcript's
+/// status ("Waiting for you") instead of the card's raw prompt ("Run `…`?").
 enum ChiefPreviewText {
     /// `markdown` without its markers: inline code and fences, bold, italic and
     /// strike markers, links and images (their text kept), heading hashes,
@@ -39,11 +38,10 @@ enum ChiefPreviewText {
             .trimmingCharacters(in: .whitespaces)
     }
 
-    /// The preview of a waiting approval: its command for a "Run `<command>`?"
-    /// prompt (`ChiefAllowRules.command(inPrompt:)`), else the prompt flattened.
-    static func approval(prompt: String) -> String {
-        let subject = ChiefAllowRules.command(inPrompt: prompt) ?? plain(prompt)
-        return String(format: String(localized: "chief.preview.needsApproval", defaultValue: "Needs your approval: %@"), subject)
+    /// The preview while an approval card waits: "Waiting for you", the transcript's own status
+    /// line (the card says what it asks), never the typing dots.
+    static var waitingForYou: String {
+        String(localized: "chief.preview.waitingForYou", defaultValue: "Waiting for you")
     }
 
     /// The newest message's waiting approval prompt, nil when it has none.

@@ -379,6 +379,8 @@ final class ChiefTranscriptView: NSView {
         if let transcript {
             let palettes = theme.palettes()
             transcript.applyTheme(active: palettes.active, inactive: palettes.inactive, measuredAccent: true)
+            // The pill's glass and the band in the terminal theme's appearance too, not the app's.
+            transcript.setHeaderAppearance(theme.appearance)
             transcript.setHeaderPillBacking(theme.opaqueBackground.withAlphaComponent(0.72))
             // The header's band: shown whenever a row lies under the avatar, pill and model line (not only
             // on hover), nearly opaque so bubble text under it stays out of the way, and reaching below the

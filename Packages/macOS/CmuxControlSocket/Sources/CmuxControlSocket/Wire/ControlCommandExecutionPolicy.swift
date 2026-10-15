@@ -130,9 +130,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.message.poll", "agent.message.settings",
         // Chief: owner-actor reads and writes, the store's send, and at most
         // one main-actor hop for app state (`TerminalController+Chief`).
-        // `chief.debug` answers only in DEBUG builds.
+        // `chief.approve`, `chief.answer` and `chief.debug` answer only in DEBUG builds.
         "chief.open", "chief.send", "chief.status", "chief.conversations",
-        "chief.read", "chief.stop", "chief.approve", "chief.debug",
+        "chief.read", "chief.stop", "chief.approve", "chief.answer", "chief.debug",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

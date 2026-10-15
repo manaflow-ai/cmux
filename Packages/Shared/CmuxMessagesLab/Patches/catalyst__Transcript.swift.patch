@@ -1,5 +1,14 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
+@@ -126,7 +126,7 @@
+         let keepEnd = rows.count - dropTail
+         guard dropHead <= keepEnd else { return }
+         let make = { (s: RowSpec) in Row(spec: s, removedAt: nil, insertedAt: -1) }
+-        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // clamped slice
++        rows = newHead.map(make) + Array(rows.slice(dropHead, keepEnd)) + newTail.map(make) // clamped slice; cmux-classic: Array() so Xcode 26.6 type-checks it
+         rebuild()
+     }
+ 
 @@ -609,8 +609,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6

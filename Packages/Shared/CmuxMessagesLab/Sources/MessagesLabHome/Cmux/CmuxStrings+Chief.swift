@@ -54,6 +54,10 @@ extension CmuxStrings {
     static func ranCommands(_ count: Int) -> String {
         String(localized: "home.tool.ranCommands", defaultValue: "Ran \(count) commands", table: "CmuxHome", bundle: .module)
     }
+    /// A collapsed run with failures: "1 of 4 failed: cmux tree --all" (the first failed call).
+    static func toolsFailedOf(_ failed: Int, total: Int, _ subject: String) -> String {
+        String(localized: "home.tool.failedOf", defaultValue: "\(failed) of \(total) failed: \(subject)", table: "CmuxHome", bundle: .module)
+    }
     /// A run of tool calls of several kinds (2 or more).
     static func usedTools(_ count: Int) -> String {
         String(localized: "home.tool.usedTools", defaultValue: "Used \(count) tools", table: "CmuxHome", bundle: .module)
@@ -158,14 +162,6 @@ extension CmuxStrings {
     /// The refusing button's tooltip (its key).
     static var approvalRefusalHelp: String {
         String(localized: "home.approval.refusalHelp", defaultValue: "Esc", table: "CmuxHome", bundle: .module)
-    }
-    /// The compose bar's Stop help while an approval card waits.
-    static var approvalStopHelp: String {
-        String(localized: "home.approval.stopHelp", defaultValue: "Stop (denies the request)", table: "CmuxHome", bundle: .module)
-    }
-    /// The compose bar's Stop while an approval card waits: its label and tooltip.
-    static var approvalDenyAndStop: String {
-        String(localized: "home.approval.denyAndStop", defaultValue: "Deny and Stop", table: "CmuxHome", bundle: .module)
     }
     /// The card's accessibility role description.
     static var approvalRole: String {

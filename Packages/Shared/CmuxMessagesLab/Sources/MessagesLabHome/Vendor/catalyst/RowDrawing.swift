@@ -197,9 +197,10 @@ enum RowDraw {
         case let .notice(s):
             // As the unsent notice below (ask 9, HostHooks.swift).
             // cmux-classic: Home's status line ("Waiting for you") in its own font and ink (HomeStatusLine), at the
-            // incoming bubbles' left edge under the approval card it speaks for.
+            // incoming bubbles' left edge under the approval card it speaks for, its capitals 6 pt under the card
+            // (Layout's 4 pt gap plus 2 pt).
             let f = HomeStatusLine.font
-            TextDraw.line(s, font: f, color: HomeStatusLine.ink, x: Fixture.labelLeft, baseline: top + 12, in: ctx)
+            TextDraw.line(s, font: f, color: HomeStatusLine.ink, x: Fixture.labelLeft, baseline: top + 2 + ceil(f.capHeight), in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)

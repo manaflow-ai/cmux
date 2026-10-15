@@ -139,4 +139,83 @@ import Testing
         #expect(band.topFadeMaxAlpha > 0.9)
         #expect(band.topFade?.locations?.count == 3)
     }
+
+    // MARK: Supervisor round (cloud run)
+
+    static func provisioning(host: String?, name: String?, _ status: WorkRef.Status) -> MessagePart {
+        .work(WorkRef(session: ChiefCloudRows.provisionPrefix + "p1", host: host, title: "Create cloud machine", status: status, preview: name))
+    }
+
+    /// A collapsed run says what failed and how many: "1 of 4 failed: <cmd>", never only "Used 4 tools ✗".
+    @Test func aCollapsedRunSaysWhatFailed() {
+        let tools = ChiefRows.Tools(group: "g", calls: [
+            ChiefRows.ToolCall(id: "1", title: "cmux tree --all", state: .done),
+            ChiefRows.ToolCall(id: "2", title: "cmux vm exec vm-1 -- ls", state: .failed),
+            ChiefRows.ToolCall(id: "3", title: "Read README.md", state: .done),
+            ChiefRows.ToolCall(id: "4", title: "git status", state: .done),
+        ])
+        #expect(ChiefRows.summary(tools) == "1 of 4 failed: cmux vm exec vm-1 -- ls")
+        var two = tools
+        two.calls[3].state = .failed
+        #expect(ChiefRows.summary(two) == "2 of 4 failed: cmux vm exec vm-1 -- ls")
+        // One call alone: "Failed <cmd>" (the row's red ✗ follows).
+        let one = ChiefRows.Tools(group: "g", calls: [ChiefRows.ToolCall(id: "1", title: "cmux tree --all", state: .failed)])
+        #expect(ChiefRows.summary(one) == "Failed cmux tree --all")
+    }
+
+    /// The provisioning row and the result card name the machine; its raw id is only the tooltip.
+    @Test func cloudRowsShowTheMachinesName() {
+        let ready = ChiefCloudRows.Provision(id: "p1", state: .done, machine: "vm-794a4009e0b04396", name: "chief-dogfood-1", startedAt: 0)
+        #expect(ChiefCloudRows.provisionText(ready, now: Date()) == "Cloud machine ready · chief-dogfood-1")
+        let view = ChiefProvisionRowView(frame: .zero)
+        view.show(ready)
+        #expect(view.toolTip == "vm-794a4009e0b04396")
+
+        let items = [Rows.item(1, [Self.provisioning(host: "vm-794a4009e0b04396", name: "chief-dogfood-1", .done)]),
+                     Rows.item(2, [.work(WorkRef(session: "ws_1", host: "vm-794a4009e0b04396", title: "README title", status: .running))])]
+        #expect(ChiefRows.roles(items).value(for: IdempotencyKey("k2")) == .cloudResult(name: "chief-dogfood-1"))
+        guard case let .custom(c)? = Rows.message(items[1], in: items).parts.first,
+              let card = c.decode(ChiefCloudRows.Result.self) else { Issue.record("no result card"); return }
+        #expect(card.shownMachine == "chief-dogfood-1" && card.machine == "vm-794a4009e0b04396")
+        // Without a provisioning row the card shows the id it has.
+        guard case let .custom(alone)? = Rows.message(items[1], in: [items[1]]).parts.first else { Issue.record("no card"); return }
+        #expect(alone.decode(ChiefCloudRows.Result.self)?.shownMachine == "vm-794a4009e0b04396")
+    }
+
+    /// "Allowed: cmux vm new …" folds into the provisioning row that already says what it did; an allowed
+    /// command whose tool row comes back under its receipt is one "Ran … · Allowed" row.
+    @Test func allowedReceiptsFoldIntoTheRowsTheyStarted() {
+        let new = #"cmux vm new --detach --name "chief-dogfood-1" --size 4g --json"#
+        let push = "cmux vm push vm-1 /tmp/repo work/readme-title"
+        let items = [Rows.item(1, [Self.provisioning(host: "vm-1", name: "chief-dogfood-1", .done)]),
+                     Rows.item(2, [Self.approval(new, decided: "Allow")]),
+                     Rows.item(3, [Self.approval(push, decided: "Allow")]),
+                     Rows.item(4, [Rows.work("t2", push, .running)])]
+        let roles = ChiefRows.roles(items)
+        #expect(roles.value(for: IdempotencyKey("k2")) == .folded)
+        #expect(Rows.message(items[1], in: items).parts.isEmpty)
+        let row = Rows.tools(Rows.message(items[2], in: items).parts.first)
+        #expect(row?.allowed == true && row?.calls.map(\.title) == [push])
+        #expect(roles.value(for: IdempotencyKey("k4")) == .folded)
+        // The card took the row's place until the Allow, which posts the row again right under it.
+        let reposted = [Rows.item(7, [Self.approval(new, decided: "Allow")]),
+                        Rows.item(8, [Self.provisioning(host: nil, name: "chief-dogfood-1", .running)])]
+        #expect(ChiefRows.roles(reposted).value(for: IdempotencyKey("k7")) == .folded)
+        // Another author's message in between ends the provisioning stretch: the receipt stays.
+        let later = [items[0], Rows.item(5, [.text("ok")], by: Rows.me), Rows.item(6, [Self.approval(new, decided: "Allow")])]
+        #expect(ChiefRows.roles(later).value(for: IdempotencyKey("k6")) == nil)
+    }
+
+    /// P1-3: the header resolves in the host's appearance (a dark terminal theme in a light app).
+    @Test func theHeaderFollowsTheThemesAppearanceNotTheApps() {
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 120))
+        container.appearance = NSAppearance(named: .aqua)
+        let header = PaneHeaderView(frame: container.bounds)
+        container.addSubview(header)
+        #expect(header.pill.effectiveAppearance.name == .aqua)
+        HostView.pinAppearance([header], NSAppearance(named: .darkAqua))
+        #expect(header.pill.effectiveAppearance.name == .darkAqua)
+        HostView.pinAppearance([header], nil)
+        #expect(header.pill.effectiveAppearance.name == .aqua)
+    }
 }

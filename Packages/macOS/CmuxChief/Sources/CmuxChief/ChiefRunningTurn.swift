@@ -37,6 +37,9 @@ struct ChiefRunningTurn {
     /// While any waits the Chief is not typing (it waits for the user,
     /// ``ChiefConversationOwner/answerApproval(conversation:message:part:choice:)``).
     var approvals: [ChiefApprovalSlot: String] = [:]
+    /// The running tool row a waiting card took the place of (its call id and work part): allowed,
+    /// the row comes back under the card's receipt, so Home draws one "Ran … · Allowed" row.
+    var approvedWork: [ChiefApprovalSlot: (tool: String, work: WorkRef)] = [:]
     /// The turn's one Cloud provisioning row (``ChiefCloudProvisioning``), once a provisioning call started.
     var provisioning: MessageID?
     /// The provisioning step of each running provisioning call, by tool call id.

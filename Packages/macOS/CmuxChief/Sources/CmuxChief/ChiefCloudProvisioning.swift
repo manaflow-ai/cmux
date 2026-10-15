@@ -10,7 +10,14 @@ import Foundation
 /// every provisioning call onto it (``ChiefConversationOwner``'s
 /// `toolStarted`). Clients recognize the row by its session prefix
 /// (``sessionPrefix``) and draw elapsed time from the message's `createdAt`;
-/// `host` is the machine id once `vm new` printed it.
+/// `host` is the machine id once `vm new` printed it and `preview` its display
+/// name (``machineName(inCommand:)``, ``machineName(inOutput:)``) while the row
+/// has not failed (a failure's preview is the output).
+///
+/// A `vm new` that waits for the user's approval does not time anything yet:
+/// its card takes the row's place, and an Allow posts the row again, so
+/// "Creating cloud machine…" counts from when the command really runs
+/// (`ChiefConversationOwner+Provisioning.swift`).
 ///
 /// A value is one provisioning step (``phase(ofCommand:)``).
 public enum ChiefCloudProvisioning: Sendable, Equatable {
@@ -64,6 +71,32 @@ public enum ChiefCloudProvisioning: Sendable, Equatable {
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: text) else { return nil }
         return String(text[range])
+    }
+
+    /// The machine's display name: `--name <name>` (or `--name=<name>`) on a `vm new` command.
+    /// The row shows it ("chief-dogfood-1"); the id stays in `host` (its tooltip).
+    public static func machineName(inCommand command: String) -> String? {
+        let words = command.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        for (offset, word) in words.enumerated() {
+            if word.hasPrefix("--name=") { return unquoted(String(word.dropFirst("--name=".count))) }
+            if word == "--name" { return words.dropFirst(offset + 1).first.flatMap(unquoted) }
+        }
+        return nil
+    }
+
+    /// The machine's display name in `vm new --json` output: the backend answers
+    /// `"displayName"` (older payloads `"display_name"` or `"name"`).
+    public static func machineName(inOutput output: String?) -> String? {
+        guard let output, !output.isEmpty else { return nil }
+        for key in ["displayName", "display_name", "name"] {
+            if let name = capture(#""\#(key)"\s*:\s*"([^"]+)""#, in: output).flatMap(unquoted) { return name }
+        }
+        return nil
+    }
+
+    private static func unquoted(_ word: String) -> String? {
+        let trimmed = word.trimmingCharacters(in: CharacterSet(charactersIn: "'\"").union(.whitespaces))
+        return trimmed.isEmpty || trimmed.hasPrefix("-") ? nil : trimmed
     }
 
     /// The machine a `vm wait <machine>` command names.

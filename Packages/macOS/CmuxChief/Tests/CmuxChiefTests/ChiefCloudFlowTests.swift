@@ -84,6 +84,8 @@ import Testing
         }
         #expect(ChiefCloudProvisioning.isProvisioning(row))
         #expect(row.title == ChiefCloudProvisioning.title && row.host == "brave-otter" && row.status == .done)
+        // The row shows the machine's name (`--name api`); the id stays in `host` (Home's tooltip).
+        #expect(row.preview == "api")
         #expect(!ChiefCloudProvisioning.isProvisioning(tool) && tool.session == "t3")
 
         _ = await ChiefFixture.eventually { await recorder.messages().filter { $0.id == messages[1].id }.count >= 4 }
@@ -94,6 +96,16 @@ import Testing
         // Created (running), still running after `vm new`, running again for the wait, then ready.
         #expect(statuses.first == .running && statuses.last == .done)
         #expect(!statuses.dropLast().contains(.done))
+    }
+
+    @Test func theMachinesNameComesFromTheCommandOrTheOutput() {
+        typealias Owner = ChiefConversationOwner
+        #expect(Owner.machineName(inCommand: #"cmux vm new --detach --name "chief-dogfood-1" --size 4g --json"#) == "chief-dogfood-1")
+        #expect(Owner.machineName(inCommand: "cmux vm new --name=api --json") == "api")
+        #expect(Owner.machineName(inCommand: "cmux vm new --name --json") == nil)
+        #expect(Owner.machineName(inCommand: "cmux vm wait vm-1 --wake") == nil)
+        #expect(Owner.machineName(inOutput: "{\n  \"id\" : \"vm-1\",\n  \"name\" : \"chief-dogfood-1\"\n}") == "chief-dogfood-1")
+        #expect(Owner.machineName(inOutput: "vm-1 is ready") == nil)
     }
 
     @Test func failedWaitFailsTheRow() async throws {

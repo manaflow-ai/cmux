@@ -53,17 +53,21 @@ import Testing
         // Home's answer: answerQuestion on the approval part.
         try await owner.submit(HomeIntent(op: .answerQuestion(message: card.id, conversation: conversation, partIndex: 0,
                                                               answer: Self.answer("Allow"))))
-        let decided = try await owner.snapshot(of: conversation, tail: 10).messages.last
+        let after = try await owner.snapshot(of: conversation, tail: 10).messages
+        let decided = after.first { $0.id == card.id }
         guard case .approval(let answered)? = decided?.parts.first else { Issue.record("no approval part"); return }
         #expect(answered.decided == "Allow")
+        // Allowed, the tool's running row comes back right under the receipt (Home folds them into
+        // "Ran cmux tree --all · Allowed"), and the row's spinner is the one live indicator: no typing dots.
+        #expect(after.count == 3)
+        guard case .work(let row)? = after.last?.parts.first else { Issue.record("no tool row after the receipt"); return }
+        #expect(row.title == "cmux tree --all" && row.status == .running)
         #expect(await owner.isWaitingForApproval(conversation) == false)
         #expect(await owner.pendingApproval(in: conversation) == nil)
         #expect(await ChiefFixture.eventually { await owner.brainApprovals() == ["perm-1:Allow"] })
-        // The Chief types again while its turn goes on.
-        #expect(await ChiefFixture.eventually {
-            await recorder.events.last { if case .typing = $0 { return true }; return false }
-                .map { if case .typing(_, _, on: true) = $0 { return true }; return false } ?? false
-        })
+        let typing = await recorder.events.last { if case .typing = $0 { return true }; return false }
+        guard case .typing(_, _, on: let typingAfter)? = typing else { Issue.record("no typing event"); return }
+        #expect(typingAfter == false)
         // A second answer is refused.
         await #expect(throws: HomeRejection.invalid("approval_decided")) {
             try await owner.submit(HomeIntent(op: .answerQuestion(message: card.id, conversation: self.conversation, partIndex: 0,
@@ -78,7 +82,10 @@ import Testing
         try await ChiefFixture.send("show my workspaces", to: owner)
         #expect(await ChiefFixture.eventually { await owner.isWaitingForApproval(conversation) })
         #expect(await owner.stopTurn(conversation: conversation))
-        let card = try await owner.snapshot(of: conversation, tail: 10).messages.last
+        let card = try await owner.snapshot(of: conversation, tail: 10).messages.last {
+            if case .approval = $0.parts.first { return true }
+            return false
+        }
         guard case .approval(let ref)? = card?.parts.first else { Issue.record("no approval part"); return }
         #expect(ref.decided == "Deny")
         await gate.open()

@@ -37,7 +37,7 @@ enum ChiefRows {
     /// A saved note's work part (its title is the note; `.failed` once Undo forgot it).
     static func isMemory(_ work: WorkRef) -> Bool { work.host == nil && work.session.hasPrefix(memoryPrefix) }
     /// A system row's work part, not a tool call.
-    static func isNotice(_ work: WorkRef) -> Bool { isFailure(work) || isMemory(work) }
+    static func isNotice(_ work: WorkRef) -> Bool { isFailure(work) || isMemory(work) || isStopped(work) }
     /// The suffix of a tool row's sender id (`toolSender`).
     static let toolSenderSuffix = "#tools"
 
@@ -259,6 +259,9 @@ enum ChiefRows {
         case folded
         /// A failed turn's row; `retry`: it is the newest message (Try Again resends the last message).
         case failure(retry: Bool)
+        /// A Cloud result card whose machine an earlier provisioning row named ("chief-dogfood-1"):
+        /// the card shows the name, the raw machine id stays in its tooltip.
+        case cloudResult(name: String)
     }
 
     /// Tool-only messages: every part is a tool call (`.work` without a `host`), not retracted. A work part
@@ -283,6 +286,20 @@ enum ChiefRows {
         return ref.prompt
     }
 
+    /// The work part of a Cloud provisioning row (one part), nil for any other message.
+    static func provisioningWork(_ item: TranscriptItem) -> WorkRef? {
+        guard !item.isRetracted, item.parts.count == 1, case .work(let w)? = item.parts.first, ChiefCloudRows.isProvisioning(w) else { return nil }
+        return w
+    }
+
+    /// Whether `prompt` asks to run a Cloud provisioning command (`cmux vm new`, `cmux cloud new`,
+    /// `vm wait`): its provisioning row already says what it does, so the allowed receipt folds into it.
+    static func asksToProvision(_ prompt: String) -> Bool {
+        guard let command = command(inPrompt: prompt), let all = words(command) else { return false }
+        let head = Array(all.prefix(3))
+        return ["vm", "cloud"].contains { group in ["new", "wait"].contains { head == ["cmux", group, $0] } }
+    }
+
     /// Messages drawn as the tool sender (`toolSender`): tool rows and approval cards, which are not the
     /// agent's words (they end its bubble group, and its next words start a new one).
     static func drawsAsToolSender(_ item: TranscriptItem) -> Bool {
@@ -297,14 +314,20 @@ enum ChiefRows {
     /// The tool role of each item, by key. A run is consecutive tool-only items of one author
     /// in one thread (another message between, even a folded draft, ends it). An allowed approval
     /// right before a run whose first call it asked for (the call's title is in its prompt) heads
-    /// that run: its receipt and the "Ran" row are one row ("Ran … · Allowed"). A failure row offers
-    /// Try Again only while it is the newest message.
+    /// that run: its receipt and the "Ran" row are one row ("Ran … · Allowed"). An allowed Cloud
+    /// provisioning command next to its provisioning row (after it, or right before the row posted
+    /// again on Allow) folds into that row (it already says what happened). A Cloud result card names the machine an earlier provisioning row named. A failure
+    /// row offers Try Again only while it is the newest message.
     static func roles(_ items: [TranscriptItem]) -> [IdempotencyKey: ToolRole] {
         var out: [IdempotencyKey: ToolRole] = [:]
         var head: TranscriptItem?
         var calls: [ToolCall] = []
         var allowed = false
         var granted: (item: TranscriptItem, prompt: String)?
+        // The newest provisioning row of the author's current stretch of messages (another author's
+        // message ends it), and the machine names provisioning rows learned (machine id: name).
+        var provisioning: TranscriptItem?
+        var machineNames: [String: String] = [:]
         func close() {
             if let head { out[head.key] = .head(calls, allowed: allowed) }
             head = nil
@@ -312,7 +335,17 @@ enum ChiefRows {
             allowed = false
         }
         let newest = items.last?.key
-        for item in items {
+        for (index, item) in items.enumerated() {
+            if let p = provisioning, p.author != item.author || p.threadRoot != item.threadRoot { provisioning = nil }
+            if let w = provisioningWork(item) {
+                if w.status != .failed, let machine = w.host, let name = w.preview, !name.isEmpty, name != machine {
+                    machineNames[machine] = name
+                }
+                provisioning = item
+            } else if !item.isRetracted, item.parts.count == 1, case .work(let w)? = item.parts.first,
+                      ChiefCloudRows.isResult(w), let machine = w.host, let name = machineNames.value(for: machine) {
+                out[item.key] = .cloudResult(name: name)
+            }
             if isFailureOnly(item) {
                 close()
                 granted = nil
@@ -321,7 +354,16 @@ enum ChiefRows {
             }
             if let prompt = allowedPrompt(item) {
                 close()
-                granted = (item, prompt)
+                // Its provisioning row is just before it, or (the card took the row's place until the
+                // Allow) posted again right after it.
+                let next = items.dropFirst(index + 1).first
+                let rowAfter = next.map { provisioningWork($0) != nil && $0.author == item.author && $0.threadRoot == item.threadRoot } ?? false
+                if provisioning != nil || rowAfter, asksToProvision(prompt) {
+                    out[item.key] = .folded
+                    granted = nil
+                } else {
+                    granted = (item, prompt)
+                }
                 continue
             }
             guard isToolOnly(item) else { close(); granted = nil; continue }
@@ -397,7 +439,17 @@ enum ChiefRows {
     static func summary(_ tools: Tools) -> String {
         guard tools.calls.count > 1 else { return tools.calls.first.map(lineText) ?? "" }
         let n = tools.calls.count
+        let failed = tools.calls.filter { $0.state == .failed }
+        // A collapsed run says what failed, not only that something did: "1 of 4 failed: cmux tree --all".
+        if let first = failed.first { return CmuxStrings.toolsFailedOf(failed.count, total: n, subject(first)) }
         return tools.calls.allSatisfy({ $0.kind == .command }) ? CmuxStrings.ranCommands(n) : CmuxStrings.usedTools(n)
+    }
+
+    /// What a call is, without its state's verb: the command, the human title, or the tool's title
+    /// ("cmux tree --all", "Read Sources/App.swift").
+    static func subject(_ call: ToolCall) -> String {
+        if let human = call.humanTitle { return human }
+        return call.kind == .command ? call.title : displayTitle(call.title)
     }
 
     /// A call's line as text ("Ran cmux tree --all", "Failed cmux tree --all", "Read Sources/App.swift").
@@ -561,6 +613,7 @@ extension ChiefRows {
         CustomRows.register(ChiefResultCardProvider.shared)
         CustomRows.register(ChiefFailureRowProvider.shared)
         CustomRows.register(ChiefMemoryRowProvider.shared)
+        CustomRows.register(ChiefStoppedRowProvider.shared)
     }
     private static var registered = false
 }

@@ -495,8 +495,9 @@ extension TerminalController {
         }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
-        // Release builds answer Chief's approval cards only in Home (ChiefControlRequest.isAvailable).
+        // Release builds answer Chief's approval and question cards only in Home (ChiefControlRequest.isAvailable).
         methods.append("chief.approve")
+        methods.append("chief.answer")
         methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif

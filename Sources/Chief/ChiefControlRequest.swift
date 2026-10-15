@@ -20,26 +20,31 @@ enum ChiefControlRequest: Equatable, Sendable {
     /// `chief.approve`: answers an approval card (`request` nil: the running turn's newest waiting one) with
     /// one of its options (`choice`, case-insensitive: "Allow", "Deny").
     case approve(conversation: String?, request: String?, choice: String)
+    /// `chief.answer`: answers a question card (`message` nil: the newest waiting one) as its Submit
+    /// does: `choices` name options by label or id, `text` fills an Other field; neither keeps the
+    /// card's preselection.
+    case answer(conversation: String?, message: String?, choices: [String], text: String?)
     /// `chief.debug` (DEBUG builds): drives the shown transcript for automation.
     case debug(ChiefControlDebugAction, conversation: String?)
 
     /// Every method of the family; `chief.debug` answers only in DEBUG builds.
     static let methods: [String] = [
         "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve",
-        "chief.debug",
+        "chief.answer", "chief.debug",
     ]
 
-    /// Whether this build answers `method` from the socket. `chief.approve` and
-    /// `chief.debug` answer only in DEBUG builds (automation, tours): in a
-    /// release build any local socket client, the Chief's own shell included,
-    /// could otherwise answer the approval cards that gate the Chief's
-    /// commands, so cards are answered only in Home there.
+    /// Whether this build answers `method` from the socket. `chief.approve`,
+    /// `chief.answer` and `chief.debug` answer only in DEBUG builds (automation,
+    /// tours): in a release build any local socket client, the Chief's own shell
+    /// included, could otherwise answer the approval cards that gate the Chief's
+    /// commands and the question cards that confirm what it creates, so cards are
+    /// answered only in Home there.
     static func isAvailable(_ method: String, debugBuild: Bool = isDebugBuild) -> Bool {
         debugBuild || !debugOnlyMethods.contains(method)
     }
 
     /// The methods ``isAvailable(_:debugBuild:)`` keeps to DEBUG builds.
-    static let debugOnlyMethods: Set<String> = ["chief.approve", "chief.debug"]
+    static let debugOnlyMethods: Set<String> = ["chief.approve", "chief.answer", "chief.debug"]
 
     #if DEBUG
     static let isDebugBuild = true
@@ -52,6 +57,8 @@ enum ChiefControlRequest: Equatable, Sendable {
     static let maxTextBytes = 65_536
     static let maxNameLength = 60
     static let maxConversationIDLength = 200
+    static let maxChoices = 20
+    static let maxChoiceLength = 200
 
     /// Parses `params` of `method`.
     ///
@@ -96,6 +103,11 @@ enum ChiefControlRequest: Equatable, Sendable {
             }
             return .approve(conversation: try conversation(params), request: try optionalString(params, "request", maxLength: 200),
                             choice: choice)
+        case "chief.answer":
+            let text = try optionalString(params, "text", maxLength: maxTextBytes)
+            if let text, text.utf8.count > maxTextBytes { throw ChiefControlParamError.tooLong("text") }
+            return .answer(conversation: try conversation(params), message: try optionalString(params, "message", maxLength: 200),
+                           choices: try choices(params), text: text)
         case "chief.debug":
             guard let name = try optionalString(params, "action", maxLength: 64) else {
                 throw ChiefControlParamError.missing("action")
@@ -125,6 +137,23 @@ enum ChiefControlRequest: Equatable, Sendable {
             return .debug(action, conversation: try conversation(params))
         default:
             throw ChiefControlParamError.unknownMethod(method)
+        }
+    }
+
+    /// `choices`: an array of option names, or one string; absent or null is none.
+    private static func choices(_ params: [String: Any]) throws -> [String] {
+        guard let value = params["choices"], !(value is NSNull) else { return [] }
+        let raw: [Any]
+        if let one = value as? String { raw = [one] } else if let many = value as? [Any] { raw = many } else {
+            throw ChiefControlParamError.invalid("choices")
+        }
+        guard raw.count <= maxChoices else { throw ChiefControlParamError.tooLong("choices") }
+        return try raw.map { item in
+            guard let string = item as? String else { throw ChiefControlParamError.invalid("choices") }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { throw ChiefControlParamError.invalid("choices") }
+            guard trimmed.count <= maxChoiceLength else { throw ChiefControlParamError.tooLong("choices") }
+            return trimmed
         }
     }
 

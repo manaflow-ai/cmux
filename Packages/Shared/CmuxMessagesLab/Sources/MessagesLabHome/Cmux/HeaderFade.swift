@@ -85,6 +85,12 @@ extension HeaderBackdropView {
 }
 
 extension HostView {
+    /// Sets `appearance` on each view that does not have it already (compared by name: a set
+    /// re-resolves every layer under it).
+    static func pinAppearance(_ views: [NSView], _ appearance: NSAppearance?) {
+        for view in views where view.appearance?.name != appearance?.name { view.appearance = appearance }
+    }
+
     /// The zone over the header plus a small margin, tracked only once the
     /// top fade is in use.
     static let headerZoneMargin: CGFloat = 16
@@ -147,6 +153,14 @@ extension MessagesLabHomeView {
 
     /// cmux: the name pill's own translucent capsule, always shown.
     public func setHeaderPillBacking(_ color: NSColor) { controller.host.paneHeader.setPillBacking(color) }
+
+    /// cmux-classic: the header (avatar, the pill's glass, the band) resolves in `appearance`, the
+    /// host's theme (Chief: the terminal theme's light or dark), never the app's: a dark terminal
+    /// theme in a light app drew a light grey pill with mid-grey text on the dark pane. Nil follows
+    /// the superview again.
+    public func setHeaderAppearance(_ appearance: NSAppearance?) {
+        HostView.pinAppearance([controller.host.paneHeader, controller.host.headerBackdrop], appearance)
+    }
 
     /// The header fade's opacity as set (0 hidden, 1 shown).
     public var headerFadeOpacity: Float { controller.host.headerBackdrop.revealOpacity }

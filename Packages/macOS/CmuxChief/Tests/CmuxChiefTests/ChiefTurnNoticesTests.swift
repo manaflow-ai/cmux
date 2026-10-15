@@ -80,11 +80,12 @@ import Testing
             }) else { return [] }
             return events.dropFirst(posted + 1).compactMap { if case .typing(_, _, on: let on) = $0 { return on }; return nil }
         }
-        // The tool's post ends the dots, and nothing turns them on while it runs.
-        #expect(typingAfterTool(await recorder.events).contains(true) == false)
+        // The tool's post turns the dots off, and nothing turns them on while it runs.
+        let whileRunning = typingAfterTool(await recorder.events)
+        #expect(whileRunning.first == false && whileRunning.contains(true) == false)
         await gate.open()
         // Between the finished tool and the next words the Chief types again.
-        #expect(await ChiefFixture.eventually { typingAfterTool(await recorder.events).first == true })
+        #expect(await ChiefFixture.eventually { typingAfterTool(await recorder.events).contains(true) })
         _ = try await ChiefFixture.idleMessages(owner, count: 3)
     }
 

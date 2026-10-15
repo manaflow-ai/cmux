@@ -141,7 +141,8 @@ final class ChiefToolRowView: NSView {
         }
         setAccessibilityIdentifier("ChiefToolRow")
         // The full list (and each call's detail) in the tooltip; Copy writes the same lines.
-        toolTip = (allowed ? [CmuxStrings.approvalAllowed] : []) + tools.calls.map { call in
+        let allowedLine: [String] = allowed ? [CmuxStrings.approvalAllowed] : []
+        toolTip = allowedLine + tools.calls.map { call -> String in
             [ChiefRows.displayTitle(call.title), call.detail].compactMap { $0 }.joined(separator: "\n")
         }.joined(separator: "\n\n")
         rebuild()
@@ -300,7 +301,9 @@ final class ChiefToolRowView: NSView {
         let commands = tools.calls.allSatisfy { $0.kind == .command }
         let plainColor = hovering ? Fixture.incomingText : secondary
         let tag = tools.allowed == true ? " · " + CmuxStrings.approvalAllowed : ""
-        let summary = NSAttributedString(string: ChiefRows.summary(tools) + tag, attributes: [.font: Self.font, .foregroundColor: plainColor])
+        let summary = Self.fitting(ChiefRows.summary(tools), width: limit - Self.textX - 34) { shown in
+            NSAttributedString(string: shown + tag, attributes: [.font: Self.font, .foregroundColor: plainColor])
+        }
         var head = Line(kind: commands ? .command : (tools.calls.first?.kind ?? .command), text: summary, glyphX: Self.glyphX,
                         textX: Self.textX, midY: mid, list: false, state: tools.state)
         // The run's own line shows its state only while a call runs or after one failed.
@@ -394,7 +397,27 @@ final class ChiefToolRowView: NSView {
         let item = NSMenuItem(title: Strings.menuCopy, action: #selector(copyCommands(_:)), keyEquivalent: "")
         item.target = self
         menu.addItem(item)
+        // A failed call: its detail (a run lists every call with its output in the tooltip) and Try Again,
+        // which sends the last message again (refused while a turn runs).
+        if tools.state == .failed {
+            if tools.calls.count > 1, !expanded {
+                let show = NSMenuItem(title: CmuxStrings.toolShowAll, action: #selector(showAll(_:)), keyEquivalent: "")
+                show.target = self
+                menu.addItem(show)
+            }
+            let retry = NSMenuItem(title: CmuxStrings.failureTryAgain, action: #selector(tryAgain(_:)), keyEquivalent: "")
+            retry.target = self
+            retry.toolTip = CmuxStrings.failureTryAgainHelp
+            retry.isEnabled = ChiefRows.intents(of: self) != nil
+            menu.addItem(retry)
+        }
         return menu
+    }
+
+    @objc private func showAll(_ sender: NSMenuItem) { if !expanded { toggle() } }
+
+    @objc private func tryAgain(_ sender: NSMenuItem) {
+        ChiefRows.intents(of: self)?.retryLastTurn { _ in }
     }
 
     @objc private func copyCommands(_ sender: NSMenuItem) {

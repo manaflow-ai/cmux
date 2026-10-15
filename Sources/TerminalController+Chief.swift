@@ -100,6 +100,36 @@ extension TerminalController {
                     try await owner.answerApproval(conversation: id, message: card.message, part: card.part, choice: option)
                 }
                 return .ok(["conversation": id.rawValue, "request": card.request, "choice": option, "decided": true] as [String: Any])
+            case .answer(let conversation, let message, let choices, let text):
+                // Release builds answer question cards only in Home (ChiefControlRequest.isAvailable).
+                guard ChiefControlRequest.isAvailable("chief.answer") else {
+                    return .err(code: "not_available",
+                                message: String(localized: "socket.chief.error.answerNotAvailable",
+                                                defaultValue: "Answer Chief's questions in Home; this build doesn't accept them from the socket."),
+                                data: nil)
+                }
+                let owner = try await chiefOwner()
+                let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
+                _ = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
+                guard let card = await owner.pendingQuestion(in: id, message: message) else {
+                    return .err(code: "not_found",
+                                message: message == nil
+                                    ? String(localized: "socket.chief.error.noPendingQuestion", defaultValue: "Chief has no question waiting.")
+                                    : String(localized: "socket.chief.error.unknownQuestion",
+                                             defaultValue: "No waiting Chief question is in that message."),
+                                data: message.map { ["message": $0] })
+                }
+                let lines: [String]
+                do {
+                    // The same HomeOp.answerQuestion the card's Submit sends.
+                    lines = try await Self.chiefOwnerCall {
+                        try await owner.answerQuestion(card, in: id, choices: choices, text: text)
+                    }
+                } catch let problem as ChiefQuestionAnswer.Problem {
+                    return .err(code: "invalid_params", message: Self.chiefAnswerProblemMessage(problem), data: nil)
+                }
+                return .ok(["conversation": id.rawValue, "message": card.message.rawValue,
+                            "answer": lines] as [String: Any])
             case .debug(let action, let conversation):
 #if DEBUG
                 return try await chiefDebug(action, conversation: conversation)
@@ -260,6 +290,20 @@ extension TerminalController {
             return try await body()
         } catch let rejection as HomeRejection {
             throw ChiefControlFailure.from(rejection)
+        }
+    }
+
+    /// Why `chief.answer`'s words do not answer the card.
+    private nonisolated static func chiefAnswerProblemMessage(_ problem: ChiefQuestionAnswer.Problem) -> String {
+        switch problem {
+        case .unknownChoice(let choice):
+            String(format: String(localized: "socket.chief.error.unknownQuestionChoice",
+                                  defaultValue: "The question has no option named %@."), choice)
+        case .otherNotAllowed:
+            String(localized: "socket.chief.error.questionTakesNoText", defaultValue: "The question takes no typed answer.")
+        case .invalid:
+            String(localized: "socket.chief.error.incompleteAnswer",
+                   defaultValue: "Those choices don't answer every part of the question.")
         }
     }
 

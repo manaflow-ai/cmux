@@ -150,7 +150,7 @@ struct ChiefFixture {
     }
 
     /// Polls `condition` every 5 ms until it holds or `timeout` passes.
-    static func eventually(timeout: Duration = .seconds(10), _ condition: () async -> Bool) async -> Bool {
+    static func eventually(timeout: Duration = .seconds(10), _ condition: @Sendable () async -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if await condition() { return true }

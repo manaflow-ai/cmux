@@ -30,6 +30,25 @@ import Testing
         #expect(parse("chief.approve", ["choice": true]) == .failure(.invalid("choice")))
     }
 
+    @Test func answerTakesChoicesTextAndAnOptionalMessage() {
+        // Neither: the card's preselection, as pressing its Submit right away.
+        #expect(parse("chief.answer") == .success(.answer(conversation: nil, message: nil, choices: [], text: nil)))
+        #expect(parse("chief.answer", ["choices": [" 4 GB ", "Existing"], "message": " msg_1 ", "conversation": "conv_a"])
+            == .success(.answer(conversation: "conv_a", message: "msg_1", choices: ["4 GB", "Existing"], text: nil)))
+        // One string is one choice; null is none.
+        #expect(parse("chief.answer", ["choices": "8 GB"]) == .success(.answer(conversation: nil, message: nil, choices: ["8 GB"], text: nil)))
+        #expect(parse("chief.answer", ["choices": NSNull(), "text": " call it api "])
+            == .success(.answer(conversation: nil, message: nil, choices: [], text: "call it api")))
+        #expect(parse("chief.answer", ["choices": ["4 GB", 3]]) == .failure(.invalid("choices")))
+        #expect(parse("chief.answer", ["choices": ["  "]]) == .failure(.invalid("choices")))
+        #expect(parse("chief.answer", ["choices": 4]) == .failure(.invalid("choices")))
+        #expect(parse("chief.answer", ["choices": Array(repeating: "x", count: 21)]) == .failure(.tooLong("choices")))
+        #expect(parse("chief.answer", ["choices": [String(repeating: "x", count: 201)]]) == .failure(.tooLong("choices")))
+        #expect(parse("chief.answer", ["text": " "]) == .failure(.invalid("text")))
+        #expect(parse("chief.answer", ["text": true]) == .failure(.invalid("text")))
+        #expect(parse("chief.answer", ["message": 7]) == .failure(.invalid("message")))
+    }
+
     @Test func approveAndDebugAnswerOnlyInDebugBuilds() {
         // A release build refuses `chief.approve`: any local socket client, the Chief's own shell
         // included, could otherwise answer the cards that gate the Chief's commands.
@@ -37,6 +56,9 @@ import Testing
         #expect(!ChiefControlRequest.isAvailable("chief.debug", debugBuild: false))
         #expect(ChiefControlRequest.isAvailable("chief.approve", debugBuild: true))
         #expect(ChiefControlRequest.isAvailable("chief.debug", debugBuild: true))
+        // Question cards too: they confirm what the Chief creates (a Cloud machine).
+        #expect(!ChiefControlRequest.isAvailable("chief.answer", debugBuild: false))
+        #expect(ChiefControlRequest.isAvailable("chief.answer", debugBuild: true))
         for method in ["chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop"] {
             #expect(ChiefControlRequest.isAvailable(method, debugBuild: false), "\(method)")
         }

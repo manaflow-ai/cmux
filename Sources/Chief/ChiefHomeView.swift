@@ -163,13 +163,19 @@ final class ChiefHomeView: NSView {
         let entries = rows.map { row -> CmuxSidebarEntry in
             let others = row.summary.participants.filter { $0.id != me }
             let marked = unreadMarks.contains(row.id.rawValue)
+            // While a card waits the row says "Waiting for you", never the typing dots (the Chief waits on the
+            // user); while a turn works it keeps the last text (its transcript shows the live line).
+            let waiting = ChiefService.shared.hasPendingApproval(row.id)
+            let working = ChiefService.shared.isWorking(row.id)
             return CmuxSidebarEntry(
                 id: row.id.rawValue,
                 title: row.title.isEmpty ? (others.first?.displayName ?? ChiefStrings.chiefName) : row.title,
                 people: others.map { CmuxSidebarEntry.Person(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) },
                 // No message yet: no time (the list draws none for `.distantPast`), as Messages shows a new thread.
-                preview: Self.listPreview(row), previewSender: nil, lastAt: Self.hasNoMessages(row) ? .distantPast : row.timestamp,
-                unreadCount: marked ? max(row.unread, 1) : (visible.contains(row.id) ? 0 : row.unread), pinned: pinnedSet.contains(row.id), typing: row.isTyping,
+                preview: waiting ? ChiefPreviewText.waitingForYou : Self.listPreview(row), previewSender: nil,
+                lastAt: Self.hasNoMessages(row) ? .distantPast : row.timestamp,
+                unreadCount: marked ? max(row.unread, 1) : (visible.contains(row.id) ? 0 : row.unread), pinned: pinnedSet.contains(row.id),
+                typing: row.isTyping && !working,
                 avatar: avatar)
         }
         // Pinned in their order first, then the rest newest first (the store's order).
@@ -201,9 +207,9 @@ final class ChiefHomeView: NSView {
     /// draws previews in the secondary color), so the row never has an empty
     /// second line.
     static func listPreview(_ row: InboxRow) -> String {
-        // A waiting approval says what it asks ("Needs your approval: <command>"), not its raw prompt.
-        if !row.isSending, let prompt = ChiefPreviewText.pendingApprovalPrompt(row.summary.lastMessage) {
-            return ChiefPreviewText.approval(prompt: prompt)
+        // A waiting approval: "Waiting for you", not its raw prompt.
+        if !row.isSending, ChiefPreviewText.pendingApprovalPrompt(row.summary.lastMessage) != nil {
+            return ChiefPreviewText.waitingForYou
         }
         let text = row.preview.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {

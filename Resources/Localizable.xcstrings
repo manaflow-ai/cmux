@@ -60,6 +60,66 @@
         }
       }
     },
+    "chief.preview.waitingForYou": {
+      "comment": "A conversation's list preview while the Chief waits for the user to allow or deny an approval card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for you"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf dich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de votre réponse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظارك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperándote"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等你"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等你"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답을 기다리는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの返答待ち"
+          }
+        }
+      }
+    },
     "cli.remotes.error.invalidArguments": {
       "extractionState": "manual",
       "localizations": {
@@ -655992,55 +656052,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown chief subcommand. Try: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Unknown chief subcommand. Try: open, dispatch, send, status, conversations, read, stop, approve, answer, home, memory"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unbekannter chief-Unterbefehl. Versuche: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Unbekannter chief-Unterbefehl. Versuche: open, dispatch, send, status, conversations, read, stop, approve, answer, home, memory"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sous-commande chief inconnue. Essayez : open, dispatch, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Sous-commande chief inconnue. Essayez : open, dispatch, send, status, conversations, read, stop, approve, answer, home, memory"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أمر chief فرعي غير معروف. جرّب: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
+            "value": "أمر chief فرعي غير معروف. جرّب: open, dispatch, send, status, conversations, read, stop, approve, answer, home, memory"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subcomando de chief desconocido. Prueba: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Subcomando de chief desconocido. Prueba: open, dispatch, send, status, conversations, read, stop, approve, answer, home, memory"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 chief 子命令。可試試：open、dispatch、send、status、conversations、read、stop、approve、home、memory"
+            "value": "未知的 chief 子命令。可試試：open、dispatch、send、status、conversations、read、stop、approve、answer、home、memory"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 chief 子命令。可尝试：open、dispatch、send、status、conversations、read、stop、approve、home、memory"
+            "value": "未知的 chief 子命令。可尝试：open、dispatch、send、status、conversations、read、stop、approve、answer、home、memory"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알 수 없는 chief 하위 명령입니다. 사용 가능: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
+            "value": "알 수 없는 chief 하위 명령입니다. 사용 가능: open, dispatch, send, status, conversations, read, stop, approve, answer, home, memory"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明な chief サブコマンドです。使用できるもの: open、dispatch、send、status、conversations、read、stop、approve、home、memory"
+            "value": "不明な chief サブコマンドです。使用できるもの: open、dispatch、send、status、conversations、read、stop、approve、answer、home、memory"
           }
         }
       }
@@ -656523,55 +656583,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux chief <subcommand> [options]\n\nChief, cmux's home agent: its conversations, home directory and long-term memory.\n\nSubcommands (need a running cmux):\n  open                       Show Chief Home in this window.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Start one coding agent on one task in a new workspace\n                             (`cmux chief dispatch --help` for every option).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Send a message as you, like typing it in Home (- reads stdin).\n                             With --from, post it as a report from an agent named <name>;\n                             Chief answers it unless --no-reply is given.\n  status [--json]            Print the harness, model, unread count and working conversations.\n  conversations [--json]     List Chief conversations.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Print the newest messages (default 20).\n  stop [--conversation <id>] Stop Chief's running reply.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Answer Chief's approval card (default: allow the newest waiting one).\n                             DEBUG builds only; release builds answer cards in Home.\n\nSubcommands (work without a running cmux):\n  home                       Print the Chief home directory.\n  memory add <text|->        Save one fact Chief should remember (- reads stdin).\n  memory list [--json]       List saved facts, oldest first, with their ids.\n  memory forget <id>         Remove a saved fact.\n  memory path [--json]       Print the memory directory and its files\n                             (person.md, instructions.md, memory.jsonl).\n\nWithout --conversation, commands use the default Chief conversation.\nMemory never stores secrets: text that looks like a token, key or password is refused.\nThe home is $CMUX_CHIEF_HOME, else ~/.cmux/chief/<app bundle id>.\n\nExamples:\n  cmux chief send \"What are my agents doing?\"\n  cmux chief send --from \"build bot\" \"Release build finished\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Their build machine is brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Usage: cmux chief <subcommand> [options]\n\nChief, cmux's home agent: its conversations, home directory and long-term memory.\n\nSubcommands (need a running cmux):\n  open                       Show Chief Home in this window.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Start one coding agent on one task in a new workspace\n                             (`cmux chief dispatch --help` for every option).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Send a message as you, like typing it in Home (- reads stdin).\n                             With --from, post it as a report from an agent named <name>;\n                             Chief answers it unless --no-reply is given.\n  status [--json]            Print the harness, model, unread count and working conversations.\n  conversations [--json]     List Chief conversations.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Print the newest messages (default 20).\n  stop [--conversation <id>] Stop Chief's running reply.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Answer Chief's approval card (default: allow the newest waiting one).\n                             DEBUG builds only; release builds answer cards in Home.\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             Answer Chief's question card (default: the newest waiting one) as\n                             its button does. Repeat --choice for each item; unnamed items keep\n                             their preselected option. DEBUG builds only.\n\nSubcommands (work without a running cmux):\n  home                       Print the Chief home directory.\n  memory add <text|->        Save one fact Chief should remember (- reads stdin).\n  memory list [--json]       List saved facts, oldest first, with their ids.\n  memory forget <id>         Remove a saved fact.\n  memory path [--json]       Print the memory directory and its files\n                             (person.md, instructions.md, memory.jsonl).\n\nWithout --conversation, commands use the default Chief conversation.\nMemory never stores secrets: text that looks like a token, key or password is refused.\nThe home is $CMUX_CHIEF_HOME, else ~/.cmux/chief/<app bundle id>.\n\nExamples:\n  cmux chief send \"What are my agents doing?\"\n  cmux chief send --from \"build bot\" \"Release build finished\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Their build machine is brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux chief <subcommand> [options]\n\nChief, der Home-Agent von cmux: seine Unterhaltungen, sein Home-Verzeichnis und sein Langzeitgedächtnis.\n\nUnterbefehle (benötigen ein laufendes cmux):\n  open                       Zeigt Chief Home in diesem Fenster.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Startet einen Coding-Agenten für eine Aufgabe in einem neuen Workspace\n                             (`cmux chief dispatch --help` zeigt alle Optionen).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Sendet eine Nachricht in deinem Namen, als würdest du sie in Home eingeben (- liest stdin).\n                             Mit --from wird sie als Bericht eines Agenten namens <name> gepostet;\n                             Chief antwortet darauf, außer --no-reply ist angegeben.\n  status [--json]            Gibt Harness, Modell, Anzahl ungelesener Nachrichten und aktive Unterhaltungen aus.\n  conversations [--json]     Listet Chief-Unterhaltungen auf.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Gibt die neuesten Nachrichten aus (Standard: 20).\n  stop [--conversation <id>] Stoppt die laufende Antwort von Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Beantwortet die Freigabekarte von Chief (Standard: die neueste wartende erlauben).\n                             Nur in DEBUG-Builds; Release-Builds beantworten Karten in Home.\n\nUnterbefehle (funktionieren ohne laufendes cmux):\n  home                       Gibt das Chief-Home-Verzeichnis aus.\n  memory add <text|->        Speichert einen Fakt, den Chief sich merken soll (- liest stdin).\n  memory list [--json]       Listet gespeicherte Fakten auf, älteste zuerst, mit ihren IDs.\n  memory forget <id>         Entfernt einen gespeicherten Fakt.\n  memory path [--json]       Gibt das Gedächtnisverzeichnis und seine Dateien aus\n                             (person.md, instructions.md, memory.jsonl).\n\nOhne --conversation verwenden Befehle die Standard-Unterhaltung von Chief.\nDas Gedächtnis speichert niemals Geheimnisse: Text, der wie ein Token, Schlüssel oder Passwort aussieht, wird abgelehnt.\nDas Home ist $CMUX_CHIEF_HOME, sonst ~/.cmux/chief/<app bundle id>.\n\nBeispiele:\n  cmux chief send \"Was machen meine Agenten?\"\n  cmux chief send --from \"build bot\" \"Release-Build abgeschlossen\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Ihre Build-Maschine ist brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Verwendung: cmux chief <subcommand> [options]\n\nChief, der Home-Agent von cmux: seine Unterhaltungen, sein Home-Verzeichnis und sein Langzeitgedächtnis.\n\nUnterbefehle (benötigen ein laufendes cmux):\n  open                       Zeigt Chief Home in diesem Fenster.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Startet einen Coding-Agenten für eine Aufgabe in einem neuen Workspace\n                             (`cmux chief dispatch --help` zeigt alle Optionen).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Sendet eine Nachricht in deinem Namen, als würdest du sie in Home eingeben (- liest stdin).\n                             Mit --from wird sie als Bericht eines Agenten namens <name> gepostet;\n                             Chief antwortet darauf, außer --no-reply ist angegeben.\n  status [--json]            Gibt Harness, Modell, Anzahl ungelesener Nachrichten und aktive Unterhaltungen aus.\n  conversations [--json]     Listet Chief-Unterhaltungen auf.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Gibt die neuesten Nachrichten aus (Standard: 20).\n  stop [--conversation <id>] Stoppt die laufende Antwort von Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Beantwortet die Freigabekarte von Chief (Standard: die neueste wartende erlauben).\n                             Nur in DEBUG-Builds; Release-Builds beantworten Karten in Home.\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             Beantwortet die Fragekarte von Chief (Standard: die neueste wartende) wie\n                             ihr Button. Wiederhole --choice für jeden Punkt; nicht genannte Punkte behalten\n                             ihre vorausgewählte Option. Nur in DEBUG-Builds.\n\nUnterbefehle (funktionieren ohne laufendes cmux):\n  home                       Gibt das Chief-Home-Verzeichnis aus.\n  memory add <text|->        Speichert einen Fakt, den Chief sich merken soll (- liest stdin).\n  memory list [--json]       Listet gespeicherte Fakten auf, älteste zuerst, mit ihren IDs.\n  memory forget <id>         Entfernt einen gespeicherten Fakt.\n  memory path [--json]       Gibt das Gedächtnisverzeichnis und seine Dateien aus\n                             (person.md, instructions.md, memory.jsonl).\n\nOhne --conversation verwenden Befehle die Standard-Unterhaltung von Chief.\nDas Gedächtnis speichert niemals Geheimnisse: Text, der wie ein Token, Schlüssel oder Passwort aussieht, wird abgelehnt.\nDas Home ist $CMUX_CHIEF_HOME, sonst ~/.cmux/chief/<app bundle id>.\n\nBeispiele:\n  cmux chief send \"Was machen meine Agenten?\"\n  cmux chief send --from \"build bot\" \"Release-Build abgeschlossen\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Ihre Build-Maschine ist brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux chief <subcommand> [options]\n\nChief, l’agent d’accueil de cmux : ses conversations, son répertoire personnel et sa mémoire à long terme.\n\nSous-commandes (nécessitent cmux en cours d’exécution) :\n  open                       Affiche l’accueil de Chief dans cette fenêtre.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Lance un agent de code sur une tâche dans un nouvel espace de travail\n                             (`cmux chief dispatch --help` pour toutes les options).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envoie un message en votre nom, comme si vous le tapiez dans l’accueil (- lit stdin).\n                             Avec --from, le publie comme rapport d’un agent nommé <name> ;\n                             Chief y répond sauf si --no-reply est indiqué.\n  status [--json]            Affiche l’environnement, le modèle, le nombre de non-lus et les conversations en cours.\n  conversations [--json]     Liste les conversations avec Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Affiche les messages les plus récents (20 par défaut).\n  stop [--conversation <id>] Arrête la réponse en cours de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Répond à la carte d’approbation de Chief (par défaut : autorise la plus récente en attente).\n                             Builds DEBUG uniquement ; les versions publiées répondent aux cartes dans Home.\n\nSous-commandes (fonctionnent sans cmux en cours d’exécution) :\n  home                       Affiche le répertoire personnel de Chief.\n  memory add <text|->        Enregistre un fait que Chief doit retenir (- lit stdin).\n  memory list [--json]       Liste les faits enregistrés, du plus ancien au plus récent, avec leurs identifiants.\n  memory forget <id>         Supprime un fait enregistré.\n  memory path [--json]       Affiche le répertoire de la mémoire et ses fichiers\n                             (person.md, instructions.md, memory.jsonl).\n\nSans --conversation, les commandes utilisent la conversation par défaut de Chief.\nLa mémoire ne stocke jamais de secrets : un texte qui ressemble à un jeton, une clé ou un mot de passe est refusé.\nLe répertoire personnel est $CMUX_CHIEF_HOME, sinon ~/.cmux/chief/<app bundle id>.\n\nExemples :\n  cmux chief send \"Que font mes agents ?\"\n  cmux chief send --from \"build bot\" \"Build de publication terminé\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Sa machine de build est brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Utilisation : cmux chief <subcommand> [options]\n\nChief, l’agent d’accueil de cmux : ses conversations, son répertoire personnel et sa mémoire à long terme.\n\nSous-commandes (nécessitent cmux en cours d’exécution) :\n  open                       Affiche l’accueil de Chief dans cette fenêtre.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Lance un agent de code sur une tâche dans un nouvel espace de travail\n                             (`cmux chief dispatch --help` pour toutes les options).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envoie un message en votre nom, comme si vous le tapiez dans l’accueil (- lit stdin).\n                             Avec --from, le publie comme rapport d’un agent nommé <name> ;\n                             Chief y répond sauf si --no-reply est indiqué.\n  status [--json]            Affiche l’environnement, le modèle, le nombre de non-lus et les conversations en cours.\n  conversations [--json]     Liste les conversations avec Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Affiche les messages les plus récents (20 par défaut).\n  stop [--conversation <id>] Arrête la réponse en cours de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Répond à la carte d’approbation de Chief (par défaut : autorise la plus récente en attente).\n                             Builds DEBUG uniquement ; les versions publiées répondent aux cartes dans Home.\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             Répond à la carte de question de Chief (par défaut : la plus récente en attente)\n                             comme son bouton. Répétez --choice pour chaque élément ; les éléments non nommés\n                             gardent leur option présélectionnée. Builds DEBUG uniquement.\n\nSous-commandes (fonctionnent sans cmux en cours d’exécution) :\n  home                       Affiche le répertoire personnel de Chief.\n  memory add <text|->        Enregistre un fait que Chief doit retenir (- lit stdin).\n  memory list [--json]       Liste les faits enregistrés, du plus ancien au plus récent, avec leurs identifiants.\n  memory forget <id>         Supprime un fait enregistré.\n  memory path [--json]       Affiche le répertoire de la mémoire et ses fichiers\n                             (person.md, instructions.md, memory.jsonl).\n\nSans --conversation, les commandes utilisent la conversation par défaut de Chief.\nLa mémoire ne stocke jamais de secrets : un texte qui ressemble à un jeton, une clé ou un mot de passe est refusé.\nLe répertoire personnel est $CMUX_CHIEF_HOME, sinon ~/.cmux/chief/<app bundle id>.\n\nExemples :\n  cmux chief send \"Que font mes agents ?\"\n  cmux chief send --from \"build bot\" \"Build de publication terminé\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Sa machine de build est brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux chief <subcommand> [options]\n\nChief، الوكيل الرئيسي في cmux: محادثاته ودليله الرئيسي وذاكرته طويلة المدى.\n\nالأوامر الفرعية (تتطلب تشغيل cmux):\n  open                       عرض الصفحة الرئيسية لـ Chief في هذه النافذة.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             يشغّل وكيل برمجة على مهمة واحدة في مساحة عمل جديدة\n                             (‏`cmux chief dispatch --help` لكل الخيارات).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             إرسال رسالة باسمك، كأنك تكتبها في الصفحة الرئيسية (- يقرأ من stdin).\n                             مع --from، تُنشر كتقرير من وكيل باسم <name>؛\n                             يرد Chief عليها ما لم يُحدَّد --no-reply.\n  status [--json]            طباعة بيئة التشغيل والنموذج وعدد غير المقروء والمحادثات الجارية.\n  conversations [--json]     عرض محادثات Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             طباعة أحدث الرسائل (الافتراضي 20).\n  stop [--conversation <id>] إيقاف الرد الجاري من Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             الرد على بطاقة موافقة Chief (الافتراضي: السماح بأحدث بطاقة منتظرة).\n                             في إصدارات DEBUG فقط؛ إصدارات النشر تجيب عن البطاقات في Home.\n\nالأوامر الفرعية (تعمل دون تشغيل cmux):\n  home                       طباعة الدليل الرئيسي لـ Chief.\n  memory add <text|->        حفظ حقيقة واحدة يجب أن يتذكرها Chief (- يقرأ من stdin).\n  memory list [--json]       عرض الحقائق المحفوظة، الأقدم أولاً، مع معرّفاتها.\n  memory forget <id>         إزالة حقيقة محفوظة.\n  memory path [--json]       طباعة دليل الذاكرة وملفاته\n                             (person.md, instructions.md, memory.jsonl).\n\nبدون --conversation، تستخدم الأوامر محادثة Chief الافتراضية.\nلا تخزّن الذاكرة الأسرار أبدًا: يُرفض النص الذي يشبه رمزًا مميزًا أو مفتاحًا أو كلمة مرور.\nالدليل الرئيسي هو $CMUX_CHIEF_HOME، وإلا ~/.cmux/chief/<app bundle id>.\n\nأمثلة:\n  cmux chief send \"ماذا يفعل وكلائي؟\"\n  cmux chief send --from \"build bot\" \"اكتمل بناء الإصدار\"\n  cmux chief read --limit 5\n  cmux chief memory add \"جهاز البناء الخاص بهم هو brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "الاستخدام: cmux chief <subcommand> [options]\n\nChief، الوكيل الرئيسي في cmux: محادثاته ودليله الرئيسي وذاكرته طويلة المدى.\n\nالأوامر الفرعية (تتطلب تشغيل cmux):\n  open                       عرض الصفحة الرئيسية لـ Chief في هذه النافذة.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             يشغّل وكيل برمجة على مهمة واحدة في مساحة عمل جديدة\n                             (‏`cmux chief dispatch --help` لكل الخيارات).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             إرسال رسالة باسمك، كأنك تكتبها في الصفحة الرئيسية (- يقرأ من stdin).\n                             مع --from، تُنشر كتقرير من وكيل باسم <name>؛\n                             يرد Chief عليها ما لم يُحدَّد --no-reply.\n  status [--json]            طباعة بيئة التشغيل والنموذج وعدد غير المقروء والمحادثات الجارية.\n  conversations [--json]     عرض محادثات Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             طباعة أحدث الرسائل (الافتراضي 20).\n  stop [--conversation <id>] إيقاف الرد الجاري من Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             الرد على بطاقة موافقة Chief (الافتراضي: السماح بأحدث بطاقة منتظرة).\n                             في إصدارات DEBUG فقط؛ إصدارات النشر تجيب عن البطاقات في Home.\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             الرد على بطاقة سؤال Chief (الافتراضي: أحدث بطاقة منتظرة) كما يفعل زرها.\n                             كرّر --choice لكل عنصر؛ تحتفظ العناصر غير المذكورة\n                             بخيارها المحدد مسبقًا. في إصدارات DEBUG فقط.\n\nالأوامر الفرعية (تعمل دون تشغيل cmux):\n  home                       طباعة الدليل الرئيسي لـ Chief.\n  memory add <text|->        حفظ حقيقة واحدة يجب أن يتذكرها Chief (- يقرأ من stdin).\n  memory list [--json]       عرض الحقائق المحفوظة، الأقدم أولاً، مع معرّفاتها.\n  memory forget <id>         إزالة حقيقة محفوظة.\n  memory path [--json]       طباعة دليل الذاكرة وملفاته\n                             (person.md, instructions.md, memory.jsonl).\n\nبدون --conversation، تستخدم الأوامر محادثة Chief الافتراضية.\nلا تخزّن الذاكرة الأسرار أبدًا: يُرفض النص الذي يشبه رمزًا مميزًا أو مفتاحًا أو كلمة مرور.\nالدليل الرئيسي هو $CMUX_CHIEF_HOME، وإلا ~/.cmux/chief/<app bundle id>.\n\nأمثلة:\n  cmux chief send \"ماذا يفعل وكلائي؟\"\n  cmux chief send --from \"build bot\" \"اكتمل بناء الإصدار\"\n  cmux chief read --limit 5\n  cmux chief memory add \"جهاز البناء الخاص بهم هو brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux chief <subcommand> [options]\n\nChief, el agente de inicio de cmux: sus conversaciones, su directorio de inicio y su memoria a largo plazo.\n\nSubcomandos (requieren cmux en ejecución):\n  open                       Muestra el Inicio de Chief en esta ventana.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Inicia un agente de programación con una tarea en un espacio de trabajo nuevo\n                             (`cmux chief dispatch --help` para todas las opciones).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envía un mensaje en tu nombre, como si lo escribieras en Inicio (- lee stdin).\n                             Con --from, lo publica como un informe de un agente llamado <name>;\n                             Chief lo responde salvo que se indique --no-reply.\n  status [--json]            Muestra el entorno, el modelo, los no leídos y las conversaciones en curso.\n  conversations [--json]     Lista las conversaciones con Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Muestra los mensajes más recientes (20 por omisión).\n  stop [--conversation <id>] Detiene la respuesta en curso de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Responde a la tarjeta de aprobación de Chief (por defecto: permite la más reciente en espera).\n                             Solo en compilaciones DEBUG; las versiones publicadas responden a las tarjetas en Home.\n\nSubcomandos (funcionan sin cmux en ejecución):\n  home                       Muestra el directorio de inicio de Chief.\n  memory add <text|->        Guarda un dato que Chief debe recordar (- lee stdin).\n  memory list [--json]       Lista los datos guardados, del más antiguo al más reciente, con sus ids.\n  memory forget <id>         Elimina un dato guardado.\n  memory path [--json]       Muestra el directorio de memoria y sus archivos\n                             (person.md, instructions.md, memory.jsonl).\n\nSin --conversation, los comandos usan la conversación predeterminada de Chief.\nLa memoria nunca guarda secretos: se rechaza el texto que parezca un token, una clave o una contraseña.\nEl directorio de inicio es $CMUX_CHIEF_HOME o, si no, ~/.cmux/chief/<app bundle id>.\n\nEjemplos:\n  cmux chief send \"¿Qué están haciendo mis agentes?\"\n  cmux chief send --from \"build bot\" \"Compilación de la versión terminada\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Su máquina de compilación es brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Uso: cmux chief <subcommand> [options]\n\nChief, el agente de inicio de cmux: sus conversaciones, su directorio de inicio y su memoria a largo plazo.\n\nSubcomandos (requieren cmux en ejecución):\n  open                       Muestra el Inicio de Chief en esta ventana.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Inicia un agente de programación con una tarea en un espacio de trabajo nuevo\n                             (`cmux chief dispatch --help` para todas las opciones).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envía un mensaje en tu nombre, como si lo escribieras en Inicio (- lee stdin).\n                             Con --from, lo publica como un informe de un agente llamado <name>;\n                             Chief lo responde salvo que se indique --no-reply.\n  status [--json]            Muestra el entorno, el modelo, los no leídos y las conversaciones en curso.\n  conversations [--json]     Lista las conversaciones con Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Muestra los mensajes más recientes (20 por omisión).\n  stop [--conversation <id>] Detiene la respuesta en curso de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Responde a la tarjeta de aprobación de Chief (por defecto: permite la más reciente en espera).\n                             Solo en compilaciones DEBUG; las versiones publicadas responden a las tarjetas en Home.\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             Responde a la tarjeta de pregunta de Chief (por defecto: la más reciente en espera)\n                             como su botón. Repite --choice para cada elemento; los elementos sin nombrar\n                             conservan su opción preseleccionada. Solo en compilaciones DEBUG.\n\nSubcomandos (funcionan sin cmux en ejecución):\n  home                       Muestra el directorio de inicio de Chief.\n  memory add <text|->        Guarda un dato que Chief debe recordar (- lee stdin).\n  memory list [--json]       Lista los datos guardados, del más antiguo al más reciente, con sus ids.\n  memory forget <id>         Elimina un dato guardado.\n  memory path [--json]       Muestra el directorio de memoria y sus archivos\n                             (person.md, instructions.md, memory.jsonl).\n\nSin --conversation, los comandos usan la conversación predeterminada de Chief.\nLa memoria nunca guarda secretos: se rechaza el texto que parezca un token, una clave o una contraseña.\nEl directorio de inicio es $CMUX_CHIEF_HOME o, si no, ~/.cmux/chief/<app bundle id>.\n\nEjemplos:\n  cmux chief send \"¿Qué están haciendo mis agentes?\"\n  cmux chief send --from \"build bot\" \"Compilación de la versión terminada\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Su máquina de compilación es brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的首頁代理：管理它的對話、主目錄和長期記憶。\n\n子命令（需要 cmux 正在執行）：\n  open                       在此視窗中顯示 Chief 首頁。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             在新的工作區中啟動一個程式代理處理一項任務\n                             （所有選項請見 `cmux chief dispatch --help`）。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身分傳送訊息，就像在首頁中輸入一樣（- 會讀取 stdin）。\n                             使用 --from 時，會以名為 <name> 的代理所提交的報告形式發布；\n                             除非指定 --no-reply，否則 Chief 會回覆。\n  status [--json]            顯示執行框架、模型、未讀數量和進行中的對話。\n  conversations [--json]     列出 Chief 對話。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             顯示最新的訊息（預設 20 則）。\n  stop [--conversation <id>] 停止 Chief 正在進行的回覆。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回覆 Chief 的核准卡片（預設：允許最新一張等待中的卡片）。\n                             僅限 DEBUG 版本；正式版本請在 Home 中回覆卡片。\n\n子命令（不需要 cmux 正在執行）：\n  home                       顯示 Chief 主目錄。\n  memory add <text|->        儲存一則 Chief 應記住的事實（- 會讀取 stdin）。\n  memory list [--json]       列出已儲存的事實（由舊到新）及其 ID。\n  memory forget <id>         移除一則已儲存的事實。\n  memory path [--json]       顯示記憶目錄及其檔案\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 時，命令會使用預設的 Chief 對話。\n記憶絕不會儲存機密資訊：看起來像權杖、金鑰或密碼的文字會被拒絕。\n主目錄為 $CMUX_CHIEF_HOME，若未設定則為 ~/.cmux/chief/<app bundle id>。\n\n範例：\n  cmux chief send \"我的代理在做什麼？\"\n  cmux chief send --from \"build bot\" \"發行版建置完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他們的建置機器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的首頁代理：管理它的對話、主目錄和長期記憶。\n\n子命令（需要 cmux 正在執行）：\n  open                       在此視窗中顯示 Chief 首頁。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             在新的工作區中啟動一個程式代理處理一項任務\n                             （所有選項請見 `cmux chief dispatch --help`）。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身分傳送訊息，就像在首頁中輸入一樣（- 會讀取 stdin）。\n                             使用 --from 時，會以名為 <name> 的代理所提交的報告形式發布；\n                             除非指定 --no-reply，否則 Chief 會回覆。\n  status [--json]            顯示執行框架、模型、未讀數量和進行中的對話。\n  conversations [--json]     列出 Chief 對話。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             顯示最新的訊息（預設 20 則）。\n  stop [--conversation <id>] 停止 Chief 正在進行的回覆。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回覆 Chief 的核准卡片（預設：允許最新一張等待中的卡片）。\n                             僅限 DEBUG 版本；正式版本請在 Home 中回覆卡片。\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             像卡片按鈕一樣回答 Chief 的問題卡片（預設：最新一張等待中的卡片）。\n                             每個項目各重複一次 --choice；未指定的項目保留\n                             預先選取的選項。僅限 DEBUG 版本。\n\n子命令（不需要 cmux 正在執行）：\n  home                       顯示 Chief 主目錄。\n  memory add <text|->        儲存一則 Chief 應記住的事實（- 會讀取 stdin）。\n  memory list [--json]       列出已儲存的事實（由舊到新）及其 ID。\n  memory forget <id>         移除一則已儲存的事實。\n  memory path [--json]       顯示記憶目錄及其檔案\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 時，命令會使用預設的 Chief 對話。\n記憶絕不會儲存機密資訊：看起來像權杖、金鑰或密碼的文字會被拒絕。\n主目錄為 $CMUX_CHIEF_HOME，若未設定則為 ~/.cmux/chief/<app bundle id>。\n\n範例：\n  cmux chief send \"我的代理在做什麼？\"\n  cmux chief send --from \"build bot\" \"發行版建置完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他們的建置機器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的主页智能体：管理它的对话、主目录和长期记忆。\n\n子命令（需要 cmux 正在运行）：\n  open                       在此窗口中显示 Chief 主页。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             在新的工作区中启动一个编码代理处理一项任务\n                             （所有选项请见 `cmux chief dispatch --help`）。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身份发送消息，就像在主页中输入一样（- 读取 stdin）。\n                             使用 --from 时，以名为 <name> 的智能体所提交报告的形式发布；\n                             除非指定 --no-reply，否则 Chief 会回复。\n  status [--json]            显示运行框架、模型、未读数量和进行中的对话。\n  conversations [--json]     列出 Chief 对话。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             显示最新消息（默认 20 条）。\n  stop [--conversation <id>] 停止 Chief 正在进行的回复。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回复 Chief 的批准卡片（默认：允许最新一张等待中的卡片）。\n                             仅限 DEBUG 版本；正式版本请在 Home 中回复卡片。\n\n子命令（无需 cmux 正在运行）：\n  home                       显示 Chief 主目录。\n  memory add <text|->        保存一条 Chief 应记住的事实（- 读取 stdin）。\n  memory list [--json]       列出已保存的事实（从旧到新）及其 ID。\n  memory forget <id>         删除一条已保存的事实。\n  memory path [--json]       显示记忆目录及其文件\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 时，命令使用默认的 Chief 对话。\n记忆绝不会存储机密信息：看起来像令牌、密钥或密码的文本会被拒绝。\n主目录为 $CMUX_CHIEF_HOME，未设置时为 ~/.cmux/chief/<app bundle id>。\n\n示例：\n  cmux chief send \"我的智能体在做什么？\"\n  cmux chief send --from \"build bot\" \"发布构建已完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他们的构建机器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的主页智能体：管理它的对话、主目录和长期记忆。\n\n子命令（需要 cmux 正在运行）：\n  open                       在此窗口中显示 Chief 主页。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             在新的工作区中启动一个编码代理处理一项任务\n                             （所有选项请见 `cmux chief dispatch --help`）。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身份发送消息，就像在主页中输入一样（- 读取 stdin）。\n                             使用 --from 时，以名为 <name> 的智能体所提交报告的形式发布；\n                             除非指定 --no-reply，否则 Chief 会回复。\n  status [--json]            显示运行框架、模型、未读数量和进行中的对话。\n  conversations [--json]     列出 Chief 对话。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             显示最新消息（默认 20 条）。\n  stop [--conversation <id>] 停止 Chief 正在进行的回复。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回复 Chief 的批准卡片（默认：允许最新一张等待中的卡片）。\n                             仅限 DEBUG 版本；正式版本请在 Home 中回复卡片。\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             像卡片按钮一样回答 Chief 的问题卡片（默认：最新一张等待中的卡片）。\n                             每个项目各重复一次 --choice；未指定的项目保留\n                             预先选中的选项。仅限 DEBUG 版本。\n\n子命令（无需 cmux 正在运行）：\n  home                       显示 Chief 主目录。\n  memory add <text|->        保存一条 Chief 应记住的事实（- 读取 stdin）。\n  memory list [--json]       列出已保存的事实（从旧到新）及其 ID。\n  memory forget <id>         删除一条已保存的事实。\n  memory path [--json]       显示记忆目录及其文件\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 时，命令使用默认的 Chief 对话。\n记忆绝不会存储机密信息：看起来像令牌、密钥或密码的文本会被拒绝。\n主目录为 $CMUX_CHIEF_HOME，未设置时为 ~/.cmux/chief/<app bundle id>。\n\n示例：\n  cmux chief send \"我的智能体在做什么？\"\n  cmux chief send --from \"build bot\" \"发布构建已完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他们的构建机器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux chief <subcommand> [options]\n\nChief는 cmux의 홈 에이전트입니다. 대화, 홈 디렉터리, 장기 메모리를 관리합니다.\n\n하위 명령(실행 중인 cmux 필요):\n  open                       이 창에 Chief 홈을 표시합니다.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             새 워크스페이스에서 코딩 에이전트 하나를 작업 하나에 실행합니다\n                             (모든 옵션은 `cmux chief dispatch --help`).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             홈에서 입력하는 것처럼 내 이름으로 메시지를 보냅니다(-는 stdin에서 읽음).\n                             --from을 사용하면 <name>이라는 에이전트의 보고로 게시합니다.\n                             --no-reply를 지정하지 않으면 Chief가 답장합니다.\n  status [--json]            하네스, 모델, 읽지 않은 개수, 진행 중인 대화를 출력합니다.\n  conversations [--json]     Chief 대화 목록을 표시합니다.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             최신 메시지를 출력합니다(기본값 20).\n  stop [--conversation <id>] Chief의 진행 중인 답장을 중지합니다.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief의 승인 카드에 답합니다(기본값: 가장 최근 대기 중인 카드를 허용).\n                             DEBUG 빌드 전용입니다. 릴리스 빌드에서는 Home에서 카드에 답합니다.\n\n하위 명령(실행 중인 cmux 없이 동작):\n  home                       Chief 홈 디렉터리를 출력합니다.\n  memory add <text|->        Chief가 기억할 사실 하나를 저장합니다(-는 stdin에서 읽음).\n  memory list [--json]       저장된 사실을 오래된 순서로 ID와 함께 표시합니다.\n  memory forget <id>         저장된 사실을 제거합니다.\n  memory path [--json]       메모리 디렉터리와 그 파일을 출력합니다\n                             (person.md, instructions.md, memory.jsonl).\n\n--conversation을 생략하면 명령은 기본 Chief 대화를 사용합니다.\n메모리는 비밀 정보를 절대 저장하지 않습니다. 토큰, 키 또는 비밀번호처럼 보이는 텍스트는 거부됩니다.\n홈은 $CMUX_CHIEF_HOME이며, 없으면 ~/.cmux/chief/<app bundle id>입니다.\n\n예시:\n  cmux chief send \"내 에이전트들은 무엇을 하고 있어?\"\n  cmux chief send --from \"build bot\" \"릴리스 빌드 완료\"\n  cmux chief read --limit 5\n  cmux chief memory add \"이 사용자의 빌드 머신은 brave-otter다\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "사용법: cmux chief <subcommand> [options]\n\nChief는 cmux의 홈 에이전트입니다. 대화, 홈 디렉터리, 장기 메모리를 관리합니다.\n\n하위 명령(실행 중인 cmux 필요):\n  open                       이 창에 Chief 홈을 표시합니다.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             새 워크스페이스에서 코딩 에이전트 하나를 작업 하나에 실행합니다\n                             (모든 옵션은 `cmux chief dispatch --help`).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             홈에서 입력하는 것처럼 내 이름으로 메시지를 보냅니다(-는 stdin에서 읽음).\n                             --from을 사용하면 <name>이라는 에이전트의 보고로 게시합니다.\n                             --no-reply를 지정하지 않으면 Chief가 답장합니다.\n  status [--json]            하네스, 모델, 읽지 않은 개수, 진행 중인 대화를 출력합니다.\n  conversations [--json]     Chief 대화 목록을 표시합니다.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             최신 메시지를 출력합니다(기본값 20).\n  stop [--conversation <id>] Chief의 진행 중인 답장을 중지합니다.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief의 승인 카드에 답합니다(기본값: 가장 최근 대기 중인 카드를 허용).\n                             DEBUG 빌드 전용입니다. 릴리스 빌드에서는 Home에서 카드에 답합니다.\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             카드의 버튼처럼 Chief의 질문 카드에 답합니다(기본값: 가장 최근 대기 중인 카드).\n                             항목마다 --choice를 반복하세요. 지정하지 않은 항목은\n                             미리 선택된 옵션을 유지합니다. DEBUG 빌드 전용입니다.\n\n하위 명령(실행 중인 cmux 없이 동작):\n  home                       Chief 홈 디렉터리를 출력합니다.\n  memory add <text|->        Chief가 기억할 사실 하나를 저장합니다(-는 stdin에서 읽음).\n  memory list [--json]       저장된 사실을 오래된 순서로 ID와 함께 표시합니다.\n  memory forget <id>         저장된 사실을 제거합니다.\n  memory path [--json]       메모리 디렉터리와 그 파일을 출력합니다\n                             (person.md, instructions.md, memory.jsonl).\n\n--conversation을 생략하면 명령은 기본 Chief 대화를 사용합니다.\n메모리는 비밀 정보를 절대 저장하지 않습니다. 토큰, 키 또는 비밀번호처럼 보이는 텍스트는 거부됩니다.\n홈은 $CMUX_CHIEF_HOME이며, 없으면 ~/.cmux/chief/<app bundle id>입니다.\n\n예시:\n  cmux chief send \"내 에이전트들은 무엇을 하고 있어?\"\n  cmux chief send --from \"build bot\" \"릴리스 빌드 완료\"\n  cmux chief read --limit 5\n  cmux chief memory add \"이 사용자의 빌드 머신은 brave-otter다\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux chief <subcommand> [options]\n\nChief は cmux のホームエージェントです。会話、ホームディレクトリ、長期メモリを扱います。\n\nサブコマンド（実行中の cmux が必要）:\n  open                       このウインドウに Chief ホームを表示します。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             新しいワークスペースで 1 つのタスクにコーディングエージェントを起動します\n                             (すべてのオプションは `cmux chief dispatch --help`)。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             ホームで入力するのと同じように、自分としてメッセージを送信します（- は stdin から読み込み）。\n                             --from を指定すると、<name> という名前のエージェントからの報告として投稿します。\n                             --no-reply を指定しない限り、Chief が返信します。\n  status [--json]            ハーネス、モデル、未読数、進行中の会話を表示します。\n  conversations [--json]     Chief の会話を一覧表示します。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             最新のメッセージを表示します（デフォルトは20件）。\n  stop [--conversation <id>] Chief の進行中の返信を停止します。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief の承認カードに回答します（デフォルト: 待機中の最新のカードを許可）。\n                             DEBUG ビルドのみ。リリースビルドでは Home でカードに回答します。\n\nサブコマンド（cmux が実行中でなくても動作）:\n  home                       Chief のホームディレクトリを表示します。\n  memory add <text|->        Chief に覚えておいてほしい事実を1件保存します（- は stdin から読み込み）。\n  memory list [--json]       保存された事実を古い順に ID とともに一覧表示します。\n  memory forget <id>         保存された事実を削除します。\n  memory path [--json]       メモリディレクトリとそのファイルを表示します\n                             （person.md、instructions.md、memory.jsonl）。\n\n--conversation を省略すると、コマンドはデフォルトの Chief の会話を使用します。\nメモリにシークレットは保存されません。トークン、キー、パスワードのように見えるテキストは拒否されます。\nホームは $CMUX_CHIEF_HOME、未設定の場合は ~/.cmux/chief/<app bundle id> です。\n\n例:\n  cmux chief send \"エージェントは何をしている？\"\n  cmux chief send --from \"build bot\" \"リリースビルドが完了しました\"\n  cmux chief read --limit 5\n  cmux chief memory add \"この人のビルドマシンは brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "使用法: cmux chief <subcommand> [options]\n\nChief は cmux のホームエージェントです。会話、ホームディレクトリ、長期メモリを扱います。\n\nサブコマンド（実行中の cmux が必要）:\n  open                       このウインドウに Chief ホームを表示します。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             新しいワークスペースで 1 つのタスクにコーディングエージェントを起動します\n                             (すべてのオプションは `cmux chief dispatch --help`)。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             ホームで入力するのと同じように、自分としてメッセージを送信します（- は stdin から読み込み）。\n                             --from を指定すると、<name> という名前のエージェントからの報告として投稿します。\n                             --no-reply を指定しない限り、Chief が返信します。\n  status [--json]            ハーネス、モデル、未読数、進行中の会話を表示します。\n  conversations [--json]     Chief の会話を一覧表示します。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             最新のメッセージを表示します（デフォルトは20件）。\n  stop [--conversation <id>] Chief の進行中の返信を停止します。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief の承認カードに回答します（デフォルト: 待機中の最新のカードを許可）。\n                             DEBUG ビルドのみ。リリースビルドでは Home でカードに回答します。\n  answer [--choice <option>]... [--text <text>] [--conversation <id>] [<message id>]\n                             Chief の質問カードにボタンと同じように回答します（デフォルト: 待機中の最新のカード）。\n                             項目ごとに --choice を繰り返します。指定しない項目は\n                             あらかじめ選択された選択肢のままです。DEBUG ビルドのみ。\n\nサブコマンド（cmux が実行中でなくても動作）:\n  home                       Chief のホームディレクトリを表示します。\n  memory add <text|->        Chief に覚えておいてほしい事実を1件保存します（- は stdin から読み込み）。\n  memory list [--json]       保存された事実を古い順に ID とともに一覧表示します。\n  memory forget <id>         保存された事実を削除します。\n  memory path [--json]       メモリディレクトリとそのファイルを表示します\n                             （person.md、instructions.md、memory.jsonl）。\n\n--conversation を省略すると、コマンドはデフォルトの Chief の会話を使用します。\nメモリにシークレットは保存されません。トークン、キー、パスワードのように見えるテキストは拒否されます。\nホームは $CMUX_CHIEF_HOME、未設定の場合は ~/.cmux/chief/<app bundle id> です。\n\n例:\n  cmux chief send \"エージェントは何をしている？\"\n  cmux chief send --from \"build bot\" \"リリースビルドが完了しました\"\n  cmux chief read --limit 5\n  cmux chief memory add \"この人のビルドマシンは brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         }
       }
@@ -665074,6 +665134,360 @@
         }
       }
     },
+    "socket.chief.error.answerNotAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer Chief's questions in Home; this build doesn't accept them from the socket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beantworte die Fragen von Chief in Home; dieser Build nimmt sie nicht über den Socket an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondez aux questions de Chief dans Home ; cette version ne les accepte pas depuis le socket."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجب عن أسئلة Chief في Home؛ هذا الإصدار لا يقبلها من المقبس."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responde a las preguntas de Chief en Home; esta compilación no las acepta desde el socket."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 Home 中回答 Chief 的問題；此版本不接受來自 socket 的回答。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Home 中回答 Chief 的问题；此版本不接受来自 socket 的回答。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief의 질문에는 Home에서 답하세요. 이 빌드는 소켓을 통한 답변을 받지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の質問には Home で回答してください。このビルドはソケットからの回答を受け付けません。"
+          }
+        }
+      }
+    },
+    "socket.chief.error.noPendingQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief has no question waiting."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei Chief wartet keine Frage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune question de Chief n’est en attente."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد سؤال منتظر لدى Chief."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief no tiene ninguna pregunta pendiente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 沒有等待中的問題。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 没有等待中的问题。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief에 대기 중인 질문이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief に待機中の質問はありません。"
+          }
+        }
+      }
+    },
+    "socket.chief.error.unknownQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No waiting Chief question is in that message."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In dieser Nachricht wartet keine Frage von Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message ne contient aucune question de Chief en attente."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي هذا الرسالة على سؤال منتظر من Chief."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese mensaje no tiene ninguna pregunta de Chief pendiente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該訊息中沒有等待中的 Chief 問題。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该消息中没有等待中的 Chief 问题。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 메시지에 대기 중인 Chief 질문이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのメッセージに待機中の Chief の質問はありません。"
+          }
+        }
+      }
+    },
+    "socket.chief.error.unknownQuestionChoice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The question has no option named %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Frage hat keine Option namens %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La question n’a aucune option nommée %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي السؤال على خيار باسم %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pregunta no tiene ninguna opción llamada %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此問題沒有名為 %@ 的選項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此问题没有名为 %@ 的选项。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "질문에 %@(이)라는 옵션이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この質問に %@ という選択肢はありません。"
+          }
+        }
+      }
+    },
+    "socket.chief.error.questionTakesNoText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The question takes no typed answer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Frage nimmt keine getippte Antwort an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La question n’accepte pas de réponse saisie."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يقبل السؤال إجابة مكتوبة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pregunta no admite una respuesta escrita."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此問題不接受輸入的回答。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此问题不接受输入的回答。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 질문은 직접 입력한 답을 받지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この質問は入力による回答を受け付けません。"
+          }
+        }
+      }
+    },
+    "socket.chief.error.incompleteAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Those choices don't answer every part of the question."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Auswahl beantwortet nicht jeden Teil der Frage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces choix ne répondent pas à toutes les parties de la question."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الاختيارات لا تجيب عن كل أجزاء السؤال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esas opciones no responden a todas las partes de la pregunta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些選擇沒有回答問題的每個部分。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些选择没有回答问题的每个部分。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 항목이 질문의 모든 부분에 답하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その選択では質問のすべての項目に回答できていません。"
+          }
+        }
+      }
+    },
     "socket.chief.error.unknownApproval": {
       "extractionState": "manual",
       "localizations": {
@@ -665660,65 +666074,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的工作區"
-          }
-        }
-      }
-    },
-    "chief.preview.needsApproval": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Needs your approval: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Braucht deine Freigabe: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Votre approbation est requise : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بحاجة إلى موافقتك: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Necesita tu aprobación: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要你核准：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要你批准：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "승인이 필요합니다: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "承認が必要です：%@"
           }
         }
       }

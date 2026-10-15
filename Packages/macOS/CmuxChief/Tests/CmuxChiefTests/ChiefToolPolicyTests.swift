@@ -326,6 +326,7 @@ import Testing
         "cmux browser eval 'document.cookie'",
         "cmux browser --surface surface:2 eval 1",
         "cmux chief approve",
+        "cmux chief answer --choice '4 GB'",
         "cmux chief send hi",
         "cmux tree --force=true",
         "cmux list-workspaces --yes=1",

@@ -112,7 +112,7 @@ enum ChiefToolPolicy {
         "sudo", "rpc", "pipe-pane", "respawn-pane", "set-hook",
         "publish", "access", "grant", "ungrant", "upload", "feedback", "promote-template",
         "send", "paste", "paste-buffer", "exec", "run", "eval", "repl", "shell", "ssh", "mosh",
-        "approve", "addscript", "addinitscript",
+        "approve", "answer", "addscript", "addinitscript",
         "--force", "--yes", "--command", "--eval", "--layout",
         // `vm wait --wake` starts a stopped machine, which bills the user; plain `vm wait` only reads.
         "--wake",

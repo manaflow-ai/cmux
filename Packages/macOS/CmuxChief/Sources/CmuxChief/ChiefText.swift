@@ -18,6 +18,11 @@ enum ChiefText {
         String(localized: "chief.turn.failed", defaultValue: "I couldn’t finish: \(error)", bundle: .module)
     }
 
+    /// The quiet system row a turn the user stopped posts.
+    static var turnStopped: String {
+        String(localized: "chief.turn.stopped", defaultValue: "Stopped", bundle: .module)
+    }
+
     /// The user's display name when the account has none.
     static var you: String {
         String(localized: "chief.participant.you", defaultValue: "You", bundle: .module)

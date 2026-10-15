@@ -18,6 +18,7 @@ extension ChiefConversationOwner {
         guard let turn = running[conversation] else { return false }
         stopping.insert(conversation)
         finishTurn(conversation, failure: nil, stopped: true, startNext: false)
+        postStoppedNotice(in: conversation, author: turn.chief, threadRoot: turn.threadRoot) // ChiefConversationOwner+Notices.swift
         await brain.interrupt(conversation: conversation)
         turn.task?.cancel()
         stopping.remove(conversation)
@@ -115,11 +116,12 @@ extension ChiefConversationOwner {
                 return
             }
             let work = WorkRef(session: id, title: title, status: .running, preview: detail)
-            // No typing dots while a work row runs: its spinner is the live indicator (the post ends typing).
+            // No typing dots while a work row runs: its spinner is the live indicator.
             if let message = postChief([.work(work)], in: conversation, turn: turn, key: .make(), retype: false) {
                 turn.tools[id] = message.id
             }
             running[conversation] = turn
+            publish(.typing(conversation, turn.chief, on: false))
         case .toolFinished(let id, let ok, let preview):
             guard let messageID = turn.tools.removeValue(forKey: id) else { return }
             if !ok { turn.failedToolCalls += 1 }
@@ -140,10 +142,14 @@ extension ChiefConversationOwner {
             flushSegment(&turn, in: conversation, retype: false)
             let ref = ApprovalRef(request: turn.cardRequestID(id), prompt: prompt, options: options)
             // The card takes the place of the tool's own running row, so the command shows once.
-            if let work = workAwaitingApproval(prompt, turn: turn, in: conversation),
+            // A `vm new`'s card takes its provisioning row's place too (ChiefConversationOwner+Provisioning.swift).
+            if let work = workAwaitingApproval(prompt, turn: turn, in: conversation)
+                ?? provisioningAwaitingApproval(prompt, turn: turn, in: conversation),
                (try? updateMessage(work.message, in: conversation, { $0.parts = [.approval(ref)] })) != nil {
+                let slot = ChiefApprovalSlot(message: work.message, part: 0)
                 turn.tools[work.tool] = nil
-                turn.approvals[ChiefApprovalSlot(message: work.message, part: 0)] = id
+                turn.approvals[slot] = id
+                turn.approvedWork[slot] = (work.tool, work.work)
             } else if let message = postChief([.approval(ref)], in: conversation, turn: turn, key: .make(), retype: false) {
                 turn.approvals[ChiefApprovalSlot(message: message.id, part: 0)] = id
             }
@@ -171,6 +177,8 @@ extension ChiefConversationOwner {
     private func startProvisioning(_ id: String, phase: ChiefCloudProvisioning, command: String,
                                    turn: inout ChiefRunningTurn, in conversation: ConversationID) {
         let machine = phase == .wait ? ChiefCloudProvisioning.machine(inCommand: command) : nil
+        // The row shows the machine's name ("chief-dogfood-1"), its id stays in `host` (the tooltip).
+        let name = Self.machineName(inCommand: command)
         turn.provisioningCalls[id] = phase
         turn.provisioningStatus = .running
         if let row = turn.provisioning {
@@ -178,11 +186,14 @@ extension ChiefConversationOwner {
             updateWork(row, in: conversation) { work in
                 work.status = .running
                 if let machine { work.host = machine }
+                if let name { work.preview = name }
             }
+            // The row runs again (an update, not a post): its spinner is the one live indicator.
+            publish(.typing(conversation, turn.chief, on: false))
             return
         }
         let work = WorkRef(session: ChiefCloudProvisioning.sessionPrefix + UUID().uuidString.lowercased(), host: machine,
-                           title: ChiefCloudProvisioning.title, status: .running, preview: nil)
+                           title: ChiefCloudProvisioning.title, status: .running, preview: name)
         if let message = postChief([.work(work)], in: conversation, turn: turn, key: .make(), retype: false) {
             turn.provisioning = message.id
             turn.tools[id] = message.id
@@ -196,9 +207,11 @@ extension ChiefConversationOwner {
         let status: WorkRef.Status = !ok ? .failed : phase == .wait ? .done : .running
         turn.provisioningStatus = status
         let machine = ChiefCloudProvisioning.machine(inOutput: output)
+        let name = ok ? Self.machineName(inOutput: output) : nil
         updateWork(row, in: conversation) { work in
             work.status = status
             if let machine { work.host = machine }
+            if let name { work.preview = name }
             if !ok { work.preview = output }
         }
     }
@@ -212,6 +225,14 @@ extension ChiefConversationOwner {
             }
         }
     }
+
+    /// A provisioning row's machine name: `--name <name>` on the command, or `"name"` in
+    /// `vm new --json` output. The row stores it as its preview while it has not failed (a
+    /// failure's preview is the output).
+    static func machineName(inCommand command: String) -> String? { ChiefCloudProvisioning.machineName(inCommand: command) }
+
+    /// `vm new --json` answers `"displayName"` (``ChiefCloudProvisioning/machineName(inOutput:)``).
+    static func machineName(inOutput output: String?) -> String? { ChiefCloudProvisioning.machineName(inOutput: output) }
 
     /// The stored part of a result card: a work part whose `host` is the
     /// machine and whose `session` is the machine workspace (`ws_…`).
@@ -248,7 +269,8 @@ extension ChiefConversationOwner {
     private func postChief(_ parts: [MessagePart], in conversation: ConversationID, turn: ChiefRunningTurn,
                            key: IdempotencyKey, retype: Bool) -> Message? {
         let message = try? commitMessage(in: conversation, author: turn.chief, parts: parts, key: key, threadRoot: turn.threadRoot)
-        if retype, message != nil { publish(.typing(conversation, turn.chief, on: true)) }
+        // Never while a work row of the turn runs or a card waits: one live indicator at a time.
+        if retype, message != nil, turn.tools.isEmpty, turn.approvals.isEmpty { publish(.typing(conversation, turn.chief, on: true)) }
         return message
     }
 
@@ -343,9 +365,17 @@ extension ChiefConversationOwner {
             throw HomeRejection.invalid("approval_decided")
         }
         turn.approvals[slot] = nil
+        let replaced = turn.approvedWork.removeValue(forKey: slot)
         setApprovalDecision(slot, in: conversation, choice)
+        // Allowed: the tool's running row comes back right under the receipt (Home folds the two into
+        // "Ran … · Allowed"), and its finish settles it. Its spinner is the live indicator: no typing dots.
+        if let replaced, !ChiefToolPolicy.isRefusal(choice),
+           let row = postChief([.work(replaced.work)], in: conversation, turn: turn, key: .make(), retype: false) {
+            turn.tools[replaced.tool] = row.id
+        }
+        if let replaced { Self.resumeProvisioning(after: replaced.work, tool: replaced.tool, turn: &turn) }
         running[conversation] = turn
-        if turn.approvals.isEmpty { publish(.typing(conversation, turn.chief, on: true)) }
+        if turn.approvals.isEmpty, turn.tools.isEmpty { publish(.typing(conversation, turn.chief, on: true)) }
         notifyWorking()
         return request
     }
@@ -401,18 +431,18 @@ extension ChiefConversationOwner {
     /// The running tool whose call `prompt` asks about: its command or title is in the prompt
     /// (ChiefToolPolicy.claudePrompt quotes the command), the newest such call.
     private func workAwaitingApproval(_ prompt: String, turn: ChiefRunningTurn,
-                                      in conversation: ConversationID) -> (tool: String, message: MessageID)? {
+                                      in conversation: ConversationID) -> (tool: String, message: MessageID, work: WorkRef)? {
         guard let state = conversations[conversation] else { return nil }
-        var best: (tool: String, message: MessageID, seq: Seq)?
+        var best: (tool: String, message: MessageID, work: WorkRef, seq: Seq)?
         for (tool, messageID) in turn.tools where messageID != turn.provisioning {
             guard let message = state.message(messageID), message.parts.count == 1 else { continue }
             for case .work(let work) in message.parts where work.status == .running && work.host == nil {
                 let needles = [work.preview, work.title].compactMap { $0 }.map { String($0.prefix(200)) }.filter { !$0.isEmpty }
                 guard needles.contains(where: { prompt.contains($0) }) else { continue }
-                if best.map({ message.seq > $0.seq }) ?? true { best = (tool, messageID, message.seq) }
+                if best.map({ message.seq > $0.seq }) ?? true { best = (tool, messageID, work, message.seq) }
             }
         }
-        return best.map { ($0.tool, $0.message) }
+        return best.map { ($0.tool, $0.message, $0.work) }
     }
 
     /// Marks a card no answer reached as refused (its turn ended).

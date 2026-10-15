@@ -1606,19 +1606,19 @@
               "zero": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "لم يتم تشغيل أي أمر"
+                  "value": "تم تشغيل %lld أمر"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "تم تشغيل أمر واحد"
+                  "value": "تم تشغيل %lld أمر"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "تم تشغيل أمرين"
+                  "value": "تم تشغيل %lld أمر"
                 }
               },
               "few": {
@@ -1716,6 +1716,12 @@
                   "state": "translated",
                   "value": "Ejecutó %lld comandos"
                 }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Ejecutó %lld de comandos"
+                }
               }
             }
           }
@@ -1733,6 +1739,12 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld commandes exécutées"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld de commandes exécutées"
                 }
               }
             }
@@ -2013,19 +2025,19 @@
               "zero": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "لم يتم استخدام أي أداة"
+                  "value": "تم استخدام %lld أداة"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "تم استخدام أداة واحدة"
+                  "value": "تم استخدام %lld أداة"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "تم استخدام أداتين"
+                  "value": "تم استخدام %lld أداة"
                 }
               },
               "few": {
@@ -2123,6 +2135,12 @@
                   "state": "translated",
                   "value": "Usó %lld herramientas"
                 }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Usó %lld de herramientas"
+                }
               }
             }
           }
@@ -2140,6 +2158,12 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld outils utilisés"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld d’outils utilisés"
                 }
               }
             }
@@ -5983,137 +6007,6 @@
         }
       }
     },
-    "home.approval.stopHelp": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop (denies the request)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إيقاف (يرفض الطلب)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zaustavi (odbija zahtjev)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stop (afviser anmodningen)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stoppen (lehnt die Anfrage ab)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detener (rechaza la solicitud)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arrêter (refuse la demande)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Interrompi (rifiuta la richiesta)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止（リクエストを拒否）"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បញ្ឈប់ (បដិសេធសំណើ)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "중지(요청 거부)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stopp (avslår forespørselen)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatrzymaj (odrzuca prośbę)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Parar (recusa a solicitação)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Остановить (отклоняет запрос)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "หยุด (ปฏิเสธคำขอ)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Durdur (isteği reddeder)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Зупинити (відхиляє запит)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dừng (từ chối yêu cầu)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止（拒绝该请求）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止（拒絕該請求）"
-          }
-        }
-      }
-    },
     "home.approval.expired": {
       "extractionState": "manual",
       "localizations": {
@@ -7752,137 +7645,6 @@
         }
       }
     },
-    "home.approval.denyAndStop": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deny and Stop"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "رفض وإيقاف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odbij i zaustavi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afvis og stop"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ablehnen und stoppen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denegar y detener"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refuser et arrêter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nega e interrompi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒否して停止"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បដិសេធ និងបញ្ឈប់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "거부하고 중지"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Avslå og stopp"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odmów i zatrzymaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Negar e parar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отклонить и остановить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปฏิเสธและหยุด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reddet ve durdur"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відхилити й зупинити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Từ chối và dừng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒绝并停止"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒絕並停止"
-          }
-        }
-      }
-    },
     "home.failure.tryAgain": {
       "extractionState": "manual",
       "localizations": {
@@ -8181,7 +7943,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "error"
+            "value": "mensaje de error"
           }
         },
         "fr": {
@@ -8927,6 +8689,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "忘記這則筆記"
+          }
+        }
+      }
+    },
+    "home.tool.failedOf": {
+      "comment": "A collapsed run of tool calls with failures: failed count, total count, the first failed command.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld of %2$lld failed: %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل %1$lld من %2$lld: %3$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije uspjelo %1$lld od %2$lld: %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld af %2$lld mislykkedes: %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld von %2$lld fehlgeschlagen: %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallaron %1$lld de %2$lld: %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld sur %2$lld en échec : %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld di %2$lld non riusciti: %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld 件中 %1$lld 件が失敗: %3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បរាជ័យ %1$lld ក្នុងចំណោម %2$lld: %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld개 중 %1$lld개 실패: %3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld av %2$lld mislyktes: %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie powiodło się %1$lld z %2$lld: %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld de %2$lld falharam: %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не выполнено %1$lld из %2$lld: %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล้มเหลว %1$lld จาก %2$lld: %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$lld işlemden %1$lld tanesi başarısız: %3$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не виконано %1$lld з %2$lld: %3$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld/%2$lld thất bại: %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld 个中有 %1$lld 个失败：%3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld 個中有 %1$lld 個失敗：%3$@"
           }
         }
       }

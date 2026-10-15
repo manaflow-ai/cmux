@@ -41,7 +41,10 @@ enum ChiefCloudRows {
     struct Provision: Codable, Hashable {
         var id: String
         var state: State
+        /// The machine id (`host`): the tooltip once a name shows.
         var machine: String?
+        /// The machine's name ("chief-dogfood-1", the owner's preview while the row has not failed).
+        var name: String?
         /// The row's message time (seconds since 1970): elapsed time counts from it.
         var startedAt: Double
         /// A failure's output (tooltip).
@@ -54,18 +57,25 @@ enum ChiefCloudRows {
         var machine: String
         var workspace: String
         var state: State
+        /// The machine's name from the turn's provisioning row ("chief-dogfood-1"); the card shows it,
+        /// the raw id (`machine`) stays in the tooltip. Nil keeps older payloads' bytes.
+        var name: String?
+
+        /// The machine as the card shows it.
+        var shownMachine: String { name ?? machine }
     }
 
     /// The row of a work part shown as one of these rows; nil for a tool call.
-    static func part(_ work: WorkRef, createdAt: Date) -> CustomPart? {
+    static func part(_ work: WorkRef, createdAt: Date, machineName: String? = nil) -> CustomPart? {
         if isProvisioning(work) {
             return ChiefRows.part(kind: provisionKind, Provision(id: work.session, state: state(work.status), machine: work.host,
+                                                                 name: work.status == .failed ? nil : work.preview,
                                                                  startedAt: createdAt.timeIntervalSince1970.rounded(),
                                                                  detail: work.status == .failed ? work.preview : nil))
         }
         guard let machine = work.host else { return nil }
         return ChiefRows.part(kind: resultKind, Result(title: work.title, subtitle: work.preview, machine: machine,
-                                                       workspace: work.session, state: state(work.status)))
+                                                       workspace: work.session, state: state(work.status), name: machineName))
     }
 
     /// "40s", "1m 5s": the system's short duration.
@@ -80,7 +90,7 @@ enum ChiefCloudRows {
     static func provisionText(_ p: Provision, now: Date) -> String {
         switch p.state {
         case .running: return CmuxStrings.cloudCreating(elapsed(now.timeIntervalSince1970 - p.startedAt))
-        case .done: return [CmuxStrings.cloudReady, p.machine].compactMap { $0 }.joined(separator: " · ")
+        case .done: return [CmuxStrings.cloudReady, p.name ?? p.machine].compactMap { $0 }.joined(separator: " · ")
         case .failed: return CmuxStrings.cloudFailed
         }
     }
@@ -150,7 +160,8 @@ final class ChiefProvisionRowView: NSView {
 
     func show(_ p: ChiefCloudRows.Provision) {
         row = p
-        toolTip = p.detail
+        // A failure's output, else the machine id behind the name the line shows.
+        toolTip = p.detail ?? (p.name != nil ? p.machine : nil)
         updateTicker()
         refresh()
     }
@@ -303,7 +314,7 @@ final class ChiefResultCardProvider: TranscriptCustomRowProvider {
 
     func plainText(_ part: CustomPart) -> String? {
         guard let r = part.decode(ChiefCloudRows.Result.self) else { return nil }
-        return [r.title, r.subtitle, ChiefCloudRows.statusText(r.state) + " · " + r.machine].compactMap { $0 }.joined(separator: "\n")
+        return [r.title, r.subtitle, ChiefCloudRows.statusText(r.state) + " · " + r.shownMachine].compactMap { $0 }.joined(separator: "\n")
     }
 }
 
@@ -341,6 +352,8 @@ final class ChiefResultCardView: NSView {
         button.toolTip = "cmux vm workspace open \(r.machine) \(r.workspace)"
         setAccessibilityLabel(r.title)
         setAccessibilityValue(ChiefCloudRows.statusText(r.state))
+        // The card shows the machine's name; its raw id is here (and in the button's command).
+        toolTip = r.name != nil ? r.machine : nil
         needsLayout = true
         needsDisplay = true
     }
@@ -375,7 +388,7 @@ final class ChiefResultCardView: NSView {
         let status = NSMutableAttributedString(string: ChiefCloudRows.statusText(r.state) + " · ", attributes: [
             .font: p.statusFont, .foregroundColor: Fixture.secondaryText,
         ])
-        status.append(NSAttributedString(string: r.machine, attributes: [
+        status.append(NSAttributedString(string: r.shownMachine, attributes: [
             .font: HomeFonts.monospaced(ofSize: 11), .foregroundColor: Fixture.secondaryText,
         ]))
         let h = status.size().height
