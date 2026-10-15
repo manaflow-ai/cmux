@@ -166,6 +166,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("pr") == nil)
         #expect(value.member("progress") == nil)
         #expect(value.member("remote") == nil)
+        #expect(value.member("emoji") == nil)
     }
 
     @Test("Workspace leading emoji is available to custom sidebars")
@@ -192,7 +193,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
             remote: nil,
-            taskStatus: "todo"
+            taskStatus: "todo",
+            emoji: "🚀"
         )
 
         #expect(builder.workspaceValue(workspace).member("emoji") == .string("🚀"))
