@@ -165,6 +165,40 @@ impl RelayFrame {
     }
 }
 
+/// How a relay frame is queued on the signaling socket (strict priority,
+/// highest first; see `send_queue`). Only the WireGuard datagram's outer
+/// shape is visible here: its type and length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RelayClass {
+    /// The "your UDP reaches me" marker, handshake messages, keepalives.
+    Control,
+    /// Small data datagrams: keystrokes, TCP ACKs, small requests.
+    Input,
+    /// Full-size data datagrams: output, files, video. Dropped first.
+    Bulk,
+}
+
+/// Encrypted data datagrams up to this size are [`RelayClass::Input`]: a
+/// TCP segment with a few hundred bytes of payload, or a pure ACK.
+pub const RELAY_INPUT_MAX: usize = 400;
+
+impl RelayFrame {
+    pub fn class(&self) -> RelayClass {
+        relay_class(&self.datagram)
+    }
+}
+
+/// The class of a WireGuard datagram on the relay.
+pub fn relay_class(datagram: &[u8]) -> RelayClass {
+    use cmux_transport::classify::WG_DATA_MIN_LEN;
+    use cmux_transport::{DatagramClass, classify};
+    match classify(datagram) {
+        DatagramClass::WireGuardData if datagram.len() > RELAY_INPUT_MAX => RelayClass::Bulk,
+        DatagramClass::WireGuardData if datagram.len() > WG_DATA_MIN_LEN => RelayClass::Input,
+        _ => RelayClass::Control,
+    }
+}
+
 /// A session a peer started: its first signal and the subscription that
 /// receives everything after it.
 #[derive(Debug)]
