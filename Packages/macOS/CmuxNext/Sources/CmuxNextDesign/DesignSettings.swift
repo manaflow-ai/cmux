@@ -28,9 +28,18 @@ public final class DesignSettings {
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
     public var density: Density = .compact
-    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
+    /// Opt-in Labs multiplier for the app chrome. A single token multiplier drives
+    /// type, spacing and control heights across native surfaces.
+    public var interfaceScale: CGFloat = 1
+    /// Set by the settings applier from `labs.previewFeatures`.
+    public var interfaceScaleEnabled = false
+    /// Sets the `--cmux-interface-scale` token web chrome reads: the Labs multiplier, or 1 when Labs is off.
+    public var interfaceScaleScript: String {
+        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
@@ -171,5 +180,9 @@ public final class DesignSettings {
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
         min(max(value, 0.85), 1.5)
+    }
+
+    public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0.9), 1.25)
     }
 }
