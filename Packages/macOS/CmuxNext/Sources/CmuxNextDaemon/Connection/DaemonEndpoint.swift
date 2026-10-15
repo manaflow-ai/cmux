@@ -241,11 +241,12 @@ public struct DaemonCapabilities: Sendable {
     /// `conversation-thread` (`cloud-conversation-thread` too) and the owner's `threads` stats on snapshot and history pages.
     public let conversationThread = "conversation-thread-v1"
     /// `conversation-inbox-op` (the caller's own pins and marks), `home-inbox` (the Home list rows), `chief-changed` events.
-    public let conversationInboxState = "conversation-inbox-state-v1", homeInbox = "home-inbox-v1", chiefEvents = "chief-events-v1"
-    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
-    /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
-    /// commands and their `cloud-*` events. Advertised only when the daemon
-    /// has the cloud transport installed.
+    public let conversationInboxState = "conversation-inbox-state-v1"
+    public let homeInbox = "home-inbox-v1"
+    public let chiefEvents = "chief-events-v1"
+    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md): the `cloud-session-*`,
+    /// `cloud-inbox-*` and `cloud-conversation-*` commands and their `cloud-*` events. Advertised only when
+    /// the daemon has the cloud transport installed.
     public let cloudConversations = "cloud-conversations-v1"
     /// `page-credential`: the verified app gets a credential for its own page, which then gets
     /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
@@ -254,8 +255,7 @@ public struct DaemonCapabilities: Sendable {
     /// to one page (its Origin only, never the Cloud lease); the Chief home's owner, whose app
     /// connection is not the verified app, hands the Channels page one.
     public let scopedPageCredential = "page-credential-scoped-v1"
-    /// `ws-listen`: a running owner opens its loopback page listener on
-    /// request (cx-hnmbt.5); an older owner is handed off to the bundled build.
+    /// `ws-listen`: a running owner opens its loopback page listener on request (cx-hnmbt.5); an older owner is handed off to the bundled build.
     public let wsListen = "ws-listen-v1"
     /// `ws-listen {allow_origins}`: the listener admits every first-party page origin
     /// (cx-hnmbt.10); an owner without it gets the Channels origin only.
