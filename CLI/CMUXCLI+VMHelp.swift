@@ -14,6 +14,7 @@ extension CMUXCLI {
         case "new", "create": return vmNewUsage
         case "ls", "list": return vmListUsage
         case "ports": return vmPortsUsage
+        case "share": return vmShareUsage
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
         case "agent-updates": return vmAgentUpdatesUsage
@@ -453,18 +454,18 @@ extension CMUXCLI {
     }
 
     static var vmPortsUsage: String {
-        String(localized: "cli.vm.ports.usage", defaultValue: """
+        String(localized: "cli.vm.ports.usage.share", defaultValue: """
         Usage:
           cmux vm ports <machine> [--all] [--json]
 
         Show the servers you started inside a Cloud VM: PORT, PROCESS, PRIVATE URL
         (reachable only through your cmux VPN) and SHARED (none, you, team or PUBLIC,
-        from `cmux cloud domains`). System listeners (SSH, DNS, cmux, Desktop) are
+        set with `cmux vm share`). System listeners (SSH, DNS, cmux, Desktop) are
         hidden; --all shows them with their KIND. --json lists every port with a
         `system` flag, plus the raw inventory.
 
         Open one:  cmux vm open <machine> <port>
-        Share one: cmux cloud domains publish <machine> <port>
+        Share one: cmux vm share <machine> <port> --team
         """)
     }
 

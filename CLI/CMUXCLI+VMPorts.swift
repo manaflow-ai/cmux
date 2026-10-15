@@ -142,8 +142,8 @@ extension CMUXCLI {
             ))
             lines.append(String(
                 format: String(
-                    localized: "cli.vm.ports.nextSteps",
-                    defaultValue: "Open one: cmux vm open %1$@ <port>   Share one: cmux cloud domains publish %1$@ <port>"
+                    localized: "cli.vm.ports.nextSteps.share",
+                    defaultValue: "Open one: cmux vm open %1$@ <port>   Share one: cmux vm share %1$@ <port> --team"
                 ),
                 vmId
             ))

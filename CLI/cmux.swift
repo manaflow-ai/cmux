@@ -8108,6 +8108,10 @@ struct CMUXCLI {
                 // CMUXCLI+VMPorts.swift: the person's ports by default, `--all` adds system ports.
                 try runVMPortsCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "share":
+                // CMUXCLI+VMShare.swift: one port's audience, the app's share control as a verb.
+                try runVMShareCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "handoff":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux vm handoff <id>")
@@ -8141,7 +8145,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -21303,7 +21307,7 @@ struct CMUXCLI {
                 """
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             \(quickStart)
 
@@ -21324,6 +21328,8 @@ struct CMUXCLI {
                                         Every workspace, terminal, port, and display, with
                                         the address `vm open` accepts.
               ports <id> [--all]        Show your servers inside the machine.
+              share <id> <port> [--team|--public|--private]
+                                        Who can open a port; private by default.
               rename <id> <label>       Change the machine's label.
               pause|resume <id>         Park the machine (compute and billing stop) / wake it.
               rm <id>                   Destroy the machine.

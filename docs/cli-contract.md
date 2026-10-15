@@ -494,6 +494,7 @@ VM subcommands:
 | `surface new-terminal --machine <id\|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id\|ref\|index>] [--no-open] [--focus\|--no-focus] [--json] [-- <command...>]` | Create a terminal on a machine through its provider (`surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_id?, open?, workspace_id?, …}` → `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}`) and open it as a pane unless `--no-open`. Cloud terminals land in the machine's cmux-tui session (`--remote-workspace` picks the workspace); local ones are a new shell on This Mac. |
 | `vm tools <id>`, `vm tool-inspector <id>` | Inspect installed tools inside the VM. |
 | `vm ports <id> [--all] [--json]` | The servers you started inside the VM: `PORT · PROCESS · PRIVATE URL · SHARED` (`none`, `you`, `team`, `PUBLIC`; `?` when publications are unreadable). System listeners (SSH, DNS, cmux, image 8080, Desktop VNC/noVNC, container runtimes) are classified by the same rules as the Ports tab and hidden; `--all` shows them with KIND. `--json` keeps the raw `vm.exec` payload and adds `ports: [{port, processes, pids, addresses, kind, system, loopback_only, private_url, shared}]`. |
+| `vm share <id> <port> [--team [--team-id <id>]\|--public [--yes]\|--personal\|--private] [--json]` | One port's audience (the app's share control as a verb). No flag prints it and its links. `--team`/`--personal` give a sign-in link; `--public` asks `[y/N]` naming the audience (`--yes` for scripts; refused without a terminal); every link of the port ends at the chosen audience. `--private` deletes generated links and narrows a custom domain to you. Runs `vm.publication_list` then `vm.publication_create`/`update`/`delete` (a new public link is created private, then opened). `--json`: `{machine, port, shared, changed, links: [{id, hostname, url, shared, generated}]}`. |
 | `vm handoff <id>` | Print a short attach handoff block. |
 | `vm promote-template <id>` | Promote the VM into a reusable template. |
 
@@ -970,11 +971,12 @@ the expected text without connecting to a cmux socket.
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux glaeda --help` -> `Usage: cmux glaeda <request|observe> [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm new --help` -> `Create a Cloud VM.`
 - `cmux vm ls --help` -> `List your Cloud VMs`
 - `cmux vm ports --help` -> `Show the servers you started inside a Cloud VM`
+- `cmux vm share --help` -> `cmux vm share <machine> <port> --public [--yes]`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--timeout <seconds>] -- <command...>`
 - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--timeout <seconds>] -- <command...>`

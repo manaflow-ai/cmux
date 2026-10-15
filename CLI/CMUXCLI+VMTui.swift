@@ -1017,6 +1017,7 @@ extension CMUXCLI {
         case "new", "create": return vmNewUsage
         case "ls", "list": return vmListUsage
         case "ports": return vmPortsUsage
+        case "share": return vmShareUsage
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
         case "agent-updates": return vmAgentUpdatesUsage

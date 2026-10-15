@@ -63,6 +63,7 @@ cmux vm network <id>                   # outbound policy: mode, presets, domains
 cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
+cmux vm share <id> <port>              # who can open a port (private by default)
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
 ```
 
@@ -786,6 +787,14 @@ cmux vm ports <id> [--all] [--json]
 
 A `vm.exec` of `ss -ltnp` (or `netstat -ltnp`), classified by the same rules as the sidebar's Ports tab (`CloudListeningPortKind.classify`). The default table lists only your servers: `PORT · PROCESS · PRIVATE URL · SHARED`. PRIVATE URL is the machine's VPC address (works only through `cmux vpn up`; `*` marks a 127.0.0.1-only listener that opens in cmux but not from other apps). SHARED is `none`, `you`, `team` or `PUBLIC` from `cmux cloud domains` (`?` when publications could not be read). System listeners (SSH 22, DNS 53, cmux-tui 1337 and other `cmux*` processes, the image's 8080, Desktop VNC/noVNC, container runtimes) are hidden; `--all` shows them with a KIND column. `--json`: the raw exec payload plus `ports: [{port, processes, pids, addresses, kind, system, loopback_only, private_url, shared}]`.
 
+### `cmux vm share`
+
+```bash
+cmux vm share <id> <port> [--team [--team-id <id>] | --public [--yes] | --personal | --private] [--json]
+```
+
+One port's audience; the same plan the app's preview-tab share control and the Ports row's Share submenu run (`CloudPortSharePlan`), over the same `vm.publication_list|create|update|delete` methods as `cmux cloud domains`. With no flag it prints who can open the port (`private`, a link only you can open, `team`, `PUBLIC`) and each link. `--team` / `--personal` give the port a sign-in link for your team / only you; `--public` lets anyone with the link open it without signing in and asks `[y/N]` first (`--yes` confirms for scripts; without a terminal and `--yes` it refuses). A port with several links ends with every link at the chosen audience. `--private` stops sharing: generated links are deleted, a custom domain is kept but narrowed to you (remove it with `cmux cloud domains rm <hostname>`). A new public link is created private and then opened, so a failure never leaves it public. `--json`: `{machine, port, shared: none|personal|team|public, changed, links: [{id, hostname, url, shared, generated}]}`. The Ports tab's badge (Private / Team / Public) follows the change.
+
 ### Port URLs: `cmux vm open <id> <port>`
 
 See `vm open`: `cmux vm open <id> 3000` opens an HTTP port on the machine as a browser pane (`vm.port_open`); `--print` only mints and prints the URL (`vm.open_port`, `--json` → `{open_url, …}`). Both first check that something listens on the port and otherwise fail, naming your listening ports; `--force` skips the check (a server still starting). The pane opens in the local workspace already showing the machine (else where you are) and is titled `:<port> · <machine>` until the page names itself. The URL points at the machine's **private VPC address** — reachable only through the owner's WireGuard tunnel (`cmux vpn up`), never a public ingress; the daemon's own port is refused, and the lease carries an expiry. Only share URLs minted this way; never guess provider URLs (they resolve for the machine's owner only).
@@ -881,7 +890,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.terminal_close` | `vm terminal close` |
 | `vm.terminal_write`, `vm.terminal_read`, `vm.terminal_wait` | `vm terminal send`, `vm terminal read`, `vm terminal wait` |
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
-| `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
+| `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`, `vm share`; `vm.publication_verify` is the app-side publication retry path |
 | `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
 | `surface.catalog`, `surface.project`, `surface.new_terminal` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent` |
 

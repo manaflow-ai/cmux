@@ -1444,6 +1444,7 @@
 		21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */; };
 		9DA9341C7A15CD6B172DEA38 /* CMUXCLI+VMSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DC65969A10CB9B927E7485A /* CMUXCLI+VMSecrets.swift */; };
 		C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */; };
+		0B447CA61903329DE3382915 /* CMUXCLI+VMShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92D9E6A8F869D0E8F9E81691 /* CMUXCLI+VMShare.swift */; };
 		8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */; };
 		CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */; };
 		CC0033E15A1B2C3D4E5F0032 /* CMUXCLI+VMTuiWorkspaceNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */; };
@@ -6188,6 +6189,7 @@
 		21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSCP.swift"; sourceTree = "<group>"; };
 		1DC65969A10CB9B927E7485A /* CMUXCLI+VMSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSecrets.swift"; sourceTree = "<group>"; };
 		25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSelf.swift"; sourceTree = "<group>"; };
+		92D9E6A8F869D0E8F9E81691 /* CMUXCLI+VMShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMShare.swift"; sourceTree = "<group>"; };
 		F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSnapshots.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTui.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTuiWorkspaceNaming.swift"; sourceTree = "<group>"; };
@@ -12771,6 +12773,7 @@
 				F288AEA52FCA14E38335943E /* CMUXCLI+VMMachineLabels.swift */,
 				7AB8488FF8F2065B58712782 /* VMMachineSelectorResolver.swift */,
 				443A7480CE0B59CC25AA635D /* CMUXCLI+VMPorts.swift */,
+				92D9E6A8F869D0E8F9E81691 /* CMUXCLI+VMShare.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -17866,6 +17869,7 @@
 				21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */,
 				9DA9341C7A15CD6B172DEA38 /* CMUXCLI+VMSecrets.swift in Sources */,
 				C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */,
+				0B447CA61903329DE3382915 /* CMUXCLI+VMShare.swift in Sources */,
 				8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */,
