@@ -749,6 +749,18 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
 fn human_error_lines(error: &Value) -> String {
     let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
     let mut text = sanitize_human_block(message);
+    // cx-8mla8: an operation.failed message is only its reason ("internal");
+    // the daemon's own words are in details.extra.message.
+    let reason = error.pointer("/details/reason").and_then(Value::as_str);
+    if reason == Some(message)
+        && let Some(detail) = error
+            .pointer("/details/extra/message")
+            .and_then(Value::as_str)
+            .filter(|d| !d.trim().is_empty())
+    {
+        text.push_str(": ");
+        text.push_str(&sanitize_human_block(detail));
+    }
     text.push('\n');
     if let Some(candidates) =
         error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)

@@ -111,7 +111,14 @@ impl Link {
                 Some(reason) if !reason.is_empty() => format!("{}: {reason}", text("code")),
                 _ => text("code"),
             };
-            return Err(LinkError::Rejected { code, message: text("message") });
+            // cx-8mla8: operation.failed carries the reason as its message and
+            // the daemon's own words in details.extra.message; show those.
+            let detail = error
+                .pointer("/details/extra/message")
+                .and_then(Value::as_str)
+                .filter(|m| !m.trim().is_empty());
+            let message = detail.map_or_else(|| text("message"), str::to_owned);
+            return Err(LinkError::Rejected { code, message });
         }
     }
 
