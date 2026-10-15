@@ -478,6 +478,12 @@ fn append_once(
     on_sent: &dyn Fn(),
 ) -> Result<(), AppendAttemptError> {
     let mut stream = connect_before(socket, deadline)?;
+    // Bound the receipt read now, while the peer is surely still connected:
+    // once a server has answered and closed, macOS refuses SO_RCVTIMEO with
+    // EINVAL although the answer is still readable.
+    stream
+        .set_read_timeout(Some(remaining_before(deadline)?))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
     write_before(&mut *stream, encoded, deadline)?;
     on_sent();
     let response = read_before(stream, deadline)?;
@@ -598,9 +604,10 @@ fn write_before(
         }
     }
     loop {
-        stream
-            .set_write_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // The request is fully written. A fast server may already have
+        // answered and closed, which makes macOS refuse the option; the
+        // timeout set for the writes still bounds the flush.
+        let _ = stream.set_write_timeout(Some(remaining_before(deadline)?));
         match stream.flush() {
             Ok(()) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -616,10 +623,10 @@ fn read_before(
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     loop {
-        reader
-            .get_ref()
-            .set_read_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // Shrink the bound toward the deadline. A refusal means the server
+        // already closed (macOS EINVAL), so the read cannot block; the
+        // timeout set before the request was written still applies.
+        let _ = reader.get_ref().set_read_timeout(Some(remaining_before(deadline)?));
         let available =
             reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         if available.is_empty() {
