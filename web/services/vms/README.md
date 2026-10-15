@@ -602,6 +602,13 @@ Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *n
 "the account holding uid 1000, or root in an image with no such account", and the devbox image
 ships a uid-1000 user — leaving it unset would silently move the daemon and its install off
 the root layout they are baked around.
+Public `vm exec` is the exception: it leaves `linuxUser` unset so it runs as the work user,
+like the machine's terminals. The provider starts that account with the base image's stale
+`HOME=/home/ubuntu` (the account was renamed to `cmux` and its home moved), so the driver
+prefixes the command with `drivers/workUserExecCommand.ts`: `HOME`, `USER` and `LOGNAME` come
+from the passwd entry of the effective uid, the command starts in that home when the provider's
+was unusable, and `~/.config/cmux/env` is applied as a login shell would. The fix is
+server-side, so running machines get it on their next exec.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
