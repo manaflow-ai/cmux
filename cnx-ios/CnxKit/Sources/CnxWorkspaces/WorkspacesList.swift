@@ -131,6 +131,10 @@ public struct WorkspacesList: View {
     private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
 
     public var body: some View {
+        groupDialogs(page)
+    }
+
+    private var page: some View {
         content
             .navigationTitle("Workspaces")
             .navigationSubtitle(subtitle)
@@ -169,28 +173,6 @@ public struct WorkspacesList: View {
             } message: { _ in
                 Text("One emoji.")
             }
-            .alert("Move Workspace to New Group", isPresented: isPresented($newGroupFor), presenting: newGroupFor) { ws in
-                TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
-                Button("Cancel", role: .cancel) {}
-                Button("Create") {
-                    withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
-                }
-            }
-            .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { target in
-                TextField("Name", text: $groupNameText)
-                    .submitLabel(.done)
-                Button("Cancel", role: .cancel) {}
-                Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
-                    .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .confirmationDialog(deletingGroup.map { "Delete \u{201C}\($0.group.displayName)\u{201D}?" } ?? "",
-                                isPresented: isPresented($deletingGroup), titleVisibility: .visible, presenting: deletingGroup) { target in
-                Button("Delete Group", role: .destructive) {
-                    withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(target.group, on: target.macID) }
-                }
-            } message: { target in
-                Text("Its workspaces stay open on \(mac(target.macID).map(displayName) ?? "the Mac").")
-            }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
                     .submitLabel(.done)
@@ -198,6 +180,45 @@ public struct WorkspacesList: View {
                 Button("Rename") { creator.rename(ws, to: renameText) }
                     .disabled(renameText.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+    }
+
+    /// Move Workspace to New Group, Rename Group… and Delete Group's questions.
+    private func groupDialogs(_ view: some View) -> some View {
+        view
+            .alert("Move Workspace to New Group", isPresented: isPresented($newGroupFor), presenting: newGroupFor) { (ws: Workspace) in
+                TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
+                }
+            }
+            .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
+                TextField("Name", text: $groupNameText)
+                    .submitLabel(.done)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
+                    .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
+                                presenting: deletingGroup) { (target: GroupTarget) in
+                Button("Delete Group", role: .destructive) {
+                    withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(target.group, on: target.macID) }
+                }
+            } message: { (target: GroupTarget) in
+                Text(deleteGroupMessage(target))
+            }
+    }
+
+    /// "Delete “Backend”?"
+    private var deleteGroupTitle: String {
+        guard let target = deletingGroup else { return "" }
+        return "Delete \u{201C}\(target.group.displayName)\u{201D}?"
+    }
+
+    /// The Mac keeps the workspaces (Delete Group is not Close All Workspaces in Group).
+    private func deleteGroupMessage(_ target: GroupTarget) -> String {
+        let name = mac(target.macID).map(displayName) ?? "the Mac"
+        return "Its workspaces stay open on \(name)."
     }
 
     /// Filtered: the Mac and its presence. Else "Updating…" for a slow
@@ -449,26 +470,7 @@ public struct WorkspacesList: View {
             theme.haptics.selection()
             withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: section.macID, !group.isCollapsed) }
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.right")
-                    .font(theme.type.meta.weight(.semibold))
-                    .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
-                    .foregroundStyle(theme.colors.label2)
-                Circle()
-                    .fill(WorkspaceSwatch.color(stored: group.color) ?? theme.colors.label3)
-                    .frame(width: 8, height: 8)
-                Text(group.displayName)
-                    .font(theme.type.meta.weight(.semibold))
-                    .foregroundStyle(theme.colors.label)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if group.isCollapsed {
-                    Text("\(section.workspaces.count)")
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
-                }
-            }
-            .contentShape(Rectangle())
+            GroupHeaderLabel(group: group, count: section.workspaces.count)
         }
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 20))
@@ -477,15 +479,8 @@ public struct WorkspacesList: View {
         .contextMenu {
             if canEdit { groupMenu(group, macID: section.macID) }
         }
-        .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
-        .accessibilityValue(group.isCollapsed ? "Collapsed, \(section.workspaces.count) workspaces" : "Expanded")
-        .accessibilityActions {
-            if canEdit {
-                Button("Rename Group…") { startRenameGroup(group, macID: section.macID) }
-                Button("Delete Group") { deletingGroup = GroupTarget(group: group, macID: section.macID) }
-            }
-        }
+        .accessibilityActions { groupAccessibilityActions(group, macID: section.macID, canEdit: canEdit) }
         .accessibilityIdentifier("workspace.group.\(group.id)")
     }
 
@@ -522,6 +517,13 @@ public struct WorkspacesList: View {
             Button("Delete Group", systemImage: "trash", role: .destructive) {
                 deletingGroup = GroupTarget(group: group, macID: macID)
             }
+        }
+    }
+
+    @ViewBuilder private func groupAccessibilityActions(_ group: MacWorkspaceGroup, macID: String, canEdit: Bool) -> some View {
+        if canEdit {
+            Button("Rename Group…") { startRenameGroup(group, macID: macID) }
+            Button("Delete Group") { deletingGroup = GroupTarget(group: group, macID: macID) }
         }
     }
 
@@ -1085,6 +1087,43 @@ struct SectionTitle: View {
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A group header's label: a disclosure chevron, the group's color, its name,
+/// and how many workspaces it holds while folded.
+struct GroupHeaderLabel: View {
+    let group: MacWorkspaceGroup
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "chevron.right")
+                .font(theme.type.meta.weight(.semibold))
+                .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
+                .foregroundStyle(theme.colors.label2)
+            Circle()
+                .fill(swatch)
+                .frame(width: 8, height: 8)
+            Text(group.displayName)
+                .font(theme.type.meta.weight(.semibold))
+                .foregroundStyle(theme.colors.label)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if group.isCollapsed {
+                Text(String(count))
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(group.displayName)
+        .accessibilityValue(group.isCollapsed ? "Collapsed, \(count) workspaces" : "Expanded")
+    }
+
+    private var swatch: Color {
+        WorkspaceSwatch.color(stored: group.color) ?? theme.colors.label3.color
     }
 }
 
