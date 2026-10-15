@@ -160,9 +160,13 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             return (self.stream, self.reconfiguration)
         }
         if let reconfiguration {
-            // No callback runs after removal returns, so the hold it had can go.
-            CGDisplayRemoveReconfigurationCallback(reconfiguration.callback, reconfiguration.context.toOpaque())
-            reconfiguration.context.release()
+            // On the main thread, where the callbacks run: none is mid-call when
+            // the hold it used is released.
+            let release = { @Sendable in
+                CGDisplayRemoveReconfigurationCallback(reconfiguration.callback, reconfiguration.context.toOpaque())
+                reconfiguration.context.release()
+            }
+            if Thread.isMainThread { release() } else { DispatchQueue.main.async(execute: release) }
         }
         if let stream { Task { try? await stream.stopCapture() } }
     }
