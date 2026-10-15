@@ -46,6 +46,8 @@ const FADES: [&str; 12] = [
     "pinSettle",
     "pinShrink",
 ];
+/// `motion.tweens` keys in `MotionTween` declaration order.
+const TWEENS: [&str; 3] = ["tabOpen", "tabClose", "tabMove"];
 /// `motion.loops` keys in `MotionLoop` declaration order.
 const LOOPS: [&str; 3] = ["spinner", "pulse", "flash"];
 
@@ -160,6 +162,39 @@ fn generate(m: &json::Value) -> Result<String, String> {
         writeln!(code, "    {seconds:?}, // {key}").ok();
     }
     code.push_str("];\n");
+    writeln!(code, "pub(crate) const TWEENS: [TweenParameters; {}] = [", TWEENS.len()).ok();
+    for key in TWEENS {
+        let duration = number(m, &["tweens", key, "value", "duration"], 0.0..=2.0)?;
+        let curve = match at(m, &["tweens", key, "value", "curve"])?.as_str() {
+            Some("easeOutQuad") => "EaseOutQuad",
+            _ => return Err(format!("tweens.{key}.value.curve: not easeOutQuad")),
+        };
+        writeln!(code, "    TweenParameters::new({duration:?}, TweenCurve::{curve}), // {key}")
+            .ok();
+    }
+    code.push_str("];\n");
+    for density in ["compact", "comfortable"] {
+        let g = |key: &str| number(m, &["tabStrip", "value", density, key], 0.0..=1000.0);
+        let c = |key: &str| {
+            number(m, &["tabStrip", "value", density, "closingMode", key], 0.0..=1000.0)
+        };
+        writeln!(
+            code,
+            "pub(crate) const TAB_STRIP_{}: TabStripGeometry = TabStripGeometry {{ max_width: {:?}, open_start_width: {:?}, close_end_width: {:?}, min_active_width: {:?}, min_inactive_width: {:?}, pinned_width: {:?}, reorder_threshold: {:?}, closing_mode_below_pad: {:?}, closing_mode_trailing_pad: {:?}, closing_mode_exit_delay: {:?} }};",
+            density.to_ascii_uppercase(),
+            g("maxWidth")?,
+            g("openStartWidth")?,
+            g("closeEndWidth")?,
+            g("minActiveWidth")?,
+            g("minInactiveWidth")?,
+            g("pinnedWidth")?,
+            g("reorderThreshold")?,
+            c("belowPad")?,
+            c("trailingPad")?,
+            c("exitDelay")?,
+        )
+        .ok();
+    }
     code.push_str("pub(crate) const LOOPS: [f64; 3] = [\n");
     for key in LOOPS {
         let seconds = number(m, &["loops", key, "value"], 0.05..=10.0)?;
