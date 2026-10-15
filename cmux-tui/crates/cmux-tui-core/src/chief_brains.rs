@@ -309,16 +309,18 @@ pub(crate) struct Slot {
     /// still gets its brain. Kept only when brains are configured, at most
     /// [`EARLY_MAX`]; lock order: `sender`, then `early`.
     early: Mutex<Vec<Signal>>,
+    /// The supervisor stopped ([`ChiefBrains::stop`]): no signal waits for
+    /// it any more, and a new Chief's brain is answered at once.
+    stopped: std::sync::atomic::AtomicBool,
 }
 
 /// What happened to a new Chief's brain (`chief.profile.create` and
 /// `chief.profile.adopt` answer it as the record's `brain`): started, or not
-/// with the reason (`no_supervisor`: this daemon runs no brains;
-/// `launch_disabled`: agents are off in this build session;
-/// a create made while the supervisor starts waits for its real answer;
-/// `error`: the
-/// start failed, see the daemon log; `unconfirmed`: the supervisor did not
-/// answer in time, it may still start).
+/// with the reason (`no_supervisor`: this daemon runs no brains, or its
+/// supervisor stopped; `launch_disabled`: agents are off in this build
+/// session; `error`: the start failed, see the daemon log; `unconfirmed`:
+/// the supervisor did not answer in time, it may still start). A create made
+/// while the supervisor starts waits for its real answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum BrainStart {
     Started,
@@ -359,6 +361,9 @@ const EARLY_MAX: usize = 256;
 
 impl Slot {
     fn send(&self, signal: Signal) {
+        if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
             let _ = sender.send(signal);
@@ -417,7 +422,7 @@ impl Slot {
             }
             return Some(BrainPending::Ready(BrainStart::NotStarted("error")));
         }
-        if config().is_none() {
+        if config().is_none() || self.stopped.load(std::sync::atomic::Ordering::Acquire) {
             return Some(BrainPending::Ready(BrainStart::NotStarted("no_supervisor")));
         }
         // The supervisor is still starting (the control socket accepts
@@ -425,10 +430,9 @@ impl Slot {
         // `early` with its reply, and `start` hands both to the supervisor,
         // which answers the real state once it handles them. Still under the
         // `sender` lock, so `start` cannot drain in between.
+        // A create always waits (other early signals stop at EARLY_MAX; creates
+        // are bounded by MAX_CHIEFS), so its brain is never dropped.
         let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
-        if early.len() >= EARLY_MAX {
-            return Some(BrainPending::Ready(BrainStart::NotStarted("unconfirmed")));
-        }
         let (reply, answer) = mpsc::channel();
         early.push(Signal::Created(Box::new(record.clone()), Some(reply)));
         drop(early);
@@ -449,7 +453,10 @@ impl ChiefBrains {
     /// and the supervisor.
     pub fn stop(mut self) {
         if let Some(mux) = self.mux.upgrade() {
-            mux.chiefs().brains.sender.lock().unwrap_or_else(PoisonError::into_inner).take();
+            let slot = &mux.chiefs().brains;
+            slot.stopped.store(true, std::sync::atomic::Ordering::Release);
+            slot.sender.lock().unwrap_or_else(PoisonError::into_inner).take();
+            slot.early.lock().unwrap_or_else(PoisonError::into_inner).clear();
         }
         let (done, ended) = mpsc::channel();
         if self.sender.send(Signal::Shutdown(done)).is_ok() {
@@ -465,6 +472,14 @@ impl ChiefBrains {
 /// `CMUX_TUI_CHIEF_BRAINS` is set; `None` otherwise.
 pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     let config = config()?;
+    // Tests only (a debug build): hold the install until the test opens this
+    // FIFO for writing, so a create made before it is proven to wait for the
+    // supervisor's answer (tests/cli/chief_brains.rs). Opening a FIFO for
+    // reading blocks until a writer comes: no sleep, no polling.
+    #[cfg(debug_assertions)]
+    if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_CHIEF_BRAINS_GATE") {
+        let _ = std::fs::File::open(gate);
+    }
     let (sender, inbox) = mpsc::channel();
     {
         let slot = &mux.chiefs().brains;
