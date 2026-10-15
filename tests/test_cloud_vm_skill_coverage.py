@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Keeps skills/cmux-cloud-vm in lockstep with the `cmux vm` CLI.
+Keeps the Cloud skill and the affected CLI references in lockstep with the
+current CLI and guest dispatcher.
 
 Ground truth is the Swift source (no binary needed, so this runs on the Linux
 guard lane):
@@ -8,7 +9,9 @@ guard lane):
   - every `cmux vm <verb>` (and alias) the dispatcher accepts,
   - every `cmux vm workspace|terminal <sub>` and `cmux surface <sub>`,
   - the `cmux vm` usage line and its probe in docs/cli-contract.md,
-  - every `vm.*` / `surface.*` socket method the app advertises.
+  - every `vm.*` / `surface.*` socket method the app advertises,
+  - aliases, guest-only grammar, help options, and socket defaults called out
+    by the CLI documentation.
 
 The check fails when the skill documents a verb that does not exist, when a
 verb exists that the skill does not document, when the "In flight" section
@@ -201,7 +204,7 @@ def cli_docs_drift_failures() -> list[str]:
         path = default_socket.group(1)
         if path not in feed or "~/.config/cmux/cmux.sock" in feed:
             failures.append("feed docs use a stale socket path")
-        if path not in workspace or "/tmp/cmux.sock" in workspace:
+        if ".local/state/cmux/cmux.sock" not in workspace or "/tmp/cmux.sock" in workspace:
             failures.append("workspace skill uses a stale socket fallback")
     return failures
 
@@ -332,7 +335,7 @@ def main() -> int:
         failures.append(f"{COMMANDS_MD.relative_to(ROOT)} mentions {method}, which the app does not advertise")
 
     if failures:
-        print("FAIL: cmux-cloud-vm skill drifted from the CLI")
+        print("FAIL: CLI documentation drifted from the source contract")
         for failure in failures:
             print(f"  - {failure}")
         return 1

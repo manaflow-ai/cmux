@@ -148,7 +148,7 @@ Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seco
 |-----------------------------------|------------------------------------------------------------|
 | `~/.cmuxterm/workstream.jsonl`    | Append-only audit log of every Feed event.                 |
 | `~/.cmuxterm/<agent>-hook-sessions.json` | Session-to-workspace mapping used by `feed.jump`.   |
-| `~/.config/cmux/cmux.sock`        | V2 socket the hooks/plugin talk to.                        |
+| `~/.local/state/cmux/cmux.sock`   | V2 socket the hooks/plugin talk to when `CMUX_SOCKET_PATH` is unset. |
 | `~/.config/opencode/plugins/cmux-feed.js` | OpenCode plugin emitted by `cmux hooks opencode install`. |
 
 To reset history:
@@ -168,7 +168,7 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 
 **Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a hook event in the stock TUI path. Feed only sees Codex permission hooks today.
 
-**Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
+**Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.local/state/cmux/cmux.sock`).
 
 **Notifications aren't showing inline buttons.** The three Feed categories (`CMUXFeedPermission`, `CMUXFeedExitPlan`, `CMUXFeedQuestion`) are registered at app launch. On first Feed use, macOS may prompt for notification authorization; if authorization is denied, Feed rows still appear in the sidebar but no native banner is delivered.
 

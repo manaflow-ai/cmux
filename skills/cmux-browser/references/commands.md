@@ -110,7 +110,7 @@ cmux browser --surface <surface> wait --function "document.readyState === 'compl
 ## Design mode
 
 ```bash
-cmux browser --surface <surface> design-mode enable|status|disable --json
+cmux browser --surface <surface> design-mode enable|disable|toggle|status --json
 ```
 
 Design mode lets a user select page elements and copy their DOM, style, URL,
