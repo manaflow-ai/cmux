@@ -31,12 +31,25 @@ public import Foundation
     /// The completion shape expected by WebKit authentication-challenge delegates.
     public typealias Completion = (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
 
+    /// Returns a candidate to use without presenting the certificate picker.
+    public typealias AutoSelection = @MainActor @Sendable (
+        _ protectionSpace: URLProtectionSpace,
+        _ candidates: [BrowserClientCertificateCredentialCandidate]
+    ) -> BrowserClientCertificateCredentialCandidate?
+
     private let candidateProvider: CandidateProvider
+    private let autoSelection: AutoSelection?
 
     /// Creates a client-certificate challenge handler.
-    /// - Parameter candidateProvider: Provider used to look up matching client-certificate candidates.
-    public init(candidateProvider: @escaping CandidateProvider) {
+    /// - Parameters:
+    ///   - candidateProvider: Provider used to look up matching client-certificate candidates.
+    ///   - autoSelection: Optional policy that can select a candidate without showing a picker.
+    public init(
+        candidateProvider: @escaping CandidateProvider,
+        autoSelection: AutoSelection? = nil
+    ) {
         self.candidateProvider = candidateProvider
+        self.autoSelection = autoSelection
     }
 
     /// Handles a client-certificate challenge when applicable.
@@ -85,6 +98,10 @@ public import Foundation
         case 0:
             completionHandler(.performDefaultHandling, nil)
         default:
+            if let selectedCandidate = autoSelection?(protectionSpace, candidates) {
+                completionHandler(.useCredential, selectedCandidate.credential)
+                return
+            }
             guard let candidatePicker else {
                 completionHandler(.performDefaultHandling, nil)
                 return

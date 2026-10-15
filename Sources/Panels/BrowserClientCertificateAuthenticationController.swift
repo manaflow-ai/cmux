@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxSettings
 import Foundation
 import WebKit
 
@@ -14,11 +15,34 @@ import WebKit
                 protectionSpace: protectionSpace,
                 completion: completion
             )
-        }
+        },
+        autoSelection: @escaping BrowserClientCertificateAuthenticationHandler.AutoSelection = BrowserClientCertificateAuthenticationController.defaultAutoSelection
     ) {
         authenticationHandler = BrowserClientCertificateAuthenticationHandler(
-            candidateProvider: candidateProvider
+            candidateProvider: candidateProvider,
+            autoSelection: autoSelection
         )
+    }
+
+    private static func defaultAutoSelection(
+        protectionSpace: URLProtectionSpace,
+        candidates: [BrowserClientCertificateCredentialCandidate]
+    ) -> BrowserClientCertificateCredentialCandidate? {
+        guard let selection = BrowserClientCertificateAutoSelectionPolicy(defaults: .standard)
+            .selection(for: protectionSpace) else {
+            return nil
+        }
+
+        switch selection {
+        case .onlyCandidate:
+            return candidates.count == 1 ? candidates[0] : nil
+        case .certificateSerialNumber(let serialNumber):
+            let normalizedCandidates = candidates.filter {
+                guard let candidateSerialNumber = $0.serialNumber else { return false }
+                return BrowserClientCertificateAutoSelectionRule.normalizedSerialNumber(candidateSerialNumber) == serialNumber
+            }
+            return normalizedCandidates.count == 1 ? normalizedCandidates[0] : nil
+        }
     }
 
     func cancelAll(allowFuturePrompts: Bool = false) {
