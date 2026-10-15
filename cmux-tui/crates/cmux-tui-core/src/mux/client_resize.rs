@@ -233,9 +233,12 @@ impl Mux {
                     },
                 ));
             }
+            let hold_snapshot =
+                sizing.terminal_sizing.get(&runtime).map(Self::terminal_grid_hold_snapshot);
             let (target, applied) =
                 sizing.terminal_sizing.get(&runtime).map_or((requested, None), |entry| {
-                    ((entry.engine.state().cols, entry.engine.state().rows), Some(&entry.applied))
+                    let decided = (entry.engine.state().cols, entry.engine.state().rows);
+                    (self.terminal_grid_target(entry, runtime, decided), Some(&entry.applied))
                 });
             if applied.is_some_and(|applied| applied.get() == Some(target))
                 || previous_geometry == Some(target)
@@ -292,6 +295,9 @@ impl Mux {
                     }
                     if let Some(entry) = sizing.terminal_sizing.get(&runtime) {
                         entry.applied.set(previous_geometry);
+                        if let Some(snapshot) = hold_snapshot {
+                            Self::restore_terminal_grid_hold(entry, snapshot);
+                        }
                     }
                     self.sync_terminal_view_locked(sizing, runtime, id, client);
                     Err(error)
