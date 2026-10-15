@@ -52,6 +52,7 @@ import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./new
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1048,6 +1049,24 @@ function JumpToLatest({
   );
 }
 
+/// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
+/// button, the session its marks key into (threadMinimap/promptMarks.ts).
+function TranscriptContext({
+  find,
+  sessionId,
+  children,
+}: {
+  find: React.ContextType<typeof FindReveal>;
+  sessionId?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <FindReveal.Provider value={find}>
+      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
+    </FindReveal.Provider>
+  );
+}
+
 export function VirtualTranscript({
   rows,
   sessionId,
@@ -1981,7 +2000,7 @@ export function VirtualTranscript({
           width={width}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <FindReveal.Provider value={findReveal}>
+        <TranscriptContext find={findReveal} sessionId={sessionId}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div
               ref={thread}
@@ -2039,7 +2058,7 @@ export function VirtualTranscript({
               )}
             </div>
           </div>
-        </FindReveal.Provider>
+        </TranscriptContext>
       </div>
       {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />}
     </>
@@ -3368,9 +3387,12 @@ function AcpmuxPane() {
             "permissionRetry",
             "permissionRevoke",
             "permissionRefresh",
-            // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
+            // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down), and Previous and Next Bookmarked
+            // Prompt (the palette's): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
+            "previousBookmarkedPrompt",
+            "nextBookmarkedPrompt",
             // Search Files… (Cmd-P): the composer opens its file search.
             "searchFiles",
           ].includes(name)
