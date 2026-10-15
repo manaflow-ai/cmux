@@ -42,6 +42,15 @@ struct AcpmuxSocketPathParityTests {
         }
     }
 
+    /// The relay client of a capture slot's long tagged home connects to a path that fits, and a
+    /// path that does not is refused before `NWEndpoint.unix` sees it (cx-qukj2).
+    @Test func routerClientNeverHoldsAnOverlongPath() {
+        let home = URL(fileURLWithPath: "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.cxfootb-352cfa5c-capture-slot-0",
+                       isDirectory: true)
+        #expect(LocalRouterClient.fits(LocalRouterClient(acpmuxHome: home).socketPath))
+        #expect(!LocalRouterClient.fits("/tmp/" + String(repeating: "x", count: 100)))
+    }
+
     @Test func configuredSocketsMatchTheSharedCases() throws {
         let sockets = try #require(Self.cases["configured_sockets"] as? [[Any]])
         #expect(!sockets.isEmpty)

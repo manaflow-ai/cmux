@@ -49,6 +49,27 @@ pub fn socket_path() -> PathBuf {
     resolved
 }
 
+/// The local model relay's admin socket for this home (cmux-agent-pane-policy
+/// `environment::router_socket_path`): `<home>/router/router.sock`, or a short path in the
+/// private per-user directory when a long home puts that past `sun_path` (cx-qukj2).
+#[cfg(unix)]
+pub fn router_socket_path() -> PathBuf {
+    router_socket_path_for(&home())
+}
+
+/// `router_socket_path` for `home`. Windows has no router socket yet
+/// (router_socket.rs): the path is only named there.
+pub fn router_socket_path_for(home: &Path) -> PathBuf {
+    #[cfg(unix)]
+    {
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        PathBuf::from(cmux_agent_pane_policy::environment::router_socket_path(home, uid))
+    }
+    #[cfg(not(unix))]
+    home.join("router").join("router.sock")
+}
+
 /// Windows: `ACPMUX_SOCKET`, else `<home>\\acpmux.sock`; a long home (AF_UNIX
 /// paths are limited to 108 bytes there too) falls back to a short path in an
 /// owner-only folder in this user's temp folder, derived from the home path

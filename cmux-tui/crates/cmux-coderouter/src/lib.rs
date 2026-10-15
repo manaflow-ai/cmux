@@ -480,6 +480,29 @@ async fn owners_gone(owners: Option<tokio::sync::oneshot::Receiver<()>>) {
     }
 }
 
+/// The admin socket, by the rule the app and acpmux share
+/// (cmux-agent-pane-policy `environment::router_socket_path`): `<home>/router/router.sock`, or a
+/// short path in the private per-user directory acpmux uses when a long home (a capture slot's
+/// tag) puts that past `sun_path` (cx-qukj2). Never binds in that directory unless only this
+/// user can enter it.
+#[cfg(unix)]
+fn admin_socket_path(home: &Path) -> anyhow::Result<std::path::PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let path = std::path::PathBuf::from(cmux_agent_pane_policy::environment::router_socket_path(
+        home, uid,
+    ));
+    if let Some(dir) = path.parent().filter(|dir| !dir.starts_with(home)) {
+        let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
+        let meta = std::fs::symlink_metadata(dir)?;
+        if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
+            anyhow::bail!("{} is not a private directory", dir.display());
+        }
+    }
+    Ok(path)
+}
+
 #[cfg(unix)]
 async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     // reqwest is built without a default TLS provider; the relay's upstream calls need one.
@@ -520,7 +543,7 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     let (store, kind): (Arc<dyn InstallSecretStore>, &'static str) =
         (Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL);
     let _ = INSTALL_SECRET_KIND.set(kind);
-    let socket_path = router_dir.join("router.sock");
+    let socket_path = admin_socket_path(home)?;
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;
     #[cfg(unix)]

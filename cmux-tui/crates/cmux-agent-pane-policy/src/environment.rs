@@ -135,6 +135,18 @@ pub fn default_socket_path(home: &Path, uid: u32) -> String {
     short_alias(&home.to_string_lossy(), uid)
 }
 
+/// The local model relay's admin socket (cmux-coderouter): `<home>/router/router.sock`, or
+/// `/tmp/acpmux-<uid>/<fnv1a64(home)>.router.sock` when that is 96 bytes or longer, the
+/// [`default_socket_path`] rule. A capture slot's long tag put the long path past `sun_path`;
+/// the relay could not bind it and the app trapped connecting to it (cx-qukj2).
+pub fn router_socket_path(home: &Path, uid: u32) -> String {
+    let preferred = home.join("router").join("router.sock").to_string_lossy().into_owned();
+    if preferred.len() < 96 {
+        return preferred;
+    }
+    format!("/tmp/acpmux-{uid}/{:016x}.router.sock", fnv1a64(&home.to_string_lossy()))
+}
+
 pub fn fnv1a64(text: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in text.bytes() {
