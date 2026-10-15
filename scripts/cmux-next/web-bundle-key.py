@@ -4,19 +4,24 @@
 build-web-bundles.sh stores `--stamp` in .web-bundles.key after a build and
 skips the next build while it still matches. The stamp is three fields: the
 source key (every file git sees, tracked and untracked but not ignored, under
-the inputs below), the output digest (every file the build wrote) and the
+the inputs below and under every path outside webviews/ that a webviews source
+imports), the output digest (every file the build wrote) and the
 version of bun on PATH. A changed input, an edited or deleted output or
 another bun therefore makes it differ. `--verify-stamp` prints the first two
 fields only: the Xcode verify phase runs with a PATH that may lack bun.
 
-Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs]
+`--inputs` prints the pathspecs the source key hashes, one per line.
+
+Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs]
 """
 import hashlib
 import os
+import re
 import subprocess
 import sys
 
-# What the builders read. webviews/ includes its scripts, lockfile and the
+# What the builders read, besides the files outside webviews/ that a webviews
+# source imports (imported_inputs below finds those). webviews/ includes its scripts, lockfile and the
 # generated strings tables; schemas/settings is imported by the settings page;
 # the xcstrings catalogs feed gen-strings.mjs; marked.min.js is inlined into the
 # webviews app's agent-session.html.
@@ -49,6 +54,73 @@ OUTPUTS = [
 
 IGNORED_NAMES = {".DS_Store"}
 
+# The bundlers resolve relative specifiers in these files. A specifier that
+# leaves webviews/ (the agent pane imports web/data/model-catalog/snapshot.json,
+# the webviews app imports Resources/markdown-viewer/viewer-navigation.js) names
+# an input as real as webviews/ itself. Tests and benches never reach a bundle.
+SCANNED_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".css", ".html")
+UNSCANNED = re.compile(r"(^webviews/(test|bench)/)|(\.(test|spec)\.[a-z]+$)")
+SPECIFIER = re.compile(
+    r"""(?:\bfrom|\bimport|\bimport\s*\(|@import|@source|\burl\(|\bnew\s+URL\()\s*["'`]?(\.{1,2}/[^"'`)\s]+)""")
+# import.meta.glob("a") and import.meta.glob(["a", "b"], ...), across lines.
+GLOB_CALL = re.compile(r"""import\.meta\.glob(?:<[^>]*>)?\(\s*(\[[^\]]*\]|["'`][^"'`]*["'`])""", re.S)
+GLOB_STRING = re.compile(r"""["'`](!?\.{1,2}/[^"'`]+)["'`]""")
+VITE_QUERY = re.compile(r"\?(raw|url|inline|worker|sharedworker|no-inline)(&.*)?$")
+RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".json", "/index.ts", "/index.tsx", "/index.js")
+
+
+def git_files(root, pathspecs):
+    if not pathspecs:
+        return []
+    listed = subprocess.run(
+        ["git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *pathspecs],
+        check=True, capture_output=True).stdout.split(b"\0")
+    return sorted({os.fsdecode(p) for p in listed if p})
+
+
+def specifiers(text):
+    for m in SPECIFIER.finditer(text):
+        yield m.group(1)
+    for m in GLOB_CALL.finditer(text):
+        for g in GLOB_STRING.finditer(m.group(1)):
+            yield g.group(1)
+
+
+def imported_inputs(root):
+    """Pathspecs outside webviews/ that a bundled webviews source imports, followed
+    through the imported files themselves."""
+    found = set()
+    queue = [rel for rel in git_files(root, ["webviews"])
+             if rel.endswith(SCANNED_SUFFIXES) and not UNSCANNED.search(rel)]
+    seen = set(queue)
+    while queue:
+        rel = queue.pop()
+        try:
+            with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        for spec in specifiers(text):
+            if spec.startswith("!"):
+                continue
+            spec = VITE_QUERY.sub("", spec.split("#", 1)[0])
+            target = os.path.normpath(os.path.join(os.path.dirname(rel), spec))
+            if target.startswith("..") or target == "webviews" or target.startswith("webviews/"):
+                continue
+            if any(c in target for c in "*?[{"):
+                found.add(":(glob)" + target)
+                continue
+            path = next((target + s for s in RESOLVE_SUFFIXES if os.path.exists(os.path.join(root, target + s))), target)
+            found.add(path)
+            if path not in seen and path.endswith(SCANNED_SUFFIXES) and os.path.isfile(os.path.join(root, path)):
+                seen.add(path)
+                queue.append(path)
+    return sorted(found)
+
+
+def source_inputs(root):
+    return INPUTS + imported_inputs(root)
+
 
 def file_digest(path):
     h = hashlib.sha256()
@@ -59,15 +131,12 @@ def file_digest(path):
 
 
 def source_key(root):
-    listed = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *INPUTS],
-        check=True, capture_output=True).stdout.split(b"\0")
     h = hashlib.sha256()
-    for rel in sorted({p for p in listed if p}):
-        path = os.path.join(root, os.fsdecode(rel))
+    for rel in git_files(root, source_inputs(root)):
+        path = os.path.join(root, rel)
         # A tracked file deleted in the worktree is listed but absent.
         if os.path.isfile(path) and not os.path.islink(path):
-            h.update(rel + b"\0" + file_digest(path).encode() + b"\n")
+            h.update(os.fsencode(rel) + b"\0" + file_digest(path).encode() + b"\n")
     return h.hexdigest()
 
 
@@ -107,6 +176,8 @@ def main(argv):
     root, mode = argv[1], (argv[2] if len(argv) == 3 else "--stamp")
     if mode == "--source":
         print(source_key(root))
+    elif mode == "--inputs":
+        print("\n".join(source_inputs(root)))
     elif mode == "--outputs":
         print(output_digest(root))
     elif mode == "--stamp":
