@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442. */
+/* cmux-tui mux protocol 12, IR 09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442" as const;
+export const SDK_IR_SHA256 = "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1338,6 +1338,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only; advertised while the daemon has a search index. query is trimmed, 1-200 characters, no control characters; kinds are chat, command, scrollback, tab or workspace; limit is 1-100 (default 20). See spec/commands.md."
+    ]
+  },
+  "home-inbox": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "home-inbox-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. See spec/commands.md."
     ]
   },
   "identify": {
@@ -6738,6 +6748,125 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "HomeChiefState": {
+    "kind": "enum",
+    "values": [
+      "working",
+      "waiting",
+      "idle"
+    ]
+  },
+  "HomeInboxKind": {
+    "kind": "enum",
+    "values": [
+      "chief",
+      "direct",
+      "channel",
+      "group"
+    ]
+  },
+  "HomeInboxRow": {
+    "additional_properties": false,
+    "fields": {
+      "activity_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "chief": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "chief_state": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "HomeChiefState"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HomeInboxKind"
+        }
+      },
+      "last_author": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "marked_unread": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pin_position": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pinned": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "preview": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "unread": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -18568,6 +18697,38 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "home-inbox": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "me": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "rows": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "HomeInboxRow"
+            },
+            "kind": "array"
           }
         }
       },
