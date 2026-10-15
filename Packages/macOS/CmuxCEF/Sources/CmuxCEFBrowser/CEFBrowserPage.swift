@@ -298,6 +298,7 @@ public final class CEFBrowserPage: BrowserPage {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        dataBridge.pageWillClose(self)
         browser.close()
         eventContinuation?.finish()
         eventContinuation = nil
@@ -314,6 +315,7 @@ public final class CEFBrowserPage: BrowserPage {
                 if cefState.faviconURL == nil { emit(.faviconChanged(nil)) }
             }
         case .loadStarted(let url, _):
+            dataBridge.pageWillLoad(self)
             emit(.navigationStarted(url))
         case .loadFinished:
             emit(.navigationFinished(browser.state.url))

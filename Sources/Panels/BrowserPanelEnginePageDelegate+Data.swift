@@ -12,7 +12,7 @@ import Foundation
 /// behave the same for both engines (design spec §3b).
 extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
     func page(_ page: any BrowserPage, decidePermission request: BrowserPagePermissionRequest) async -> BrowserPagePermissionCoordinator.Outcome {
-        await decidePermission(request)
+        await decidePermission(request, topLevelURL: page.state.url)
     }
 
     func pageDidEndPermissionRequest(_ page: any BrowserPage) {
@@ -21,13 +21,17 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
     }
 
     /// Decides one permission request of the panel's page.
-    func decidePermission(_ request: BrowserPagePermissionRequest) async -> BrowserPagePermissionCoordinator.Outcome {
+    /// - Parameter topLevelURL: The page's address, so a request from an
+    ///   embedded frame of another site names both sites.
+    func decidePermission(_ request: BrowserPagePermissionRequest, topLevelURL: URL? = nil) async -> BrowserPagePermissionCoordinator.Outcome {
         guard let panel else { return BrowserPagePermissionCoordinator.Outcome(.prompt) }
         let coordinator = BrowserPagePermissionCoordinator(queue: permissionQueue) { profileID in
             BrowserChromiumProfileEngineStore.current?.sitePermissions.store(forProfileID: profileID)
                 ?? BrowserSitePermissionStore(fileURL: nil)
         }
-        return await coordinator.decideDetailed(request, profileID: panel.profileID, sessionGrants: sessionGrants(of: panel))
+        return await coordinator.decideDetailed(
+            request, profileID: panel.profileID, sessionGrants: sessionGrants(of: panel), topLevelURL: topLevelURL
+        )
     }
 
     /// The creating session's grants for a tab a REPL session created (same
@@ -45,6 +49,8 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
         guard let panel, let downloads = panel.downloadDelegate else { return nil }
         let staged = downloadLedger.stage(download)
         downloads.onDownloadStarted?(staged.suggestedFilename, staged.downloadID)
+        // A REPL session sees it as it sees WebKit downloads.
+        downloads.replAttachment?()?.downloadDidStart(id: staged.downloadID, url: download.url, suggestedFilename: staged.suggestedFilename)
         panel.setRecentDownloadControls(id: staged.downloadID, controls: BrowserDownloadRecord.Controls())
         return staged.temporaryURL
     }
@@ -68,20 +74,37 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
         case let .cancelled(staged):
             end(staged)
             downloads.onDownloadCancelled?(staged.suggestedFilename, true, staged.downloadID)
+            downloads.replAttachment?()?.downloadDidFinish(id: staged.downloadID, path: nil, error: "cancelled")
         case let .failed(staged, message):
             end(staged)
             let error = NSError(domain: "cmux.browser.download", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
             downloads.onDownloadFailed?(error, true, staged.downloadID)
+            downloads.replAttachment?()?.downloadDidFinish(id: staged.downloadID, path: nil, error: message)
         }
     }
 
-    /// The page closed: its unfinished downloads end as cancelled.
+    /// The page is closing: a download it already completed (its report
+    /// still queued) is saved; the rest end as cancelled (the page cancels
+    /// them in Chromium as it closes).
     func endPageDownloads() {
         permissionQueue.cancelAll()
+        let page = panel?.enginePage as? CEFBrowserPage
         let downloads = panel?.downloadDelegate
         for staged in downloadLedger.drain() {
+            if page?.endedDownloadState(id: staged.engineDownloadID) == .completed {
+                pausedDownloadIDs.remove(staged.downloadID)
+                panel?.setRecentDownloadControls(id: staged.downloadID, controls: nil)
+                downloads?.finishTemporaryDownload(
+                    downloadID: staged.downloadID,
+                    tempURL: staged.temporaryURL,
+                    suggestedFilename: staged.suggestedFilename,
+                    sourceURL: staged.sourceURL
+                )
+                continue
+            }
             end(staged)
             downloads?.onDownloadCancelled?(staged.suggestedFilename, true, staged.downloadID)
+            downloads?.replAttachment?()?.downloadDidFinish(id: staged.downloadID, path: nil, error: "cancelled")
         }
     }
 

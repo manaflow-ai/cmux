@@ -1,9 +1,11 @@
 // Permission prompts (CefPermissionHandler). Chromium's own bubble anchors to
 // a toolbar cmux never shows, so a request it would ask about waits until it
-// times out. The kinds the host asks about in its prompt bar
-// (kHostPermissions) go to the host as PERMISSION_PROMPT, answered with
-// cmux_shim_permission_continue; every other kind keeps Chromium's default.
-// Chromium persists Accept and Deny in its own content settings.
+// times out. In cmux Classic every request goes to the host as
+// PERMISSION_PROMPT (kHostPermissions is every kind), answered with
+// cmux_shim_permission_continue: the host's policy asks about camera,
+// microphone and clipboard read in its prompt strip and denies the rest
+// (BrowserPagePermissionPolicy). Chromium persists Accept and Deny in its own
+// content settings; the host resets the answers it does not remember.
 
 #include <map>
 
@@ -14,8 +16,8 @@ namespace cmux_shim {
 
 namespace {
 
-// Location only: notifications are off (disable-notifications, CEFSwitches).
-constexpr uint32_t kHostPermissions = CEF_PERMISSION_TYPE_GEOLOCATION;
+// Every kind: a request left to Chromium would wait on an invisible bubble.
+constexpr uint32_t kHostPermissions = ~static_cast<uint32_t>(0);
 
 // Waiting prompts by token (prompt id + 1), UI thread. Never destroyed at
 // exit (its callbacks would outlive CefShutdown); ForgetPermissionPrompts

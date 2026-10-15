@@ -81,7 +81,8 @@ final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
     /// The panel's permission prompt bar questions (data: design spec §4).
     let permissionQueue = BrowserPermissionPromptQueue()
     /// Engine downloads staged into temporary files (data: design spec §3b).
-    let downloadLedger = BrowserPageDownloadLedger(temporaryDirectory: BrowserDownloadDelegate.tempDir)
+    /// Lazy: a WebKit panel never stages one (and never creates the directory here).
+    lazy var downloadLedger = BrowserPageDownloadLedger(temporaryDirectory: BrowserDownloadDelegate.tempDir)
     /// Engine download ids the person paused.
     var pausedDownloadIDs: Set<String> = []
 

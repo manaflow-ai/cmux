@@ -6,22 +6,30 @@ import Foundation
 /// page's UI delegate (the browser panel).
 ///
 /// Permissions: Chromium's own bubble anchors to a toolbar cmux never shows,
-/// so every request is answered here. A grant accepts, a deny denies, and no
-/// answer leaves the request waiting until Chromium ends it (never a
-/// dismissal, which Chromium counts toward blocking the site for days). A
-/// one-time grant is accepted and then reset to "ask" in Chromium's content
-/// settings, which save every accepted prompt.
+/// so every request is answered here (the shim forwards every kind). A
+/// grant accepts, a deny denies, and no answer leaves the request waiting
+/// until Chromium ends it (never a dismissal, which Chromium counts toward
+/// blocking the site for days). Chromium saves every answered prompt in its
+/// content settings, so an answer cmux does not remember (one-time) is reset
+/// to "ask" when the page next loads or closes, like Chrome's "Allow this
+/// time", leaving the current page's grant working until then.
 ///
 /// Downloads: the delegate chooses each download's file (nil cancels), and
 /// the page reports progress and the end as ``BrowserPageEvent/downloadUpdated(_:)``.
+/// Closing the page cancels its unfinished downloads in Chromium (they
+/// belong to the profile and would otherwise keep running unseen).
 @MainActor
 final class CEFBrowserPageDataBridge {
     /// Permission prompts Chromium still waits on, by fork token.
     private var waitingPermissions: Set<Int32> = []
+    /// One-time answers to reset when the page next loads or closes: (origin, content-setting type).
+    private var oneTimeAnswers: [(origin: String, type: String)] = []
     /// Running downloads, by shim token.
     private var downloads: [Int32: BrowserPageDownload] = [:]
     /// Downloads waiting for their file, by shim token.
     private var choosing: Set<Int32> = []
+    /// How downloads that ended were reported, by ``BrowserPageDownload/id``.
+    private(set) var endedDownloads: [String: BrowserPageDownload.State] = [:]
 
     private var runtime: CEFRuntime { .shared }
 
@@ -42,6 +50,25 @@ final class CEFBrowserPageDataBridge {
         }
     }
 
+    /// A main-frame load started: one-time answers have served their page.
+    func pageWillLoad(_ page: CEFBrowserPage) {
+        resetOneTimeAnswers(page: page)
+    }
+
+    /// The page is closing: reset one-time answers, cancel its downloads.
+    func pageWillClose(_ page: CEFBrowserPage) {
+        resetOneTimeAnswers(page: page)
+        for token in downloads.keys {
+            runtime.controlDownload(token: token, action: 0)
+        }
+        for token in choosing {
+            runtime.continueDownload(token: token, to: nil)
+        }
+        downloads.removeAll()
+        choosing.removeAll()
+        waitingPermissions.removeAll()
+    }
+
     // MARK: Permissions
 
     private func askPermission(token: Int32, bits: Int64, origin: String, page: CEFBrowserPage) {
@@ -50,7 +77,8 @@ final class CEFBrowserPageDataBridge {
         waitingPermissions.insert(token)
         let delegate = page.uiDelegate
         Task { @MainActor [weak self, weak page] in
-            guard let page else { return }
+            // Chromium may have ended the question before it got here.
+            guard let page, self?.waitingPermissions.contains(token) == true else { return }
             let outcome: BrowserPagePermissionCoordinator.Outcome
             if let delegate = delegate as? any BrowserPagePermissionOutcomeDelegate {
                 outcome = await delegate.page(page, decidePermission: pageRequest)
@@ -62,7 +90,7 @@ final class CEFBrowserPageDataBridge {
             }
             // Chromium ended the question meanwhile: nothing to answer.
             guard let self, self.waitingPermissions.remove(token) != nil else { return }
-            self.answer(token: token, outcome: outcome, kinds: pageRequest.kinds, origin: origin, page: page)
+            self.answer(token: token, outcome: outcome, kinds: pageRequest.kinds, origin: origin)
         }
     }
 
@@ -70,24 +98,34 @@ final class CEFBrowserPageDataBridge {
         token: Int32,
         outcome: BrowserPagePermissionCoordinator.Outcome,
         kinds: [BrowserPagePermissionRequest.Kind],
-        origin: String,
-        page: CEFBrowserPage
+        origin: String
     ) {
         switch outcome.decision {
         case .grant:
             runtime.answerPermission(token: token, allow: true)
-            guard outcome.isOneTime, let browserID = page.browser.browserID else { return }
-            for kind in kinds {
-                guard let type = BrowserChromiumPermissionRequest.contentSettingType(for: kind) else { continue }
-                runtime.setContentSetting(
-                    browser: browserID, origin: origin, type: type,
-                    value: BrowserChromiumPermissionRequest.contentSettingDefault
-                )
-            }
         case .deny:
             runtime.answerPermission(token: token, allow: false)
         case .prompt:
-            break
+            return
+        }
+        guard outcome.isOneTime else { return }
+        for kind in kinds {
+            guard let type = BrowserChromiumPermissionRequest.contentSettingType(for: kind),
+                  !oneTimeAnswers.contains(where: { $0.origin == origin && $0.type == type }) else { continue }
+            oneTimeAnswers.append((origin, type))
+        }
+    }
+
+    private func resetOneTimeAnswers(page: CEFBrowserPage) {
+        guard !oneTimeAnswers.isEmpty else { return }
+        let answers = oneTimeAnswers
+        oneTimeAnswers.removeAll()
+        guard let browserID = page.browser.browserID else { return }
+        for answer in answers {
+            runtime.setContentSetting(
+                browser: browserID, origin: answer.origin, type: answer.type,
+                value: BrowserChromiumPermissionRequest.contentSettingDefault
+            )
         }
     }
 
@@ -134,7 +172,7 @@ final class CEFBrowserPageDataBridge {
             download.state = .inProgress
             downloads[token] = download
             page.emit(.downloadUpdated(download))
-        case let .done(token, end, reason, _):
+        case let .done(token, end, reason, path):
             // Chromium ended it while its file was being chosen.
             if choosing.remove(token) != nil { return }
             guard var download = downloads.removeValue(forKey: token) else { return }
@@ -147,7 +185,22 @@ final class CEFBrowserPageDataBridge {
             case .interrupted:
                 download.state = .failed("interrupted (\(reason))")
             }
+            if end != .complete {
+                removePartialFile(path, besides: download.destination)
+            }
+            endedDownloads[download.id] = download.state
             page.emit(.downloadUpdated(download))
+        }
+    }
+
+    /// A partial file Chromium left (its `.crdownload` intermediate), only
+    /// when it sits in the download's own temporary directory.
+    private func removePartialFile(_ path: String, besides destination: URL?) {
+        guard !path.isEmpty, let directory = destination?.deletingLastPathComponent().standardizedFileURL else { return }
+        let file = URL(fileURLWithPath: path).standardizedFileURL
+        guard file.deletingLastPathComponent() == directory, file != destination?.standardizedFileURL else { return }
+        Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: file)
         }
     }
 
@@ -166,5 +219,12 @@ extension CEFBrowserPage {
     @discardableResult
     public func controlDownload(id: String, action: Int32) -> Bool {
         dataBridge.controlDownload(id: id, action: action)
+    }
+
+    /// How a download of this page ended, if it did (a report still queued
+    /// when the panel closes the page is not lost: the panel saves a
+    /// completed download instead of cancelling it).
+    public func endedDownloadState(id: String) -> BrowserPageDownload.State? {
+        dataBridge.endedDownloads[id]
     }
 }
