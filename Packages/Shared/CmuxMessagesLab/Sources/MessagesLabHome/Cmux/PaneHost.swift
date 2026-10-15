@@ -107,6 +107,8 @@ final class HostView: NSView {
         // itself (PaneHost+ThreadLayer.swift), so rows flying under it never cover it.
         addSubview(threadHost)
         addSubview(paneHeader)
+        paneHeader.threadBlurHost.isHidden = true
+        addSubview(paneHeader.threadBlurHost)
         liftThreadLayer(demo)
         addSubview(selectionHost)
         // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).

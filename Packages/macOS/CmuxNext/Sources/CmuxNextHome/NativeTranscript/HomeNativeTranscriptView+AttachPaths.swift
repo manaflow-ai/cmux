@@ -125,6 +125,8 @@ extension HomeNativeTranscriptView {
     #if DEBUG
     /// Links and attachments call `handler` instead of opening another app (DEBUG fixtures; nil restores).
     public func debugReplaceExternalOpens(_ handler: ((URL) -> Void)?) { transcript.debugReplaceExternalOpens(handler) }
+    /// The pill's glass style (`clear` or `regular`) and tint (A/B against Messages).
+    public func debugPillGlass(style: String, tint: NSColor?) -> Bool { transcript.debugPillGlass(style: style, tint: tint) }
     /// The main menu's Paste sent to this window's first responder, as from a key window.
     public func debugMenuPaste() -> Bool { transcript.debugMenuPaste() }
     /// Esc as a key window would dispatch it (the focused field's own Esc, else the app's local monitors).

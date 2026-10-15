@@ -530,6 +530,19 @@ public final class MessagesLabHomeView: NSView {
         return responder.tryToPerform(#selector(NSText.paste(_:)), with: item)
     }
 
+    /// Automation (DEBUG socket): the pill's glass style (`clear` or `regular`) and tint, for an A/B
+    /// against Messages' pill (round 11). False below macOS 26 or for an unknown style.
+    public func debugPillGlass(style: String, tint: NSColor?) -> Bool {
+        guard #available(macOS 26, *), let glass = controller.host.paneHeader.pillGlass as? NSGlassEffectView else { return false }
+        switch style {
+        case "clear": glass.style = .clear
+        case "regular": glass.style = .regular
+        default: return false
+        }
+        glass.tintColor = tint
+        return true
+    }
+
     /// Automation (DEBUG fixtures): links and attachments call `handler` with the URL they would open
     /// instead of opening it in another app (nil restores the system's open).
     public func debugReplaceExternalOpens(_ handler: ((URL) -> Void)?) {

@@ -191,6 +191,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             }
             let clicked = view.debugClick(atWindow: point, count: params["count"]?.intValue ?? 1)
             return .object(["ok": .bool(clicked), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+        case "pill_glass":
+            // The pill's glass for an A/B: `style` clear | regular, optional `tint` [r, g, b, a] in 0...1.
+            let c = params["tint"]?.arrayValue?.compactMap(\.doubleValue)
+            let tint = c.flatMap { $0.count == 4 ? NSColor(srgbRed: $0[0], green: $0[1], blue: $0[2], alpha: $0[3]) : nil }
+            ok = view.debugPillGlass(style: params["style"]?.stringValue ?? "regular", tint: tint)
         case "paste":
             // The main menu's Paste to this window's first responder, as AppKit sends it from a key window
             // (a never-key capture window does not get the menu's action).
@@ -205,7 +210,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies, stream, blocked_opens, paste or thread_state")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies, stream, blocked_opens, paste, pill_glass or thread_state")])
         }
         return .object(["ok": .bool(ok)])
     }

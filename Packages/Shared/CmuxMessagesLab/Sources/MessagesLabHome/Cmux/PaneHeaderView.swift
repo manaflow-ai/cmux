@@ -18,9 +18,8 @@ import AppKit
 /// thread or reply view the whole header, avatar and pill, blurs and dims as
 /// Messages' (its tp0600 frame: the avatar a soft blob with no letter, the pill
 /// a faint blur), and the thread's rows pass under it, as under Messages'
-/// titlebar: the header sits over the thread layer and takes the vendored
-/// backdrop's blur and tint itself (`setThreadBlur`: a Gaussian filter and a
-/// tint on its own pixels, the vendored animations' timing).
+/// titlebar: the header sits over the thread layer, with its own blur over it
+/// and a tint on its controls (`setThreadBlur`, the vendored animations' timing).
 /// No band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
@@ -50,6 +49,8 @@ final class PaneHeaderView: NSView {
     var threadBlurOpen = false
     let threadTint = CALayer()
     var threadBlurGeneration = 0
+    /// The header's blur under an open thread view; the host adds it above this view.
+    let threadBlurHost = HeaderThreadBlur()
 
     /// Messages' pill: 44-72 pt from the window top (centre 58, 28 pt), rim included.
     static let pillCenterY: CGFloat = 58
@@ -187,58 +188,60 @@ final class PaneHeaderView: NSView {
     }
 }
 
-// MARK: The thread view's blur and tint on the header (round 10)
+// MARK: The thread view's blur and tint on the header (rounds 10-11)
 
 extension PaneHeaderView {
-    static let blurName = "cmuxThreadBlur"
-    static let tintName = "cmuxThreadTint"
+    static let blurName = "gaussianBlur"
 
-    /// The header's own copy of ThreadBackdrop's effect while a thread or reply view is open: the same
-    /// Gaussian blur (`ThreadBackdrop.radius`, the vendored CAFilter) as a filter on this header's layer,
-    /// and the same tint (5.5 + 0.384 x in) composited onto the header's own pixels only ("sourceAtop":
-    /// the band's transparent pixels stay clear, the band below takes the vendored tint once). `blur` and
-    /// `tint`: the vendored backdrop's animations, whose begin time, duration and curve these take, so the
-    /// header and the transcript change on the same frames. The filter is removed when the close ends
-    /// (a filtered layer renders offscreen, where the pill's glass draws nothing; at rest it has none).
+    /// Messages' header dims less than its transcript (round 11: header controls 164 -> 84, 0.51 of rest,
+    /// where the vendored 5.5 + 0.384 x gives 0.42): the header's tint is fitted from those pixels,
+    /// out = 5.5 + 0.479 x.
+    static let headerGain: CGFloat = 0.479
+
+    /// The thread view's effect on the header while a thread or reply view is open:
+    /// - a tint on the controls' own shapes (the avatar's disc, the pill's capsule), out = 5.5 + 0.479 x,
+    ///   under the blur;
+    /// - over the header, `threadBlurHost` (the host adds it above this view): a CABackdropLayer with the
+    ///   vendored Gaussian (radius `ThreadBackdrop.radius`) under a soft mask around the controls, so the
+    ///   blur takes the controls as drawn, the pill's glass included (round 11: a filter on this layer
+    ///   rendered it offscreen, where the glass draws nothing), and fades out into the band, which the
+    ///   vendored backdrop under the header already blurs.
+    /// Both take the vendored blur and tint animations' begin time, duration and curve. The backdrop leaves
+    /// the tree when a close ends (no backdrop at rest or in a resize).
     func setThreadBlur(open: Bool, blur: CABasicAnimation?, tint: CABasicAnimation?) {
         guard let layer, open != threadBlurOpen else { return }
         threadBlurOpen = open
         threadBlurGeneration += 1
         let generation = threadBlurGeneration
         CATransaction.begin()
+        CATransaction.setDisableActions(true)
         if open {
-            if layer.filters?.contains(where: { ($0 as? NSObject)?.value(forKey: "name") as? String == Self.blurName }) != true,
-               let f = Self.makeBlurFilter() {
-                CATransaction.setDisableActions(true)
-                layer.filters = [f]
-            }
             if threadTint.superlayer !== layer {
-                threadTint.name = Self.tintName
-                threadTint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - ThreadBackdrop.gain), alpha: 1).cgColor
-                threadTint.compositingFilter = "sourceAtop"
+                threadTint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - Self.headerGain), alpha: 1).cgColor
                 threadTint.actions = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
                 threadTint.opacity = 0
                 threadTint.zPosition = 1000
                 layer.addSublayer(threadTint)
             }
             threadTint.frame = layer.bounds
+            let shapes = CAShapeLayer()
+            let path = CGMutablePath()
+            for r in controlShapes() { path.addRoundedRect(in: r, cornerWidth: r.height / 2, cornerHeight: r.height / 2) }
+            shapes.path = path
+            shapes.frame = layer.bounds
+            threadTint.mask = shapes
+            threadBlurHost.install(over: frame, holes: controlShapes())
         } else {
             CATransaction.setCompletionBlock { [weak self] in
-                guard let self, self.threadBlurGeneration == generation, !self.threadBlurOpen, let layer = self.layer else { return }
+                guard let self, self.threadBlurGeneration == generation, !self.threadBlurOpen else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
-                layer.filters = nil
                 self.threadTint.removeFromSuperlayer()
+                self.threadBlurHost.uninstall()
                 CATransaction.commit()
             }
         }
-        CATransaction.setDisableActions(true)
-        let r0: CGFloat = open ? 0 : ThreadBackdrop.radius, r1: CGFloat = open ? ThreadBackdrop.radius : 0
-        layer.setValue(r1, forKeyPath: "filters.\(Self.blurName).inputRadius")
-        let b = CABasicAnimation(keyPath: "filters.\(Self.blurName).inputRadius")
-        b.fromValue = r0; b.toValue = r1
-        Self.time(b, like: blur, open: open)
-        layer.add(b, forKey: "cmux.thread.blur")
-        let t0: Float = open ? 0 : Float(1 - ThreadBackdrop.gain), t1: Float = open ? Float(1 - ThreadBackdrop.gain) : 0
+        threadBlurHost.animate(open: open, like: blur)
+        let t0: Float = open ? 0 : Float(1 - Self.headerGain), t1: Float = open ? Float(1 - Self.headerGain) : 0
         threadTint.opacity = t1
         let a = CABasicAnimation(keyPath: "opacity")
         a.fromValue = threadTint.presentation()?.opacity ?? t0; a.toValue = t1
@@ -247,22 +250,88 @@ extension PaneHeaderView {
         CATransaction.commit()
     }
 
+    /// The avatar's disc and the pill's capsule (this view's coordinates); none while they are hidden.
+    func controlShapes() -> [CGRect] {
+        var out: [CGRect] = []
+        if !avatar.isHidden { out.append(avatar.frame) }
+        if !pill.isHidden { out.append(pill.frame) }
+        return out
+    }
+
     /// `a` takes the vendored animation's begin time, duration and curve (ThreadBackdrop's constants when
     /// there is none).
-    private static func time(_ a: CABasicAnimation, like vendored: CABasicAnimation?, open: Bool) {
+    static func time(_ a: CABasicAnimation, like vendored: CABasicAnimation?, open: Bool) {
         a.duration = vendored?.duration ?? (open ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration)
         a.timingFunction = vendored?.timingFunction ?? CAMediaTimingFunction(name: .easeInEaseOut)
         if let begin = vendored?.beginTime, begin > 0 { a.beginTime = begin; a.fillMode = .backwards }
     }
+}
 
-    /// The vendored blur's filter (ThreadBackdrop.makeBlur's CAFilter), on a plain layer: no edge
-    /// normalising, so the controls blur out into the clear band as Messages' do.
-    private static func makeBlurFilter() -> NSObject? {
-        guard let fc = NSClassFromString("CAFilter") as? NSObject.Type else { return nil }
-        let sel = NSSelectorFromString("filterWithType:")
-        guard fc.responds(to: sel), let f = fc.perform(sel, with: "gaussianBlur")?.takeUnretainedValue() as? NSObject else { return nil }
-        f.setValue(blurName, forKey: "name")
-        f.setValue(0, forKey: "inputRadius")
-        return f
+/// The header's blur under an open thread view (PaneHeaderView.setThreadBlur): a layer host over the
+/// header holding a CABackdropLayer (the vendored Gaussian), under a soft mask around the controls. Never
+/// hit. In the tree only while a thread view is open or closing.
+final class HeaderThreadBlur: NSView {
+    private var backdrop: CALayer?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Over `header` (the superview's coordinates), masked softly around `holes` (the header's coordinates).
+    func install(over header: CGRect, holes: [CGRect]) {
+        if frame != header { frame = header }
+        guard let layer else { return }
+        let b = backdrop ?? ThreadBackdrop.makeBlur()
+        guard let b else { return }
+        b.actions = ["bounds": NSNull(), "position": NSNull()]
+        b.frame = layer.bounds
+        if b.superlayer !== layer { layer.addSublayer(b) }
+        backdrop = b
+        layer.mask = Self.softMask(size: layer.bounds.size, holes: holes)
+        isHidden = false
+    }
+
+    func uninstall() {
+        backdrop?.removeFromSuperlayer()
+        backdrop = nil
+        isHidden = true
+    }
+
+    func animate(open: Bool, like vendored: CABasicAnimation?) {
+        guard let b = backdrop else { return }
+        let key = "filters.gaussianBlur.inputRadius"
+        let r0: CGFloat = open ? 0 : ThreadBackdrop.radius, r1: CGFloat = open ? ThreadBackdrop.radius : 0
+        b.setValue(r1, forKeyPath: key)
+        let a = CABasicAnimation(keyPath: key)
+        a.fromValue = r0; a.toValue = r1
+        PaneHeaderView.time(a, like: vendored, open: open)
+        b.add(a, forKey: "cmux.thread.blur")
+    }
+
+    /// Opaque around the controls (out to twice the blur radius), fading to clear over one more radius.
+    static func softMask(size: CGSize, holes: [CGRect]) -> CALayer {
+        let m = CALayer()
+        m.frame = CGRect(origin: .zero, size: size)
+        let w = max(1, Int(size.width.rounded(.up))), h = max(1, Int(size.height.rounded(.up)))
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return m }
+        let r = ThreadBackdrop.radius
+        // A shadow of shapes drawn far outside the bitmap: only the soft shadow lands inside.
+        let away: CGFloat = 100_000
+        ctx.setShadow(offset: CGSize(width: -away, height: 0), blur: r, color: CGColor(gray: 0, alpha: 1))
+        ctx.setFillColor(gray: 0, alpha: 1)
+        for hole in holes {
+            let g = hole.insetBy(dx: -r * 2, dy: -r * 2)
+            // CGContext is bottom-up; the header is flipped.
+            let q = CGRect(x: g.minX + away, y: size.height - g.maxY, width: g.width, height: g.height)
+            ctx.addPath(CGPath(roundedRect: q, cornerWidth: min(q.height, q.width) / 2, cornerHeight: min(q.height, q.width) / 2, transform: nil))
+        }
+        ctx.fillPath()
+        m.contents = ctx.makeImage()
+        return m
     }
 }
