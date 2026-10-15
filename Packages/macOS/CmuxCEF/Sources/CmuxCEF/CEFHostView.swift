@@ -117,6 +117,42 @@ public final class CEFHostView: NSView {
         onPresentationChange?(self)
     }
 
+    /// The page's render view (`RenderWidgetHostViewCocoa`) in the Chromium
+    /// child window over this view, if any.
+    func pageRenderView() -> NSView? {
+        guard let window else { return nil }
+        let screenRect = window.convertToScreen(convert(bounds, to: nil))
+        let candidates = (window.childWindows ?? []).filter { $0.frame.intersects(screenRect) }
+        let best = candidates.max { a, b in
+            a.frame.intersection(screenRect).area < b.frame.intersection(screenRect).area
+        }
+        guard let pageWindow = best, let content = pageWindow.contentView else { return nil }
+        return Self.renderView(in: content, depth: 0)
+    }
+
+    private static let renderViewClass: AnyClass? = NSClassFromString("RenderWidgetHostViewCocoa")
+
+    private static func renderView(in view: NSView, depth: Int) -> NSView? {
+        if let renderViewClass, view.isKind(of: renderViewClass) { return view }
+        guard depth < 12 else { return nil }
+        for subview in view.subviews {
+            if let found = renderView(in: subview, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+
+    /// Makes the page's render view its window's first responder by direct
+    /// selection when it is not already. Chromium's render view answers a
+    /// non-direct selection (AppKit choosing the first key view when the
+    /// page window is re-added and becomes key) with SetInitialFocus, which
+    /// moves the page's focus to its first link; a direct selection keeps
+    /// the focus the page had.
+    func keepPageFirstResponder() {
+        guard let renderView = pageRenderView(), let pageWindow = renderView.window,
+              pageWindow.firstResponder !== renderView else { return }
+        pageWindow.makeFirstResponder(renderView)
+    }
+
     /// True when the page should show: in a window and not hidden.
     var isPresented: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
 
@@ -128,4 +164,8 @@ public final class CEFHostView: NSView {
 
     /// `CmuxParentViewGeometryDidChange` in the fork.
     public static let geometryDidChange = Notification.Name("CmuxParentViewGeometryDidChange")
+}
+
+extension CGRect {
+    fileprivate var area: CGFloat { isNull ? 0 : width * height }
 }
