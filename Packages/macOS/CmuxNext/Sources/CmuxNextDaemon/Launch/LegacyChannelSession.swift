@@ -94,9 +94,9 @@ struct LegacyChannelSession: Sendable {
     }
 
     /// The workspaces of a launch snapshot that are not Home or ephemeral;
-    /// with `touchedOnly`, only those with a tab the person used: a terminal,
-    /// a browser tab, or a chat bound to a conversation or agent session (the
-    /// launch's own New Tab page is none of these). An unreadable file counts
+    /// with `touchedOnly`, only those the person may have used: one with no
+    /// tab listed, or with a terminal, a browser tab, or a chat bound to a
+    /// conversation or agent session (the launch's own New Tab page is none). An unreadable file counts
     /// as one touched workspace, so it never leads to an adopt.
     static func workspaces(at path: String, touchedOnly: Bool) -> Int {
         guard let data = FileManager.default.contents(atPath: path), data.count <= LaunchSnapshot.maximumBytes,
@@ -105,7 +105,11 @@ struct LegacyChannelSession: Sendable {
         else { return touchedOnly ? 1 : 0 }
         return workspaces.filter { workspace in
             guard workspace["kind"] as? String != "home", workspace["ephemeral"] as? Bool != true else { return false }
-            return !touchedOnly || tabs(of: workspace).contains(where: isTouched)
+            guard touchedOnly else { return true }
+            // Only a workspace whose every tab is an unused New Tab page is untouched; one
+            // that lists no tab (not settled yet) cannot be checked, so it counts as used.
+            let tabs = tabs(of: workspace)
+            return tabs.isEmpty || tabs.contains(where: isTouched)
         }.count
     }
 
