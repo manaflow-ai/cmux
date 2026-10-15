@@ -30,7 +30,7 @@ extension SidebarListView {
             return
         }
         let offset = clip.bounds.minY
-        let anchored = after.anchored(from: before, offset: offset, focused: previousActive)
+        let anchored = after.anchored(from: before, offset: offset)
         let delta = anchored - offset
         if abs(delta) > 0.25 {
             Motion.withoutAnimation {

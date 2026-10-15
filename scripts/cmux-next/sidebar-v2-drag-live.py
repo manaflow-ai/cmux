@@ -23,7 +23,7 @@ each held drag checks the drop look `debug.sidebar_rows` reports
 (`drop.indicator`: `gap` where the rows or tiles make way, `into` a group
 header): one drop behavior for every section. Exit 1 when any step FAILs.
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time, urllib.parse
+import argparse, json, os, re, socket, subprocess, sys, tempfile, time, urllib.parse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
@@ -601,6 +601,65 @@ try:
     record("Reset goes to the document", bool(performed and reset_ok),
            f"before={before_reset} after={[s.get('id') for s in window().get('layout_sections', [])]}")
     undo("Reset", lambda: [s.get("id") for s in window().get("layout_sections", [])] == before_reset)
+
+    # Structural reloads keep the scroll anchored (hq-2d 10-15, hitch17: the offset moved 758 -> 0 in one step): in a
+    # long list scrolled to its middle, a create at the top, a pin and a close above the view move nothing on screen.
+    TOP = 120  # window y below the titlebar and the list's top edge: rows from here down are inside the list viewport
+    made = {}
+    for index in range(200):
+        ids = re.findall(r"ws_[0-9a-f]+", cli("workspace", "create", "--empty", "--name", f"V{index:03d}"))
+        if ids:
+            made[f"V{index:03d}"] = ids[0]
+    wait(lambda: {"V000", "V199"} <= set(rows()) or None, 120)
+
+    def first_visible():
+        listed = [r for r in window().get("rows", []) if r.get("in_list") and r.get("title") and r["window_frame"]["y"] >= TOP]
+        top = min(listed, key=lambda r: r["window_frame"]["y"], default=None)
+        return (top["title"], top["window_frame"]["y"]) if top else None
+
+    def above_view(exclude):
+        """A V row well above the viewport (not shown), the nearest to it."""
+        listed = [r for r in window().get("rows", []) if r.get("in_list") and str(r.get("title", "")).startswith("V")
+                  and r["title"] in made and r["title"] not in exclude and r["window_frame"]["y"] < TOP - 200]
+        return max(listed, key=lambda r: r["window_frame"]["y"], default=None)
+
+    print("focus middle", cli("workspace", made.get("V100", "V100"), "focus")[:120], flush=True)
+    time.sleep(1.0)  # test harness: let the reveal scroll apply
+    base = first_visible()
+    print("anchor base:", base, "made:", len(made), flush=True)
+    used = {"V100"}
+
+    def anchored(label, act, done):
+        before = first_visible()
+        evidence = act()
+        ok_done = wait(done, 10)
+        time.sleep(1.0)  # test harness: let the row springs settle
+        after = first_visible()
+        same = bool(before and after and before[0] == after[0] and abs(before[1] - after[1]) <= 0.5)
+        record(f"long list keeps its first visible row on screen: {label}", bool(ok_done) and same,
+               f"before={before} after={after} done={bool(ok_done)} {evidence} selected={[r.get('title') for r in window().get('rows', []) if r.get('selected')]}")
+        shot("v2-anchor-" + label.replace(" ", "-"))
+
+    if base and len(made) == 200:
+        anchored("create at the top", lambda: cli("workspace", "create", "--empty", "--name", "VTOP")[:80],
+                 lambda: "VTOP" in rows() or None)
+        pin = above_view(used)
+        if pin:
+            used.add(pin["title"])
+            anchored("pin one above the view",
+                     lambda: str(toast(perform="palette.toggleWorkspacePin", target_kind="workspace", target_id=row_id(pin)).get("performed")),
+                     lambda: pin["title"] not in list_titles() or None)
+        else:
+            record("long list keeps its first visible row on screen: pin one above the view", False, "no row above the view")
+        close = above_view(used)
+        if close:
+            used.add(close["title"])
+            anchored("close one above the view", lambda: cli("workspace", made[close["title"]], "close")[:80],
+                     lambda: close["title"] not in rows() or None)
+        else:
+            record("long list keeps its first visible row on screen: close one above the view", False, "no row above the view")
+    else:
+        record("long list keeps its first visible row on screen", False, f"setup: base={base} made={len(made)}")
 finally:
     refusals = toast().get("refusals")
     print("refusals:", refusals, flush=True)

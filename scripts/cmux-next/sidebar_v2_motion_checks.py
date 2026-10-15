@@ -27,16 +27,37 @@ def covered(frame, card):
     return card is not None and all(abs(frame[i] - card[i]) <= 1.5 for i in range(4))
 
 
+def scroll_of(frames, i):
+    return frames[i].get("scroll", 0) if 0 <= i < len(frames) else frames[0].get("scroll", 0)
+
+
+def y_step(frames, i, ya, yb):
+    """The least vertical move of a view from frame i-1 to frame i: in list (document) coordinates, or on
+    screen (minus `scroll`). An anchored shift (rows and offset move together) moves nothing on screen; a
+    scroll with rows in place moves nothing in the list. The views are presented frames and `scroll` is the
+    clip's model offset, so a non-animated shift can show the offset one frame before the rows: the screen
+    step is also taken with both frames one offset behind."""
+    doc = abs(yb - ya)
+    screen = abs((yb - scroll_of(frames, i)) - (ya - scroll_of(frames, i - 1)))
+    lagged = abs((yb - scroll_of(frames, i - 1)) - (ya - scroll_of(frames, i - 2)))
+    return min(doc, screen, lagged)
+
+
 def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
     worst, worst_at, jumps, block_worst, raw_worst = 0.0, None, [], 0.0, 0.0
-    for a, b in zip(frames, frames[1:]):
+    scroll_worst = 0.0
+    for i, (a, b) in enumerate(zip(frames, frames[1:]), start=1):
+        if not (a["lift"] or b["lift"]):
+            # A scroll step outside a drag (a reveal, a wheel): reported, not a jump (the offset is the model's, an
+            # animated reveal shows its target at once).
+            scroll_worst = max(scroll_worst, abs(scroll_of(frames, i) - scroll_of(frames, i - 1)))
         for key, fb in b["views"].items():
             fa = a["views"].get(key)
             if fa is None or key in dragged or not (drawn(fa) or drawn(fb)):
                 continue
             # A step per 120 Hz frame: a display frame that came late (a gap of n frames) may move n frames' worth.
             frames_spanned = max(1.0, (b["t"] - a["t"]) * 1000 / FRAME_MS)
-            raw = max(abs(fb[0] - fa[0]), abs(fb[1] - fa[1]), abs(fb[3] - fa[3]))
+            raw = max(abs(fb[0] - fa[0]), y_step(frames, i, fa[1], fb[1]), abs(fb[3] - fa[3]))
             step = raw / frames_spanned
             # The undivided step across a late frame (more than 2 frames apart), reported beside the per-frame one.
             if frames_spanned > 2:
@@ -110,7 +131,11 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                     continue
                 f0 = frames[i - 2]["views"].get(key) if i >= 2 else None
                 if f0 is not None:
-                    kink = max(abs((fb[j] - fa[j]) - (fa[j] - f0[j])) for j in (0, 1, 3))
+                    kink = max(abs((fb[j] - fa[j]) - (fa[j] - f0[j])) for j in (0, 3))
+                    # The vertical kink in the list or on screen (minus `scroll`), the smaller: an anchored shift is no kink.
+                    s0, s1, s2 = scroll_of(frames, i - 2), scroll_of(frames, i - 1), scroll_of(frames, i)
+                    kink = max(kink, min(abs((fb[1] - fa[1]) - (fa[1] - f0[1])),
+                                         abs(((fb[1] - s2) - (fa[1] - s1)) - ((fa[1] - s1) - (f0[1] - s0)))))
                     if kink > 1:
                         kinks.append({"key": key, "t": round(frames[i]["t"] - frames[0]["t"], 3), "kink": round(kink, 1)})
             for key, fa in frames[i - 1]["views"].items():
@@ -118,7 +143,8 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                     pops.append({"key": key, "t": round(frames[i]["t"] - frames[0]["t"], 3), "kind": "vanishes"})
         echo = {"revision_changes": len(changes), "kinks": kinks[:10], "pops": pops[:10], "ok": not kinks and not pops}
     result = {"frames": len(frames), "cadence_ms": round(cadence, 2), "max_step_pt": round(worst, 1), "raw_max_step_pt": round(raw_worst, 1), "max_step_at": worst_at, "jumps": jumps[:20],
-              "jump_count": len(jumps), "block_height_max_step_pt": round(block_worst, 1), "drag_work_p95_ms": round(p95, 2),
+              "jump_count": len(jumps), "block_height_max_step_pt": round(block_worst, 1),
+              "scroll_max_step_outside_drag_pt": round(scroll_worst, 1), "drag_work_p95_ms": round(p95, 2),
               "frame_gaps_over_1_5x": sum(1 for g in gaps if g > 1.5 / hz), "settle": settle, "echo": echo, "refused": refused,
               "dragged": sorted(dragged)}
     # Nothing recorded, no lifted card or no dropped item to follow is a failed proof, not a pass.

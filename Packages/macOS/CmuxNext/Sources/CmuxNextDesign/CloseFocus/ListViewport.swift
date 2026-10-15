@@ -9,11 +9,12 @@ public import CoreGraphics
 /// - V2 after `settle`, the focused item is fully visible (with padding,
 ///   or covering the viewport when it is taller) whenever it must be
 ///   revealed: focus changed, or it was fully visible before,
-/// - V3 no jump: a focused item that stays focused and was fully visible
-///   keeps its on-screen position unless the clamp forces a move,
+/// - V3 no jump: a visible item that stays in place (only rows before it
+///   change) keeps its on-screen position unless the clamp forces a move,
 /// - V4 minimal: a reveal aligns the nearer edge, never more,
-/// - V5 anchoring: when items before the visible ones leave or grow, what
-///   the user sees stays put (the anchor keeps its on-screen position),
+/// - V5 anchoring: when items before the visible ones leave, arrive, move
+///   or grow, what the user sees stays put (the anchor, the first visible
+///   row that did not move by itself, keeps its on-screen position),
 /// - V6 idempotent: settling the same geometry twice changes nothing (no
 ///   second scroll after the animation settles).
 public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Sendable {
@@ -74,23 +75,49 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
         return clamp(abs(toLeading - current) <= abs(toTrailing - current) ? toLeading : toTrailing)
     }
 
-    /// The item the user's eye rests on: `preferred` when it was at least
-    /// partly visible, else the first item that was partly visible.
-    public func anchor(at offset: CGFloat, preferred: ID?, surviving: (ID) -> Bool) -> Item? {
+    /// The item the user's eye rests on when the list changes to `next`:
+    /// the first partly visible item that survives and did not move by
+    /// itself (its next surviving neighbour is the same before and after),
+    /// else the first partly visible item that survives. A row the change
+    /// moves (a drop, a pin, a keyboard move) is never the anchor while a
+    /// row that stayed in place is visible, so the offset follows what the
+    /// user sees, not the moved row.
+    public func anchor(at offset: CGFloat, next: ListViewport<ID>) -> Item? {
         let visible = { (item: Item) in item.end > offset + Self.epsilon && item.start < offset + self.viewport - Self.epsilon }
-        if let preferred, let item = item(preferred), visible(item), surviving(preferred) { return item }
-        return items.first { visible($0) && surviving($0.id) }
+        let newIDs = Set(next.items.map(\.id))
+        guard items.contains(where: { visible($0) && newIDs.contains($0.id) }) else { return nil }
+        let oldIDs = Set(items.map(\.id))
+        let oldCommon = items.lazy.map(\.id).filter { newIDs.contains($0) }
+        let newCommon = Array(next.items.lazy.map(\.id).filter { oldIDs.contains($0) })
+        var newNext: [ID: ID?] = [:]
+        newNext.reserveCapacity(newCommon.count)
+        for (index, id) in newCommon.enumerated() {
+            let follower: ID? = index + 1 < newCommon.count ? newCommon[index + 1] : nil
+            newNext[id] = .some(follower)
+        }
+        var oldNext: [ID: ID?] = [:]
+        var previous: ID?
+        for id in oldCommon {
+            if let previous { oldNext[previous] = .some(id) }
+            previous = id
+        }
+        if let previous { oldNext[previous] = .some(ID?.none) }
+        var firstSurviving: Item?
+        for item in items where visible(item) && newIDs.contains(item.id) {
+            if firstSurviving == nil { firstSurviving = item }
+            if let before = oldNext[item.id], let after = newNext[item.id], before == after { return item }
+        }
+        return firstSurviving
     }
 
-    /// Step 1 of `settle`: the offset that keeps the anchor (the focused
-    /// item when it survives and was visible, else the first visible item
-    /// that survives) at its on-screen position, so rows removed or added
-    /// before the visible ones do not move what the user sees, and a
-    /// visible row that closes lets the rows below close the gap. Clamped.
-    public func anchored(from old: ListViewport<ID>, offset: CGFloat, focused: ID?) -> CGFloat {
+    /// Step 1 of `settle`: the offset that keeps the anchor (`anchor`, the
+    /// first visible row that stayed in place) at its on-screen position,
+    /// so rows removed, added or moved before the visible ones do not move
+    /// what the user sees, and a visible row that closes lets the rows
+    /// below close the gap. Clamped.
+    public func anchored(from old: ListViewport<ID>, offset: CGFloat) -> CGFloat {
         var next = offset
-        if let anchor = old.anchor(at: offset, preferred: focused, surviving: { self.item($0) != nil }),
-           let moved = item(anchor.id) {
+        if let anchor = old.anchor(at: offset, next: self), let moved = item(anchor.id) {
             next += moved.start - anchor.start
         }
         return clamp(next)
@@ -103,7 +130,7 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
     ///    and the change pushed it (not just its padding) out of view,
     /// 3. clamp.
     public func settle(from old: ListViewport<ID>, offset: CGFloat, focused: ID?, newFocus: ID?, padding: CGFloat) -> CGFloat {
-        let next = anchored(from: old, offset: offset, focused: focused)
+        let next = anchored(from: old, offset: offset)
         guard let newFocus, let target = item(newFocus) else { return next }
         let wasVisible = old.item(newFocus).map { old.isFullyVisible($0, at: offset, padding: padding) } ?? false
         guard newFocus != focused || wasVisible else { return next }
