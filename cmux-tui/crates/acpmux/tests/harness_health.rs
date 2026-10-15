@@ -621,6 +621,151 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Update Everything (cx-1mbnu): `_acpmux/harness/update {ids}` runs now the updater of each named
+/// outdated harness, whatever its auto-update choice, waits for it and checks again; a harness
+/// whose update needs sudo is never run (its answer names the command), one already current is ok
+/// without a run, and an unknown id is refused. Only the unix socket may ask, for the update and
+/// for `_acpmux/sessions/restart_harness` alike: the local app, a WebSocket page and a peer may not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() {
+    let root = scratch("update");
+    let home = root.join("home");
+    let user = root.join("config").join("harnesses");
+
+    // Claude's native installer: `claude update` installs 2.0.9; each run is logged to `runs`.
+    let claude_file = home.join(".local/share/claude/versions/current");
+    let claude = home.join(".local/bin/claude");
+    let runs = root.join("claude-update-runs");
+    std::fs::create_dir_all(claude_file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &claude_file,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; printf '#!/bin/sh\\necho \"2.0.9 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.0.5 (Claude Code)'\n",
+            claude_file.display(),
+            runs.display(),
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&claude_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
+    symlink(&claude_file, &claude).unwrap();
+    profile(
+        &user,
+        "claude",
+        &format!("protocol = \"claude-stdio\"\ncommand = \"{}\"\n", claude.display()),
+    );
+    // npm, a prefix this user cannot write: its update needs sudo.
+    let npm_ro = root.join("npm-ro");
+    let opencode = npm_ro.join("bin/opencode");
+    program(&npm_ro.join("lib/node_modules/opencode-ai/bin/opencode"), &opencode, "0.15.0");
+    std::fs::set_permissions(
+        npm_ro.join("lib/node_modules"),
+        std::fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+    profile(&user, "opencode", &format!("command = \"{}\"\n", opencode.display()));
+
+    let (port, _asked) = latest_server(vec![
+        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.0.9"})),
+        ("/npm/opencode-ai/latest", json!({"version": "0.16.0"})),
+    ]);
+    let hub = hub_for(&root, &user, &home);
+    hub.health.attach(Settings {
+        sources: Some(Sources {
+            npm: format!("http://127.0.0.1:{port}/npm"),
+            brew: format!("http://127.0.0.1:{port}/brew"),
+        }),
+        cache: None,
+        home: home.clone(),
+        // Auto-update is off for every harness: the request runs anyway.
+        auto_update: Some(root.join("acpmux/harness-auto-update.json")),
+    });
+    let mut local = Client::open(&hub, Origin::Local);
+    let first = local.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+    assert_eq!(
+        (
+            row(&first, "claude")["outdated"].as_bool(),
+            row(&first, "claude")["autoUpdate"].as_bool()
+        ),
+        (Some(true), Some(false)),
+        "{first}"
+    );
+
+    // Nobody but the unix socket may run an update or restart chats.
+    for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
+        let mut other = Client::open(&hub, origin);
+        other
+            .call(method::MUX_HARNESS_UPDATE, json!({"ids": ["claude"]}))
+            .await
+            .expect_err("only the unix socket updates a harness");
+        other
+            .call(method::MUX_SESSIONS_RESTART_HARNESS, json!({}))
+            .await
+            .expect_err("only the unix socket restarts chats");
+    }
+    assert!(!runs.exists(), "an update ran for another origin");
+
+    // SAFETY: geteuid has no preconditions. Root writes any folder, so the sudo case is not one.
+    let rooted = unsafe { libc::geteuid() } == 0;
+    let ids =
+        if rooted { json!(["claude", "nope"]) } else { json!(["claude", "opencode", "nope"]) };
+    let reply = local.call(method::MUX_HARNESS_UPDATE, json!({"ids": ids})).await.expect("update");
+    let result = |id: &str| {
+        reply["results"]
+            .as_array()
+            .and_then(|all| all.iter().find(|r| r["id"] == id))
+            .cloned()
+            .unwrap_or_else(|| panic!("no {id} result in {reply}"))
+    };
+    let r = result("claude");
+    assert_eq!((r["ok"].as_bool(), r["version"].as_str()), (Some(true), Some("2.0.9")), "{r}");
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "one run");
+    if !rooted {
+        let r = result("opencode");
+        assert_eq!(
+            (r["ok"].as_bool(), r["version"].as_str()),
+            (Some(false), Some("0.15.0")),
+            "{r}"
+        );
+        assert!(
+            r["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("sudo npm install -g opencode-ai@latest")),
+            "the sudo command is named, never run: {r}"
+        );
+    }
+    let r = result("nope");
+    assert_eq!(r["ok"], false, "{r}");
+    // The health rows the answer came from are the new check's.
+    let after = local.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+    assert_eq!(row(&after, "claude")["outdated"], false, "{after}");
+    if !rooted {
+        assert_eq!(row(&after, "opencode")["version"], "0.15.0", "{after}");
+    }
+
+    // Already current: ok, nothing runs again.
+    let again = local
+        .call(method::MUX_HARNESS_UPDATE, json!({"ids": ["claude"]}))
+        .await
+        .expect("update again");
+    assert_eq!(again["results"], json!([{"id": "claude", "ok": true, "version": "2.0.9"}]));
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "ran again");
+    // Never a command from the caller.
+    local
+        .call(method::MUX_HARNESS_UPDATE, json!({"ids": "claude"}))
+        .await
+        .expect_err("ids must be a list of ids");
+    // No chat runs here: nothing restarts.
+    let moved = local
+        .call(method::MUX_SESSIONS_RESTART_HARNESS, json!({"harnesses": ["claude"]}))
+        .await
+        .expect("restart");
+    assert_eq!(moved, json!({"restarted": 0, "after_turn": 0, "failed": 0, "errors": []}));
+
+    let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A fake `codex` at `dir/codex`: `codex login status` prints `says` and exits
 /// `code`, as Codex does (0 "Logged in using ChatGPT", 1 "Not logged in", and 1
 /// for a check it could not make).
