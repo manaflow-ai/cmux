@@ -199,6 +199,24 @@ struct ChromiumBrowserPageAutomationTests {
         #expect((page.calls[0].params["height"] as? NSNumber)?.intValue == 844)
     }
 
+    @Test("Geolocation and offline overrides use DevTools emulation")
+    func emulation() async throws {
+        let page = ScriptedChromiumPage()
+        let automation = BrowserPageAutomation(page: page)
+        let position = try #require(BrowserGeolocationOverride(latitude: 37.77, longitude: -122.42, accuracy: 5))
+
+        try await automation.applyEmulation(BrowserEmulationOverrides(geolocation: position, offline: true))
+        try await automation.applyEmulation(BrowserEmulationOverrides())
+
+        #expect(page.methods() == [
+            "Emulation.setGeolocationOverride", "Network.emulateNetworkConditions",
+            "Emulation.clearGeolocationOverride", "Network.emulateNetworkConditions",
+        ])
+        #expect((page.calls[0].params["latitude"] as? NSNumber)?.doubleValue == 37.77)
+        #expect(page.calls[1].params["offline"] as? Bool == true)
+        #expect(page.calls[3].params["offline"] as? Bool == false)
+    }
+
     @Test("Key presses are trusted DevTools key events")
     func keyPress() async throws {
         let page = ScriptedChromiumPage()

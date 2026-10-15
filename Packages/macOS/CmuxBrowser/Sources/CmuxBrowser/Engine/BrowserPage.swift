@@ -143,6 +143,12 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
     /// - Parameter terminate: `true` ends the page's content process; `false`
     ///   keeps waiting.
     func answerUnresponsive(terminate: Bool)
+    /// Turns the engine's agent navigation guard on while an agent (socket
+    /// or CLI) drives the page: every main-frame navigation, redirect and
+    /// back/forward commit to a page refused by
+    /// `String.isRefusedForAgentNavigation` is cancelled in the engine.
+    /// - Parameter enabled: `true` while an agent drives the page.
+    func setAgentNavigationGuard(_ enabled: Bool)
     /// The back/forward history with page state, for restoring later.
     /// - Returns: The state, or `nil` when the engine cannot export it now.
     func exportRestoreState() -> BrowserPageRestoreState?
@@ -154,6 +160,10 @@ extension BrowserPage {
     /// Engines that never report an unresponsive page have nothing to answer.
     /// - Parameter terminate: Ignored.
     public func answerUnresponsive(terminate: Bool) {}
+
+    /// Engines without privileged internal pages (WebKit) need no guard.
+    /// - Parameter enabled: Ignored.
+    public func setAgentNavigationGuard(_ enabled: Bool) {}
 
     /// Runs a find-in-page script in the page world, so the shared find
     /// service works on every engine.

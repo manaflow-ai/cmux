@@ -28,6 +28,85 @@ extension TerminalController {
         return (engine, nil)
     }
 
+    /// Why a WebKit panel is not on the engine the app prefers, when the
+    /// preferred engine (`CMUX_BROWSER_ENGINE`, then `browser.engine`) is
+    /// another one that cannot open now; nil when the panel has the preferred
+    /// engine. A panel opened with an explicit `--engine webkit` reports the
+    /// same reason while the preferred engine is unavailable.
+    @MainActor
+    func v2BrowserEngineFallbackReason(
+        _ panel: BrowserPanel,
+        runtime: BrowserEngineRuntime = .shared
+    ) -> BrowserEngineUnavailableReason? {
+        guard panel.engineKind == .webkit,
+              case .open(let choice) = runtime.resolve(requested: nil) else {
+            return nil
+        }
+        return choice.fallback
+    }
+
+    /// The `engine` (and, after a fallback, `engine_fallback_reason`) fields
+    /// browser results carry, so a script can tell which engine it drives.
+    @MainActor
+    func v2BrowserEngineFields(_ panel: BrowserPanel) -> [String: Any] {
+        var fields: [String: Any] = ["engine": panel.engineKind.rawValue]
+        if let reason = v2BrowserEngineFallbackReason(panel) {
+            fields["engine_fallback_reason"] = reason.code
+        }
+        return fields
+    }
+
+    /// The panel's non-WebKit engine page, or nil for a WebKit panel. The
+    /// engine is fixed at panel creation, so a WebKit panel answers without a
+    /// main-thread hop and its automation paths cost nothing extra.
+    nonisolated func v2EnginePage(_ panel: BrowserPanel) -> (any BrowserPage)? {
+        guard panel.engineKind != .webkit else { return nil }
+        return v2MainSync { panel.automationEnginePage }
+    }
+
+    /// The refusal for scripting, input, cookies or screenshots on a page an
+    /// agent may not drive: a Chromium internal page (settings, passwords,
+    /// extensions, DevTools) the person opened in the panel. Nil when the
+    /// agent may drive it, and always for WebKit panels.
+    @MainActor
+    func v2EngineAgentRefusal(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
+        guard !panel.agentMayDriveCurrentPage else { return nil }
+        return .err(
+            code: "agent_refused",
+            message: String(
+                localized: "browser.automation.error.internalPageRefused",
+                defaultValue: "Agents can't script or send input to this browser's internal pages"
+            ),
+            data: [
+                "surface_id": surfaceId.uuidString,
+                "url": panel.currentURL?.absoluteString ?? "",
+            ]
+        )
+    }
+
+    /// `v2EngineAgentRefusal` from the socket worker.
+    nonisolated func v2EngineAgentRefusalOnWorker(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
+        v2MainSync { v2EngineAgentRefusal(panel, surfaceId: surfaceId) }
+    }
+
+    /// Modifier keys automation holds down per engine surface (DevTools key
+    /// events carry no keyboard state of their own).
+    @MainActor private static var v2EngineHeldModifiers: [UUID: BrowserAutomationHeldModifiers] = [:]
+
+    /// Records one automation key action on an engine surface and returns the
+    /// modifiers to send with it, so `keydown Shift` then `press a` types `A`.
+    @MainActor
+    func v2EngineKeyModifiers(
+        surfaceId: UUID,
+        event: BrowserKeyboardEvent,
+        action: BrowserKeyboardAction
+    ) -> BrowserKeyboardNativeModifiers {
+        var state = Self.v2EngineHeldModifiers[surfaceId] ?? BrowserAutomationHeldModifiers()
+        let modifiers = state.record(event, action: action)
+        Self.v2EngineHeldModifiers[surfaceId] = state.held.isEmpty ? nil : state
+        return modifiers
+    }
+
     /// Runs one engine-page operation on the main actor and waits for it on
     /// the socket worker, at most `timeout` seconds. Nil when it did not finish
     /// in time (the operation is then cancelled).

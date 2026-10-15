@@ -656128,6 +656128,65 @@
           }
         }
       }
+    },
+    "browser.automation.error.internalPageRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can't script or send input to this browser's internal pages"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können die internen Seiten dieses Browsers nicht per Skript steuern oder Eingaben an sie senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents ne peuvent pas exécuter de scripts ni envoyer de saisie dans les pages internes de ce navigateur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للوكلاء تشغيل نصوص برمجية أو إرسال إدخال إلى الصفحات الداخلية لهذا المتصفح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes no pueden ejecutar scripts ni enviar entradas a las páginas internas de este navegador"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式無法對此瀏覽器的內部頁面執行指令碼或傳送輸入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理无法对此浏览器的内部页面运行脚本或发送输入"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 이 브라우저의 내부 페이지에서 스크립트를 실행하거나 입력을 보낼 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはこのブラウザの内部ページでスクリプトを実行したり入力を送ったりできません"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

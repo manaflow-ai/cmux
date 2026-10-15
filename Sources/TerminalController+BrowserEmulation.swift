@@ -62,6 +62,9 @@ extension TerminalController {
     ) -> V2CallResult {
         v2BrowserWithPanelContext(params: params) { context in
             let panel = context.browserPanel
+            if let enginePage = v2EnginePage(panel) {
+                return v2BrowserUpdateEngineEmulation(enginePage, context: context, change)
+            }
             var applyTask: Task<Void, Never>?
             let outcome: Result<BrowserEmulationOverrides, BrowserEmulationError>? = v2AwaitCallback(timeout: 10) { finish in
                 applyTask = Task { @MainActor in
@@ -118,6 +121,60 @@ extension TerminalController {
                 }
                 return .ok(v2BrowserPanelFields(context, adding: fields))
             }
+        }
+    }
+
+    /// The emulation overrides automation set on each engine surface; the
+    /// engine applies them over DevTools, so the app keeps the state.
+    @MainActor private static var v2EngineEmulationOverrides: [UUID: BrowserEmulationOverrides] = [:]
+
+    /// `browser.geolocation.set` / `browser.offline.set` on a Chromium panel:
+    /// the same contract and reply as WebKit's, applied with DevTools
+    /// geolocation and network-condition overrides.
+    private nonisolated func v2BrowserUpdateEngineEmulation(
+        _ page: any BrowserPage,
+        context: V2BrowserPanelContext,
+        _ change: @escaping @Sendable (inout BrowserEmulationOverrides) -> Void
+    ) -> V2CallResult {
+        if let refusal = v2EngineAgentRefusalOnWorker(context.browserPanel, surfaceId: context.surfaceId) {
+            return refusal
+        }
+        let surfaceId = context.surfaceId
+        let outcome: Result<BrowserEmulationOverrides, any Error>? = v2AwaitEnginePage(timeout: 10) {
+            var overrides = Self.v2EngineEmulationOverrides[surfaceId] ?? BrowserEmulationOverrides()
+            change(&overrides)
+            do {
+                try await BrowserPageAutomation(page: page).applyEmulation(overrides)
+                Self.v2EngineEmulationOverrides[surfaceId] = overrides.isDefault ? nil : overrides
+                return .success(overrides)
+            } catch {
+                return .failure(error)
+            }
+        }
+        switch outcome {
+        case nil:
+            return .err(
+                code: "timeout",
+                message: String(
+                    localized: "cli.browser.emulation.timeout",
+                    defaultValue: "Timed out applying browser emulation"
+                ),
+                data: nil
+            )
+        case .failure(let error):
+            return v2EngineAutomationError(error, surfaceId: surfaceId)
+        case .success(let overrides):
+            var fields: [String: Any] = ["offline": overrides.offline]
+            if let position = overrides.geolocation {
+                fields["geolocation"] = [
+                    "latitude": position.latitude,
+                    "longitude": position.longitude,
+                    "accuracy": position.accuracy,
+                ]
+            } else {
+                fields["geolocation"] = NSNull()
+            }
+            return .ok(v2BrowserPanelFields(context, adding: fields))
         }
     }
 }
