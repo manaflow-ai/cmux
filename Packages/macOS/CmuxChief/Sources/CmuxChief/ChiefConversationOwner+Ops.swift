@@ -1,4 +1,4 @@
-public import CmuxAgentQuestion
+import CmuxAgentQuestion
 public import CmuxHomeCore
 import Foundation
 

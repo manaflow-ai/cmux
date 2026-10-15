@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-public import Foundation
+import Foundation
 
 // External posts: reports from agents outside Home (the `cmux chief send
 // --from` path), and a plain-text transcript for readers outside Home.
