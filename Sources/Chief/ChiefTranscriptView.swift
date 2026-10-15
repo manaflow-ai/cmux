@@ -176,6 +176,7 @@ final class ChiefTranscriptView: NSView {
         transcript.fetchAttachment = binding.fetchAttachment
         transcript.onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
         transcript.onRefusal = { [weak self] _, rejection in self?.showNotice(ChiefStrings.rejection(rejection)) }
+        transcript.onOpenCloudWorkspace = { [weak self] machine, workspace in self?.openCloudWorkspace(machine, workspace) }
         binding.onRefusal = { [weak self] _, rejection in self?.showNotice(ChiefStrings.rejection(rejection)) }
         binding.onSendNotDelivered = { [weak self] _, rejection in self?.showNotice(ChiefStrings.rejection(rejection)) }
         binding.onAttachmentRefusal = { [weak self] _, refusal in self?.showNotice(ChiefStrings.attachmentRefusal(refusal)) }
@@ -520,6 +521,19 @@ final class ChiefTranscriptView: NSView {
     }
 
     /// Shows (or with nil clears) the notice above the field; VoiceOver hears it.
+    /// A Cloud result card's Open Workspace: the `cmux vm workspace open` path, focused
+    /// (the user asked to see it).
+    private func openCloudWorkspace(_ machine: String, _ workspace: String) {
+        // task-owner: one open; ends when the workspace is projected or fails
+        Task { @MainActor [weak self] in
+            do {
+                try await TerminalController.openRemoteWorkspace(workspace, machine: SurfaceMachineID(rawValue: machine), focus: true)
+            } catch {
+                self?.showNotice(ChiefStrings.cloudOpenFailed(machine))
+            }
+        }
+    }
+
     func showNotice(_ text: String?) {
         guard text != notice else { return }
         notice = text

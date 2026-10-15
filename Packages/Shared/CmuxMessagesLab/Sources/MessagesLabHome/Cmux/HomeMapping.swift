@@ -106,6 +106,17 @@ enum HomeMapping {
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
+            // cmux-classic: the Chief's question card and its Cloud rows (QuestionCardRow, ChiefCloudRows).
+            if case .question(let question) = p {
+                parts.append(.custom(QuestionCardRow.part(question)))
+                owners.append(i)
+                continue
+            }
+            if case .work(let work) = p, let row = ChiefCloudRows.part(work, createdAt: item.createdAt) {
+                parts.append(.custom(row))
+                owners.append(i)
+                continue
+            }
             if case .approval(let ref) = p {
                 // cmux-classic: the card names the asking agent ("Chief wants to run").
                 let agent = summary?.participants.first { $0.id == item.author }?.displayName

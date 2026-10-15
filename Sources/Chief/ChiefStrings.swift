@@ -190,6 +190,11 @@ enum ChiefStrings {
         String(localized: "chief.send.unanswered", defaultValue: "A change may not have gone through.")
     }
 
+    /// A Cloud result card's Open Workspace failed; `machine` is the machine id.
+    static func cloudOpenFailed(_ machine: String) -> String {
+        String(localized: "chief.cloud.openFailed", defaultValue: "Couldn’t open the workspace on \(machine).")
+    }
+
     /// A send refused after it left the composer.
     static func rejection(_ rejection: HomeRejection) -> String {
         switch rejection {

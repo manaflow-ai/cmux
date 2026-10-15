@@ -224,7 +224,9 @@ enum ChiefRows {
     /// with a host is a flow's own row (a Cloud machine's provisioning or result card): it stays a row of
     /// its own, never folded into a run.
     static func isToolOnly(_ item: TranscriptItem) -> Bool {
-        !item.isRetracted && !item.parts.isEmpty && item.parts.allSatisfy { if case .work(let w) = $0 { w.host == nil } else { false } }
+        !item.isRetracted && !item.parts.isEmpty && item.parts.allSatisfy {
+            if case .work(let w) = $0 { w.host == nil && !ChiefCloudRows.isProvisioning(w) } else { false }
+        }
     }
 
     /// Messages drawn as the tool sender (`toolSender`): tool rows and approval cards, which are not the
@@ -368,6 +370,9 @@ extension ChiefRows {
         registered = true
         CustomRows.register(ChiefToolRowProvider.shared)
         CustomRows.register(ChiefApprovalRowProvider.shared)
+        CustomRows.register(QuestionCardRowProvider.shared)
+        CustomRows.register(ChiefProvisionRowProvider.shared)
+        CustomRows.register(ChiefResultCardProvider.shared)
     }
     private static var registered = false
 }
