@@ -330,6 +330,49 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.stdout.contains("sk-bare-token-line"), result.stdout)
     }
 
+    /// `vm secrets import` reads quotes like the vault's dotenv parser: `\"` is a quote
+    /// inside double quotes, single quotes have no escapes, and a quoted value with text
+    /// after its closing quote is skipped by line number without echoing the value.
+    func testVMSecretsImportQuotingMatchesTheVaultDotenvRules() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("secrets-quotes")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMSecretsRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-secrets-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let file = tempDir.appendingPathComponent("quotes.env")
+        try """
+        ESCAPED="say \\"hi\\""
+        WIN_PATH='C:\\dir\\'
+        TRAILING="sk-trailing-secret"oops
+        UNCLOSED="sk-unclosed-secret
+        """.write(to: file, atomically: true, encoding: .utf8)
+
+        let serverHandled = startVMSecretsMock(listenerFD: listenerFD, state: state, log: log)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "secrets", "import", file.path, "--dry-run"],
+            environment: vmSecretsEnvironment(socketPath: socketPath),
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        let params = try XCTUnwrap(log.params(ofFirst: "vm.secrets_set"))
+        let entries = (params["entries"] as? [[String: Any]]) ?? []
+        XCTAssertEqual(entries.compactMap { $0["key"] as? String }, ["ESCAPED", "WIN_PATH"])
+        XCTAssertEqual(entries.compactMap { $0["value"] as? String }, ["say \"hi\"", "C:\\dir\\"])
+        XCTAssertTrue(result.stdout.contains("! TRAILING skipped (text after the closing quote, line 3)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("! UNCLOSED skipped (value spans several lines, line 4)"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("sk-trailing-secret"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("sk-unclosed-secret"), result.stdout)
+    }
+
     /// `vm secrets` against the mock with the full app side (`vm.list` labels, status,
     /// sync, rm). Returns the result and the methods the CLI sent.
     private func runVMSecretsAgainstMock(_ name: String, arguments: [String]) throws -> (result: ProcessRunResult, log: VMSecretsRequestLog) {

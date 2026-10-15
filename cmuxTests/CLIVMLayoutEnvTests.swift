@@ -365,21 +365,104 @@ extension CLINotifyProcessIntegrationRegressionTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
+        let tempDir = try vmLayoutEnvTempDir("env-bad")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let badNameFile = tempDir.appendingPathComponent("bad-name.env")
+        try "GOOD=1\n1BAD_pasted_token=value\n".write(to: badNameFile, atomically: true, encoding: .utf8)
+        let bareLineFile = tempDir.appendingPathComponent("bare-line.env")
+        try "GOOD=1\nsk-bare-pasted-token\n".write(to: bareLineFile, atomically: true, encoding: .utf8)
+        // Text in the name position, or a line with no `=`, may be a pasted value: the
+        // error names the problem (and the line) but never echoes the text.
+        let cases: [(arguments: [String], expected: String)] = [
+            (["env", "set", "brave-otter", "1BAD_pasted_token=value"], "vm env set: a name is not a valid variable name"),
+            (["env", "set", "brave-otter", "sk-bare-pasted-token"], "vm env set: an argument is not KEY=VALUE"),
+            (["env", "set", "brave-otter", "--from-file", badNameFile.path], "line 2: the name is not a valid variable name"),
+            (["env", "set", "brave-otter", "--from-file", bareLineFile.path], "line 2: expected KEY=VALUE"),
+            (["env", "rm", "brave-otter", "GOOD", "1BAD_pasted_token"], "vm env rm: a name is not a valid variable name"),
+        ]
         for namespace in ["vm", "cloud"] {
-            var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
-            environment["CMUX_SOCKET_PASSWORD"] = "invalid-env-fixture-password"
-            let result = runProcess(
-                executablePath: cliPath,
-                arguments: [namespace, "env", "set", "brave-otter", "1BAD=value"],
-                environment: environment,
-                timeout: 30
-            )
+            for testCase in cases {
+                var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
+                environment["CMUX_SOCKET_PASSWORD"] = "invalid-env-fixture-password"
+                let result = runProcess(
+                    executablePath: cliPath,
+                    arguments: [namespace] + testCase.arguments,
+                    environment: environment,
+                    timeout: 30
+                )
 
-            XCTAssertEqual(result.status, 2, "\(namespace): stdout=\(result.stdout) stderr=\(result.stderr)")
-            XCTAssertTrue(result.stderr.contains("invalid variable name '1BAD'"), result.stderr)
+                XCTAssertEqual(result.status, 2, "\(namespace) \(testCase.arguments): stdout=\(result.stdout) stderr=\(result.stderr)")
+                XCTAssertTrue(result.stderr.contains(testCase.expected), "\(testCase.arguments): \(result.stderr)")
+                XCTAssertFalse(result.stderr.contains("1BAD_pasted_token"), result.stderr)
+                XCTAssertFalse(result.stderr.contains("sk-bare-pasted-token"), result.stderr)
+            }
         }
         var connection = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
         XCTAssertEqual(Darwin.poll(&connection, 1, 0), 0, "a rejected assignment must not connect to the socket")
+    }
+
+    /// The `.env` rules match Cloud Secrets' parser (CloudSecretDotenv): inside double
+    /// quotes `\"` is a quote, inside single quotes nothing is an escape, and a quoted
+    /// value with text after its closing quote, or one whose quote never closes on its
+    /// line, refuses the file by line number without echoing the value.
+    func testVMEnvSetDotenvQuotingMatchesTheCloudSecretsRules() throws {
+        let cliPath = try bundledCLIPath()
+        let tempDir = try vmLayoutEnvTempDir("env-quotes")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let goodSocketPath = makeSocketPath("vm-env-quotes")
+        let goodListenerFD = try bindUnixSocket(at: goodSocketPath)
+        let state = MockSocketServerState()
+        let log = VMLayoutEnvRequestLog()
+        defer {
+            Darwin.close(goodListenerFD)
+            unlink(goodSocketPath)
+        }
+        let goodFile = tempDir.appendingPathComponent("quotes.env")
+        try "\u{FEFF}ESCAPED=\"say \\\"hi\\\"\"\r\nWIN_PATH='C:\\dir\\'\r\nBACKSLASH=\"a\\\\b\" # comment\r\n"
+            .write(to: goodFile, atomically: true, encoding: .utf8)
+        let serverHandled = startVMEnvSetMock(listenerFD: goodListenerFD, state: state, log: log)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "env", "set", "brave-otter", "--from-file", goodFile.path],
+            environment: vmLayoutEnvEnvironment(socketPath: goodSocketPath),
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(vmEnvSetEntryLines(log), [
+            "ESCAPED=say \"hi\"",
+            "WIN_PATH=C:\\dir\\",
+            "BACKSLASH=a\\\\b",
+        ])
+
+        let badSocketPath = makeSocketPath("vm-env-quotes-bad")
+        let badListenerFD = try bindUnixSocket(at: badSocketPath)
+        defer {
+            Darwin.close(badListenerFD)
+            unlink(badSocketPath)
+        }
+        let cases: [(name: String, text: String, expected: String)] = [
+            ("trailing", "GOOD=1\nTRAILING=\"sk-quoted-secret\"oops\n", "line 2: the value of TRAILING has text after its closing quote"),
+            ("unclosed", "GOOD=1\nUNCLOSED=\"sk-quoted-secret\n", "line 2: the value of UNCLOSED opens a quote that does not close on its line"),
+            ("single", "GOOD=1\nSINGLE='sk-quoted-secret\\'tail'\n", "line 2: the value of SINGLE has text after its closing quote"),
+        ]
+        for testCase in cases {
+            let file = tempDir.appendingPathComponent("\(testCase.name).env")
+            try testCase.text.write(to: file, atomically: true, encoding: .utf8)
+            let rejected = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "env", "set", "brave-otter", "--from-file", file.path],
+                environment: vmLayoutEnvEnvironment(socketPath: badSocketPath),
+                timeout: 30
+            )
+            XCTAssertEqual(rejected.status, 2, "\(testCase.name): stdout=\(rejected.stdout) stderr=\(rejected.stderr)")
+            XCTAssertTrue(rejected.stderr.contains(testCase.expected), "\(testCase.name): \(rejected.stderr)")
+            XCTAssertFalse(rejected.stderr.contains("sk-quoted-secret"), rejected.stderr)
+        }
+        var connection = pollfd(fd: badListenerFD, events: Int16(POLLIN), revents: 0)
+        XCTAssertEqual(Darwin.poll(&connection, 1, 0), 0, "a refused .env file must not connect to the socket")
     }
 
     func testVMEnvListForwardsFlagsAndPrintsStdoutVerbatim() throws {
