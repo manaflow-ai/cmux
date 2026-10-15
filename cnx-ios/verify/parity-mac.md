@@ -34,7 +34,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Close Tab (⌘W) | `close-surface` | grid ×, page menu Close Tab | works | Asks first when a program runs. |
 | Rename Tab… (⌘R) | `rename-surface` | page and card menu **Rename Tab…** | works (this branch) | Rolls back on refusal. |
 | Duplicate Tab | `new-tab` / browser duplicate | page and card menu **Duplicate Tab** | partial (this branch) | Terminal: a new terminal in the tab's pane (hostd's folder choice). Browser: the same http(s) page. Agent chat: none; use Continue in…. |
-| Move Tab Left / Right, drag | `move-tab` | drag in the grid | works (this branch) | To the place of the tab it lands on, across panes too. |
+| Move Tab Left / Right, drag | `move-tab` | drag in the grid | partial (this branch) | Within the tab's pane (insertion index as the daemon reads it); a drag onto another pane's tab says to move it on the Mac. Unit-tested, not driven live. |
 | Move Tab to Pane / New Workspace / another workspace | `move-tab-to-split`, `move-tab-to-new-workspace`, `move-tab-to-workspace` | — | missing | Allowlisted; no phone UI yet (the phone shows a workspace's tabs as one list, no panes). |
 | Pin / Unpin Tab | `set-tab-pinned` | — | missing | Allowlisted; no UI. |
 | Split Right / Down, New Column / Row, Zoom Pane | `split`, `new-pane-right`, `new-row`, `zoom-pane` | — | not applicable | The phone shows one tab at a time; panes are a Mac layout. |
@@ -117,7 +117,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | New Browser Tab, address bar, navigate, Back, Forward, Reload | Pass: example.com and iana.org render; Back, Forward (second tap; see finding 5), Reload | `browser.mp4`, `browser-forward.mp4`, `browser-reload.mp4` |
 | New Terminal | Pass: opens in the workspace folder in 5 s; `echo parity-$((6*7))` prints `parity-42` | `terminal.mp4` |
 | New Workspace > Recent Directories > proj | Pass: `proj` on the Mac in 1 s, terminal at `proj %` (cd + clear) | `workspace-folder.mp4` |
-| New Workspace (tap), then New Agent Chat in it | Pass (the tap reuses the last folder) | `workspace-home-agent.mp4` |
+| New Workspace (tap), then New Agent Chat in it | Pass at the time (the tap then reused the last folder; after review a tap opens at the Mac's default folder, as on the Mac) | `workspace-home-agent.mp4` |
 | Rename Tab… (card menu) | Pass on the Mac (`rename-surface`); the field then started with the old name and the typed text landed mid-name, so it now starts empty | `tab-edits.mp4` |
 | Duplicate Tab | Pass: Mac tabs 12 -> 13, the copy opens | `tab-edits.mp4` |
 | Drag to reorder | Unit-tested only: the simulated drag opened the card menu, then left the workspace | — |
@@ -150,3 +150,15 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
    VoiceOver after navigation, while it shows the page's host.
 5. Forward once did nothing on the first tap right after Back (the next tap
    worked).
+
+### Review (correctness-first subagent, 2026-10-15)
+
+Fixed on this branch (52e2b628 and after): the typed `cd` refused folders with
+line-editing characters (DEL, ^U, ESC, a backslash, `!`) after an injection
+finding; `move-tab` sent the target's index (off by one forward, and could move a
+tab into another pane); `session/new` and `set_model` had no timeout; the
+folder refusal blamed an old Mac; the joiner re-parsed large messages on every
+chunk; a renamed Codex profile showed as startable; a plain New Workspace tap
+typed `cd` to the last folder; the Mac kept the folder list after iPhone
+connections turned off when no approvers were paired. Those fixes have unit
+tests and were not driven live again.
