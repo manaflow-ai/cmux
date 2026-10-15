@@ -30,6 +30,9 @@ FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
 control request is appended to that file, one per line. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
+"cost-probe" ends its turn the way Claude Code reports spend: the turn's own
+token usage, and `total_cost_usd` as the process's running total (0.25 more
+per cost-probe turn, from 0 at each start).
 """
 import json
 import os
@@ -68,6 +71,7 @@ if STORE:
 
 SESSION_RULES = []
 DESTINATIONS = []
+COST = 0.0
 
 # FAKE_CLAUDE_SKILLS=1: Claude Code with one skill installed, as Claude Code
 # 2.1.299 reports it: the initialize answer lists every slash command (a
@@ -416,6 +420,11 @@ for line in sys.stdin:
         if said.strip() in ("usage-probe", "compact-probe"):
             result["modelUsage"] = {"claude-haiku": {"inputTokens": 50, "contextWindow": 100000},
                                     "fake": {"inputTokens": 1200, "contextWindow": 200000}}
+        if said.strip() == "cost-probe":
+            COST += 0.25
+            result["total_cost_usd"] = COST
+            result["usage"] = {"input_tokens": 100, "output_tokens": 20,
+                               "cache_read_input_tokens": 300, "cache_creation_input_tokens": 40}
         if said.strip() == "switched-probe":
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}
