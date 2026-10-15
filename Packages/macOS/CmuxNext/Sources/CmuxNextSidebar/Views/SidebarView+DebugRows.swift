@@ -87,10 +87,10 @@ public struct SidebarDropProbe: Sendable, Equatable {
 }
 
 extension SidebarView {
-    /// Every layout item of the shown sections and its view (debug).
+    /// Every layout item of the shown sections and its view, client items at their places (debug).
     public func debugLayoutItems() -> [SidebarDebugItem] {
         let height = window?.contentView?.bounds.height ?? 0
-        return model.layout.sections.flatMap { section in
+        return model.placingTransientItems(in: model.layout.sections).flatMap { section in
             section.items.map { item -> SidebarDebugItem in
                 var frame: CGRect?
                 for region in bandRegions {

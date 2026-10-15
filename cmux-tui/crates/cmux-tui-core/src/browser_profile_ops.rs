@@ -233,7 +233,7 @@ fn open(
             record,
             None,
             &tab_key(key),
-            FrontendTabPlacement { activate, after: None },
+            FrontendTabPlacement { activate, after: None, index: None },
         )
         .map_err(|error| registry_error(error, OPEN, key))?;
     let surface = &outcome.surface;

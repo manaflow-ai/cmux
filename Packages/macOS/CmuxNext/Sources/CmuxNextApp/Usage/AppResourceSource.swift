@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextResources
@@ -14,8 +15,9 @@ import Foundation
 /// - Chromium tabs: the renderers that host the tab's frames (renderer
 ///   client ids from CEF, matched to helper processes by their
 ///   `--renderer-client-id`). GPU, network, utility and extension
-///   renderers are shared, never a tab's.
-/// - WebKit tabs: the web view's WebContent process.
+///   renderers are shared, never a tab's; so is a renderer that also hosts
+///   another page's frames, for one tab's card.
+/// - WebKit tabs and agent chats: the web view's WebContent process.
 /// - The app process is shared (chrome, Ghostty, Chromium's browser process).
 ///
 /// Resolution reads the main-actor model; process counters are read off
@@ -63,9 +65,10 @@ final class AppResourceSource: ResourceSampleSource {
                 case .other: break
                 }
             }
+            let foreign = Set(resolved.foreignRendererClients.compactMap { byClient[$0] })
             for index in chromiumTabs {
                 let clients = resolved.rendererClients[tabs[index].tabID] ?? []
-                tabs[index].processes = clients.compactMap { byClient[$0] }.map { ProcessKey(pid: $0) }
+                tabs[index].processes = clients.compactMap { byClient[$0] }.filter { !foreign.contains($0) }.map { ProcessKey(pid: $0) }
             }
             if !resolved.includesAppShare { shared.removeAll() }
         }
@@ -76,14 +79,9 @@ final class AppResourceSource: ResourceSampleSource {
 
         // Terminals: one request per daemon.
         for query in resolved.daemons {
-            guard query.supported, let connection = query.connection else {
-                for terminal in query.terminals {
-                    if let index = tabs.firstIndex(where: { $0.tabID == terminal.tabID }) { tabs[index].available = false }
-                }
-                continue
-            }
             let request = TerminalResourcesRequest(surfaces: query.terminals.map(\.surface))
-            guard let response = try? await connection.request(request, timeout: .seconds(1)) else {
+            guard query.supported, let connection = query.connection,
+                  let response = try? await connection.request(request, timeout: .seconds(1)) else {
                 for terminal in query.terminals {
                     if let index = tabs.firstIndex(where: { $0.tabID == terminal.tabID }) { tabs[index].available = false }
                 }
@@ -112,6 +110,8 @@ final class AppResourceSource: ResourceSampleSource {
         var tabs: [TabResourceSources] = []
         var daemons: [DaemonQuery] = []
         var rendererClients: [String: [Int32]] = [:]
+        /// One tab's sample: the renderer clients of every other page (a renderer they share is not its own).
+        var foreignRendererClients: [Int32] = []
         var includesAppShare = false
     }
 
@@ -122,6 +122,9 @@ final class AppResourceSource: ResourceSampleSource {
         case .tab(let id):
             guard let (tab, pane) = services.locateTab(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
+            resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in
+                if case .chromiumRendererClients(let clients) = (entry.tab as? any BrowserProcessReporting)?.contentProcesses { clients } else { [] }
+            }
         case .workspace(let id):
             guard let (workspace, daemon) = services.machines.workspace(id: id) else { return resolved }
             var seen = Set<String>()
@@ -166,6 +169,12 @@ final class AppResourceSource: ResourceSampleSource {
                 case .none: break
                 }
                 resolved.tabs.append(sources)
+            case .conversation where tab.agentSession != nil:
+                // An agent chat's page (its acpmux agent runs apart); none while it hibernates.
+                let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
+                let pid = view.flatMap { WebContentProcess.identifier(of: $0.webView) }
+                resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .webkit,
+                                                        processes: pid.map { [ProcessKey(pid: $0)] } ?? [], available: pid != nil))
             case .remoteTerminal, .conversation, .other:
                 // A remote reference or a conversation's processes run on its own session.
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .other,

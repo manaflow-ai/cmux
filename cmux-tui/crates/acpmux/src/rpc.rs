@@ -330,8 +330,10 @@ pub mod method {
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
     /// The background-process registry (`hub/processes.rs`): list a chat's
-    /// (or every chat's) background processes, and stop one.
+    /// (or every chat's) background processes, read one's output, and stop
+    /// one.
     pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
+    pub const MUX_PROCESS_TAIL: &str = "_acpmux/process/tail";
     pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";

@@ -131,6 +131,8 @@ public final class HomeSidebarSource {
     public func setPinned(_ on: Bool, _ id: ConversationID) {
         if let inbox = owner(of: id) { return inbox.setPinned(on, id.rawValue) }
         guard let row = listed().first(where: { $0.id == id }) else { return }
+        // This Mac's pins as stored now: the one-time move (HomePinMigration) may have taken some since the last read.
+        pins = store.pins(account: account())
         pins.setPinned(on, row)
         store.save(pins, account: account())
     }
@@ -150,7 +152,12 @@ public final class HomeSidebarSource {
             }
             return
         }
-        pins.place(id, at: index, shown: shown)
+        // Only rows no owner lists are this Mac's to order: an owner's pin kept here would move to it again.
+        var order = shown.filter { $0 != id }
+        order.insert(id, at: min(max(0, index), order.count))
+        let mine = order.filter { owner(of: $0) == nil }
+        pins = store.pins(account: account())
+        pins.place(id, at: mine.firstIndex(of: id) ?? mine.count, shown: mine)
         store.save(pins, account: account())
     }
 
