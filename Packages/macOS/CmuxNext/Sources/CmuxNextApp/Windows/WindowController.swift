@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentCursor
+import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextHistory
@@ -205,16 +206,17 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
         if let current = content { park(current) }
-        let controller: WorkspaceContentController
-        if let index = parked.firstIndex(where: { $0.workspace === workspace && $0.daemon === daemon }) {
+        let controller: WorkspaceContentController, index = parked.firstIndex { $0.workspace === workspace && $0.daemon === daemon }
+        if let index {
             controller = parked.remove(at: index)
             controller.unpark()
         } else {
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
-        // One synchronous swap: the old view leaves (its panes stay mounted,
-        // paused) and the new one draws in the same frame.
+        // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
+        // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
+        sidebar.sameTurn.syncNow(rows: index == nil)
         root.show(controller.contentView)
         // The workspace's theme first, so the chrome repaints once; no
         // crossfade, which would fade the swap itself.
@@ -228,8 +230,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation = Task { [weak self] in
             for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
-        // The new workspace's panes: the coordinator restores its pane and,
-        // now that the content is installed, re-applies it.
+        // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.sendTopology()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
@@ -423,6 +424,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: controller.focus.state.pane, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = super.makeFirstResponder(responder)
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
         return accepted

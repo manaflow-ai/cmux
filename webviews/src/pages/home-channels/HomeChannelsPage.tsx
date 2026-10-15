@@ -8,6 +8,7 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
@@ -242,6 +243,18 @@ export function HomeChannelsPage({
     if (root) void store.updateThread(root, { owner });
   };
   const focusedMessage = focused ? walk.find((m) => m.id === focused) : undefined;
+  // What the host's `home.currentSelection` answers (the dock's view switch): the open
+  // conversation and the message the person is on; null on the narrow list pane.
+  const selectionMessage = focusedMessage?.id ?? snap.highlight ?? snap.thread;
+  const selection = useMemo<HomeSelection | null>(
+    () =>
+      // Before the first measure the page does not know yet whether only the list shows.
+      measured === undefined || listShown || !snap.selected
+        ? null
+        : { conversation: snap.selected, ...(selectionMessage ? { message: selectionMessage } : {}) },
+    [measured, listShown, snap.selected, selectionMessage],
+  );
+  useHostSelection(store.host, selection);
   const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
     // The order the list shows: my pins first, then newest activity.
     const { pinned, rest } = listOrder(snap.conversations.values());

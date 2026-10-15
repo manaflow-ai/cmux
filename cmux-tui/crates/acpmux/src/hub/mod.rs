@@ -24,7 +24,9 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod model_options;
-pub use model_options::{current_model, current_option, resolve_config_id, web_url};
+pub use model_options::{
+    current_effort, current_model, current_option, resolve_config_id, web_url,
+};
 mod model_hint;
 mod models_view;
 mod paging;
@@ -36,7 +38,9 @@ pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
+mod offer_results;
 mod offers;
 mod secrets;
 mod seen;
