@@ -378,8 +378,9 @@ impl AgentTools {
                 }
             },
         };
-        // The helper v2 bridge cannot be pinned to a display: never in this mode.
-        self.servers.retain(|s| s.name != crate::cua_v2::SERVER_NAME);
+        // The helper v2 bridge (`acpmux cua-mcp`, same server name) cannot be
+        // pinned to a display: never in this mode.
+        self.servers.retain(|s| s.args.first().is_none_or(|a| a != "cua-mcp"));
         match display {
             Some(n) => {
                 for server in self.servers.iter_mut().filter(|s| s.name == "cmux-cua") {
