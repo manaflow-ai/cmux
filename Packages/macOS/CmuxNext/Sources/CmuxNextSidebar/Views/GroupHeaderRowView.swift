@@ -167,10 +167,14 @@ final class GroupHeaderRowView: SidebarRowView {
         return NSRect(x: start, y: 0, width: max(0, chevronFrame.minX - start), height: bounds.height)
     }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
-    var titleIntrinsicWidth: CGFloat {
-        let font = name.font ?? SidebarStyle.headerFont
-        let text = ceil((name.stringValue as NSString).size(withAttributes: [.font: font]).width)
-        return max(ceil(name.intrinsicContentSize.width), text + 2 * Metrics.space2)
+    var titleIntrinsicWidth: CGFloat { Self.drawnWidth(name) }
+    /// The width a header label needs to draw its text whole: its text in the font it draws in,
+    /// plus the cell's text inset on both sides. The label's bare measured width is short of it
+    /// (a live capture cut "Frontend" to "Fronte…" and clipped the count's digit).
+    private static func drawnWidth(_ label: NSTextField) -> CGFloat {
+        let font = label.font ?? SidebarStyle.headerFont
+        let text = ceil((label.stringValue as NSString).size(withAttributes: [.font: font]).width)
+        return max(ceil(label.intrinsicContentSize.width), text + 2 * Metrics.space2)
     }
     /// The group's name and icon: a click here opens the editor; the rest
     /// of the bar and the chevron collapse (the Chrome header toggles).
@@ -307,7 +311,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let nx = (hasIcon ? glyph.frame.maxX + Metrics.space3 : lead) - Metrics.space1
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
-        var countWidth = count.stringValue.isEmpty || renaming ? 0 : ceil(count.intrinsicContentSize.width)
+        var countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         // A sidebar too narrow for the count drops it rather than drawing it over the trailing controls.
         if nx + pinRoom + countWidth + Metrics.space2 > trailing { countWidth = 0 }
         let countRoom = countWidth > 0 ? countWidth + Metrics.space2 : 0
