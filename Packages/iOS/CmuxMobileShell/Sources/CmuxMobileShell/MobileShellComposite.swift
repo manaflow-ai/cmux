@@ -11493,6 +11493,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        // A failed target must not strand an in-progress
+                        // picker switch after the old foreground was retained
+                        // as a control connection. Promote that exact owner
+                        // while the switch is still current; the outer switch
+                        // path can still redial it when no warm control exists.
+                        if let previousFocusedConnection,
+                           let switchAttemptID = macSwitchAttemptID,
+                           secondaryMacSubscriptions[
+                               previousFocusedConnection.ownerKey
+                           ]?.client === previousFocusedConnection.client {
+                            _ = await promoteSecondaryToForegroundOutcome(
+                                previousFocusedConnection.ownerKey,
+                                switchAttemptID: switchAttemptID
+                            )
+                            // Promotion publishes a new connection
+                            // generation, so this target attempt is no longer
+                            // eligible to try another route after restoring
+                            // the previous foreground.
+                            break routeLoop
+                        }
                         continue routeLoop
                     }
                     // The serialized store write can suspend while another
