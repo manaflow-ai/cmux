@@ -22,7 +22,7 @@
             "text": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "labs",
             "preview",

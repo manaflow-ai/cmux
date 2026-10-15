@@ -4,7 +4,7 @@
 extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
-    public nonisolated static let previewFeaturesDefault = false
+    public nonisolated static let previewFeaturesDefault = true
     /// `labs.newTabStyle`: How the New Tab page shows its style switch (Leo 2026-10-14: every look he compared ships as an opt-in). The page draws round for an unknown value; webviews newtab/templates.ts STYLE_SWITCHES has the same values.
     public nonisolated static let newTabStylePath = ["labs", "newTabStyle"]
     public nonisolated static let newTabStyleDefault: NewTabStyleSwitch = .round
