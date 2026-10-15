@@ -39,6 +39,11 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     }
 
+    private func enableCustomSidebar() {
+        defaults.set(true, forKey: BetaFeaturesCatalogSection().customSidebars.userDefaultsKey)
+        defaults.set("status-board", forKey: "rightSidebar.customSidebarName")
+    }
+
     // MARK: - Ordering and visibility
 
     func testDefaultOrderIsCanonical() {
@@ -53,6 +58,30 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
             [.machines, .files, .find, .sessions, .feed, .dock]
+        )
+    }
+
+    func testAvailableCustomSidebarIsVisibleAndGetsPositionalShortcut() {
+        enableCustomSidebar()
+
+        XCTAssertEqual(
+            RightSidebarTabPreferences.orderedModes(defaults: defaults).last,
+            .customSidebar
+        )
+        XCTAssertEqual(
+            RightSidebarMode.visibleModes(defaults: defaults).last,
+            .customSidebar
+        )
+        XCTAssertEqual(
+            RightSidebarMode.positionalDigit(for: .customSidebar, defaults: defaults),
+            7
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(
+                for: .customSidebar,
+                defaults: defaults
+            ),
+            StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
         )
     }
 
