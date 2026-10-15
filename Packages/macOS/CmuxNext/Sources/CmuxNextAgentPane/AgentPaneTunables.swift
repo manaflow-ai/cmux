@@ -18,6 +18,28 @@ public nonisolated struct AgentPaneTunables {
         help: "A header button opens a rail beside the chat with its environment, context use and changed files.",
         default: false, code: "AgentPaneTunables.sessionRail")
 
+    /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
+    /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
+    public static let chatWidth = Tunable<ChatWidth>.choice(
+        "agent.chatWidth", PageTunables.section, "Agent chat width",
+        help: "Standard: 800px. Wide: 960px. Wide blocks: code, tables and tools 1120px, prose 800px.",
+        default: .standard, code: "AgentPaneTunables.chatWidth")
+
+    /// The chat column choices (the page's acpmux chatWidth.ts).
+    public nonisolated enum ChatWidth: String, Sendable, CaseIterable, TunableChoice {
+        case standard
+        case wide
+        case wideBlocks
+
+        public var tunableTitle: String {
+            switch self {
+            case .standard: "Standard"
+            case .wide: "Wide"
+            case .wideBlocks: "Wide blocks"
+            }
+        }
+    }
+
     /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
     /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
     /// full (Leo 2026-10-13, #20330) until Leo picks the default. New agent tabs read it.
@@ -42,5 +64,7 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, sessionRail.descriptor, foldLongThoughts.descriptor] }
+    public static var all: [TunableDescriptor] {
+        [pageHost.descriptor, sessionRail.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor]
+    }
 }
