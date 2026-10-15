@@ -85,6 +85,8 @@ pub(crate) struct Segment {
     pub len: u32,
     pub reset: bool,
     pub syn: bool,
+    /// The window field as sent (unscaled).
+    pub window: u16,
 }
 
 /// Parse the TCP segment in an IPv4 or IPv6 packet.
@@ -122,6 +124,7 @@ pub(crate) fn segment(packet: &[u8]) -> Option<Segment> {
         len: u32::try_from(payload).ok()? + syn_fin,
         reset: flags & 0x04 != 0,
         syn: flags & 0x02 != 0,
+        window: u16::from_be_bytes([tcp[14], tcp[15]]),
     })
 }
 
@@ -135,12 +138,12 @@ fn tcp_offset(packet: &[u8]) -> Option<usize> {
     (packet.len() >= offset + 20).then_some(offset)
 }
 
-/// A one's-complement checksum after a 32-bit field changed from `old` to
+/// A one's-complement checksum after 16-bit words changed from `old` to
 /// `new` (RFC 1624, eqn. 3).
-fn checksum_replace(checksum: u16, old: u32, new: u32) -> u16 {
+fn checksum_replace(checksum: u16, old: &[u16], new: &[u16]) -> u16 {
     let mut sum = u32::from(!checksum);
-    for (old, new) in [(old >> 16, new >> 16), (old & 0xFFFF, new & 0xFFFF)] {
-        sum += u32::from(!(old as u16)) + new;
+    for (old, new) in old.iter().zip(new) {
+        sum += u32::from(!*old) + u32::from(*new);
     }
     while sum > 0xFFFF {
         sum = (sum & 0xFFFF) + (sum >> 16);
@@ -162,6 +165,8 @@ struct Connection {
     snd_emitted: Option<u32>,
     snd_max: Option<u32>,
     snd_una: Option<u32>,
+    /// The window the peer advertised with its latest `snd_una`.
+    una_window: Option<u16>,
     /// Highest sequence end received from the peer.
     rcv_max: Option<u32>,
     timed: Option<(u32, Instant)>,
@@ -177,6 +182,7 @@ impl Connection {
             snd_emitted: None,
             snd_max: None,
             snd_una: None,
+            una_window: None,
             rcv_max: None,
             timed: None,
             srtt: None,
@@ -234,10 +240,23 @@ impl Connection {
         }
     }
 
-    fn acked(&mut self, ack: u32, now: Instant) {
+    /// A SYN starts the sequence spaces again: a new connection on a
+    /// 4-tuple this one used (within [`FORGET_AFTER`]) must not inherit its
+    /// numbers.
+    fn restart(&mut self) {
+        self.snd_emitted = None;
+        self.snd_max = None;
+        self.snd_una = None;
+        self.una_window = None;
+        self.rcv_max = None;
+        self.timed = None;
+    }
+
+    fn acked(&mut self, ack: u32, window: u16, now: Instant) {
         self.last_seen = now;
-        if self.snd_una.is_none_or(|una| after(ack, una)) {
+        if self.snd_una.is_none_or(|una| !after(una, ack)) {
             self.snd_una = Some(ack);
+            self.una_window = Some(window);
         }
         if let Some((timed, sent)) = self.timed
             && !after(timed, ack)
@@ -382,6 +401,9 @@ impl Pacer {
             });
         }
         let connection = self.connections.entry(flow).or_insert_with(|| Connection::new(now));
+        if segment.syn {
+            connection.restart();
+        }
         let fresh = connection.emitted(&segment);
         connection.queue.push_back(packet);
         fresh
@@ -397,8 +419,11 @@ impl Pacer {
         let Some(connection) = self.connections.get_mut(&flow) else {
             return segment.len > 0;
         };
+        if segment.syn {
+            connection.restart();
+        }
         if let Some(ack) = segment.ack {
-            connection.acked(ack, now);
+            connection.acked(ack, segment.window, now);
         }
         let end = segment.seq.wrapping_add(segment.len);
         let fresh = segment.len > 0 && connection.rcv_max.is_none_or(|max| after(end, max));
@@ -409,8 +434,9 @@ impl Pacer {
     }
 
     /// Raise the ACK of a received data segment that is below what the peer
-    /// already acknowledged (fixing the TCP checksum), so the stack keeps
-    /// its data. True when the packet changed.
+    /// already acknowledged to that ACK, with the window the peer sent with
+    /// it (fixing the TCP checksum), so the stack keeps its data. True when
+    /// the packet changed.
     ///
     /// A segment overtaken by newer ones of its connection (a roam, a relay
     /// copy racing a direct copy, a carrier resending what went into a dead
@@ -418,7 +444,11 @@ impl Pacer {
     /// such an ACK and keeps the segment's data; smoltcp drops the whole
     /// segment. With data flowing both ways no pure duplicate ACKs trigger a
     /// fast retransmit, so the hole would wait for the 1 s minimum RTO. The
-    /// new ACK is one the peer did send, so it says nothing new. Pure ACKs
+    /// new ACK is one the peer did send, so it says nothing new; the window
+    /// goes with it, because smoltcp takes the window of every segment it
+    /// accepts and an old one may be smaller (RFC 9293's SND.WL1/WL2 rule
+    /// would skip it). An ACK more than 2^30 behind is not this
+    /// connection's and stays as it is. Pure ACKs
     /// are left alone (raised, they would count as duplicate ACKs), and so
     /// are SYN and RST segments.
     pub(crate) fn refresh_stale_ack(&self, packet: &mut [u8]) -> bool {
@@ -430,17 +460,20 @@ impl Pacer {
         };
         let flow =
             (segment.destination.0, segment.destination.1, segment.source.0, segment.source.1);
-        let Some(una) = self.connections.get(&flow).and_then(|connection| connection.snd_una)
-        else {
+        let Some(connection) = self.connections.get(&flow) else { return false };
+        let (Some(una), Some(window)) = (connection.snd_una, connection.una_window) else {
             return false;
         };
-        if !after(una, ack) {
+        if !after(una, ack) || una.wrapping_sub(ack) >= 1 << 30 {
             return false;
         }
         let Some(tcp) = tcp_offset(packet) else { return false };
+        let old = [(ack >> 16) as u16, ack as u16, segment.window];
+        let new = [(una >> 16) as u16, una as u16, window];
         packet[tcp + 8..tcp + 12].copy_from_slice(&una.to_be_bytes());
+        packet[tcp + 14..tcp + 16].copy_from_slice(&window.to_be_bytes());
         let checksum = u16::from_be_bytes([packet[tcp + 16], packet[tcp + 17]]);
-        let checksum = checksum_replace(checksum, ack, una);
+        let checksum = checksum_replace(checksum, &old, &new);
         packet[tcp + 16..tcp + 18].copy_from_slice(&checksum.to_be_bytes());
         true
     }
