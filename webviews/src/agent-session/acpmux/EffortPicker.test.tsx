@@ -1,6 +1,7 @@
 // The reasoning menu draws as a native menu: every row is one line, the check sits in a leading
 // gutter that every row keeps (so labels align whether or not a row is checked), and Ultracode's
-// note is one short phrase beside its name in every language, not a wrapped second line.
+// note (its On row, ComposerPickers.tsx) is one short phrase beside the row's name in every
+// language, not a wrapped second line.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -70,7 +71,7 @@ async function settle() {
   });
 }
 
-const claudeLevels = ["low", "medium", "high", "xhigh", "max", "ultracode", "ultrathink"].map((value) => ({ value }));
+const claudeLevels = ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value }));
 const opus = { efforts: ["low", "medium", "high", "xhigh", "max"] };
 
 async function openMenu(container: HTMLElement) {
@@ -83,6 +84,16 @@ async function openMenu(container: HTMLElement) {
         efforts={efforts}
         current="medium"
         onPick={() => {}}
+        ultracode={{
+          title: translate("effort.level.ultracode"),
+          choices: [
+            { id: "on", name: translate("picker.on"), description: translate("effort.ultracodeDetail") },
+            { id: "off", name: translate("picker.off") },
+          ],
+          current: "off",
+          on: "on",
+          onPick() {},
+        }}
         speed={{
           title: "Fast Mode",
           choices: [
@@ -112,17 +123,23 @@ test("every row, checked or not, starts with the same check gutter before its la
     expect(row.children.length).toBe(2);
   }
   const checked = rows.filter((row) => row.getAttribute("aria-checked") === "true");
-  expect(checked.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Medium", "On"]);
+  expect(checked.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    "Medium",
+    translate("picker.off"),
+    "On",
+  ]);
   for (const row of checked) expect(row.querySelector(".ui-menu-check")?.textContent).toBe("✓");
 });
 
 test("Ultracode's note sits on its own row's line, with the full text as its tooltip", async () => {
   const rows = await openMenu(installDom());
-  const ultracode = rows.find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "Ultracode")!;
+  // Ultracode's On row (the section after the levels) carries the note.
+  const ultracode = rows.find((row) => row.querySelector(".acpmux-effort-detail"))!;
+  expect(ultracode.querySelector(".acpmux-menu-label")?.textContent).toBe(translate("picker.on"));
   const detail = ultracode.querySelector<HTMLElement>(".acpmux-effort-text > .acpmux-effort-detail")!;
   expect(detail.textContent).toBe(translate("effort.ultracodeDetail"));
   expect(detail.title).toBe(detail.textContent!);
-  // Only Ultracode carries a note; the other levels stay a bare label.
+  // Only Ultracode's On row carries a note; every other row stays a bare label.
   expect(document.querySelectorAll(".acpmux-effort-detail").length).toBe(1);
 });
 
