@@ -267,6 +267,26 @@
             }
           },
           {
+            "key" : "settings.group.colorTransition",
+            "rows" : [
+              "appearance.colorTransition.enabled",
+              "appearance.colorTransition.duration",
+              "appearance.colorTransition.curve",
+              "appearance.colorTransition.springResponse",
+              "appearance.colorTransition.springDamping",
+              "appearance.colorTransition.bezierX1",
+              "appearance.colorTransition.bezierY1",
+              "appearance.colorTransition.bezierX2",
+              "appearance.colorTransition.bezierY2",
+              "appearance.colorTransition.colorSpace",
+              "appearance.colorTransition.reduceMotion"
+            ],
+            "title" : {
+              "key" : "settings.group.colorTransition",
+              "text" : "Color Changes"
+            }
+          },
+          {
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.backdropArt",
@@ -336,7 +356,8 @@
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
-              "sidebar.hoverCards.delay"
+              "sidebar.hoverCards.delay",
+              "home.channelsEnabled"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -656,7 +677,8 @@
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
               "browser.omnibar.cornerRadius",
-              "browser.omnibar.shadow"
+              "browser.omnibar.shadow",
+              "browser.omnibar.backgroundOpacity"
             ],
             "title" : {
               "key" : "settings.group.addressBar",
@@ -20602,7 +20624,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "transparent",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -20890,6 +20912,64 @@
       "title" : {
         "key" : "settings.browser.omnibar.shadow",
         "text" : "Address Bar Shadow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity.help",
+        "text" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.backgroundOpacity",
+      "keywords" : [
+        "opacity",
+        "transparency",
+        "background",
+        "translucent",
+        "address bar",
+        "omnibox"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "backgroundOpacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity",
+        "text" : "Address Bar Opacity"
       },
       "validation" : "portable"
     },
@@ -21687,6 +21767,55 @@
       "title" : {
         "key" : "settings.home.keepLocation",
         "text" : "Keep Location in Photos and Videos"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.home.channelsEnabled.help",
+        "text" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.channelsEnabled",
+      "keywords" : [
+        "home",
+        "channels",
+        "slack",
+        "threads",
+        "sidebar",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "channelsEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.channelsEnabled",
+        "text" : "Channels"
       },
       "validation" : "portable"
     },
@@ -24648,7 +24777,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "30a453aba5dfae888da000a9da135f2b4af8200f5f10a7d2af2907f876cda00a",
+  "schema_hash" : "b7ea560fc06225ae1f6850f0bdec9f96eae23cc5b1221121e514a12c1a69b1a5",
   "sections" : [
     {
       "id" : "general",

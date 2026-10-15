@@ -1192,6 +1192,14 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.backgroundOpacity" : {
+      "default" : 0,
+      "description" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Address Bar Opacity",
+      "type" : "number"
+    },
     "browser.omnibar.calculator" : {
       "default" : true,
       "description" : "Shows the answer to arithmetic you type. Return copies it.",
@@ -1209,7 +1217,7 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "transparent",
+      "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
         "transparent",
@@ -1593,6 +1601,12 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "home.channelsEnabled" : {
+      "default" : false,
+      "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
+      "title" : "Channels",
       "type" : "boolean"
     },
     "labs.classicHome" : {
