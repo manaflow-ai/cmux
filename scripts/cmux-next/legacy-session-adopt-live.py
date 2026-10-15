@@ -305,9 +305,15 @@ def main():
         if found:
             raise SystemExit(f"{found[0]} exists: a daemon of that session may run for this user; refusing")
     failures = []
-    for scenario in (adopt, keep):
-        print(f"== {scenario.__name__}")
-        scenario(stage, root, failures)
+    # Scratch HOMEs stay short: socket paths under them (acpmux router, ~/.local/state/cmux) must fit
+    # sun_path; the model router's client traps on a longer one (seen in a /Users/cmux/nx-jobs HOME).
+    homes = tempfile.mkdtemp(prefix="lad-", dir="/tmp")
+    try:
+        for scenario in (adopt, keep):
+            print(f"== {scenario.__name__}")
+            scenario(stage, homes, failures)
+    finally:
+        shutil.rmtree(homes, ignore_errors=True)
     print("\nFAIL\n  " + "\n  ".join(failures) if failures else "\nPASS")
     sys.exit(1 if failures else 0)
 
