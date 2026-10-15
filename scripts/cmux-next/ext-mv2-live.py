@@ -102,6 +102,8 @@ def serve():
 
 
 class Job:
+    config = "{}"
+
     def __init__(self, phase, extensions=()):
         self.phase = phase
         self.app = os.environ["NX_APP"]
@@ -122,7 +124,7 @@ class Job:
             binary = os.path.join(self.app, "Contents/MacOS", plistlib.load(plist)["CFBundleExecutable"])
         config = os.path.join(self.out, "cmux.json")
         with open(config, "w") as empty:
-            empty.write("{}\n")
+            empty.write(Job.config + "\n")
         env = {
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""),
             "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -517,7 +519,7 @@ def phase_baseline(_args):
 def phase_ublock(args):
     server, url = serve()
     # Without --ubo the app's built-in copy (browser.builtInAdBlocker, on by default) is checked.
-    job = Job("ublock" if args.ubo else "builtin", extensions=[args.ubo] if args.ubo else [])
+    job = Job(args.label or ("ublock" if args.ubo else "builtin"), extensions=[args.ubo] if args.ubo else [])
     ctx = {}
 
     def loaded():
@@ -764,7 +766,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
+    parser.add_argument("--label", help="artifact folder name (default: the phase)")
+    parser.add_argument("--config", default="{}", help="cmux.json the app starts with, e.g. {\"browser\": {\"builtInAdBlocker\": false}}")
     args = parser.parse_args()
+    Job.config = args.config
     if args.phase == "ublock" and not args.ubo:
         parser.error("--ubo is required")
     if args.phase == "builtin":
