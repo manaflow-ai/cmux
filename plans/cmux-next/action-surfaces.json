@@ -1074,6 +1074,18 @@
         {
           "keys" : [
             {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
               "key" : "",
               "modifiers" : [
                 "opt",
@@ -1111,7 +1123,7 @@
       "default_shortcut" : {
         "key" : "]",
         "modifiers" : [
-          "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -1139,6 +1151,18 @@
 
       ],
       "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
         {
           "keys" : [
             {
@@ -1179,7 +1203,7 @@
       "default_shortcut" : {
         "key" : "[",
         "modifiers" : [
-          "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -7850,18 +7874,6 @@
             }
           ],
           "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "]",
-              "modifiers" : [
-                "shift",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
         }
       ],
       "default_chord" : null,
@@ -7902,18 +7914,6 @@
               "modifiers" : [
                 "ctrl",
                 "shift"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "[",
-              "modifiers" : [
-                "shift",
-                "cmd"
               ]
             }
           ],
@@ -8892,41 +8892,6 @@
       "palette_suggested" : null,
       "title" : "Open Channels",
       "title_key" : "action.home.channels",
-      "title_table" : "HomeActions"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action home-switch-view",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "h",
-        "modifiers" : [
-          "ctrl",
-          "opt",
-          "cmd"
-        ]
-      },
-      "id" : "home.switchView",
-      "main_menu" : "view",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.window",
-        "order" : 100,
-        "title" : "Window",
-        "title_key" : "category.window",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Switch Home View",
-      "title_key" : "action.home.switchView",
       "title_table" : "HomeActions"
     },
     {
@@ -14229,34 +14194,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "offered",
-      "cli_name" : "browser fit-desktop-1280",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "browserPage"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "browserFitDesktop1280",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Fit as Desktop (1280)",
-      "title_key" : "action.browserFitDesktop1280",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "guiOnly",
       "cli_name" : "browser stop-vs-code-inline-server",
       "context_menu" : "noTargetSurface",
@@ -19063,74 +19000,6 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-previous-turn",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "",
-        "modifiers" : [
-          "ctrl",
-          "opt"
-        ]
-      },
-      "id" : "agentPane.previousTurn",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Previous Turn",
-      "title_key" : "action.agentPane.previousTurn",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-next-turn",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "",
-        "modifiers" : [
-          "ctrl",
-          "opt"
-        ]
-      },
-      "id" : "agentPane.nextTurn",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Next Turn",
-      "title_key" : "action.agentPane.nextTurn",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-permission-allow-once",
       "context_menu" : "guiOnly",
       "context_menus" : [
@@ -19907,6 +19776,130 @@
       "palette_suggested" : null,
       "title" : "Stop Computer Use",
       "title_key" : "action.computerUseStop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-previous-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.previousTurn",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Turn",
+      "title_key" : "action.agentPane.previousTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-next-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.nextTurn",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Turn",
+      "title_key" : "action.agentPane.nextTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-previous-bookmarked-prompt",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.previousBookmarkedPrompt",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Bookmarked Prompt",
+      "title_key" : "action.agentPane.previousBookmarkedPrompt",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-next-bookmarked-prompt",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.nextBookmarkedPrompt",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Bookmarked Prompt",
+      "title_key" : "action.agentPane.nextBookmarkedPrompt",
       "title_table" : "ActionCatalog"
     },
     {
@@ -29969,21 +29962,8 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "browserFitDesktop1280",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-                  "browserFocused"
-                ]
-              }
-            },
-            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 5
             },
             {
               "children" : [
@@ -30145,7 +30125,7 @@
               ],
               "id" : "browser.pageInfo",
               "kind" : "submenu",
-              "order" : 7,
+              "order" : 6,
               "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
@@ -30159,7 +30139,7 @@
               "enabled_when" : "can_perform",
               "id" : "showBrowserJavaScriptConsole",
               "kind" : "action",
-              "order" : 8,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30172,7 +30152,7 @@
               "enabled_when" : "can_perform",
               "id" : "inspectBrowserElement",
               "kind" : "action",
-              "order" : 9,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30183,13 +30163,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 10
+              "order" : 9
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.menu",
               "kind" : "action",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30202,7 +30182,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.manage",
               "kind" : "action",
-              "order" : 12,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30215,7 +30195,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.webStore",
               "kind" : "action",
-              "order" : 13,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30228,7 +30208,7 @@
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.loadUnpacked",
               "kind" : "action",
-              "order" : 14,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
