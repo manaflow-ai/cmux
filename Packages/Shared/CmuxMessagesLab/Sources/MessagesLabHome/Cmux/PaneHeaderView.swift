@@ -1,5 +1,4 @@
 import AppKit
-import CoreImage
 
 /// MessagesLab R76's header controls (HeaderBar.swift) inside the Home pane.
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
@@ -29,6 +28,10 @@ final class PaneHeaderView: NSView {
     /// Messages' bright lower rim, over the glass.
     let pillRim = NSView()
     let pillRimLine = CAShapeLayer()
+    /// The thread view's picture of the controls, and what it was drawn for.
+    var pictureCache: CGImage?
+    var pictureKey = ""
+    var picturePending = false
     let pill = NSButton()
     /// cmux: a small translucent capsule behind the pill, always shown, so
     /// its title reads over the rows when the header has no band
@@ -43,7 +46,7 @@ final class PaneHeaderView: NSView {
     /// A light theme: the measured white disc would vanish on a light
     /// header, so the disc takes the theme's secondary text grey with a
     /// white monogram (Messages' light-mode avatar).
-    var light = false { didSet { if light != oldValue { applyAvatar(); applyTitle() } } }
+    var light = false { didSet { if light != oldValue { applyAvatar(); applyTitle(); placeRim(in: CGRect(origin: .zero, size: pill.frame.size)) } } }
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
@@ -64,7 +67,7 @@ final class PaneHeaderView: NSView {
         wantsLayer = true
         // Own layers for the controls: an open thread view fades them (setThreadBlur), also before the
         // header is in a window, when AppKit has made no layer for a subview yet.
-        for v in [avatar, pill] as [NSView] { v.wantsLayer = true }
+        for v in [avatar, pill, pillRim] as [NSView] { v.wantsLayer = true }
         avatar.imageScaling = .scaleProportionallyUpOrDown
         // Back to front: the host's backing, the pill's glass, the pill's title and chevron, the avatar:
         // the disc draws whole over the pill's top edge.
@@ -75,7 +78,8 @@ final class PaneHeaderView: NSView {
         // Messages' bright lower rim, 157 on its tp0000 crop, is drawn over it).
         if #available(macOS 26, *), let glass = pillGlass as? NSGlassEffectView {
             glass.style = .clear
-            glass.tintColor = NSColor(white: 1, alpha: 0.15)
+            // Messages' blue-grey body (tp0000: rgb 78/94/117), not round 12's neutral white tint.
+            glass.tintColor = NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 0.35)
         }
         pillRim.wantsLayer = true
         pillRim.layer?.addSublayer(pillRimLine)
@@ -145,7 +149,10 @@ final class PaneHeaderView: NSView {
         pillGlass.isHidden = pill.isHidden
         pillRim.frame = capsule
         pillRim.isHidden = pill.isHidden
-        placeRim(in: CGRect(origin: .zero, size: capsule.size))
+        // Only when the capsule's size changes (not on every resize step).
+        if pillRimLine.frame.size != capsule.size { placeRim(in: CGRect(origin: .zero, size: capsule.size)) }
+        threadBlurHost.move(centre: controlsCentre)
+        if !threadBlurOpen { preparePicture() }
         // The overlay matches this header's frame, so the avatar's frame reads the same in both.
     }
 
@@ -178,7 +185,8 @@ final class PaneHeaderView: NSView {
         let line = r.insetBy(dx: 0.5, dy: 0.5)
         pillRimLine.path = CGPath(roundedRect: line, cornerWidth: line.height / 2, cornerHeight: line.height / 2, transform: nil)
         pillRimLine.fillColor = nil
-        pillRimLine.strokeColor = NSColor(white: 1, alpha: light ? 0.6 : 0.55).cgColor
+        // Messages' lower rim measures 157 (round 13: 0.55 drew 180).
+        pillRimLine.strokeColor = NSColor(white: 1, alpha: light ? 0.5 : 0.4).cgColor
         pillRimLine.lineWidth = 1
         let fade = (pillRimLine.mask as? CAGradientLayer) ?? CAGradientLayer()
         fade.frame = r
@@ -225,92 +233,124 @@ final class PaneHeaderView: NSView {
     }
 }
 
-// MARK: The thread view's blur and tint on the header (rounds 10-12)
+// MARK: The thread view's blur and tint on the header (rounds 10-13)
 
 extension PaneHeaderView {
-    /// Messages' header dims less than its transcript. Round 12 measured our header controls at 0.437 of
-    /// rest with 0.479 where Messages' are 0.51 (tp0000 -> tp0600 over the avatar and pill boxes, its blur
-    /// included); the box mean scales with the gain, so 0.479 x 0.51 / 0.437.
+    /// Messages' header dims less than its transcript: out = 5.5 + 0.559 x (round 13: 0.510 of rest
+    /// against Messages' 0.51).
     static let headerGain: CGFloat = 0.559
-    /// The blurred pill's body (Messages' glass, its tp0000 mean over the body: rgb 78, 94, 117), the
-    /// shape the blur spreads into Messages' tp0600 plateau. A light theme takes a light grey.
+    /// Messages' titlebar blurs its controls more than the transcript: on tp0600 the pill's row (58 pt)
+    /// rises 10 -> 90 % over about 57 pt at its edges, about 22 pt sigma for a box edge, where the
+    /// transcript's is about 9.5 (blur-fit.txt). Fitted: twice ThreadBackdrop.radius.
+    static var headerBlurRadius: CGFloat { ThreadBackdrop.radius * 2 }
+    /// The picture's transparent margin on every side: 3 x the blur radius, so the blur fades out inside
+    /// it and nothing clips it (round 13: a picture of the header's own size cut the blur at 80 pt).
+    static var pictureMargin: CGFloat { headerBlurRadius * 3 }
+    /// The pill in the picture: Messages' glass body colour (its tp0000 mean, rgb 78/94/117); light grey on
+    /// a light theme.
     static func blurredPillFill(light: Bool) -> NSColor {
         light ? NSColor(white: 0.93, alpha: 1) : NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 1)
     }
 
-    /// The thread view's effect on the header while a thread or reply view is open. No backdrop samples
-    /// the window (round 12: a soft-masked CABackdropLayer cut a lighter rectangle at the band's bottom,
-    /// blurred rows passing under it, and could not sample the pill's glass): the controls are drawn into
-    /// an image (the avatar, the pill as a capsule of the glass's measured colour, its title), blurred
-    /// with the vendored radius (CoreImage Gaussian) and tinted out = 5.5 + 0.559 x, and `threadBlurHost`
-    /// (over the header) shows that image while the live controls fade out, on the vendored tint
-    /// animation's begin time, duration and curve. The blurred image fades to transparent by itself: no
-    /// mask, no edge, nothing sampled from the rows below. Out of the tree at rest.
+    /// The thread view's effect on the header while a thread or reply view is open (round 13):
+    /// - at the open's first frame the live controls (avatar, pill, its glass and rim) hide and
+    ///   `threadBlurHost` shows a picture of them, drawn sharp (the avatar, the pill as a capsule of the
+    ///   glass's colour, its title), with a transparent margin of 3 x the blur radius all round;
+    /// - on that picture a Gaussian blur (the vendored CAFilter, render server) grows from 0 to
+    ///   `headerBlurRadius` and a tint grows to out = 5.5 + 0.559 x, on the vendored animations' begin
+    ///   time, duration and curve; the close runs it back, then the live controls return.
+    /// One picture shows at a time (no crossfade: no overshoot, no sharp letter inside the blur), the blur
+    /// and the dim are monotonic, and nothing samples the window. The picture is cached per title, theme,
+    /// avatar and scale, and is positioned by the controls' centre, so a resize redraws nothing.
     func setThreadBlur(open: Bool, blur: CABasicAnimation?, tint: CABasicAnimation?) {
         guard open != threadBlurOpen else { return }
         threadBlurOpen = open
         threadBlurGeneration += 1
         let generation = threadBlurGeneration
-        let timing = tint ?? blur
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if open {
             let scale = window?.backingScaleFactor ?? 2
-            threadBlurHost.show(Self.blurredControls(self, scale: scale), over: frame, scale: scale)
+            threadBlurHost.show(cachedPicture(scale: scale), size: pictureSize, centre: controlsCentre, scale: scale)
+            liveControls(visible: false)
         } else {
             CATransaction.setCompletionBlock { [weak self] in
                 guard let self, self.threadBlurGeneration == generation, !self.threadBlurOpen else { return }
+                CATransaction.begin(); CATransaction.setDisableActions(true)
+                self.liveControls(visible: true)
                 self.threadBlurHost.hide()
+                CATransaction.commit()
             }
         }
-        // Cross-fade: the blurred, tinted image in, the live controls out (and back on close).
-        threadBlurHost.fade(to: open ? 1 : 0, like: timing, open: open)
-        for v in [avatar, pill, pillGlass] as [NSView] {
-            guard let l = v.layer else { continue }
-            let to: Float = open ? 0 : 1
-            let a = CABasicAnimation(keyPath: "opacity")
-            a.fromValue = l.presentation()?.opacity ?? l.opacity; a.toValue = to
-            Self.time(a, like: timing, open: open)
-            l.opacity = to
-            l.add(a, forKey: "cmux.thread.fade")
-        }
+        threadBlurHost.animate(open: open, blur: blur ?? tint, tint: tint ?? blur)
         CATransaction.commit()
     }
 
-    /// The controls as Messages' blurred titlebar shows them: drawn sharp into a bitmap of the header's
-    /// size with room for the blur, blurred with ThreadBackdrop's radius and tinted 5.5 + 0.559 x.
-    static func blurredControls(_ header: PaneHeaderView, scale: CGFloat) -> CGImage? {
-        let size = header.bounds.size
+    private func liveControls(visible: Bool) {
+        for v in [avatar, pill, pillGlass, pillRim] as [NSView] { v.layer?.opacity = visible ? 1 : 0 }
+    }
+
+    /// The controls' union (this view's coordinates).
+    private var controlsBox: CGRect {
+        var box = CGRect.null
+        if !avatar.isHidden { box = box.union(avatar.frame) }
+        if !pill.isHidden { box = box.union(pill.frame) }
+        return box.isNull ? CGRect(x: bounds.midX, y: 0, width: 0, height: 0) : box
+    }
+    /// The picture's centre in the superview's coordinates (follows a resize without a redraw).
+    var controlsCentre: CGPoint {
+        let b = controlsBox
+        return CGPoint(x: frame.minX + b.midX, y: frame.minY + b.midY)
+    }
+    private var pictureSize: CGSize {
+        let b = controlsBox, m = Self.pictureMargin
+        return CGSize(width: b.width + 2 * m, height: b.height + 2 * m)
+    }
+
+    /// Draws the thread view's picture ahead, on a later main run-loop pass than the change that needs it
+    /// (title, theme, avatar, size), so an open never draws it (round 13: 9-17 ms at the open).
+    func preparePicture() {
+        guard !picturePending else { return }
+        picturePending = true
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            guard let self else { return }
+            self.picturePending = false
+            guard self.window != nil, !self.title.isEmpty else { return }
+            _ = self.cachedPicture(scale: self.window?.backingScaleFactor ?? 2)
+        }
+    }
+
+    func cachedPicture(scale: CGFloat) -> CGImage? {
+        let key = "\(title)|\(light)|\(avatar.image.map { ObjectIdentifier($0).hashValue } ?? 0)|\(scale)|\(pill.frame.size)"
+        if key == pictureKey, let p = pictureCache { return p }
+        let p = Self.picture(self, scale: scale)
+        pictureKey = key; pictureCache = p
+        return p
+    }
+
+    /// The controls drawn sharp, at their places relative to the controls' box, with the margin all round.
+    static func picture(_ header: PaneHeaderView, scale: CGFloat) -> CGImage? {
+        let box = header.controlsBox, m = pictureMargin
+        let size = CGSize(width: box.width + 2 * m, height: box.height + 2 * m)
         let w = Int((size.width * scale).rounded(.up)), h = Int((size.height * scale).rounded(.up))
         guard w > 0, h > 0, let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                                 space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
-        ctx.translateBy(x: 0, y: size.height); ctx.scaleBy(x: 1, y: -1)  // the header is flipped
+        ctx.translateBy(x: 0, y: size.height); ctx.scaleBy(x: 1, y: -1)  // flipped, as the header
+        ctx.translateBy(x: m - box.minX, y: m - box.minY)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
         if !header.pill.isHidden {
             let r = header.pill.frame
             blurredPillFill(light: header.light).setFill()
             NSBezierPath(roundedRect: r, xRadius: r.height / 2, yRadius: r.height / 2).fill()
-            let title = header.pill.attributedTitle
-            let t = title.size()
+            let title = header.pill.attributedTitle, t = title.size()
             title.draw(at: CGPoint(x: r.midX - t.width / 2, y: r.midY - t.height / 2))
         }
         if !header.avatar.isHidden, let img = header.avatar.image { img.draw(in: header.avatar.frame) }
         NSGraphicsContext.restoreGraphicsState()
-        guard let sharp = ctx.makeImage() else { return nil }
-        let input = CIImage(cgImage: sharp)
-        let gain = headerGain, base = ThreadBackdrop.base / 255
-        // Not clamped to the extent before the blur: the controls fade to transparent at their edges.
-        let soft = input.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: ThreadBackdrop.radius * scale])
-            .cropped(to: input.extent)
-            .applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: gain, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: gain, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: gain, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
-                "inputBiasVector": CIVector(x: base, y: base, z: base, w: 0),
-            ])
-        return CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any]).createCGImage(soft, from: input.extent)
+        return ctx.makeImage()
     }
 
     /// `a` takes the vendored animation's begin time, duration and curve (ThreadBackdrop's constants when
@@ -322,41 +362,73 @@ extension PaneHeaderView {
     }
 }
 
-/// The header's blurred controls under an open thread view (PaneHeaderView.setThreadBlur): a layer host
-/// over the header showing one image. Never hit; hidden at rest.
+/// The header's controls under an open thread view (PaneHeaderView.setThreadBlur): a layer host over the
+/// header holding the picture, its blur filter and its tint. Never hit, hidden at rest, not clipped.
 final class HeaderThreadBlur: NSView {
     let image = CALayer()
+    let tint = CALayer()
+    static let filterName = "gaussianBlur"
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layer?.masksToBounds = false
         image.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
-        image.opacity = 0
+        // The tint over the picture's own pixels (the group the filter makes), out = 5.5 + 0.559 x.
+        let g = PaneHeaderView.headerGain
+        tint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - g), alpha: 1).cgColor
+        tint.compositingFilter = "sourceAtop"
+        tint.actions = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
+        tint.opacity = 0
+        image.addSublayer(tint)
+        if let fc = NSClassFromString("CAFilter") as? NSObject.Type, fc.responds(to: NSSelectorFromString("filterWithType:")),
+           let f = fc.perform(NSSelectorFromString("filterWithType:"), with: "gaussianBlur")?.takeUnretainedValue() as? NSObject {
+            f.setValue(Self.filterName, forKey: "name")
+            f.setValue(0, forKey: "inputRadius")
+            image.filters = [f]
+        }
         layer?.addSublayer(image)
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func show(_ picture: CGImage?, over header: CGRect, scale: CGFloat) {
-        if frame != header { frame = header }
+    func show(_ picture: CGImage?, size: CGSize, centre: CGPoint, scale: CGFloat) {
+        let f = CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2, width: size.width, height: size.height)
+        if frame != f { frame = f }
         image.frame = bounds
+        tint.frame = image.bounds
         image.contents = picture
         image.contentsScale = scale
         image.contentsGravity = .resize
         isHidden = false
     }
 
+    /// Follows a resize (the controls' centre) without redrawing.
+    func move(centre: CGPoint) {
+        guard !isHidden else { return }
+        let f = CGRect(x: centre.x - frame.width / 2, y: centre.y - frame.height / 2, width: frame.width, height: frame.height)
+        if frame != f { frame = f }
+    }
+
     func hide() {
-        image.contents = nil
         isHidden = true
     }
 
-    func fade(to v: Float, like vendored: CABasicAnimation?, open: Bool) {
+    func animate(open: Bool, blur: CABasicAnimation?, tint vendoredTint: CABasicAnimation?) {
+        let key = "filters.\(Self.filterName).inputRadius"
+        let r1: CGFloat = open ? PaneHeaderView.headerBlurRadius : 0
+        let r0 = (image.presentation()?.value(forKeyPath: key) as? CGFloat) ?? (open ? 0 : PaneHeaderView.headerBlurRadius)
+        image.setValue(r1, forKeyPath: key)
+        let b = CABasicAnimation(keyPath: key)
+        b.fromValue = r0; b.toValue = r1
+        PaneHeaderView.time(b, like: blur, open: open)
+        image.add(b, forKey: "cmux.thread.blur")
+        let t1: Float = open ? Float(1 - PaneHeaderView.headerGain) : 0
         let a = CABasicAnimation(keyPath: "opacity")
-        a.fromValue = image.presentation()?.opacity ?? image.opacity; a.toValue = v
-        PaneHeaderView.time(a, like: vendored, open: open)
-        image.opacity = v
-        image.add(a, forKey: "cmux.thread.fade")
+        a.fromValue = tint.presentation()?.opacity ?? tint.opacity; a.toValue = t1
+        PaneHeaderView.time(a, like: vendoredTint, open: open)
+        tint.opacity = t1
+        tint.add(a, forKey: "cmux.thread.tint")
     }
 }

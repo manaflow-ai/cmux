@@ -281,11 +281,17 @@ import Testing
         #expect((views.firstIndex(of: header.threadBlurHost) ?? -1) > (views.firstIndex(of: header) ?? Int.max))
         #expect(header.threadBlurHost.layer?.mask == nil)
         #expect(header.threadBlurHost.image.contents != nil)
-        #expect(header.threadBlurHost.image.opacity == 1)
+        // One picture at a time: the live controls hidden (rim included), the picture blurring and dimming.
         #expect(header.avatar.layer?.opacity == 0)
         #expect(header.pill.layer?.opacity == 0)
+        #expect(header.pillRim.layer?.opacity == 0)
+        #expect(header.threadBlurHost.image.filters?.count == 1)
+        #expect(abs(header.threadBlurHost.tint.opacity - Float(1 - PaneHeaderView.headerGain)) < 0.0001)
+        // The picture is padded by 3 x the blur radius beyond the controls on every side.
+        let pad = PaneHeaderView.pictureMargin
+        #expect(header.threadBlurHost.frame.maxY >= host.convert(header.pill.frame, from: header).maxY + pad - 0.5)
         let vendoredTint = try #require(host.vendoredBackdropRoot?.sublayers?.last?.animation(forKey: "thread") as? CABasicAnimation)
-        let ours = try #require(header.threadBlurHost.image.animation(forKey: "cmux.thread.fade") as? CABasicAnimation)
+        let ours = try #require(header.threadBlurHost.tint.animation(forKey: "cmux.thread.tint") as? CABasicAnimation)
         #expect(ours.duration == vendoredTint.duration)
         let thread = try #require(HostView.threadLayerView(of: demo))
         let dim = thread.subviews.first?.layer
