@@ -442,7 +442,8 @@ def flow_agent_chat_workspace(j):
 
 def flow_queue_edit(j):
     """Queued prompts: Edit queued prompt, then Send now; the agent answers the edited text."""
-    anchor = f"{PREFIX}a"
+    # A workspace of its own: a long earlier chat would open first and fill the tree.
+    anchor = f"{PREFIX}q-{time.strftime('%H%M%S')}"
     make_workspaces([anchor])
     folder = rsh("cd ~/cnx-ios-e2e/p2ws-proj && pwd").stdout.strip()
     acp("acp.trust.set", {"cwd": folder, "level": "trusted"})
@@ -454,17 +455,33 @@ def flow_queue_edit(j):
     check(not toast, f"chat did not open: {toast}")
     s = j.sim
     def type_send(text):
-        f = s.wait(kind="TextView", timeout=10) or s.wait(kind="TextField", timeout=5)
-        check(f, "no chat composer")
-        s.tap_el(f); time.sleep(0.6)
+        f = (s.wait(kind="TextView", timeout=4) or s.wait(kind="TextField", timeout=2)
+             or s.wait(label="Reply to Claude", kind="Button", timeout=4))
+        # While a long reply streams the accessibility tree can come back empty: the
+        # composer is where it always is (above the toolbar).
+        if f:
+            s.tap_el(f)
+        else:
+            s.tap(200, 748)
+        time.sleep(0.6)
         pq.type_text(text); time.sleep(0.5)
-        x, y, w, h = f.frame
-        s.tap(363, y + h + 25 if h < 60 else y + h - 10)
+        send = s.wait(label="Send", kind="Button", timeout=5)
+        if send:
+            s.tap_el(send)
+        else:
+            s.tap(355, 748)
         time.sleep(1.5)
-    type_send("Count from 1 to 40, one number per line, slowly, then say DONE-COUNT.")
+    type_send("Write a 1200-word short story about a lighthouse keeper, then say DONE-STORY.")
     type_send("Reply with exactly QUEUED-ALPHA")
-    q = s.wait(contains="QUEUED-ALPHA", timeout=15)
-    check(q, "no queued prompt on the phone")
+    def queued(word):
+        return next((e for e in s.find(contains=word) if e.ident == "chat.queued"
+                     or any(x.ident == "chat.queued" and x.frame[1] <= e.center[1] <= x.frame[1] + x.frame[3] for x in s.find(ident="chat.queued"))), None)
+    deadline = time.time() + 15
+    q = None
+    while time.time() < deadline and not q:
+        q = queued("QUEUED-ALPHA") or (s.find(ident="chat.queued") or [None])[0]
+        time.sleep(0.5)
+    check(q, "no queued prompt on the phone (the first turn ended before the second was sent?)")
     s.long_press(*q.center, 1.2); time.sleep(1.2)
     menu_item(j, "Edit queued prompt")
     field = s.wait(kind="TextField", timeout=5) or s.wait(kind="TextView", timeout=3)
@@ -475,8 +492,12 @@ def flow_queue_edit(j):
         pq.subprocess.run(["axe", "key", "42", "--udid", load()["udid"]], capture_output=True, timeout=20)
     pq.type_text("BRAVO")
     menu_item(j, "Save")
-    check(s.wait(contains="QUEUED-BRAVO", timeout=15), "the queued prompt did not change on the phone")
-    q = s.wait(contains="QUEUED-BRAVO", timeout=5)
+    deadline = time.time() + 15
+    q = None
+    while time.time() < deadline and not q:
+        q = queued("QUEUED-BRAVO")
+        time.sleep(0.5)
+    check(q, "the queued prompt did not change on the phone")
     s.long_press(*q.center, 1.2); time.sleep(1.2)
     menu_item(j, "Send now")
     deadline = time.time() + 180

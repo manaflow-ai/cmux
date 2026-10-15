@@ -551,6 +551,7 @@ struct QueuedPromptsView: View {
                 .frame(height: 40)
                 .glassEffect(.regular, in: .capsule)
         }
+        .accessibilityIdentifier("chat.queued")
     }
 
 }
