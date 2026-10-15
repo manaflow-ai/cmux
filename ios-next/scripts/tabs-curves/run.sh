@@ -14,7 +14,7 @@ set -uo pipefail
 slot="tabs"; runs=3; app="tabs"; motions=()
 while [[ $# -gt 0 ]]; do case "$1" in --slot) slot="$2"; shift 2 ;; --runs) runs="$2"; shift 2 ;; --app) app="$2"; shift 2 ;; *) motions+=("$1"); shift ;; esac; done
 if [[ ${#motions[@]} -eq 0 ]]; then
-  if [[ $app == kit ]]; then motions=(reflow zoomOut zoomIn swipeUp snapBack); else motions=(reflow zoomOut zoomIn swipeUp snapBack liftBack rubberRelease fling twoToOne tapZoomOut drag lastTab); fi
+  if [[ $app == kit ]]; then motions=(reflow zoomOut zoomIn swipeUp snapBack liftBack rubberRelease); else motions=(reflow zoomOut zoomIn swipeUp snapBack liftBack rubberRelease fling twoToOne tapZoomOut drag lastTab); fi
 fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="$HERE/../remote-ios.sh"
@@ -73,6 +73,9 @@ for m in "${motions[@]}"; do
       case "$m" in
         zoomIn)   g="tap -x 104 -y 250" ;;
         snapBack) g="drag --start-x 140 --start-y 250 --end-x 40 --end-y 250 --duration 1.0 --steps 60" ;;
+        # Springs' left edge leaves the screen on a left drag: its width is
+        # tracked on the right drag.
+        liftBack|rubberRelease) g="drag --start-x 60 --start-y 250 --end-x 160 --end-y 250 --duration 1.0 --steps 60" ;;
       esac
     fi
     ssh "$HOST" "rm -f /tmp/tc-$slot.mp4; (xcrun simctl io $U recordVideo --codec=h264 --force /tmp/tc-$slot.mp4 >/dev/null 2>&1 & echo \$! > /tmp/tc-$slot.pid); sleep 1.5; (axe $g --udid $U || ~/nx-ios/axe/axe $g --udid $U) >/dev/null 2>&1; sleep 1.8; kill -INT \$(cat /tmp/tc-$slot.pid); while kill -0 \$(cat /tmp/tc-$slot.pid) 2>/dev/null; do sleep 0.2; done"

@@ -55,6 +55,8 @@ SPECS = {
     'kit-swipeUp': ('ff9f0a', 'w', 402.0, 176.7, 160),
     'kit-zoomIn': ('ff9f0a', 'w', 176.7, 402.0, 160),
     'kit-snapBack': ('ff9f0a', 'x1', None, 192.67, 90),
+    'kit-liftBack': ('ff9f0a', 'w', None, 176.7, 90),
+    'kit-rubberRelease': ('ff9f0a', 'x0', None, 16.0, 90),
 }
 
 
