@@ -31,6 +31,13 @@ public nonisolated struct AgentPaneTunables {
         "agent.pageHost", PageTunables.section, "Agent pane on the page host",
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
+    /// The session side rail beside the chat (cx-ncc.101): Environment, Context and Outputs, with a
+    /// header button that shows and hides it. Off until it is promoted to a real setting. Listed in
+    /// TunableCatalog on its own line, outside `all`, so it does not churn with that list.
+    public static let sessionRail = Tunable<Bool>.toggle(
+        "agent.sessionRail", PageTunables.section, "Session side rail",
+        help: "A header button opens a rail beside the chat with its environment, context use and changed files.",
+        default: false, code: "AgentPaneTunables.sessionRail")
 
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
