@@ -4,5 +4,10 @@ fn main() -> anyhow::Result<()> {
     // exists (plans/cmux-next/identity.md section 2).
     // SAFETY: the first statement of main; no other thread runs yet.
     unsafe { std::env::remove_var(acpmux::config::LAUNCH_CREDENTIAL_ENV) };
+    // Nor does any of it act as the Chief whose host started it.
+    for key in acpmux::config::CHIEF_CREDENTIAL_ENV {
+        // SAFETY: as above, before any thread exists.
+        unsafe { std::env::remove_var(key) };
+    }
     acpmux::cli::entry::main(std::env::args_os().skip(1).collect(), Default::default())
 }

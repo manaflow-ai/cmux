@@ -726,7 +726,9 @@ impl Hub {
         translator: Option<crate::agent_host::TranslatorSpec>,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
+        let internal = |e: anyhow::Error| {
+            crate::launch_policy::spawn_error(e, |e| RpcError::internal(format!("{e:#}")))
+        };
         // From the profile, before its CODEX_PATH picks the binary.
         let codex_bridge = command_line.is_none()
             && translator.is_none()

@@ -142,6 +142,11 @@ fn builtin_login(family: &str) -> Option<&'static str> {
 /// (`claude_auth`) only ever prove a sign-in, so none found stays unknown,
 /// never a guess from a missing file.
 fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
+    // No credential read (Keychain, `codex login status`) while agent
+    // launches are off (cx-9ettq): the sign-in stays unknown.
+    if crate::launch_policy::agent_launch_disabled() {
+        return None;
+    }
     let program = Path::new(&s.program).file_name()?.to_string_lossy().to_lowercase();
     let home_named = |key: &str| !s.unresolved.iter().any(|k| k == key);
     match s.family.as_str() {
