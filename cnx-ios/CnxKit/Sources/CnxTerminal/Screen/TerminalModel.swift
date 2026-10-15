@@ -76,6 +76,13 @@ public final class TerminalModel {
     /// Embedded (workspace tab): the page as last seen, for the tab grid card.
     public internal(set) var snapshot: UIImage?
 
+    /// The Mac's screen as plain text (`read-screen`), fetched for the grid
+    /// card of a tab not opened in this launch (D5).
+    public var cardScreenText: String?
+
+    /// The page was laid out and its session started in this launch.
+    public var pageStarted: Bool { controller?.started == true }
+
     /// A tab rebuilt after it was cooled out of the warm set (a new, empty
     /// surface): its page as last seen, which the page shows dimmed under the
     /// connecting label until the Mac's terminal is attached again. Cleared on

@@ -1044,6 +1044,22 @@ public final class LiveCoordinator {
         return session
     }
 
+    /// The Mac's screen of a terminal tab as plain text (`read-screen`, one
+    /// short-lived `daemon` channel), for the grid card of a tab not opened
+    /// in this launch (D5). Nil without a link or on any failure.
+    public func terminalScreenText(tabID: String) async -> String? {
+        guard let surface = workspaces.tree?.surfaces[tabID], let link = await servedLink,
+              let channel = try? await link.openChannel(service: "daemon", args: [:]) else { return nil }
+        let client = DaemonClient(channel: channel)
+        await client.start()
+        defer { Task { await client.close() } }
+        guard let reply = try? await client.request("read-screen", params: ["surface": surface]),
+              let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              object["ok"] as? Bool != false,
+              let data = object["data"] as? [String: Any] else { return nil }
+        return data["text"] as? String
+    }
+
     /// Files and Links previews for a terminal tab: real files on the linked
     /// Mac over the `file` service, relative paths resolved against the tab's
     /// directory.
