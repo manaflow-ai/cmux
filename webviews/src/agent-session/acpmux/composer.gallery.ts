@@ -51,10 +51,13 @@ const composerControls = {
   },
 };
 
-// A Claude chat as Leo's app shows it (2026-10-13): the agent names its model with the vendor
-// ("Claude Opus 5.5"), the access mode is the default, nothing used yet, on this Mac.
+// A new Claude chat as Leo's app shows it (2026-10-13), before its first send so the location row
+// shows (locationRow.ts): the agent names its model with the vendor ("Claude Opus 5.5"), the access
+// mode is the default, nothing used yet, on this Mac.
 function footerChat(mode: "default" | "full-access") {
-  const base = chat(finished);
+  const base = noChat([session({ sessionId: "older", title: "An older chat" })], {
+    summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+  });
   return {
     ...base,
     catalog: CATALOG.map((entry) =>
@@ -208,10 +211,12 @@ export default agentPaneEntry({
     },
     "footer-essentials": {
       note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its lock alone, no context ring before any use, the folder without this Mac\'s name. Titles and labels keep the full text.',
+      ready: { newSession: true, cwd: CWD },
       snapshot: footerChat("default"),
     },
     "footer-full-access": {
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
+      ready: { newSession: true, cwd: CWD },
       snapshot: footerChat("full-access"),
     },
     idle: {
