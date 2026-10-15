@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The engine that renders a browser panel's page.
 ///
