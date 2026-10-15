@@ -97,6 +97,15 @@ import Testing
         #expect(controller.host.threadLayerLifted)
     }
 
+    /// Fails when a MessagesLab roll renames or removes WindowView's `threadLayer` (read by reflection,
+    /// PaneHost+ThreadLayer.swift): the header would then stay sharp under an open thread view.
+    @Test func theReflectedThreadLayerIsTheWindowViewsThreadLayer() throws {
+        let (_, _, demo) = Self.pane()
+        let reflected = try #require(HostView.reflectedThreadLayer(of: demo), "MessagesWindowView has no threadLayer property")
+        #expect(reflected === HostView.threadLayerByPlace(of: demo))
+        #expect(reflected.superview === demo)
+    }
+
     // MARK: Keys after a click on a bubble (routeTranscriptKey)
 
     /// The pane in an (unshown) window, with the transcript focused by a click on its text bubble.
@@ -208,6 +217,18 @@ import Testing
             let field = try #require(controller.demo?.compose.textView.view)
             #expect(window.firstResponder === field)
             #expect(field.string == marker)
+        }
+    }
+
+    /// With the field focused, Command-V is the menu's Paste as everywhere else: the transcript does not
+    /// take the key equivalent (it redirects only after a click on a bubble focused it).
+    @Test func commandVWithTheFieldFocusedIsLeftToTheMenu() throws {
+        let (controller, window, _) = try Self.focusedPane()
+        let field = try #require(controller.demo?.compose.textView.view)
+        window.makeFirstResponder(field)
+        try Self.withPasteboard("PASTE-\(UUID().uuidString)") {
+            _ = window.performKeyEquivalent(with: Self.key(window, "v", code: 9, mods: .command))
+            #expect(field.string.isEmpty)
         }
     }
 }

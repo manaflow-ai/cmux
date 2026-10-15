@@ -35,6 +35,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let fixture = HomeNativeFixture(attachments: nextAttachments, showcase: nextShowcase)
         nextAttachments = false
+        nextShowcase = true
         fixtures[key] = fixture
         return fixture.container
     }
