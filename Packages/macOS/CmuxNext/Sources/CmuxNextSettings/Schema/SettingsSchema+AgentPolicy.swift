@@ -148,6 +148,7 @@ extension SettingsSchema {
         "status.runNotifyMinimumSeconds",
         "status.runNotifyWhenVisible",
         "notifications.dockBadge",
+        "notifications.showPreviews",
         "notifications.attention.style",
         "notifications.attention.color",
         "notifications.attention.width",
