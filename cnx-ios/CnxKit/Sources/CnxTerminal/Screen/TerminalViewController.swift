@@ -666,6 +666,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     /// How much taller the composer card is now than at rest.
+    /// The composer card's SwiftUI height changed (V6-1): the hosting view's
+    /// size is measured again, and the page's insets follow in this pass.
+    func composerCardHeightChanged(_ height: CGFloat) {
+        guard let host = composerHost else { return }
+        host.view.invalidateIntrinsicContentSize()
+        host.view.setNeedsLayout()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        applyScroll()
+    }
+
     private var composerGrowth: CGFloat {
         max(0, composerHost.view.bounds.height - restingComposerHeight)
     }
