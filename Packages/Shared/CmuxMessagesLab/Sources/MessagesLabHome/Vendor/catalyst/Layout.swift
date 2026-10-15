@@ -57,9 +57,18 @@ struct TextLayout: Hashable {
             // A hard newline ends the line but is not drawn or measured.
             let s = (text as NSString).substring(with: range)
             if s.hasSuffix("\n") { range.length -= 1 }
-            let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
-            let w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-            lines.append(Line(range: range, width: w, fit: w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))))
+            // A blank line (the empty line of a paragraph break) is 0 pt wide: CTTypesetterCreateLine with
+            // length 0 lays out the whole rest of the text, which made every text with a paragraph break
+            // whose rest is longer than the column as wide as the column (cx-3cb wide-window: Messages'
+            // 9-line "That's WebAuthn's ..." balloon is 738.5 pt in a 1192 pt pane, its widest line + 24;
+            // ours was the column + 24, 751.3 pt).
+            var w: CGFloat = 0, fit: CGFloat = 0
+            if range.length > 0 {
+                let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
+                w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                fit = w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+            }
+            lines.append(Line(range: range, width: w, fit: fit))
             start += n
             if start == len && s.hasSuffix("\n") { lines.append(Line(range: NSRange(location: len, length: 0), width: 0, fit: 0)) }
         }
@@ -155,7 +164,11 @@ struct Metrics: Hashable {
     var rightEdge: CGFloat { Fixture.rightEdge + dx }
     var centerX: CGFloat { Fixture.centerX + dx / 2 }
     var receiptRight: CGFloat { Fixture.receiptRight + dx }
-    /// Text column: 358.4 pt at the 628 pt window, then 0.654 pt per point of window width.
+    /// Text column: 358.4 pt at the 628 pt window, then 0.654 pt per point of window width, with no
+    /// upper cap: Messages' column follows the same rule in wide panes (cx-3cb wide-window, macOS 27, a
+    /// 320 pt sidebar: panes 480, 680, 920 and 1192 pt bound it to [260.5, 263.5], [390.75, 393.5],
+    /// [544, 553.25] and [713, 729]; the rule gives 261.6, 392.4, 549.4 and 727.3;
+    /// tools/evidence/anim/colwidth).
     /// Measured on macOS 27 Messages at 434, 480, 520, 560 and 600 pt (lossless stills,
     /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
     /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
@@ -205,6 +218,8 @@ struct RowSpec: Hashable {
         case replies(count: Int, root: PartRef, outgoing: Bool)
         case receipt(bold: String, rest: String)
         case typing
+        /// The host's status line under the transcript (ask 9, HostHooks.swift): one line of centered secondary text.
+        case notice(String)
         /// A copy of a thread's root above a reply whose root is not directly
         /// above it (macOS 26): a mini card or thumbnail, a short stub, and
         /// "N Replies" when the thread has 2 or more replies.
@@ -817,7 +832,12 @@ final class MeasureCache: @unchecked Sendable {
 /// Derives the transcript rows from state (MODEL.md "Derived").
 enum RowBuilder {
     static let groupGap: TimeInterval = 60
-    static let separatorGap: TimeInterval = 15 * 60
+    /// A time label above a message more than an hour after the one above it on macOS 27 (AX walk of the real
+    /// transcript, macOS 27.0.1, 2026-10-14: no label in 29 of 29 pairs 11 to 57 min apart, a label in 21 of 22
+    /// pairs 72 min or more apart, one 5 h pair without one UNEXPLAINED; 60 min is UNVERIFIED between 57 and 72
+    /// min), more than 15 min on macOS 26 (the original
+    /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
+    static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
@@ -839,22 +859,22 @@ enum RowBuilder {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
             }
         }
-        // A message's thread: a reply's root, or the message itself when the message after it is its inline reply (a
-        // thread root with its replies under it). Messages separates such a thread from the messages around it like a
-        // sender change: when the first inline reply to a message arrives, the gap above that root grows to 32 pt
-        // (macOS 27, lossless typing-unfocused-take1: root top minus the bubble above, tail included, 7.5 -> 30.0 pt
-        // while the reply arrives). A root whose replies are elsewhere ("2 Replies", a preview at the reply) keeps
-        // its group (real still scenes). No thread view: one thread.
-        // `i`: x's index. x is a root when the messages right after it (deleted ones skipped) are its replies and one
-        // of them is not unsent: a root whose last inline reply is unsent or deleted returns to its group gap.
+        // A message's thread: a reply's root, or the message itself when it has a reply that is not unsent or deleted
+        // (inline under it, or elsewhere with "N Replies" or a preview at the reply). Messages separates a thread from
+        // the messages around it: the gap above a root is 32 pt (macOS 27, lossless typing-unfocused-take1: root top
+        // minus the bubble above 7.5 -> 30.0 pt while the first reply arrives; AX of the 18:00 scene: "Alpha.", whose
+        // two replies are further down, 32 pt under my message; AX walk of the real transcript 2026-10-14, cx-3cb
+        // row-gap: every gap above a root with replies is 32). A root whose replies are all unsent or deleted is not
+        // a root. No thread view: one thread.
+        var liveRoots: Set<ID> = []
+        if !threadMode {
+            for m in s.conversation.messages where m.retractedAt == nil && m.deletedAt == nil {
+                if let r = m.replyTo { liveRoots.insert(r.messageId) }
+            }
+        }
         func thread(_ x: Message, at i: Int) -> ID? {
             if let r = x.replyTo { return r.messageId }
-            guard !threadMode else { return nil }
-            for n in messages.dropFirst(i + 1) where n.deletedAt == nil {
-                guard n.replyTo?.messageId == x.id else { break }
-                if n.retractedAt == nil { return x.id }
-            }
-            return nil
+            return liveRoots.contains(x.id) ? x.id : nil
         }
         // The message above the range: the nearest one that is not deleted.
         var prevIndex = messages.prefix(max(0, span.lowerBound)).lastIndex { $0.deletedAt == nil } ?? -1
@@ -866,8 +886,13 @@ enum RowBuilder {
             var gap: CGFloat
             var connector: String?
             if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
+                // The time label sits 17.5 pt under a thread reply and 13.5 pt under any other bubble, and the next
+                // bubble 5 pt under the label (macOS 27, AX walk of the real transcript, 2026-10-14, cx-3cb row-gap:
+                // 17.0 to 17.5 under 16 of 16 replies, 13.5 under 5 of 5 other messages, 5.0 below in 3 of 3). The
+                // row is 4 pt shorter under a non-reply; its text keeps its place over the row's bottom (RowDrawing).
+                let underReply = prev.map { $0.replyTo != nil } ?? true
                 rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
-                                    gap: prev == nil ? 12 : 0, height: 35.5))
+                                    gap: prev == nil ? 12 : 0, height: underReply ? 35.5 : 31.5))
                 gap = 0
             } else if let r = m.replyTo, let p = prev, p.id == r.messageId {
                 // Measured: 2.5 pt right under the root bubble, 3.5 pt under a
@@ -885,17 +910,33 @@ enum RowBuilder {
                 // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
                 // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
                 if !threadMode, !(outgoing && p.senderId == me) { connector = "part:\(r.messageId):\(r.partIndex)" }
-            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, thread(p, at: prevIndex) == thread(m, at: idx) {
+            } else if case .replies = rows.last?.kind ?? previousRow {
+                // Under a root's "N Replies" label the next bubble sits 8 pt under the label's text (3 pt under
+                // our 22 pt label row), with or without a sender change, also when the thread ends there; another
+                // root right under it sits 4 pt under the text (-1 pt) (macOS 27, AX walk of the real transcript,
+                // 2026-10-14, cx-3cb row-gap: 7.5 to 8.0 in 30 of 30 pairs, 4.0 in 5 of 5 pairs root to root).
+                let otherRoot = m.replyTo == nil && liveRoots.contains(m.id) && prev.map { thread($0, at: prevIndex) != m.id } ?? false
+                gap = otherRoot ? -1 : 3
+            } else if let p = prev, thread(p, at: prevIndex) != thread(m, at: idx) {
+                // A change of thread, for either sender: 32 pt (macOS 27, AX walk of the real transcript
+                // 2026-10-14, cx-3cb row-gap: 32.0 to 32.5 in 35 of 35 pairs across a thread boundary).
+                gap = 32
+            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
-            } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
-                // The next reply of the same thread from the other sender: 7 pt (macOS 27, lossless
-                // send-typed and send-typed-media takes: "Reply to Charlie from the menu." then
-                // Instinct's "Got it, ..." 4 pt apart at the sample columns, where 32 shows 29).
-                gap = 7
-            } else if let p = prev, p.senderId != m.senderId || thread(p, at: prevIndex) != thread(m, at: idx) {
-                gap = 32     // a new sender, or a change of thread (measured on macOS 26)
+            } else if let p = prev, p.senderId == m.senderId, thread(m, at: idx) != nil {
+                // The same sender a minute or more later inside one thread: 32 pt (AX walk: Instinct's two
+                // replies to one root 95 s apart). UNVERIFIED beyond that one pair.
+                gap = 32
             } else {
-                gap = 12
+                // One thread (or none) and a new group: a sender change, or the same sender a minute or more
+                // later outside threads: 8 pt (macOS 27; AX of the 18:00 scene: "The photo failed..." to my
+                // "Round 3 ..." 52.5 -> 60.5 pt, 53 min apart; AX walk of the real transcript, 2026-10-14: 8.0
+                // in 10 of 10 sender changes inside one thread or outside threads, 0 s to 53 min apart, and 2 of 2
+                // same-sender pairs 98 s and 53 min apart; settled lossless stills: "Reply to Charlie
+                // from the menu." to Instinct's reply in the same thread 482.0 -> 490.0 pt, bubble-stills
+                // tp0000ms, and 795.0 -> 803.0 pt, send-typed tp8000ms). It was 32 for every sender change, 7
+                // in one thread and 12 for the same sender a minute later (cx-3cb row-gap).
+                gap = 8
             }
             // Under a receipt ("Delivered", "Read") the receipt row takes the place of the gap:
             // the next bubble sits 4 pt under it (body to body 20 pt), for a sender change too
@@ -907,7 +948,11 @@ enum RowBuilder {
                 let root = s.conversation.messages.first { $0.id == r.messageId }
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
                 let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
-                rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: ThreadPreview.gap, height: pv.height(scale: scale)))
+                // Under a root's "N Replies" label the preview sits 32 pt under the label's text, 5 pt less
+                // under our label row (AX walk 2026-10-14: 32.0 in 11 of 11 label-to-preview pairs, cx-3cb row-gap).
+                var pvGap = ThreadPreview.gap
+                if case .replies = rows.last?.kind ?? previousRow { pvGap -= 5 }
+                rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: pvGap, height: pv.height(scale: scale)))
                 gap = ThreadPreview.replyGap
             }
 
@@ -917,7 +962,7 @@ enum RowBuilder {
                 // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                     || next.retractedAt != nil || next.replyTo != m.replyTo
-                    || thread(next, at: messages.dropFirst(idx + 1).firstIndex { $0.deletedAt == nil } ?? idx + 1) != thread(m, at: idx) } ?? true
+                    || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
                 for (pi, part) in m.parts.enumerated() {
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false, scale: scale)
                     let (size, tl) = (measured.size, measured.text)
@@ -933,7 +978,9 @@ enum RowBuilder {
                     // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
                     // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
                     // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
-                    // by 22.5 pt, send-typed; macOS 26 measured 10).
+                    // by 22.5 pt, send-typed; macOS 26 measured 10). AX walk 2026-10-14 (cx-3cb row-gap): a
+                    // change of thread above a badge 54.5 to 55 pt bubble to bubble in 34 of 35 pairs (one 32), the same sender
+                    // 30.5 to 31 in 3 of 3; a sender change in one thread (8 + 27.5) is UNVERIFIED (no pair).
                     if !reactions.isEmpty { g = (g >= 32 ? g - 5 : g) + 27.5 }
                     var failed = false
                     if case .failed = m.status { failed = true }
@@ -964,12 +1011,18 @@ enum RowBuilder {
             }
             prev = m; prevIndex = idx
         }
-        // cmux: the host's notice, centered like the date row, under the newest message.
-        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
+        // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
+        // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
             rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
         }
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+        }
+        // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
+        // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows
@@ -1165,6 +1218,8 @@ enum Strings {
     static var menuReply: String { MessagesLabLocalization.string("menu.reply", "Reply") }
     static var menuCopy: String { MessagesLabLocalization.string("menu.copy", "Copy") }
     static var menuEdit: String { MessagesLabLocalization.string("menu.edit", "Edit") }
+    /// cmux-only (Messages has no message links): the host's Copy Link (HostHooks.copyLink).
+    static var menuCopyLink: String { MessagesLabLocalization.string("menu.copyLink", "Copy Link") }
     static var menuUndoSend: String { MessagesLabLocalization.string("menu.undoSend", "Undo Send") }
     static var menuReplyEllipsis: String { MessagesLabLocalization.string("menu.replyEllipsis", "Reply…") }
     static var menuTapbackDetails: String { MessagesLabLocalization.string("menu.tapbackDetails", "Tapback Details…") }

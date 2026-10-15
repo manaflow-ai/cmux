@@ -275,7 +275,8 @@ wherever its tier allows).
   owner); that slice needs a cmux-tui landing window.
 - R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
   Proof recorded 2026-10-12 (cx-9ce.18) on capture minis, real keys through cua-driver; since
-  Leo 2026-10-12 these keys select sidebar items, not pane tabs. cmux-next (DEV build of
+  Leo 2026-10-12 these keys select sidebar items, not pane tabs. Superseded for Ctrl-Tab (#20116) and
+  Cmd-Shift-] / [ (Lawrence 2026-10-15): they cycle the focused pane's tabs. cmux-next (DEV build of
   8f408161, `scripts/cmux-next/chrome-tab-keys-e2e.py --real --tidy`): Ctrl-Tab, Ctrl-Shift-Tab,
   Cmd-Shift-] and Cmd-Shift-[, pressed and as Leo's Karabiner sequences, pass from a terminal,
   terminal copy mode, a web page, Settings and Home (40/40). Classic (main a5cb091d): the same four

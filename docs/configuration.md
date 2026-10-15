@@ -149,26 +149,18 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 }
 ```
 
-- `false` (default): Cmd-T follows the focused pane's tab bar (`tabs.tabBar`). In a pane that shows it (a terminal, a browser tab, the New Tab page) it opens a tab there. In a pane that hides it (an agent chat alone in its column, by default) it opens a workspace in the current group. Cmd-N opens a workspace.
+- `false` (default): Cmd-T opens a tab in the focused pane. Cmd-N opens a workspace.
 - `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
 
-## `tabs.tabBar`
+## Tab bar (removed: `tabs.tabBar`)
 
-Whether a pane shows its horizontal tab bar, by what the pane holds. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
 
-```json
-{
-  "tabs": { "tabBar": { "terminal": "auto", "browser": "auto", "agent": "always" } }
-}
-```
+The only way to hide one pane's tab bar is **Hide Tab Bar** in the command palette (Cmd-Shift-P) or the pane's right-click menu. While the bar is hidden, the same entry reads **Show Tab Bar**. The CLI keeps `cmux pane toggle-tab-bar`. Cmd-T always opens a tab in the current workspace, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
-- `terminal`: panes with terminals, or a mix of kinds. `browser`: panes with only browser tabs. `agent`: panes with only agent chats. New Tab pages count as neither.
-- `"auto"` (default): terminal and browser panes show the tab bar. An agent chat alone in its column, or in the chat dock, hides it until the pane holds two tabs.
-- `"always"` shows it, and `"never"` hides it.
-
-**Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T always opens a tab in the current workspace, like a browser, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
+The `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` settings were removed. A cmux.json that still sets them (`"auto"`, `"always"` or `"never"`) loads without an error, and the value is ignored: the tab bar shows. `cmux settings set` refuses them as removed.
 
 ## `tabs.newTabPosition`
 
