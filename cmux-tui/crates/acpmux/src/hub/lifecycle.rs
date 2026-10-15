@@ -22,6 +22,7 @@ impl Hub {
             adopt,
             remote,
             env: session_env,
+            workspace_id,
             keep_harness_mode,
         } = req;
         // An adopted session's harness names the head unless one was given.
@@ -119,6 +120,7 @@ impl Hub {
         });
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
+        meta.workspace_id = workspace_id;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -1040,6 +1042,9 @@ pub struct NewRequest {
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.
     pub env: std::collections::BTreeMap<String, String>,
+    /// The session's cmux workspace (`session_env::workspace_id`), already
+    /// checked by the caller.
+    pub workspace_id: Option<String>,
     /// Keep the harness's own start mode (`start_mode.rs`): a handoff target
     /// of a source that is not in full access is never wider than it.
     pub keep_harness_mode: bool,
