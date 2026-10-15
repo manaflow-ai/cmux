@@ -322,7 +322,7 @@ through hostd's `video-drop-permille` file.
 | `channel` | WebRTC direct | 29 / 38 / 128 | 53.4 | 33.3 / 35.0 | 0 | 7.4 | 94 / 135 |
 | `track-relay` | TURN | 17 / 33 / 113 | 53.3 | 33.3 / 35.0 | 0 | 6.1 | 48 / 67 |
 | `channel-relay` | TURN | 29 / 47 / 804 | 40.7 | 35.0 / 1221.7 | 4 | 59.9 | 59 / 100 |
-| `track-loss30` | WebRTC direct, 3% RTP drop | not measured yet: in this run the drop never reached hostd (0 NACKs in its media-lane report); rerun below | | | | | |
+| `track-loss30` | WebRTC direct, 3% RTP drop | 35 / 52 / 627 | 46.3 | 35.0 / 335.0 | 2 | 19.7 | 66 / 120 |
 
 Reading the numbers:
 
@@ -335,6 +335,14 @@ Reading the numbers:
   frame). The relay is where the carriers differ: the channel on TURN fell
   to 40.7 fps with 4 stalls of up to 1.2 s and 60 ms jitter; the track on
   TURN had none.
+- With 3% of the track's RTP dropped (run `171155`, hostd's file setting;
+  178 NACKs in its media-lane report), the track held 46 fps with 2 stalls
+  (max 335 ms). The rd controller fed by TWCC lowered the lane's target to
+  256 kbit/s, so the picture stayed live at a lower bitrate.
+- A plain `track` rerun in the same session (`171155/track`) gave 16 / 26 /
+  82 ms glass to glass at 53.3 fps. Its recording is the end-to-end video:
+  the page streams over the real link, 10 taps and 4 touch swipes reach the
+  page (its tap counter), and every frame shows `· track`.
 - "Tap at the page to its frame" starts at the page's own `pointerdown`
   time. The time from the simulator's tap to the page (`tap_to_mac_ms`, about
   260 to 350 ms) is the simulator's touch injection, not the link.

@@ -78,8 +78,10 @@ def extract(video, out_dir, crop_pts, step=1):
     probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time",
                             "-of", "csv=p=0", video], capture_output=True, text=True)
     times = [float(t.strip(",")) for t in probe.stdout.split() if t.strip(",") not in ("", "N/A")]
+    # setpts=N/TB: one JPEG per video frame even where the recording repeats a pts (a
+    # stalled stream), so the files stay aligned with ffprobe's frame times.
     subprocess.run(["ffmpeg", "-v", "error", "-i", video, "-fps_mode", "passthrough",
-                    "-vf", f"crop={w}:{h}:{x}:{y}", "-q:v", "3", os.path.join(out_dir, "f%05d.jpg")], check=True)
+                    "-vf", f"crop={w}:{h}:{x}:{y},setpts=N/TB", "-q:v", "3", os.path.join(out_dir, "f%05d.jpg")], check=True)
     out = []
     for i, t in enumerate(times):
         p = os.path.join(out_dir, f"f{i + 1:05d}.jpg")
