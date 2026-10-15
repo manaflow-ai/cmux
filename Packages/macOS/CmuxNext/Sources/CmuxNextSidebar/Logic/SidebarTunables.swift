@@ -44,6 +44,6 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.rowBadgePreview")
 
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarStatusIconSide.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
     }
 }

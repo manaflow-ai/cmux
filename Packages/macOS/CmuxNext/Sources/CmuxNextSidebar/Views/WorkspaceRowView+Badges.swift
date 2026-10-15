@@ -8,9 +8,11 @@ import Foundation
 /// shows the dim time since the last change.
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
+    /// `status` draws the state as one status icon (`configure` set it): no badge, the time on the right.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit)
+        activity.themedToolTip = nil
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)
             return
@@ -19,6 +21,11 @@ extension WorkspaceRowView {
         if timeText == nil, let time = shown.badgeTime {
             timeText = time
             timeLabel.stringValue = time
+        }
+        if style == .status {
+            rowBadge.configure([], look: .corner)
+            activity.themedToolTip = Self.badgeSummary(badges, stacked: false)
+            return
         }
         let corner = style == .corner
         rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked, look: corner ? .corner : .stack)

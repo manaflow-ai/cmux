@@ -27,11 +27,15 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var terminalFontFamily: String?
     /// The status icon set (Debug Settings `status.iconSet`, cx-kxa2).
     public var iconSet: StatusIconSet
+    /// The side tabs draw their status mark on when rows show a status icon (`SidebarRowBadgeStyle.status`,
+    /// Debug Settings `sidebar.statusIconSide`); nil keeps the mark on the icon's corner.
+    public var statusSide: SidebarStatusIconSide?
 
     public init(settings: StatusIndicatorSettings = StatusIndicatorSettings(), styleOverride: StatusIndicatorStyle? = nil,
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,
                 nativeSteps: Int = 8, animatesLoops: Bool = true, spinnerPeriod: Double? = nil, pulsePeriod: Double? = nil,
-                terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current) {
+                terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current,
+                statusSide: SidebarStatusIconSide? = nil) {
         self.settings = settings
         self.styleOverride = styleOverride
         self.arcLength = arcLength
@@ -44,6 +48,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.pulsePeriod = pulsePeriod
         self.terminalFontFamily = terminalFontFamily
         self.iconSet = iconSet
+        self.statusSide = statusSide
     }
 
     /// The style for a report that asked for `hint`: the Debug Settings
@@ -66,7 +71,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             spinnerPeriod: Motion.period(.spinner),
             pulsePeriod: Motion.period(.pulse),
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
-            iconSet: StatusIconSet.tunable.value)
+            iconSet: StatusIconSet.tunable.value,
+            statusSide: SidebarRowBadgeStyle.tunable.value == .status ? SidebarStatusIconSide.tunable.value : nil)
     }
 }
 

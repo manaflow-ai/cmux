@@ -22,6 +22,7 @@ final class WorkspaceRowView: SidebarRowView {
     private var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     private var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    private(set) var statusSide: SidebarStatusIconSide? // the `.status` row badge's side (WorkspaceRowView+StatusGlyph)
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
@@ -148,7 +149,7 @@ final class WorkspaceRowView: SidebarRowView {
         var group: GroupID?
         var fontSize: CGFloat
         var iconSize: CGFloat
-        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int, statusSide: SidebarStatusIconSide
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
@@ -160,7 +161,7 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
-            disclosure: row.tabDisclosure, row: row.content
+            statusSide: tunables.statusSide, disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
@@ -176,7 +177,9 @@ final class WorkspaceRowView: SidebarRowView {
         // A row badge style other than `.trailing` draws the unread count and activity in its
         // badge and leads with the kind icon (`configureBadges`): set those views once, here, so
         // a status tick does not flip the icon image and the activity indicator twice per configure.
-        let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
+        // `.status` draws neither: one status icon on the `sidebar.statusIconSide` side (a page's favicon still draws).
+        statusSide = content.rowBadge == .status && !isShowingPlaceholder ? content.statusSide : nil
+        let badgesLead = statusSide == nil && content.rowBadge != .trailing && !isShowingPlaceholder
         if badgesLead, shown.icon == nil {
             icon.configure(icon: nil, fallback: ws.kind.iconName, brand: ws.kindBrand ?? ws.agentBrand)
         } else {
@@ -189,14 +192,14 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
         (isExpanded, timeText, timeLabel.stringValue, metaLabel.stringValue) = (shown.expanded, shown.trailingText, shown.trailingText ?? "", shown.meta ?? "")
-        activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
+        activity.configure(badgesLead ? .idle : rowStatus(ws, activity: shown.activity), style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
-        badge.configure(badgesLead ? .none : ws.unread)
+        badge.configure(badgesLead || statusSide != nil ? .none : ws.unread)
         presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence : [])
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
@@ -236,14 +239,6 @@ final class WorkspaceRowView: SidebarRowView {
         needsLayout = true
         if hidden { title.stopMarquee() }
     }
-
-    /// An AppKit label cell draws its text this far inside its frame; the
-    /// marquee label draws at its edge, so it sits this much further in.
-    static let labelInset = Metrics.space1
-    /// Room for a two-digit count, so 9 to 10 tabs moves nothing else.
-    static let countWidth: CGFloat = 18
-    /// The PR badge never takes more than this from the title.
-    static let badgeMaxWidth: CGFloat = 72
 
     override func hoverChanged() {
         super.hoverChanged()
@@ -296,7 +291,7 @@ final class WorkspaceRowView: SidebarRowView {
         let (th, sh, top, cy) = textMetrics(head: b)
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
-        let leading = SidebarStyle.horizontalInset + indent
+        let leading = layoutLeadingStatus(at: SidebarStyle.horizontalInset + indent, centerY: cy)
         let side: CGFloat
         switch iconKind {
         case nil: side = icon.isHidden ? 0 : SidebarStyle.iconBox // a kind icon or logo (`sidebar.rowBadge`)
@@ -359,12 +354,12 @@ final class WorkspaceRowView: SidebarRowView {
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         trailing = layoutRowBadge(style: rowBadgeStyle, trailing: trailing, cy: cy)
-        let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
+        let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus && statusSide == nil
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
             agentMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = agentMark.frame.minX - Metrics.space2
-        } else if activity.showsGlyph {
+        } else if activity.showsGlyph, statusSide != .left {
             activity.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = activity.frame.minX - Metrics.space2
         }
@@ -391,7 +386,7 @@ final class WorkspaceRowView: SidebarRowView {
                                       width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
         // The marquee fades glyphs out across the padding left of them.
         let inset = Self.labelInset
-        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
+        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : leading - SidebarStyle.horizontalInset)
         title.fadeWidth = SidebarStyle.titleFadeWidth
         let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)

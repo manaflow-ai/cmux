@@ -35,6 +35,7 @@ extension TabCell: StatusIndicatorConfigClient {
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         if item.status != .none { updateStatusGlyph() }
+        if item.iconIsKind { updateColors(animated: false); layoutLayers() } // its kind icon shows or hides
         guard item.isBusy else { return }
         updateSpinner()
         updateColors(animated: false)

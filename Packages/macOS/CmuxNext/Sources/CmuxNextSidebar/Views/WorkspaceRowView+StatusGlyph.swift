@@ -2,6 +2,28 @@ import AppKit
 import CmuxNextDesign
 
 extension WorkspaceRowView {
+    /// An AppKit label cell draws its text this far inside its frame; the
+    /// marquee label draws at its edge, so it sits this much further in.
+    static let labelInset = Metrics.space1
+    /// Room for a two-digit count, so 9 to 10 tabs moves nothing else.
+    static let countWidth: CGFloat = 18
+    /// The PR badge never takes more than this from the title.
+    static let badgeMaxWidth: CGFloat = 72
+
+    /// The state the activity indicator draws: `activity`, or with the `.status` row badge the
+    /// row's most urgent state, a done mark for unread work included.
+    func rowStatus(_ ws: SidebarWorkspace, activity: StatusIndicatorState) -> StatusIndicatorState {
+        statusSide == nil ? activity : WorkspaceRowBadges(unread: ws.unread, activity: activity).first ?? .idle
+    }
+
+    /// Places a status icon on the left (the `.status` row badge) in a fixed slot at `x`, shown or
+    /// not, so every row's title starts on one column, and returns where the icon or title starts.
+    func layoutLeadingStatus(at x: CGFloat, centerY: CGFloat) -> CGFloat {
+        guard statusSide == .left else { return x }
+        activity.frame = statusGlyphFrame(trailing: x + SidebarStyle.statusGlyphSize, centerY: centerY)
+        return x + SidebarStyle.statusGlyphSize + Metrics.space2
+    }
+
     /// The status mark's frame (the shared indicator, or the agent mark standing in for it) ending
     /// at `trailing`: as tall as the unread badge, centered on `centerY`, the line the badge and
     /// the row's other trailing marks share (a compact row's middle, a one-line row's and a

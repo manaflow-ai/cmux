@@ -1,8 +1,9 @@
 import AppKit
+import CmuxNextDesign
 import Observation
 
 /// The sidebar tunables workspace rows draw from (agent mark, presence dots,
-/// row badge, stack size),
+/// row badge, stack size, the status icon's side),
 /// observed once for every row. Each `WorkspaceRowView.configure` used to arm
 /// its own observation, so every status tick left one more registration
 /// behind; now a change redraws the live rows from one registration.
@@ -10,7 +11,8 @@ import Observation
 final class SidebarTunablesWatch {
     static let shared = SidebarTunablesWatch()
 
-    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap)
+    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap,
+                        statusSide: SidebarStatusIconSide)
 
     private let rows = NSHashTable<WorkspaceRowView>.weakObjects()
     private var current: Values?
@@ -21,7 +23,8 @@ final class SidebarTunablesWatch {
         if let current { return current }
         let values = withObservationTracking {
             (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value, SidebarRowBadgeStyle.tunable.value,
-             SidebarRowBadgeStackCap.tunable.value)
+             SidebarRowBadgeStackCap.tunable.value,
+             SidebarStatusIconSide.tunable.value)
         } onChange: {
             Task { @MainActor in SidebarTunablesWatch.shared.changed() }
         }
