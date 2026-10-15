@@ -211,7 +211,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("This workspace has no folder on the Mac yet. Open a terminal tab first.", isForPerson: true)
         }
         guard !Self.isHomeOrAbove(cwd) else {
-            throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Recent Directories) or cd into one in its terminal.",
+            throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Open Folder… or Recent Directories) or cd into one in its terminal.",
                                          isForPerson: true)
         }
         let catalog = try await agentCatalog(on: workspace.macID, models: start.model != nil)
