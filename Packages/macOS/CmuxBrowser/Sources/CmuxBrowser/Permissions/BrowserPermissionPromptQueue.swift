@@ -16,11 +16,20 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
     public let kinds: [BrowserPagePermissionRequest.Kind]
     /// The requesting origin.
     public let origin: URL
+    /// The top-level page's origin when an embedded frame of another site
+    /// asks (the prompt names both sites); `nil` when the page itself asks.
+    public let embeddingOrigin: URL?
 
-    public init(id: UUID = UUID(), kinds: [BrowserPagePermissionRequest.Kind], origin: URL) {
+    public init(id: UUID = UUID(), kinds: [BrowserPagePermissionRequest.Kind], origin: URL, topLevelURL: URL? = nil) {
         self.id = id
         self.kinds = kinds
         self.origin = origin
+        let key = BrowserSitePermissionStore.originKey(for: origin)
+        if let topLevelURL, let topKey = BrowserSitePermissionStore.originKey(for: topLevelURL), topKey != key {
+            embeddingOrigin = topLevelURL
+        } else {
+            embeddingOrigin = nil
+        }
     }
 
     /// The prompt's buttons: capture devices get Chrome's three answers.
@@ -38,14 +47,27 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
     /// Whether `other` asks the same origin about the same kinds.
     func asksSameQuestion(as other: BrowserPermissionPrompt) -> Bool {
         Set(kinds) == Set(other.kinds)
-            && (BrowserSitePermissionStore.originKey(for: origin) ?? origin.absoluteString)
-                == (BrowserSitePermissionStore.originKey(for: other.origin) ?? other.origin.absoluteString)
+            && Self.key(origin) == Self.key(other.origin)
+            && embeddingOrigin.map(Self.key) == other.embeddingOrigin.map(Self.key)
+    }
+
+    private static func key(_ url: URL) -> String {
+        BrowserSitePermissionStore.originKey(for: url) ?? url.absoluteString
+    }
+
+    /// The embedding page's origin as shown in the bar, or `nil`.
+    public var displayEmbeddingOrigin: String? {
+        embeddingOrigin.map(Self.display)
     }
 
     /// The origin as shown in the bar: host and non-default port, no scheme.
     public var displayOrigin: String {
-        guard let host = origin.host, !host.isEmpty else { return origin.absoluteString }
-        if let port = origin.port, port != (origin.scheme?.lowercased() == "https" ? 443 : 80) {
+        Self.display(origin)
+    }
+
+    private static func display(_ url: URL) -> String {
+        guard let host = url.host, !host.isEmpty else { return url.absoluteString }
+        if let port = url.port, port != (url.scheme?.lowercased() == "https" ? 443 : 80) {
             return "\(host):\(port)"
         }
         return host

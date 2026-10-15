@@ -185,7 +185,8 @@ enum BrowserPermissionPromptText {
         }
     }
 
-    /// The question, with the origin in bold.
+    /// The question, with the asking site in bold, and, when an embedded
+    /// frame of another site asks, the embedding page's site too.
     static func message(for prompt: BrowserPermissionPrompt) -> AttributedString {
         let origin = prompt.displayOrigin
         let format: String
@@ -211,7 +212,37 @@ enum BrowserPermissionPromptText {
         default:
             format = String(localized: "browser.permission.prompt.generic", defaultValue: "%@ wants extra permissions.")
         }
-        return boldingOrigin(origin, in: format)
+        guard let embedding = prompt.displayEmbeddingOrigin else {
+            return boldingOrigin(origin, in: format)
+        }
+        // "**frame.site** (embedded in **page.site**) wants to …"
+        let sites = String(localized: "browser.permission.prompt.embeddedSites", defaultValue: "%1$@ (embedded in %2$@)")
+        return filling(format, with: bolding([origin, embedding], in: sites))
+    }
+
+    /// Fills `%1$@`/`%2$@` in `format` with bold `values`, never parsing them as markup.
+    static func bolding(_ values: [String], in format: String) -> AttributedString {
+        var result = AttributedString()
+        var rest = Substring(format)
+        while let range = rest.range(of: #"%[0-9]\$@"#, options: .regularExpression) {
+            result += AttributedString(String(rest[..<range.lowerBound]))
+            let index = Int(String(rest[range].dropFirst().prefix(1))).map { $0 - 1 } ?? 0
+            var bold = AttributedString(values.indices.contains(index) ? values[index] : "")
+            bold.inlinePresentationIntent = .stronglyEmphasized
+            result += bold
+            rest = rest[range.upperBound...]
+        }
+        result += AttributedString(String(rest))
+        return result
+    }
+
+    /// Puts an already-attributed `value` where `format` has `%@`.
+    static func filling(_ format: String, with value: AttributedString) -> AttributedString {
+        guard let placeholder = format.range(of: "%@") else { return AttributedString(format) }
+        var result = AttributedString(String(format[..<placeholder.lowerBound]))
+        result += value
+        result += AttributedString(String(format[placeholder.upperBound...]))
+        return result
     }
 
     /// Fills `%@` with `origin` and bolds exactly that span (never parsing

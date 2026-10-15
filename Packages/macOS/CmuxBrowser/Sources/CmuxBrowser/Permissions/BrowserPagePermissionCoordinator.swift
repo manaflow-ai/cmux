@@ -41,7 +41,7 @@ public final class BrowserPagePermissionCoordinator {
         profileID: UUID,
         sessionGrants: Set<String>?
     ) async -> BrowserPagePermissionDecision {
-        await decideDetailed(request, profileID: profileID, sessionGrants: sessionGrants).decision
+        await decideDetailed(request, profileID: profileID, sessionGrants: sessionGrants, topLevelURL: nil).decision
     }
 
     /// A decision and whether a grant holds for this request only.
@@ -65,7 +65,8 @@ public final class BrowserPagePermissionCoordinator {
     public func decideDetailed(
         _ request: BrowserPagePermissionRequest,
         profileID: UUID,
-        sessionGrants: Set<String>?
+        sessionGrants: Set<String>?,
+        topLevelURL: URL? = nil
     ) async -> Outcome {
         switch policy.decide(request, sessionGrants: sessionGrants) {
         case .grant:
@@ -78,7 +79,7 @@ public final class BrowserPagePermissionCoordinator {
             let settings = kinds.map { profileStore.setting($0, for: origin) }
             if settings.contains(.block) { return Outcome(.deny) }
             if settings.allSatisfy({ $0 == .allow }) { return Outcome(.grant) }
-            let answer = await ask(BrowserPermissionPrompt(kinds: kinds, origin: origin))
+            let answer = await ask(BrowserPermissionPrompt(kinds: kinds, origin: origin, topLevelURL: topLevelURL))
             switch answer {
             case .allowAndRemember?:
                 profileStore.set(.allow, for: kinds, at: origin)
