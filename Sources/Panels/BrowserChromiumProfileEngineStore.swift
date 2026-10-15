@@ -85,15 +85,19 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
             // can go directly, without starting Chromium.
             let storage = storage
             let cookieFileNames = Self.cookieFileNames
-            await Task.detached(priority: .utility) {
-                BrowserChromiumProfileStorageCleanup.removeCaches(ofProfileID: profileID, in: storage)
+            let removed = await Task.detached(priority: .utility) { () -> (cache: Bool, cookies: Bool) in
+                let cache = BrowserChromiumProfileStorageCleanup.removeCaches(ofProfileID: profileID, in: storage)
                 let profileDirectory = storage.cachePath(forProfileID: profileID)
+                var cookies = false
                 for name in cookieFileNames {
-                    try? FileManager.default.removeItem(at: profileDirectory.appendingPathComponent(name))
+                    if (try? FileManager.default.removeItem(at: profileDirectory.appendingPathComponent(name))) != nil {
+                        cookies = true
+                    }
                 }
+                return (cache, cookies)
             }.value
-            kinds.append("cache")
-            kinds.append("cookies")
+            if removed.cache { kinds.append("cache") }
+            if removed.cookies { kinds.append("cookies") }
         }
         return kinds
     }
