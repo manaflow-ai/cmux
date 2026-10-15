@@ -13,6 +13,10 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// Live by design (only with ACPMUX_CODEX_LIVE): the real codex it names and
+// the CODEX_HOME that reaches a model are kept; nothing else of the host.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACPMUX_CODEX_LIVE", "CODEX_HOME"]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};

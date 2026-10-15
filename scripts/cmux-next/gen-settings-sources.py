@@ -137,6 +137,15 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/color-transition.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ColorTransition.generated.swift",
+        "type": "ColorTransitionSettingsSchema",
+        "lists": {"colorTransition": ("descriptors", "ColorTransitionSetting")},
+        "enums": {"appearance.colorTransition.curve": "ColorTransitionCurveSetting",
+                  "appearance.colorTransition.colorSpace": "ColorTransitionSpaceSetting",
+                  "appearance.colorTransition.reduceMotion": "ColorTransitionReduceMotionSetting"},
+    },
+    {
         "source": "schemas/settings/source/feed.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",

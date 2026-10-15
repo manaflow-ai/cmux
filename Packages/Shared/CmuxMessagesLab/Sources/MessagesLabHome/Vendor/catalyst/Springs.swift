@@ -171,8 +171,10 @@ enum Springs {
         all[name] ?? SpringElement(name: name, from: 0, to: 1, components: [.init(delay: 0, spring: Spring(duration: 0.3, bounce: 0), delta: 1)])
     }
     static var send: SpringElement { element("transcript.send") }
-    static var delivered: SpringElement { element("transcript.delivered") }
-    static var read: SpringElement { element("transcript.read") }
+    /// Delivered and Read: macOS 27 the shared TRUTH.md curve; macOS 26 its own fits on the original recording
+    /// (`.macOS26`: with the shared curve the motion gate's parity got worse at Delivered and Read).
+    static var delivered: SpringElement { osElement("transcript.delivered") }
+    static var read: SpringElement { osElement("transcript.read") }
     static var typing: SpringElement { element("transcript.typing") }
     static var receive: SpringElement { element("transcript.receive") }
     /// The first inline reply to the last message: the rows above that new thread root make room for its
@@ -342,6 +344,10 @@ enum Springs {
     static var receiptChangeOut: SpringElement { element("receipt.changeOut") }
     static var receiptChangeIn: SpringElement { element("receipt.changeIn") }
     static let ghostOut = simple("row.out", delay: 0, duration: 0.2)
+    /// The send overlay's fade over the landed cell (WindowView.landMorphs): live 120 Hz takes of main f0be76b
+    /// (tools/live-motion, cx-3cb) showed the hand-off as ONE frame that changed every glyph edge of the landed
+    /// balloon (send-typed #405: 10411 px, up to 180 levels, the frame before 1138 px); spread over ~12 frames.
+    static let landFade = simple("land.fade", delay: 0, duration: 0.1)
     static let connectorDraw = simple("connector.draw", delay: 0, duration: 0.25)
     static let textUnblur = simple("text.unblur", delay: 0.035, duration: 0.12)
     static let fieldGrow = simple("field.grow", delay: 0, duration: 0.1)

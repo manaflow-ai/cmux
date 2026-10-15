@@ -220,7 +220,14 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
         Some("adopt-infra"),
     ));
     assert_eq!(again["replayed"], true);
-    assert_eq!(again["value"], first["value"]);
+    // The replay is the same record; only the first answer says what
+    // happened to the brain (a replay starts nothing).
+    let mut committed = first["value"].clone();
+    assert_eq!(
+        committed.as_object_mut().unwrap().remove("brain"),
+        Some(json!({"state": "not_started", "reason": "no_supervisor"}))
+    );
+    assert_eq!(again["value"], committed);
     let clash = v2(
         &mut home,
         "chief.profile.adopt",
