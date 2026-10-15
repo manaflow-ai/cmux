@@ -1,4 +1,7 @@
+import AppKit
 import CmuxBrowser
+import CmuxCEF
+import CmuxCEFBrowser
 import Foundation
 import os
 
@@ -352,5 +355,160 @@ private final class V2EngineUnavailableRecord {
 
     init(error: TerminalController.V2CallResult) {
         self.error = error
+    }
+}
+
+// MARK: - Bringing an engine page up for automation
+
+/// A non-WebKit page automation can start on demand: Chromium creates its
+/// browser lazily (a never-shown pane) and Memory Saver closes it while the
+/// pane is hidden; neither takes DevTools commands until it is live again.
+@MainActor
+protocol BrowserEnginePageAutomationStarting: AnyObject {
+    /// The page can take DevTools commands now.
+    var isLiveForAutomation: Bool { get }
+    /// Creates the page's engine content when nothing else will (idempotent).
+    func startForAutomation()
+}
+
+extension CEFBrowserPage: BrowserEnginePageAutomationStarting {
+    var isLiveForAutomation: Bool {
+        browser.browserID != nil && !browser.isClosed && !browser.isContentReleased
+    }
+
+    func startForAutomation() {
+        guard !browser.isClosed, !browser.isContentReleased else { return }
+        browser.createNow()
+    }
+}
+
+/// Waiters for an engine page to become live, woken by the panel's page
+/// events (the page creates its browser, then reports its load state).
+@MainActor
+enum BrowserEnginePageAutomationReadiness {
+    private static var waiters: [ObjectIdentifier: [CheckedContinuation<Void, Never>]] = [:]
+
+    /// A page event: wakes everyone waiting on `page`; each re-checks.
+    static func pageEvent(_ page: any BrowserPage) {
+        wake(ObjectIdentifier(page))
+    }
+
+    static func wake(_ key: ObjectIdentifier) {
+        guard let woken = waiters.removeValue(forKey: key) else { return }
+        for waiter in woken { waiter.resume() }
+    }
+
+    /// Suspends until the next wake for `key`, or until cancelled.
+    static func nextWake(_ key: ObjectIdentifier) async {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if Task.isCancelled { return continuation.resume() }
+                waiters[key, default: []].append(continuation)
+            }
+        } onCancel: {
+            Task { @MainActor in wake(key) }
+        }
+    }
+}
+
+extension BrowserPanel {
+    /// Whether an engine page has keyboard focus (`is_webview_focused`): the
+    /// first responder is inside its content view, or, for a page drawn in
+    /// its own child window over the pane (Chromium), that window is key.
+    static func enginePageHasKeyboardFocus(_ page: any BrowserPage) -> Bool {
+        let view = page.contentView
+        guard let window = view.window else { return false }
+        if let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) { return true }
+        guard page.presentation == .childWindow else { return false }
+        let paneFrame = window.convertToScreen(view.convert(view.bounds, to: nil))
+#if DEBUG
+        let children = (window.childWindows ?? []).map { child in
+            "\(type(of: child)) key=\(child.isKeyWindow ? 1 : 0) frame=\(child.frame) fr=\(child.firstResponder.map { "\(type(of: $0))" } ?? "nil")"
+        }
+        cmuxDebugLog(
+            "browser.engine.focusProbe pane=\(paneFrame) appActive=\(NSApp.isActive ? 1 : 0) " +
+            "key=\(NSApp.keyWindow.map { "\(type(of: $0))" } ?? "nil") children=\(children)"
+        )
+#endif
+        guard let key = NSApp.keyWindow, key.parent === window else { return false }
+        // The key child window over this pane, not another pane's page.
+        let overlap = key.frame.intersection(paneFrame)
+        guard !overlap.isNull else { return false }
+        let smaller = min(key.frame.width * key.frame.height, paneFrame.width * paneFrame.height)
+        return smaller > 0 && overlap.width * overlap.height >= smaller / 2
+    }
+
+    /// Restores a page Memory Saver released and creates one that was never
+    /// created, so an automation command can drive it.
+    /// - Returns: The page to wait for, or nil when it is already live (or
+    ///   has no engine page that starts on demand).
+    func startEnginePageForAutomation() -> (any BrowserPage & BrowserEnginePageAutomationStarting)? {
+        guard let page = enginePage as? any BrowserPage & BrowserEnginePageAutomationStarting,
+              !page.isLiveForAutomation,
+              !isEngineUnavailableForAutomation(page) else { return nil }
+        // An agent needs the page now: restore even when the person restores
+        // released pages by hand, as for a discarded WebKit tab.
+        restoreDiscardedWebViewIfNeeded(reason: "automation_command", trigger: .explicitRequest)
+        if !page.isLiveForAutomation { page.startForAutomation() }
+        return page.isLiveForAutomation ? nil : page
+    }
+
+    /// Waits until `page` is live, or `timeout` passes.
+    /// - Returns: Whether the page is live.
+    func waitForEnginePageAutomationReadiness(
+        _ page: any BrowserPage & BrowserEnginePageAutomationStarting,
+        timeout: Duration
+    ) async -> Bool {
+        let key = ObjectIdentifier(page)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        // The command's readiness deadline, not a settle delay: it wakes the
+        // waiter below one last time.
+        let timer = Task { @MainActor in
+            try? await clock.sleep(until: deadline)
+            BrowserEnginePageAutomationReadiness.wake(key)
+        }
+        defer { timer.cancel() }
+        while !page.isLiveForAutomation {
+            // An engine that failed to start reports at once, not at the deadline.
+            if Task.isCancelled || clock.now >= deadline || isEngineUnavailableForAutomation(page) { return false }
+            await BrowserEnginePageAutomationReadiness.nextWake(key)
+        }
+        return true
+    }
+
+    private func isEngineUnavailableForAutomation(_ page: any BrowserPage) -> Bool {
+        engineRuntime.availability(for: page.engineKind).unavailableReason != nil
+    }
+}
+
+extension TerminalController {
+    /// Socket methods that load the page themselves, so they skip the
+    /// automation start below.
+    nonisolated static let v2EngineSelfLoadingMethods: Set<String> = [
+        "browser.navigate", "browser.reload",
+    ]
+
+    /// Before a browser automation command: when its surface is a Chromium
+    /// page Memory Saver released, or one that was never created, restore or
+    /// create it and wait (socket worker, bounded) until it takes DevTools
+    /// commands, as WebKit restores a discarded tab for automation. A page
+    /// that does not come up leaves the command to report the engine's error.
+    nonisolated func v2StartEnginePageForAutomation(method: String, params: [String: Any]) {
+        guard !Self.v2EngineSelfLoadingMethods.contains(method) else { return }
+        let pending: (BrowserPanel, any BrowserPage & BrowserEnginePageAutomationStarting)? = v2MainSync {
+            guard let tabManager = v2ResolveTabManager(params: params),
+                  let context = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager).context,
+                  context.browserPanel.engineKind != .webkit,
+                  let page = context.browserPanel.startEnginePageForAutomation() else { return nil }
+            return (context.browserPanel, page)
+        }
+        guard let (panel, page) = pending else { return }
+#if DEBUG
+        cmuxDebugLog("browser.automation.engine.start method=\(method) panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        _ = v2AwaitEnginePage(timeout: 10) {
+            await panel.waitForEnginePageAutomationReadiness(page, timeout: .seconds(10))
+        }
     }
 }

@@ -10256,7 +10256,11 @@ class TerminalController {
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
             let browserPanel = context.browserPanel
-            let webView: NSView = browserPanel.automationEnginePage?.contentView ?? browserPanel.webView
+            if let enginePage = browserPanel.automationEnginePage {
+                focused = BrowserPanel.enginePageHasKeyboardFocus(enginePage)
+                return
+            }
+            let webView: NSView = browserPanel.webView
             guard let window = webView.window,
                   let fr = window.firstResponder as? NSView else {
                 focused = false
@@ -10718,6 +10722,8 @@ class TerminalController {
     private nonisolated func v2BrowserAutomationCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
         // A Chromium page that could not run answers one error on every verb.
         v2ClearEnginePageUnavailable()
+        // A Chromium page Memory Saver released, or never created, comes up first.
+        v2StartEnginePageForAutomation(method: method, params: params)
         return v2ApplyEnginePageUnavailable(v2BrowserAutomationCommandDispatch(method: method, params: params))
     }
 
