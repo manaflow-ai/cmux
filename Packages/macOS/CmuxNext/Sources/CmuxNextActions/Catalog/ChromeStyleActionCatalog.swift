@@ -73,6 +73,14 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
                 cliName: "settings window-style-two-tone",
                 surfacePlan: plan
             ),
+            ActionDescriptor(
+                id: "appearance.chromeStyle.floating",
+                title: String(localized: "action.appearance.chromeStyle.floating", defaultValue: "Window Style: Floating Panes", table: "SettingsActions", bundle: .module),
+                keywords: ["window", "style", "chrome", "appearance", "look", "floating", "panes", "cards", "gaps", "rounded", "darker", "background", "no borders"],
+                category: .settings, symbol: "square.grid.2x2.fill", surfaces: [.palette],
+                cliName: "settings window-style-floating",
+                surfacePlan: plan
+            ),
         ]
     }
 }
