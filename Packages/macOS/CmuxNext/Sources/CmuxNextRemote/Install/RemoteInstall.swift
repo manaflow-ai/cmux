@@ -254,8 +254,11 @@ public struct RemoteInstallPlan: Hashable, Sendable {
         if let daemonPID, daemonPID > 1 {
             script += """
             args=$(ps -o args= -p \(daemonPID) 2>/dev/null || true)
+            # A daemon that re-executed itself shows `/proc/self/exe` as its argv[0]: its
+            # executable (Linux /proc, else ps comm) names cmux-tui, also once replaced ("(deleted)").
+            exe=$(readlink /proc/\(daemonPID)/exe 2>/dev/null || ps -o comm= -p \(daemonPID) 2>/dev/null || true)
             case "$args" in
-              *cmux-tui*"--session \(host.session)"*) kill -TERM \(daemonPID) 2>/dev/null || true ;;
+              *"--session \(host.session)"*) case "$exe $args" in *cmux-tui*) kill -TERM \(daemonPID) 2>/dev/null || true ;; esac ;;
             esac
 
             """
