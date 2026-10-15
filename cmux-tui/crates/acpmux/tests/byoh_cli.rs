@@ -105,7 +105,7 @@ impl User {
 impl Drop for User {
     fn drop(&mut self) {
         if let Some(mut child) = self.daemon.take() {
-            let _ = self.run(&["daemon", "shutdown"]);
+            let _ = self.run(&["daemon", "shutdown", "--end-agents"]);
             let _ = child.kill();
             let _ = child.wait();
         }
