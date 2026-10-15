@@ -47,13 +47,24 @@ const state = { target: scenario.target };
 const failed = [];
 const notices = [];
 const writes = [];
+const warnings = [];
+const EVICTED = "Canceling since a higher priority waiting request for nightly-next-promote exists";
+const dispatchRun = (id) => scenario.dispatchRuns.find((run) => run.id === id);
 const listJobs = (params) => {
+  if (params.run_id < 1000) {
+    // A promotion request's own jobs; the promote job's id is its check run id.
+    const run = dispatchRun(params.run_id);
+    return [{ id: 5000 + run.id, name: 'promote-nightly-next', status: 'completed', conclusion: run.conclusion }];
+  }
   const sha = history[params.run_id - 1000];
   const green = !scenario.notGreen.includes(sha);
   return [{ name: 'cmux-next Release compile (Xcode 26)', status: 'completed', conclusion: green ? 'success' : 'failure' }];
 };
 const runsFor = (params) => {
   if (params.workflow_id === 'nightly.yml') {
+    if (scenario.listThrows) {
+      throw Object.assign(new Error('Service Unavailable'), { status: 503 });
+    }
     if (params.event !== 'workflow_dispatch' || params.branch !== 'main') {
       throw new Error(`unexpected nightly.yml lookup ${JSON.stringify(params)}`);
     }
@@ -74,6 +85,13 @@ const actions = {
 const github = {
   rest: {
     actions,
+    checks: {
+      listAnnotations: async ({ check_run_id }) => {
+        const run = dispatchRun(check_run_id - 5000);
+        const message = run.cancelledBy === 'queue' ? EVICTED : 'The run was canceled by @teamleaderleo.';
+        return { data: [{ annotation_level: 'failure', message }] };
+      },
+    },
     git: {
       getRef: async ({ ref }) => {
         if (ref === 'heads/feat-cmux-next') return { data: { object: { sha: history[history.length - 1] } } };
@@ -111,6 +129,7 @@ const writer = {
 const core = {
   setFailed: (message) => failed.push(message),
   notice: (message) => notices.push(message),
+  warning: (message) => warnings.push(message),
 };
 const context = { repo: { owner: 'manaflow-ai', repo: 'cmux' }, runId: 1 };
 const originalSetTimeout = global.setTimeout;
@@ -126,7 +145,7 @@ global.setTimeout = (callback) => { callback(); return 0; };
   }
 })().then(() => {
   global.setTimeout = originalSetTimeout;
-  console.log(JSON.stringify({ target: state.target, writes, failed, notices }));
+  console.log(JSON.stringify({ target: state.target, writes, failed, notices, warnings }));
 }).catch((error) => {
   global.setTimeout = originalSetTimeout;
   console.error(error);
@@ -191,6 +210,7 @@ def queue(running: str, arrivals: list[str]) -> tuple[list[str], list[dict]]:
             continue
         if waiting is not None:
             waiting["conclusion"] = "cancelled"
+            waiting["cancelledBy"] = "queue"
         waiting = run
     if waiting is not None:
         started.append(waiting["sha"])
@@ -202,6 +222,7 @@ def queue(running: str, arrivals: list[str]) -> tuple[list[str], list[dict]]:
             "head_branch": "main",
             "status": "completed",
             "conclusion": run["conclusion"],
+            "cancelledBy": run.get("cancelledBy"),
             "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         for run in runs
@@ -210,7 +231,8 @@ def queue(running: str, arrivals: list[str]) -> tuple[list[str], list[dict]]:
 
 
 def run_promotions(requests: list[str], dispatch_runs: list[dict], *,
-                   target: str = BASE, not_green: list[str] | None = None) -> dict:
+                   target: str = BASE, not_green: list[str] | None = None,
+                   list_throws: bool = False) -> dict:
     scenario = {
         "script": promotion_script(),
         "history": HISTORY,
@@ -218,6 +240,7 @@ def run_promotions(requests: list[str], dispatch_runs: list[dict], *,
         "requests": requests,
         "dispatchRuns": dispatch_runs,
         "notGreen": not_green or [],
+        "listThrows": list_throws,
     }
     result = subprocess.run(
         ["node", "-e", HARNESS],
@@ -261,10 +284,33 @@ def test_a_cancelled_request_without_a_green_compile_is_not_promoted() -> None:
     assert UNGREEN not in result["writes"]
 
 
+def test_a_request_cancelled_by_a_person_is_not_promoted() -> None:
+    """Only requests GitHub cancelled in the queue are recovered, not deliberate cancels."""
+    requests, dispatch_runs = queue(RUNNING, [OLDER])
+    manual = dict(dispatch_runs[-1], id=len(dispatch_runs) + 1, conclusion="cancelled",
+                  cancelledBy="person", display_title=run_title(NEWER))
+    result = run_promotions(requests, dispatch_runs + [manual])
+    assert result["failed"] == [], result["failed"]
+    assert result["target"] == OLDER, (
+        f"nightly-next moved to {short(result['target'])}, a request a person cancelled"
+    )
+
+
+def test_a_failed_recovery_scan_still_promotes_the_admitted_commit() -> None:
+    """An API error while looking for cancelled requests must not drop this request."""
+    requests, dispatch_runs = queue(RUNNING, [NEWER, OLDER])
+    result = run_promotions(requests, dispatch_runs, list_throws=True)
+    assert result["failed"] == [], result["failed"]
+    assert result["target"] == OLDER, short(result["target"])
+    assert result["warnings"], "the failed scan should leave a warning"
+
+
 def main() -> None:
     test_one_writer_for_every_request()
     test_a_late_older_request_does_not_drop_a_cancelled_newer_one()
     test_a_cancelled_request_without_a_green_compile_is_not_promoted()
+    test_a_request_cancelled_by_a_person_is_not_promoted()
+    test_a_failed_recovery_scan_still_promotes_the_admitted_commit()
     print("PASS: nightly-next promotion queue")
 
 
