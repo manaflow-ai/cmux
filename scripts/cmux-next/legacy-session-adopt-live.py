@@ -161,6 +161,12 @@ class Home:
             if code != 0 and "not running" not in (error + json.dumps(result)).lower() and "no server" not in error.lower():
                 failed.append(session)
         self.started = []
+        acpmux = os.path.join(self.stage.app, "Contents/Resources/bin/acpmux")
+        for acpmux_home in glob.glob(os.path.join(self.home, ".acpmux/builds/*")) + glob.glob(os.path.join(self.home, ".acpmux")):
+            env = self.env()
+            env["ACPMUX_HOME"] = acpmux_home
+            out = subprocess.run([acpmux, "daemon", "shutdown"], env=env, capture_output=True, text=True, timeout=20)
+            print(f"  acpmux daemon shutdown {acpmux_home}: exit {out.returncode}")
         if failed:
             raise SystemExit(f"could not stop {failed}; refusing to run the next scenario on a live daemon")
 
@@ -181,7 +187,7 @@ class App:
         self.process = subprocess.Popen([home.stage.binary, *arguments], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                         start_new_session=True, pass_fds=(write_fd,))
         os.close(write_fd)
-        self.read_fd, self.buffer, self.marks = read_fd, b"", {}
+        self.read_fd, self.buffer, self.marks, self.home = read_fd, b"", {}, home
 
     def wait_mark(self, name, timeout):
         deadline = time.monotonic() + timeout
@@ -201,7 +207,10 @@ class App:
         return True
 
     def workspace_names(self):
-        client = bounded(lambda: _try_client(CONTROL_SOCKET), 30, "the app's control socket")
+        # The kept name (/tmp/cmux-staging.sock), or the same name under the scratch HOME's state dir.
+        candidates = [CONTROL_SOCKET, os.path.join(self.home.home, ".local/state/cmux/cmux-staging.sock")]
+        client = bounded(lambda: next(filter(None, map(_try_client, candidates)), None), 30,
+                         f"the app's control socket ({candidates}; app alive: {self.process.poll() is None}; marks: {sorted(self.marks)[:12]})")
         try:
             topology = (client.call("snapshot.get").get("result") or {}).get("topology") or {}
         finally:
@@ -210,7 +219,7 @@ class App:
 
     def quit(self):
         try:
-            client = _try_client(CONTROL_SOCKET)
+            client = next(filter(None, map(_try_client, [CONTROL_SOCKET, os.path.join(self.home.home, ".local/state/cmux/cmux-staging.sock")])), None)
             if client:
                 client.call("action.run", {"id": "quitKeepSessions"})
                 client.close()
