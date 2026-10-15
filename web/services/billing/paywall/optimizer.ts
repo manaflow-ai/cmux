@@ -449,18 +449,16 @@ function retirements(definition: ExperimentDefinition, live: readonly VariantSta
 /** Queued variants (0%, never retired) promoted, in flag order, to fill the live-arm cap. */
 function promotions(
   definition: ExperimentDefinition,
-  flag: Pick<PostHogFlag, "variants">,
   stats: readonly VariantStats[],
   liveCount: number,
-  retiredBefore: ReadonlySet<string>,
+  promotable: readonly string[],
   reasons: string[],
 ): VariantStats[] {
   const room = Math.max(0, definition.policy.maxLiveArms - liveCount);
-  const queued = flag.variants
-    .filter((variant) => variant.rolloutPercentage === 0 && !retiredBefore.has(variant.key))
+  const queued = promotable
     .slice(0, room)
-    .map((variant) => stats.find((stat) => stat.variant === variant.key)
-      ?? { variant: variant.key, exposures: 0, conversions: 0, exposuresSinceChange: 0, secondary: {}, guardrails: {} });
+    .map((variant) => stats.find((stat) => stat.variant === variant)
+      ?? { variant, exposures: 0, conversions: 0, exposuresSinceChange: 0, secondary: {}, guardrails: {} });
   for (const stat of queued) reasons.push(`promote ${stat.variant}: fewer than ${definition.policy.maxLiveArms} live arms`);
   return queued;
 }
@@ -487,7 +485,8 @@ export function decideAllocation(
   flag: Pick<PostHogFlag, "variants">,
   stats: readonly VariantStats[],
   random: () => number,
-  retiredBefore: ReadonlySet<string> = new Set(),
+  /** Queued variants that may go live now, in queue order (see promotableVariants). */
+  promotable: readonly string[] = [],
 ): OptimizerDecision {
   const policy = definition.policy;
   const current = Object.fromEntries(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage]));
@@ -509,7 +508,7 @@ export function decideAllocation(
   const ready = live.every((stat) => stat.exposures >= policy.minExposuresPerVariant);
   const retire = ready ? retirements(definition, live, pBest, reasons) : [];
   const remaining = live.filter((stat) => !retire.includes(stat.variant));
-  const promoted = promotions(definition, flag, stats, remaining.length, new Set([...retiredBefore, ...retire]), reasons);
+  const promoted = promotions(definition, stats, remaining.length, promotable, reasons);
   const split = armSplit(definition, [...remaining, ...promoted], pBest, reasons);
   const target: Record<string, number> = Object.fromEntries(flag.variants.map((variant) => [variant.key, split[variant.key] ?? 0]));
   const changed = Object.keys(target).some((variant) => target[variant] !== current[variant]);
@@ -674,11 +673,41 @@ export type RunOptimizerInput = {
   readonly applyAllocation?: boolean;
 };
 
-/** Variants retired by an earlier run; a 0% variant not in this set is queued. */
-async function retiredVariants(definition: ExperimentDefinition, log: PaywallExperimentLog | null): Promise<ReadonlySet<string>> {
-  if (!log) return new Set();
-  const changes = await log.changes(definition.key, 1000);
-  return new Set(changes.filter((change) => change.kind === "variant_retired" && change.variant).map((change) => change.variant!));
+type QueueState = {
+  /** Queued variants that may go live now, in queue order. */
+  readonly promotable: readonly string[];
+  /** Every variant still waiting in the queue (promotable or blocked for now). */
+  readonly waiting: readonly string[];
+  /** Why a waiting variant cannot be promoted yet (reported). */
+  readonly blocked: readonly string[];
+};
+
+/**
+ * The challenger queue: the experiment's reviewed `queue` order, minus
+ * variants that were ever promoted or retired (a variant an operator set to
+ * 0% is not in the queue, so it is never brought back), minus variants at
+ * traffic. A waiting variant is promotable only when its payload passes the
+ * validator and the experiment's own gate (servable now, app adoption).
+ */
+async function promotableVariants(
+  definition: ExperimentDefinition,
+  flag: PostHogFlag,
+  api: PostHogApi,
+  log: PaywallExperimentLog | null,
+): Promise<QueueState> {
+  const used = log ? await log.variantsWithChange(definition.key, ["variant_promoted", "variant_retired"]) : new Set<string>();
+  const rollout = new Map(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage]));
+  const waiting = (definition.queue ?? []).filter((variant) => rollout.get(variant) === 0 && !used.has(variant));
+  const promotable: string[] = [];
+  const blocked: string[] = [];
+  for (const variant of waiting) {
+    const payload = parsedPayload(flag.payloads[variant]);
+    const validation = definition.validatePayload(payload, variant);
+    const gate = validation.ok ? await definition.promotionGate?.(variant, payload, api) ?? null : "its payload fails the copy validator";
+    if (gate) blocked.push(`queued ${variant} cannot be promoted yet: ${gate}`);
+    else promotable.push(variant);
+  }
+  return { promotable, waiting, blocked };
 }
 
 function runDecision(
@@ -687,9 +716,9 @@ function runDecision(
   found: PostHogFlag | null,
   stats: readonly VariantStats[],
   now: Date,
-  retiredBefore: ReadonlySet<string>,
+  promotable: readonly string[],
 ): OptimizerDecision {
-  const decision = decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`), retiredBefore);
+  const decision = decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`), promotable);
   if (!found || found.active) return decision;
   return {
     ...decision,
@@ -704,7 +733,7 @@ function variantSnapshots(
   flag: PostHogFlag,
   stats: readonly VariantStats[],
   decision: OptimizerDecision,
-  retiredBefore: ReadonlySet<string>,
+  queued: ReadonlySet<string>,
 ): VariantSnapshot[] {
   return flag.variants.map((variant) => {
     const stat = stats.find((item) => item.variant === variant.key);
@@ -714,7 +743,7 @@ function variantSnapshots(
     return {
       variant: variant.key,
       name: variant.name ?? null,
-      status: after > 0 ? "live" : retiredBefore.has(variant.key) || decision.retire.includes(variant.key) ? "retired" : "queued",
+      status: after > 0 ? "live" : queued.has(variant.key) ? "queued" : "retired",
       rolloutBefore: variant.rolloutPercentage,
       rolloutAfter: after,
       exposures: stat?.exposures ?? 0,
@@ -736,9 +765,10 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
   if (!flag) throw new Error(`Flag ${definition.flagKey} does not exist`);
   const allocationSince = await srmWindowStart(definition, log);
   const stats = await fetchVariantStats(api, definition, flag.variants.map((variant) => variant.key), allocationSince);
-  const retiredBefore = await retiredVariants(definition, log);
-  const decision = runDecision(definition, flag, found, stats, now, retiredBefore);
-  const variants = variantSnapshots(definition, flag, stats, decision, retiredBefore);
+  const queue = await promotableVariants(definition, flag, api, log);
+  const decided = runDecision(definition, flag, found, stats, now, queue.promotable);
+  const decision: OptimizerDecision = { ...decided, reasons: [...decided.reasons, ...queue.blocked] };
+  const variants = variantSnapshots(definition, flag, stats, decision, new Set(queue.waiting));
   if (!input.dryRun) {
     if (!found) throw new Error(`Flag ${definition.flagKey} does not exist; create it before a live run`);
     if (!log) throw new Error("A live run needs the experiment log (DATABASE_URL)");

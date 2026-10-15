@@ -106,8 +106,19 @@ Code:
 
 At most 4 arms get traffic at once: control and 3 challengers
 (`maxLiveArms`). Other variants wait at 0% as `queued`. When a challenger
-is retired, the optimizer promotes the next queued variant, in flag order,
-and records `variant_promoted`. The new arm starts with no exposures, so
+is retired, the optimizer promotes the next queued variant and records
+`variant_promoted`.
+
+- The queue is the experiment's reviewed `queue` list (for `ios-paywall-v1`:
+  the seeded 0% variants, layouts every app can draw first). A variant that
+  was ever promoted or retired, or that an operator set to 0% by hand, is not
+  promoted again.
+- A queued variant is skipped (and the report says why) while its payload
+  fails the validator, while it cannot be served (the trial arm without the
+  trial keys), or while fewer than 90% of the last 14 days' assignments came
+  from apps that can draw its layout (`paywall_app_layouts` on
+  `paywall_assigned`). Otherwise most of its users would see `cards`, and
+  the arm would be judged on the wrong screen. The new arm starts with no exposures, so
 the split goes back to equal until every live arm has 50 exposures again.
 
 The cap exists because of traffic. Every live arm needs its own 50

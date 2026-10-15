@@ -7,8 +7,11 @@
 // Every analysis is per experiment, and every experiment is on one platform:
 // iOS and web rates are never pooled.
 
-import { IOS_PAYWALL_CONTROL_VARIANT, IOS_PAYWALL_EXPERIMENT } from "./iosPaywallV1";
-import { validateIosPaywallPayload, type ValidationResult } from "./validator";
+import { IOS_PAYWALL_CONTROL_VARIANT, IOS_PAYWALL_EXPERIMENT, IOS_PAYWALL_V1_SEED } from "./iosPaywallV1";
+import type { PostHogApi } from "./optimizer";
+import { IOS_PAYWALL_BASE_LAYOUTS, validateIosPaywallPayload, type ValidationResult } from "./validator";
+
+const isBaseLayout = (layout: string) => (IOS_PAYWALL_BASE_LAYOUTS as readonly string[]).includes(layout);
 
 /** A count over people exposed to the experiment, after their first exposure. */
 export type ExperimentMetric = {
@@ -62,6 +65,16 @@ export type ExperimentDefinition = {
   readonly secondary: readonly ExperimentMetric[];
   readonly guardrails: readonly ExperimentMetric[];
   readonly policy: ExperimentPolicy;
+  /**
+   * The challenger queue, in promotion order: variants that start at 0% and
+   * go live one at a time as challengers retire (live-arm cap).
+   */
+  readonly queue?: readonly string[];
+  /**
+   * Why a queued variant cannot go live yet (for example, apps cannot draw
+   * its layout), or null when it can. Checked before every promotion.
+   */
+  readonly promotionGate?: (variant: string, payload: unknown, api: PostHogApi) => Promise<string | null>;
   /** Validates one variant's flag payload; invalid payloads are never served. */
   readonly validatePayload: (payload: unknown, variant: string) => ValidationResult<unknown>;
 };
@@ -115,8 +128,41 @@ export const IOS_PAYWALL_V1: ExperimentDefinition = {
     { key: "revoked", label: "Revoked", event: "subscription_revoked", where: "1 = 1" },
   ],
   policy: DEFAULT_EXPERIMENT_POLICY,
+  // Seed order, with variants every app can draw first.
+  queue: IOS_PAYWALL_V1_SEED
+    .filter((variant) => variant.rolloutPercentage === 0)
+    .map((variant, index) => ({ key: variant.key, rank: (isBaseLayout(variant.payload.layout) ? 0 : 1000) + index }))
+    .sort((left, right) => left.rank - right.rank)
+    .map((variant) => variant.key),
+  promotionGate: (_variant, payload, api) => iosLayoutAdoptionGate(payload, api),
   validatePayload: (payload, variant) => validateIosPaywallPayload(payload, IOS_PAYWALL_EXPERIMENT, variant),
 };
+
+/** Share of recent assignments whose app must be able to draw a layout before an arm using it goes live. */
+export const LAYOUT_ADOPTION_THRESHOLD = 0.9;
+const LAYOUT_ADOPTION_MIN_ASSIGNMENTS = 20;
+
+/**
+ * A variant whose layout older apps cannot draw is promoted only when at
+ * least 90% of the last 14 days' assignments came from apps that declare that
+ * layout; otherwise most of its users would see `cards` and the arm would be
+ * judged on the wrong screen. Base layouts are always drawable.
+ */
+async function iosLayoutAdoptionGate(payload: unknown, api: PostHogApi): Promise<string | null> {
+  const layout = payload && typeof payload === "object" ? (payload as { layout?: unknown }).layout : undefined;
+  if (typeof layout !== "string" || isBaseLayout(layout)) return null;
+  if (!/^[A-Za-z]+$/.test(layout)) return "unknown layout";
+  const rows = await api.query(`SELECT count() AS total,
+      countIf(has(splitByChar(',', coalesce(toString(properties.paywall_app_layouts), '')), '${layout}')) AS drawable
+    FROM events
+    WHERE event = 'paywall_assigned' AND properties.paywall_experiment = '${IOS_PAYWALL_EXPERIMENT}'
+      AND timestamp >= now() - toIntervalDay(14) AND (${COMMON_EXPOSURE_EXCLUSIONS})`);
+  const total = Number(rows[0]?.[0] ?? 0);
+  const drawable = Number(rows[0]?.[1] ?? 0);
+  if (total < LAYOUT_ADOPTION_MIN_ASSIGNMENTS) return `too few recent assignments (${total}) to know if apps can draw ${layout}`;
+  const share = drawable / total;
+  return share >= LAYOUT_ADOPTION_THRESHOLD ? null : `only ${(share * 100).toFixed(0)}% of recent assignments came from apps that can draw ${layout}`;
+}
 
 /** Every experiment the optimizer manages, in run order. */
 export const PAYWALL_EXPERIMENTS: readonly ExperimentDefinition[] = [IOS_PAYWALL_V1];
