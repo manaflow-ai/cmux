@@ -248,10 +248,11 @@ export function HomeChannelsPage({
   const selectionMessage = focusedMessage?.id ?? snap.highlight ?? snap.thread;
   const selection = useMemo<HomeSelection | null>(
     () =>
-      listShown || !snap.selected
+      // Before the first measure the page does not know yet whether only the list shows.
+      measured === undefined || listShown || !snap.selected
         ? null
         : { conversation: snap.selected, ...(selectionMessage ? { message: selectionMessage } : {}) },
-    [listShown, snap.selected, selectionMessage],
+    [measured, listShown, snap.selected, selectionMessage],
   );
   useHostSelection(store.host, selection);
   const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
