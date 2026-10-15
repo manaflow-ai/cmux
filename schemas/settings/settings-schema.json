@@ -907,6 +907,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -10029,7 +10030,8 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -10089,6 +10091,13 @@
             "text" : "Two-Tone"
           },
           "value" : "two-tone"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.floating",
+            "text" : "Floating Panes"
+          },
+          "value" : "floating"
         }
       ],
       "consumers" : [
@@ -10121,7 +10130,9 @@
         "sidebar",
         "two-tone",
         "minimal",
-        "bare"
+        "bare",
+        "floating",
+        "gaps"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -22213,6 +22224,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.classicHome.help",
+        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.classicHome",
+      "keywords" : [
+        "home",
+        "chief",
+        "classic",
+        "dock",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "classicHome"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.classicHome",
+        "text" : "Classic Home"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23611,7 +23670,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "8aca0ac10cf8c3292f1c8667395babe890fbd695fd1c30f7aa2fa0f65aa5fd43",
+  "schema_hash" : "3de28fe427369d44e618f8f6af0e443359844cea2aceb2418dfc1729a64ac89d",
   "sections" : [
     {
       "id" : "general",
