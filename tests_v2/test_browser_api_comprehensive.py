@@ -8,6 +8,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from browser_local_pages import local_html_url
 from cmux import BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S, cmux, cmuxError
 
 
@@ -20,7 +21,7 @@ def _must(cond: bool, msg: str) -> None:
 
 
 def _data_url(html: str) -> str:
-    return "data:text/html;charset=utf-8," + urllib.parse.quote(html)
+    return local_html_url(html, "comprehensive")
 
 
 def _wait_until(pred, timeout_s: float, label: str) -> None:
@@ -139,7 +140,11 @@ def _build_pages() -> tuple[str, str]:
 </html>
 """.strip()
 
-    return _data_url(page1), _data_url(page2)
+    # The file names carry the markers the history checks look for in the URL.
+    return (
+        local_html_url(page1, "cmux-browser-comprehensive-1"),
+        local_html_url(page2, "cmux-browser-comprehensive-2"),
+    )
 
 
 def main() -> int:
@@ -193,10 +198,10 @@ def main() -> int:
         _wait_with_fallback(
             c,
             target,
-            {"url_contains": "data:text/html", "timeout_ms": 3000},
-            lambda: "data:text/html" in str((c._call("browser.url.get", {"surface_id": target}) or {}).get("url") or ""),
+            {"url_contains": "comprehensive-", "timeout_ms": 3000},
+            lambda: "comprehensive-" in str((c._call("browser.url.get", {"surface_id": target}) or {}).get("url") or ""),
             timeout_s=4.0,
-            label="browser.wait url_contains data:text/html",
+            label="browser.wait url_contains the local page",
         )
 
         _wait_until(
@@ -206,7 +211,7 @@ def main() -> int:
             label="browser.get.title page1",
         )
         url_payload = c._call("browser.url.get", {"surface_id": target}) or {}
-        _must("data:text/html" in str(url_payload.get("url") or ""), f"Expected data URL from browser.url.get: {url_payload}")
+        _must("comprehensive-" in str(url_payload.get("url") or ""), f"Expected the local page URL from browser.url.get: {url_payload}")
 
         c._call("browser.fill", {"surface_id": target, "selector": "#name", "text": "cmux"})
         c._call("browser.click", {"surface_id": target, "selector": "#btn"})
