@@ -358,15 +358,11 @@ def trace_stop(handle):
 
 def start_ticks(seconds=180, tick_ms=250):
     """Each T..-tick terminal's program reports OSC 7501 working/idle every `tick_ms` for `seconds` (sidebar-rows-perf-live.py)."""
-    terms = []
-    try:
-        data = json.loads(cli("--json", "terminal", "list"))
-        for item in (data.get("terminals") if isinstance(data, dict) else data) or []:
-            ident = next((v for v in item.values() if isinstance(v, str) and v.startswith("term_")), None)
-            if ident and "-tick" in json.dumps(item):
-                terms.append(ident)
-    except (ValueError, AttributeError):
-        pass
+    # hitch15: the JSON items did not name their workspace, so no "-tick" match: every listed terminal ticks
+    # (the 50 ticking ones plus the 6 named workspaces' terminals).
+    listed = cli("terminal", "list")
+    terms = sorted(set(re.findall(r"term_[0-9a-f]+", listed)))
+    print("terminal list:", len(terms), "ids;", listed[:200].replace("\n", " | "), flush=True)
     count = int(seconds * 1000 / tick_ms)
     loop = (f"i=0; while [ $i -lt {count} ]; do if [ $((i % 2)) = 0 ]; then s=working; else s=idle; fi; "
             f"printf '\\033]7501;state=%s\\033\\\\' $s; sleep {tick_ms / 1000}; i=$((i + 1)); done; printf '\\033]7501;state=idle\\033\\\\'\n")
@@ -375,7 +371,7 @@ def start_ticks(seconds=180, tick_ms=250):
     TRACE["ticking_terminals"] = len(terms)
     print("ticking terminals started:", len(terms), flush=True)
     if not terms:
-        fail_harness("--ticking: no T..-tick terminal found in `terminal list`")
+        fail_harness(f"--ticking: no terminal id in `terminal list`: {listed[:300]}")
 
 
 def ptys_in_use():
