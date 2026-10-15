@@ -16,7 +16,7 @@
   text-size-adjust: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--cmux-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif);
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
   accent-color: var(--cmux-accent, currentColor);
@@ -116,7 +116,7 @@ select {
   backdrop-filter: var(--tooltip-blur);
   box-shadow: var(--tooltip-shadow);
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--cmux-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   overflow-wrap: anywhere;
