@@ -387,6 +387,14 @@ class Journey:
                 if not self.sim.find(contains="Connect your Mac"):
                     break
                 notes.append(f"Continue tap {attempt + 1} did not advance")
+            if self.sim.find(contains="Connect your Mac"):
+                # Seen on loaded minis: taps right after the page settles are dropped; a
+                # later tap on the button's place advances (2026-10-15 rounds 3 and 4).
+                time.sleep(3)
+                found = self.sim.find(label="Continue", kind="Button")
+                if found:
+                    self.sim.tap_el(found[0]); time.sleep(3)
+                    notes.append("late Continue tap")
         if self.sim.find(label="Turn on notifications"):
             self.sim.tap_q(label="Not now", kind="Button"); notes.append("notifications: Not now")
         check(self.sim.wait(label="Workspaces", kind="RadioButton", timeout=20), "never reached the tab bar")
