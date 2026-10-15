@@ -123,7 +123,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // Closed tabs release their surface.
         let open = Set(workspace.tabs.map(\.id))
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
-            hosts[id] = nil
+            // Its Mac attach goes too: a closed tab's session kept waiting to
+            // reattach after the next drop (V5-5).
+            hosts.removeValue(forKey: id)?.model.session.stop()
             stopWatching(id)
             indicators[id] = nil
             workspaceOwner[id] = nil
