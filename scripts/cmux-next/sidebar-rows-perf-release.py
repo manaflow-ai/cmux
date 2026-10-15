@@ -475,6 +475,7 @@ def record(name, ticks, terms, profile):
     held = subprocess.run(["lsof", "-p", str(proc.pid), "-Fn"], capture_output=True, text=True).stdout.splitlines()
     mine = {line[1:] for line in held if line.startswith("n") and os.path.basename(line[1:]).startswith("instruments")
             and line.endswith(".ktrace")}
+    load_before = [round(x, 2) for x in os.getloadavg()]  # host load (other lanes' jobs run beside an input job)
     began = time.monotonic()
     bad = sweep("down") + sweep("up")
     gesture_s = round(time.monotonic() - began, 2)
@@ -485,7 +486,8 @@ def record(name, ticks, terms, profile):
     except subprocess.TimeoutExpired:
         proc.terminate()
         out = "timeout"
-    result = {"name": name, "gesture_s": gesture_s, "bounds": Target.bounds, "wheel_errors": [json.dumps(b)[:200] for b in bad[:3]],
+    result = {"name": name, "gesture_s": gesture_s, "bounds": Target.bounds, "load_before": load_before,
+              "load_after": [round(x, 2) for x in os.getloadavg()], "wheel_errors": [json.dumps(b)[:200] for b in bad[:3]],
               "xctrace_exit": proc.returncode}
     if not os.path.exists(path):
         shutil.rmtree(xct_tmp, ignore_errors=True)
