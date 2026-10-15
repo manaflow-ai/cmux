@@ -88,6 +88,24 @@ pub(crate) enum Refusal {
     /// committed.
     KeyConflict(String),
     TooMany,
+    /// `chief.profile.adopt`: the participant is already a live Chief record.
+    AlreadyChief,
+    /// `chief.profile.adopt`: the id is a deleted Chief (its tombstone, and
+    /// its memory while kept); an adopt never revives it.
+    DeletedChief,
+    /// `chief.profile.adopt`: the default Chief is a record already.
+    DefaultChief,
+    /// `chief.profile.adopt`: no agent participant of a local conversation
+    /// has this id (or it is a person).
+    NotAgentParticipant,
+    /// `chief.profile.adopt`: another Chief (live or deleted) has the same
+    /// brain directory (`chief_brains::brain_home`: the id's last 8
+    /// characters, lowercased), so adopting it would share or revive that
+    /// brain and its memory.
+    BrainHomeTaken,
+    /// `chief.profile.adopt`: a connection is bound to the participant (its
+    /// current agent session); two processes never speak as one participant.
+    ParticipantBound,
 }
 
 impl Refusal {
@@ -99,6 +117,12 @@ impl Refusal {
             Self::RevMismatch(_) => "rev_mismatch",
             Self::KeyConflict(_) => "idempotency_conflict",
             Self::TooMany => "too_many_chiefs",
+            Self::AlreadyChief => "already_chief",
+            Self::DeletedChief => "deleted_chief",
+            Self::DefaultChief => "default_chief",
+            Self::NotAgentParticipant => "not_an_agent_participant",
+            Self::BrainHomeTaken => "brain_home_taken",
+            Self::ParticipantBound => "participant_bound",
         }
     }
 }
@@ -473,10 +497,80 @@ pub(crate) fn create(
     let mut random = [0_u8; 10];
     getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("chief id randomness"))?;
     let id = cmux_conversation::encode_id("agent_", now_ms, random);
+    insert_new(tx, &id, now_ms, fields).map(Ok)
+}
+
+/// `chief.profile.adopt`'s write: a record for an existing agent participant
+/// `id` (already checked to be one, and not `agent_mux`), with `create`'s
+/// defaults, `display_name` unless `fields` names one, and only the given
+/// fields. A live record or a tombstone of `id` refuses: an adopt never
+/// revives a deleted Chief (or the memory kept for it).
+pub(crate) fn adopt(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+    display_name: &str,
+    fields: &Map<String, Value>,
+    claim: impl FnOnce() -> anyhow::Result<bool>,
+) -> anyhow::Result<Outcome<ChiefRecord>> {
+    if id == DEFAULT_CHIEF {
+        return Ok(Err(Refusal::DefaultChief));
+    }
+    let existing: Option<Option<String>> =
+        tx.query_row("SELECT record FROM chief WHERE id = ?1", [id], |r| r.get(0)).optional()?;
+    match existing {
+        Some(Some(_)) => return Ok(Err(Refusal::AlreadyChief)),
+        Some(None) => return Ok(Err(Refusal::DeletedChief)),
+        None => {}
+    }
+    // The brain directory is the id's last 8 characters (chief_brains.rs):
+    // a ULID's random bits for a created Chief, but any text for an adopted
+    // one. No two records, live or deleted, may share it.
+    let tail = |id: &str| id.get(id.len().saturating_sub(8)..).unwrap_or(id).to_ascii_lowercase();
+    let mine = tail(id);
+    let taken = {
+        let mut statement = tx.prepare("SELECT id FROM chief")?;
+        let ids = statement.query_map([], |r| r.get::<_, String>(0))?;
+        let mut taken = false;
+        for other in ids {
+            if tail(&other?) == mine {
+                taken = true;
+            }
+        }
+        taken
+    };
+    if taken {
+        return Ok(Err(Refusal::BrainHomeTaken));
+    }
+    let live: i64 =
+        tx.query_row("SELECT COUNT(*) FROM chief WHERE record IS NOT NULL", [], |r| r.get(0))?;
+    if usize::try_from(live).unwrap_or(usize::MAX) >= MAX_CHIEFS {
+        return Ok(Err(Refusal::TooMany));
+    }
+    // Last, inside this write: the participant must have no bound connection,
+    // and every credential issued for it is revoked (`claim`), so the old
+    // agent session never speaks as the Chief. The revoke commits in the
+    // conversation store; should the insert below then fail, the agent stays
+    // without a credential and no Chief is made (fails safe: the person mints
+    // a new credential).
+    if !claim()? {
+        return Ok(Err(Refusal::ParticipantBound));
+    }
+    let mut fields = fields.clone();
+    fields.entry("display_name").or_insert_with(|| Value::String(display_name.to_owned()));
+    insert_new(tx, id, now_ms(), &fields).map(Ok)
+}
+
+/// A new live record `id` with `create`'s defaults and `fields` applied.
+fn insert_new(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+    now_ms: u64,
+    fields: &Map<String, Value>,
+) -> anyhow::Result<ChiefRecord> {
     let seq: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) + 1 FROM chief", [], |r| r.get(0))?;
     let now = cmux_conversation::format_rfc3339_millis(now_ms);
     let mut record = ChiefRecord {
-        id: id.clone(),
+        id: id.to_owned(),
         display_name: String::new(),
         role: String::new(),
         personality: String::new(),
@@ -496,7 +590,7 @@ pub(crate) fn create(
         "INSERT INTO chief (id, seq, record) VALUES (?1, ?2, ?3)",
         params![id, seq, serde_json::to_string(&record)?],
     )?;
-    Ok(Ok(record))
+    Ok(record)
 }
 
 /// `chief.profile.update`'s write: `fields` (already checked) on `id`, guarded by
