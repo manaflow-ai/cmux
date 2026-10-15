@@ -1,9 +1,14 @@
-/* Reasoning menu: one checked row per level the model offers. The track below is the model
-   menu's inline effort row (modelMenuNodes.tsx). Theme tokens only. */
+/* Reasoning menu: one checked row per level the model offers, drawn as a native menu (NSMenu):
+   a fixed leading check gutter, so every label starts at the same x whether or not its row is
+   checked; one row height; section headers and separators on the label column's rhythm. The access
+   menu (composerLocation.css) uses the same gutter and row. The track below is the model menu's
+   inline effort row (modelMenuNodes.tsx). Theme tokens only. */
 .acpmux-effort-menu {
+  --acpmux-menu-gutter: 16px;
+  --acpmux-menu-gutter-gap: 8px;
   width: max-content;
-  min-width: 140px;
-  max-width: min(240px, calc(100vw - 24px));
+  min-width: 160px;
+  max-width: min(280px, calc(100vw - 24px));
   padding: var(--ui-popup-padding);
   border: 0;
   border-radius: var(--ui-popup-radius);
@@ -12,18 +17,66 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--acpmux-menu-gutter) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: var(--cmux-control-height, 26px);
-  padding: 3px 8px;
-  border-radius: 6px;
+  gap: var(--acpmux-menu-gutter-gap);
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding-block: 0;
+  padding-inline: var(--ui-row-padding-inline) calc(var(--ui-row-padding-inline) + 4px);
+  border-radius: var(--ui-row-radius);
   font-size: var(--text-control);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-effort-item .ui-menu-check { order: 2; color: var(--agent-text); }
+.acpmux-effort-item .ui-menu-check {
+  grid-column: 1;
+  display: inline-flex;
+  width: var(--acpmux-menu-gutter);
+  justify-content: center;
+  margin: 0;
+  color: var(--agent-text);
+  font-weight: 600;
+}
+.acpmux-effort-text {
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.acpmux-effort-text .acpmux-menu-label { flex: none; }
+.acpmux-effort-hint { flex: none; align-self: center; }
+/* A level's note is one quiet line beside its name, never a second line that makes its row taller. */
+.acpmux-effort-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+/* Section headers sit on the label column, in the system's small secondary caption. */
+.acpmux-effort-menu .ui-menu-group-label {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding-block: 0;
+  padding-inline: calc(var(--ui-row-padding-inline) + var(--acpmux-menu-gutter) + var(--acpmux-menu-gutter-gap))
+    var(--ui-row-padding-inline);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+}
+/* A hairline between sections, inset to the rows' edges, with even space above and below. */
+.acpmux-effort-menu .ui-separator {
+  height: 1px;
+  margin: 5px var(--ui-row-padding-inline);
+  border: 0;
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
 .acpmux-effort-track {
   --acpmux-effort-inset: calc(13px * var(--cmux-interface-scale, 1));
   position: relative;
