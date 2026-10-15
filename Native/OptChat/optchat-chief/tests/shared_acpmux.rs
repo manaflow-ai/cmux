@@ -528,7 +528,9 @@ fn the_last_chief_to_leave_stops_the_chief_homes_acpmux() {
     let fake = host_stops(dir.path(), &a, &acpmux_home, Some(&h));
     let _guard = Leftovers(vec![fake]);
     // The shutdown runs on after the host (a brain stops within 5 s).
-    wait_for("the daemon ending", Duration::from_secs(10), || !alive(fake));
+    wait_for("the daemon ending", Duration::from_secs(10), || {
+        !alive(fake)
+    });
     assert_eq!(calls(&acpmux_home), ["_acpmux/kill s-a-turn", "shutdown"]);
 }
 
@@ -554,10 +556,12 @@ fn chiefs_that_stop_at_once_leave_no_daemon_behind() {
         b.join("state/host.lock").exists()
     });
     let mut hosts = vec![first, second];
-    let fake: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
-    let _guard = Leftovers(
-        hosts.iter().map(|h| h.id() as i32).chain([fake]).collect(),
-    );
+    let fake: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let _guard = Leftovers(hosts.iter().map(|h| h.id() as i32).chain([fake]).collect());
     for host in &hosts {
         // SAFETY: our own children.
         unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };

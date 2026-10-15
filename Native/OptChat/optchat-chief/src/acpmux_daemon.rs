@@ -443,7 +443,10 @@ pub fn shutdown_shared(log: &dyn Fn(&str)) {
         .process_group(0)
         .spawn();
     match started {
-        Ok(child) => log(&format!("stopping acpmux: `daemon shutdown` runs (pid {})", child.id())),
+        Ok(child) => log(&format!(
+            "stopping acpmux: `daemon shutdown` runs (pid {})",
+            child.id()
+        )),
         Err(e) => log(&format!("stopping acpmux: starting {bin}: {e}")),
     }
 }
