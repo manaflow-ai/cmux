@@ -356,13 +356,54 @@ struct MacScreenPageTabTests {
         pages.tabClosed("tab")
     }
 
-    /// Connect on the home page shows the Mac in the same tab, confirmed by the person.
-    @Test func homeConnectShowsTheMacInThisTab() async throws {
+    /// Connect (or Pair and Connect) on the home page opens the Mac as a new tab that replaces the
+    /// home tab, so the tab's route is the Mac's ("mac:<id>") and a relaunch shows the same Mac. It
+    /// came back as the home page when the Mac was swapped into the home tab (route "home").
+    @Test func homeConnectReplacesTheHomeTabWithTheMacsTab() async throws {
+        let (pages, store) = makePages()
+        let mac = try store.add(link: VNCPairing.generate(name: "Studio", kind: "stream").link.absoluteString).get()
+        var replaced: [(MacScreenRecord, String)] = []
+        pages.events.replaceTab = { record, key in
+            replaced.append((record, key))
+            return true
+        }
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: false)
+        _ = try await show("home", in: pages)
+        pages.openFromHome(mac.id, in: "home")
+        #expect(replaced.map(\.0) == [MacScreenRecord(macID: mac.id)])
+        #expect(replaced.map(\.1) == ["home"])
+        // The home tab itself is untouched (it closes once the Mac's tab exists).
+        #expect(pages.tab("home")?.record == MacScreenRecord(macID: nil))
+        #expect(pages.route(for: "home") == "home")
+        pages.tabClosed("home")
+    }
+
+    /// Home on a Mac's tab replaces it with a home tab the same way (its route becomes "home").
+    @Test func homeFromAMacTabReplacesIt() async throws {
+        let (pages, store) = makePages()
+        let mac = try store.add(link: VNCPairing.generate(name: "Studio", kind: "stream").link.absoluteString).get()
+        var replaced: [(MacScreenRecord, String)] = []
+        pages.events.replaceTab = { record, key in
+            replaced.append((record, key))
+            return true
+        }
+        pages.prepare("mac", record: MacScreenRecord(macID: mac.id), byPerson: true)
+        let tab = try await show("mac", in: pages)
+        tab.pane?.handlers.openHome()
+        #expect(replaced.map(\.0) == [MacScreenRecord(macID: nil)])
+        #expect(replaced.map(\.1) == ["mac"])
+        #expect(pages.tab("mac")?.record == MacScreenRecord(macID: mac.id))
+        pages.tabClosed("mac")
+    }
+
+    /// Without a host that can open tabs (no pane lists the tab), the home page shows the Mac in
+    /// its own tab, confirmed by the person.
+    @Test func homeConnectWithoutAHostShowsTheMacInThisTab() async throws {
         let (pages, store) = makePages()
         let mac = try store.add(link: VNCPairing.generate(name: "Studio", kind: "stream").link.absoluteString).get()
         pages.prepare("tab", record: MacScreenRecord(macID: nil), byPerson: false)
         _ = try await show("tab", in: pages)
-        pages.show(MacScreenRecord(macID: mac.id), in: "tab", byPerson: true)
+        pages.openFromHome(mac.id, in: "tab")
         let tab = try #require(pages.tab("tab"))
         await tab.loading?.value
         #expect(tab.record == MacScreenRecord(macID: mac.id))
