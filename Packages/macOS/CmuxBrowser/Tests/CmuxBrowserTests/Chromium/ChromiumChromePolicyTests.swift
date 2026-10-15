@@ -157,6 +157,18 @@ import Testing
         #expect(route(.unknown) == .newTab(focus: true))
     }
 
+    @Test func contextMenuNewTabOpensFocusedLikeWebKit() {
+        let menu = ChromiumWindowOpenRoute.route(disposition: .newBackgroundTab, hasWindowFeatures: false,
+                                                 userGesture: true, hasOpener: true, hasURL: true, fromContextMenu: true)
+        #expect(menu == .newTab(focus: true))
+        // Cmd-click and middle-click keep their background tab.
+        #expect(route(.newBackgroundTab) == .newTab(focus: false))
+        // A foreground request is unchanged either way.
+        #expect(ChromiumWindowOpenRoute.route(disposition: .newForegroundTab, hasWindowFeatures: false,
+                                              userGesture: true, hasOpener: true, hasURL: true, fromContextMenu: true)
+            == .newTab(focus: true))
+    }
+
     @Test func currentTabAndDownloadStayInTheOpener() {
         #expect(route(.currentTab) == .loadInOpener)
         #expect(route(.saveToDisk) == .downloadInOpener)

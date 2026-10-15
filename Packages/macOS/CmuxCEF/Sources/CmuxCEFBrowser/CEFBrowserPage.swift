@@ -521,7 +521,8 @@ public final class CEFBrowserPage: BrowserPage {
             hasWindowFeatures: features != nil,
             userGesture: userGesture,
             hasOpener: true,
-            hasURL: popup.state.url != nil
+            hasURL: popup.state.url != nil,
+            fromContextMenu: features.takeContextMenuNewTab()
         )
         guard let uiDelegate,
               let placement = route.openRequestPlacement(
