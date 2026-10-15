@@ -51,6 +51,8 @@ extension BrowserChromeView {
         object["probe_cursor"] = report.probeCursor ?? NSNull()
         object["installed_text_cursor"] = report.installedTextCursor ?? NSNull()
         object["tracked_cursor"] = report.trackedCursor ?? NSNull()
+        // The bar's resolved look (cx-d0d.101): fill RGBA, radius, ring, state, coverage.
+        object["bar_style"] = addressBar.pill.debugStyle
         #if DEBUG
         object["omnibar_trace"] = addressBar.controller.trace
         // `ArrowCursorView.pointerDidMove` past its first check: calls and their mean cost.
