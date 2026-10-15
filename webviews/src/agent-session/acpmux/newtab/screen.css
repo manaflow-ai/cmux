@@ -175,22 +175,14 @@
   min-width: 0;
   -webkit-line-clamp: 1;
 }
-/* The harness mark leads the row, where the eye runs down the list; the age stays the last column
-   (blind judge 2026-10-14, 14-2 for the mark first). */
 .nt-cards[data-variant="list"] .nt-card-meta {
-  display: contents;
+  order: 3;
+  margin-left: auto;
 }
-.nt-cards[data-variant="list"] .nt-card-meta > :not(.nt-card-age) {
-  flex: none;
-  order: -1;
-}
-/* A fixed, right-aligned age column at the row's end: "now", "9m" and "10m" never move or resize it
-   (Leo 2026-10-13). */
+/* A fixed, right-aligned age column: "now", "9m" and "10m" keep the harness icon still (Leo 2026-10-13). */
 .nt-cards[data-variant="list"] .nt-card-age {
   flex: none;
-  order: 3;
   width: 3.2em;
-  margin-left: auto;
   text-align: right;
   white-space: nowrap;
 }
