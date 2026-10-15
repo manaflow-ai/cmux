@@ -1362,6 +1362,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        UserDefaults.standard.removeObject(forKey: BetaFeaturesCatalogSection().customSidebars.userDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: "rightSidebar.customSidebarName")
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.orderKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.hiddenKey)
 
