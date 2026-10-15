@@ -80,7 +80,7 @@ struct AgentSideSessionPaneTests {
         }
 
         func hooks() -> AgentSidePanes.Hooks {
-            AgentSidePanes.Hooks(pane: { [unowned self] in panes[$0] }, addTab: { [unowned self] anchor, session, created, finished in
+            AgentSidePanes.Hooks(pane: { [weak self] in self?.panes[$0] }, addTab: { [unowned self] anchor, session, created, finished in
                 guard let pane = panes[anchor] else { return false }
                 let key = newTab(session)
                 panes[key] = pane

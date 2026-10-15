@@ -10,13 +10,17 @@ public final class AgentSidePanes {
     private var tabs: [String] = []
     private var opening = false
     private var queue: [(session: String, chat: String, hooks: Hooks)] = []
+    /// The pane lookup of the latest open, so an idle tracker can tell its side tabs closed.
+    private var pane: ((String) -> String?)?
 
     public init() {}
 
     private static var chats: [String: AgentSidePanes] = [:]
 
-    /// The tracker of acpmux chat session `id`, shared by every tab on that chat.
+    /// The tracker of acpmux chat session `id`, shared by every tab on that chat. Trackers of other
+    /// chats whose side tabs all closed are dropped first, so none outlives its side pane.
     public static func chat(_ id: String) -> AgentSidePanes {
+        chats = chats.filter { $0.key == id || !$0.value.isSpent }
         if let panes = chats[id] { return panes }
         let panes = AgentSidePanes()
         chats[id] = panes
@@ -54,6 +58,7 @@ public final class AgentSidePanes {
             return true
         }
         opening = true
+        pane = hooks.pane
         let created: @MainActor (String) -> Void = { [weak self] key in self?.record(key) }
         let finished: @MainActor () -> Void = { [weak self] in self?.next() }
         let opened: Bool
@@ -71,6 +76,12 @@ public final class AgentSidePanes {
         tabs.removeAll { pane($0) == nil }
         let chatPane = pane(chat)
         return tabs.last { pane($0) != chatPane }
+    }
+
+    /// Idle, with no side tab still open.
+    private var isSpent: Bool {
+        guard !opening, queue.isEmpty, let pane else { return false }
+        return tabs.allSatisfy { pane($0) == nil }
     }
 
     private func record(_ key: String) {
