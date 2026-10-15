@@ -42,7 +42,7 @@ public nonisolated struct ChromeStyleSetting: Sendable {
             kind: .choice(ChromeStyle.allCases.map { SettingChoice($0.rawValue, title($0)) }),
             default: .string(fallback.rawValue),
             keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline",
-                       "seam", "sidebar", "two-tone", "minimal", "bare"]
+                       "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps"]
         )
     }
 }
@@ -55,9 +55,11 @@ extension SettingsApplier {
 }
 
 extension ChromeStyleSetting {
-    /// Binds every `appearance.chromeStyle.<name>` palette action.
+    /// Binds every `appearance.chromeStyle.<name>` palette action, each
+    /// previewing its style while its palette row is highlighted.
     @MainActor public static func bindActions(into registry: ActionRegistry, design: DesignSettings, save: @escaping SettingChoiceActions.Save) {
-        SettingChoiceActions.bind(ChromeStyle.allCases, into: registry, id: actionID, path: configPath, fileValue: fileValue, save: save) {
+        SettingChoiceActions.bind(ChromeStyle.allCases, into: registry, id: actionID, path: configPath, fileValue: fileValue, save: save,
+                                  current: { design.chromeStyle }) {
             design.chromeStyle = $0
         }
     }

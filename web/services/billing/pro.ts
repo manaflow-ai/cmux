@@ -26,6 +26,7 @@ import {
 } from
   "../account/metadataMutation";
 import { activeApplePlanForUser } from "./apple/entitlement";
+import { planTierRank } from "./planTier";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 
 export const PRO_PLAN_ID = "pro";
@@ -78,8 +79,6 @@ export const PAID_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID
  */
 export const PERSONAL_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID] as const;
 export type PersonalPlanId = (typeof PERSONAL_PLAN_IDS)[number];
-/** Higher index wins when an account has more than one active personal row. */
-const PERSONAL_PLAN_RANK: Record<PersonalPlanId, number> = { go: 1, pro: 2, max: 3 };
 
 export function isPersonalPlanId(planId: string | null | undefined): planId is PersonalPlanId {
   return typeof planId === "string" &&
@@ -94,7 +93,7 @@ export function highestPersonalPlanId(
   for (const candidate of planIds) {
     if (!isPersonalPlanId(candidate)) continue;
     const normalized = candidate.trim().toLowerCase() as PersonalPlanId;
-    if (!best || PERSONAL_PLAN_RANK[normalized] > PERSONAL_PLAN_RANK[best]) best = normalized;
+    if (!best || planTierRank(normalized) > planTierRank(best)) best = normalized;
   }
   return best;
 }

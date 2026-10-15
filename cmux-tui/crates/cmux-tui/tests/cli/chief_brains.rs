@@ -4,6 +4,12 @@
 //! token; a person's message starts a stopped brain; a prompt change
 //! restarts it between turns; delete and daemon shutdown stop it. The
 //! default Chief is never started by the daemon.
+//!
+//! One acpmux per Chief home (hq-6d 2026-10-14): every brain uses the Chief
+//! home's acpmux (`<home>/acpmux`, the default Chief's) with
+//! `OPTCHAT_ACPMUX_SHARED=1`; delete ends only that Chief's sessions (the
+//! brain's `end-sessions`), never `acpmux daemon shutdown` of the shared
+//! home; the old per-Chief homes `<home>/c/<id>/a` are removed.
 
 use super::*;
 use serde_json::{Value, json};
@@ -14,6 +20,7 @@ use std::collections::BTreeMap;
 /// until SIGTERM. The first start exits 0 at once when the Chief home had
 /// an `exit-first` file before its pid file was written.
 const STUB: &str = r#"#!/bin/sh
+if [ "$1" = end-sessions ]; then echo "$MUX_HOME $ACPMUX_HOME" >> "$CMUX_CHIEF_HOME/ended"; exit 0; fi
 n=$(cat "$MUX_HOME/starts" 2>/dev/null || echo 0)
 n=$((n+1))
 echo "$n" > "$MUX_HOME/starts"
@@ -132,6 +139,14 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     // Short: the brains' sockets live under it (103-byte limit).
     let chief_home = files.join("h");
     fs::create_dir_all(&chief_home).unwrap();
+    // An old per-Chief acpmux home (before one acpmux per Chief home): removed.
+    let old = chief_home.join("c/0ldch1ef/a");
+    fs::create_dir_all(old.join("state")).unwrap();
+    fs::write(old.join("config.json"), "{}").unwrap();
+    // The shared home stays as it is.
+    let shared = chief_home.join("acpmux");
+    fs::create_dir_all(&shared).unwrap();
+    fs::write(shared.join("keep"), "").unwrap();
     let brains = json!({
         "executable": stub,
         "home": chief_home,
@@ -162,7 +177,8 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     expect("MUX_AGENT_TOKEN_FILE", scout_home.join("agent-token").to_str().unwrap());
     expect("MUX_HOST_LOG", scout_home.join("host.log").to_str().unwrap());
     expect("CMUX_CHIEF_HOME", chief_home.to_str().unwrap());
-    expect("ACPMUX_HOME", scout_home.join("a").to_str().unwrap());
+    expect("ACPMUX_HOME", shared.to_str().unwrap());
+    expect("OPTCHAT_ACPMUX_SHARED", "1");
     expect("CMUX_SOCKET_PATH", chief_home.join("state/app.sock").to_str().unwrap());
     expect("MUX_USER_NAME", "Test Person");
     expect("ACPMUX_BIN", acpmux.to_str().unwrap());
@@ -223,12 +239,20 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     let deleted = chief_cli(&server, &["delete", &ops, "--json"], "");
     assert_success(&deleted);
     wait_gone(ops_pid, "after delete");
-    // ...and its acpmux, which the brain started in its own process group.
+    // ...and its sessions on the shared acpmux, by the brain's own
+    // `end-sessions` as that Chief; the shared daemon keeps running.
     assert_eq!(
-        wait_file(&calls),
-        format!("daemon shutdown {}", ops_home.join("a").display()),
-        "the deleted Chief's acpmux was not shut down"
+        wait_file(&chief_home.join("ended")),
+        format!("{} {}", ops_home.display(), shared.display()),
+        "the deleted Chief's sessions were not ended"
     );
+    let called = fs::read_to_string(&calls).unwrap_or_default();
+    assert!(
+        !called.lines().any(|l| l.starts_with("daemon shutdown") && !l.ends_with("/c/0ldch1ef/a")),
+        "a daemon shutdown other than the old per-Chief home's: {called}"
+    );
+    assert!(shared.join("keep").exists(), "the shared acpmux home was touched");
+    assert!(!old.exists(), "the old per-Chief acpmux home is still there");
     assert!(alive(restarted));
 
     // Daemon shutdown stops the rest.
@@ -352,6 +376,71 @@ fn a_chief_brain_finds_claude_on_the_persons_login_path() {
     assert_eq!(found.trim(), claude.display().to_string(), "PATH={path}");
     assert!(path.starts_with("/opt/cmux-test/bin:"), "the bundle's bin stays first: {path}");
     assert!(path.split(':').all(|d| d.starts_with('/')), "absolute entries only: {path}");
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(pid, "after daemon shutdown");
+}
+
+/// The account's home directory (the user database), as the app's default
+/// Chief host gets it (`FileManager.homeDirectoryForCurrentUser`).
+fn account_home() -> String {
+    // SAFETY: getpwuid returns a pointer into static storage or null; it is
+    // read at once, on this thread.
+    unsafe {
+        let record = libc::getpwuid(libc::getuid());
+        assert!(!record.is_null(), "no user database record");
+        std::ffi::CStr::from_ptr((*record).pw_dir).to_str().unwrap().to_owned()
+    }
+}
+
+/// A new Chief's brain gets the same HOME as the default Chief's (hq-6d P1
+/// 2026-10-14, mac26 401): the account's home, not the HOME of the process
+/// that started the app. An app started by a job runner with its own HOME
+/// (nx-remote on mac26: HOME is the job root) gave the daemon that HOME; the
+/// new Chief's host then read the person's Claude settings env (the
+/// subrouter route) from `<job root>/.claude/settings.json`, found none,
+/// and its turns signed in with the account's expired login.
+#[test]
+fn a_chief_brain_gets_the_accounts_home_like_the_default_chief() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbh");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    // The job runner's own HOME, which the daemon inherits.
+    let job_home = files.join("job-home");
+    fs::create_dir_all(job_home.join(".claude")).unwrap();
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let job_home_text = job_home.display().to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-home",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str()), ("HOME", job_home_text.as_str())],
+    );
+    let server = &owned;
+    let scout = make_chief(server, "Scout", "Researcher");
+    let scout_home = brain_dir(&chief_home, &scout);
+    let pid: i32 = wait_file(&scout_home.join("pid.1")).parse().unwrap();
+    let env = env_of(&scout_home.join("env.1"));
+    assert_eq!(
+        env.get("HOME").map(String::as_str),
+        Some(account_home().as_str()),
+        "the brain's HOME is not the account's (the job runner's was {job_home_text})"
+    );
 
     let daemon = i32::try_from(owned.child.id()).unwrap();
     // SAFETY: the test's own daemon child.

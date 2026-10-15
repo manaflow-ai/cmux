@@ -82,7 +82,8 @@ public struct Metrics {
     /// columns meet at one line as split panes do.
     public static var stripColumnGap: CGFloat {
         let set = DesignSettings.shared.overrides[.columnGap] != nil || MetricTunables.columnGap.tunable.override != nil
-        return set || paneSeparation == .borders || paneSeparation == .cards ? columnGap : 0
+        // Floating panes: the padding alone makes the one even gap.
+        return set || !floatingPanes && (paneSeparation == .borders || paneSeparation == .cards) ? columnGap : 0
     }
     /// Divider thickness between split panes (hit area is wider).
     /// A room dot at the bottom of the sidebar (drawn size; its hit target

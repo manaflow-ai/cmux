@@ -137,10 +137,28 @@ export async function isConnectivityPublisherAuthorized(
   request: Request,
   configuredSecret: string | undefined,
 ): Promise<boolean> {
+  return isPublisherAuthorized(request, "x-cmux-connectivity-publisher-secret", configuredSecret);
+}
+
+/** Constant-work comparison for the server-only machine-list publisher. The
+ * route has no user bearer (cron writers have none), so this secret is the
+ * whole authorization: the body's `teamId` is trusted only behind it. */
+export async function isVmsPublisherAuthorized(
+  request: Request,
+  configuredSecret: string | undefined,
+): Promise<boolean> {
+  return isPublisherAuthorized(request, "x-cmux-vms-publisher-secret", configuredSecret);
+}
+
+/** Shared HMAC-based constant-time compare of a request header against a
+ * configured service secret (32..512 chars, else fail closed). */
+async function isPublisherAuthorized(
+  request: Request,
+  headerName: string,
+  configuredSecret: string | undefined,
+): Promise<boolean> {
   const expected = configuredSecret?.trim() ?? "";
-  const actual = request.headers.get(
-    "x-cmux-connectivity-publisher-secret",
-  )?.trim() ?? "";
+  const actual = request.headers.get(headerName)?.trim() ?? "";
   if (expected.length < 32 || expected.length > 512) return false;
   const encoder = new TextEncoder();
   const expectedBytes = encoder.encode(expected);
