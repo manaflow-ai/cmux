@@ -149,11 +149,11 @@ def main():
     start = selected()
     reply = key("}", ["cmd"])
     after = selected()
-    row("1-tab pane: Cmd-Shift-] steps the sidebar", "navigate.next; another row selected",
+    row("1-tab pane: Next steps the sidebar", "navigate.next; another row selected",
         f"action={reply.get('action')} {start} -> {after}", reply.get("action") == "navigate.next" and after and after != start)
     reply = key("{", ["cmd"])
     back = selected()
-    row("1-tab pane: Cmd-Shift-[ steps back", "navigate.previous; the first row again",
+    row("1-tab pane: Previous steps back", "navigate.previous; the first row again",
         f"action={reply.get('action')} {after} -> {back}", reply.get("action") == "navigate.previous" and back == start)
 
     print("newSurface:", action("newSurface"), flush=True)
@@ -164,7 +164,7 @@ def main():
     for _ in range(2):
         reply = key("}", ["cmd"])
         tabs.append(focused_pane().get("selected_tab"))
-        row("2-tab pane: Cmd-Shift-] stays in the pane", "navigate.next; same row, the pane's other tab",
+        row("2-tab pane: Next stays in the pane", "navigate.next; same row, the pane's other tab",
             f"action={reply.get('action')} row {workspace} -> {selected()} tab {tabs[-2]} -> {tabs[-1]}",
             reply.get("action") == "navigate.next" and selected() == workspace and tabs[-1] != tabs[-2])
     row("2-tab pane: Next wraps inside the pane", "two presses come back to the first tab", f"tabs {tabs}", tabs[0] is not None and tabs[2] == tabs[0])

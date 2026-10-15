@@ -2,16 +2,17 @@ import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
 
-/// The liveness of a bridged connection (a paired server's owner session
-/// through `cmux link dial`, `DaemonEndpoint.bridge`). The overlay keeps a
-/// silent peer for 10 minutes (a closed lid), so a lost server would hang
-/// the connection: every interval the connection asks the daemon
+/// The liveness of a connection. A daemon that stops answering keeps its
+/// socket open (an owner stopped with SIGSTOP or wedged in its main loop;
+/// over a bridge, a lost server the overlay keeps for 10 minutes for a
+/// closed lid), so no EOF ever ends the connection and the app kept showing
+/// it connected (cx-jniyz.4). Every interval the connection asks the daemon
 /// `identify`, and `misses` unanswered asks in a row close the transport,
-/// which reconnects and shows the server unreachable. The ask is a plain
-/// daemon request on a `DemandTimer`: it counts as no user activity, takes
-/// no power assertion and does not wake a sleeping Mac, so it never keeps a
-/// laptop awake.
-final class BridgeHeartbeat: Sendable {
+/// which emits `.disconnected` (the not-connected state) and reconnects once
+/// the daemon answers again. The ask is a plain daemon request on a
+/// `DemandTimer`: it counts as no user activity, takes no power assertion and
+/// does not wake a sleeping Mac, so it never keeps a laptop awake.
+final class ConnectionHeartbeat: Sendable {
     private let timer: DemandTimer
     /// Unanswered asks in a row and the run they belong to.
     private let state = Mutex((misses: 0, run: UInt64(0)))
