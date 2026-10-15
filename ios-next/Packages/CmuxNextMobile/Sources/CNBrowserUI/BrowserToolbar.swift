@@ -138,7 +138,7 @@ struct BrowserToolbar: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background(alignment: .topLeading) {
             // Width of the host label at 17 pt; the pill hugs it.
-            Text(labelText).font(.system(size: style.metrics.urlFont, weight: .medium)).fixedSize().hidden()
+            Text(labelText).chromeFont(style.metrics.urlFont, weight: .medium).fixedSize().hidden()
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { labelWidth = $0 }
         }
         // Back <-> back | forward and the enabled tint morph with the toolbar spring.
@@ -369,11 +369,12 @@ struct BrowserToolbar: View {
         }) {
             VStack(spacing: 0) {
                 Text(t.title)
-                    .font(.system(size: collapsed ? 13 : 15, weight: .semibold))
+                    .chromeFont(collapsed ? 13 : 15, weight: .semibold)
                     .lineLimit(1)
                 if !collapsed, !t.subtitle.isEmpty {
                     Text(t.subtitle)
-                        .font(t.monospaced ? .system(size: 11).monospaced() : .system(size: 11))
+                        .chromeFont(11)
+                        .monospaced(t.monospaced)
                         .foregroundStyle(style.colors.secondaryLabel)
                         .lineLimit(1)
                         .truncationMode(.head)
@@ -398,7 +399,7 @@ struct BrowserToolbar: View {
                     Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .medium))
                 }
                 Text(labelText)
-                    .font(.system(size: style.metrics.urlFont, weight: showsStartPage ? .regular : .medium))
+                    .chromeFont(style.metrics.urlFont, weight: showsStartPage ? .regular : .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -507,7 +508,9 @@ struct AddressField: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextField {
         let f = UITextField()
-        f.font = .systemFont(ofSize: 17)
+        // Dynamic Type up to xxxLarge (23 pt): the capsule keeps its height.
+        f.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 17), maximumPointSize: 23)
+        f.adjustsFontForContentSizeCategory = true
         f.keyboardType = .webSearch
         f.returnKeyType = .go
         f.autocorrectionType = .no

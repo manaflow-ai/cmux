@@ -43,7 +43,7 @@ struct TabCard: View {
                 Image(systemName: item.isTerminal ? "apple.terminal" : "globe").font(.system(size: 14))
                     .foregroundStyle(style.colors.secondaryLabel)
                 Text(startPage ? "Start Page" : item.title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .chromeFont(15, weight: .semibold, cap: ChromeType.cardCap)
                     .foregroundStyle(style.colors.label)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -612,7 +612,7 @@ struct TabOverview: View {
                 // One glass shape per control (two nested glass capsules
                 // read as a double background).
                 Text(count == 1 ? "1 Tab" : "\(count) Tabs")
-                    .font(.system(size: 17, weight: .semibold))
+                    .chromeFont(17, weight: .semibold)
                     .foregroundStyle(style.colors.label)
                     .padding(.horizontal, 22)
                     .frame(height: 48)
@@ -693,7 +693,7 @@ struct PinnedCard: View {
         HStack(spacing: 6) {
             Image(systemName: item.isTerminal ? "apple.terminal" : "globe").font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.6))
-            Text(item.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+            Text(item.title).chromeFont(15, weight: .semibold, cap: ChromeType.cardCap).foregroundStyle(.white).lineLimit(1)
             Spacer(minLength: 4)
             ZStack {
                 Circle().fill(Color.white.opacity(0.12)).frame(width: 22, height: 22)

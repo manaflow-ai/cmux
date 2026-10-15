@@ -94,9 +94,9 @@ struct PageMenu: View {
                     .frame(width: 30)
                     .padding(.leading, 25)
                 Text(item.title)
-                    .font(.system(size: 17))
+                    .chromeFont(17, cap: ChromeType.pageCap)
                     .padding(.leading, 10)
-                    .lineLimit(2)
+                    .lineLimit(3)
                 Spacer(minLength: 12)
             }
             .foregroundStyle(item.enabled ? style.colors.label : style.colors.glyphDisabled)
@@ -123,7 +123,7 @@ struct ShellMenuRowButtonStyle: ButtonStyle {
                 .frame(width: 30)
                 .padding(.leading, 25)
             Text(title)
-                .font(.system(size: 17))
+                .chromeFont(17, cap: ChromeType.pageCap)
                 .padding(.leading, 10)
             Spacer(minLength: 12)
         }

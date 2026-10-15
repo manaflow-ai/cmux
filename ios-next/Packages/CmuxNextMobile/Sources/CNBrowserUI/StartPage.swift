@@ -52,14 +52,14 @@ struct StartPageView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Favorites")
-                        .font(.system(size: 22, weight: .bold))
+                        .chromeFont(22, weight: .bold, cap: ChromeType.pageCap)
                         .foregroundStyle(style.colors.label)
-                        .frame(height: 34, alignment: .leading)
+                        .frame(minHeight: 34, alignment: .leading)
                         .padding(.leading, 16)
                         .accessibilityAddTraits(.isHeader)
                     if sites.isEmpty {
                         Text("Sites open on your Mac appear here.")
-                            .font(.system(size: 15))
+                            .chromeFont(15, cap: ChromeType.pageCap)
                             .foregroundStyle(style.colors.secondaryLabel)
                             .padding(.horizontal, 16)
                             .padding(.top, 8)
@@ -94,7 +94,7 @@ struct StartPageView: View {
                     .frame(width: tile, height: tile)
                     .background(style.colors.favoriteTile, in: .rect(cornerRadius: style.metrics.favoriteRadius, style: .continuous))
                 Text(site.name)
-                    .font(.system(size: 12, weight: .medium))
+                    .chromeFont(12, weight: .medium)
                     .foregroundStyle(style.colors.label)
                     .lineLimit(1)
                     .frame(width: tile + 20)
@@ -135,16 +135,16 @@ struct AddressSuggestions: View {
                                     .foregroundStyle(style.colors.secondaryLabel)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(tab.title.isEmpty ? tab.displayHost : tab.title)
-                                        .font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                                        .chromeFont(17, weight: .semibold, cap: ChromeType.pageCap).lineLimit(1)
                                         .foregroundStyle(style.colors.label)
                                     Text("\(tab.displayHost) · Opened Tab")
-                                        .font(.system(size: 13)).lineLimit(1)
+                                        .chromeFont(13, cap: ChromeType.pageCap).lineLimit(1)
                                         .foregroundStyle(style.colors.secondaryLabel)
                                 }
                                 Spacer(minLength: 0)
                             }
                             .padding(.horizontal, 16)
-                            .frame(height: 57)
+                            .frame(minHeight: 57)
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
@@ -166,7 +166,7 @@ struct AddressSuggestions: View {
 
     private func header(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 15, weight: .semibold))
+            .chromeFont(15, weight: .semibold, cap: ChromeType.pageCap)
             .foregroundStyle(style.colors.secondaryLabel)
             .padding(.horizontal, 16)
             .frame(height: 40, alignment: .bottomLeading)
@@ -180,12 +180,12 @@ struct AddressSuggestions: View {
                     .foregroundStyle(style.colors.secondaryLabel)
                     .frame(width: 30)
                     .padding(.leading, 3)
-                Text(text).font(.system(size: 17)).lineLimit(1)
+                Text(text).chromeFont(17, cap: ChromeType.pageCap).lineLimit(1)
                     .foregroundStyle(style.colors.label)
                     .padding(.leading, 15)
                 Spacer(minLength: 0)
             }
-            .frame(height: 52)
+            .frame(minHeight: 52)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
