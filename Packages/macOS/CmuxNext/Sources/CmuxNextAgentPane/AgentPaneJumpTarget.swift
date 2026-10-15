@@ -3,4 +3,6 @@
 /// closed tab, screen or workspace by its history id (Recently Closed, cx-d0d.60).
 public nonisolated enum AgentPaneJumpTarget: String, Sendable {
     case tab, workspace, here, closed
+    /// The New Tab page's Stashed link: the Stashed page.
+    case stashed
 }
