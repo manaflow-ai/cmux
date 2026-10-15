@@ -57,7 +57,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
         }
         var data = Data()
         do {
-            while let chunk = try await channel.receive() {
+            while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
                 data.append(chunk)
                 if data.count > maxBytes {
                     await channel.close(code: "cancelled", reason: "preview limit")
@@ -74,6 +74,26 @@ public struct LinkFileArtifactSource: ArtifactSource {
             throw Self.unavailable(closed, path: path, macName: macName)
         }
         return data
+    }
+
+    /// How long a read may wait for its next bytes before the preview gives up (a Mac that
+    /// went to sleep mid-read left "Loading" up for good).
+    public static let idleTimeout: Duration = .seconds(20)
+
+    /// The channel's next message, or a refusal after `limit` with nothing: the channel is
+    /// closed so the read ends.
+    static func receive(_ channel: any LinkChannel, within limit: Duration, macName: String,
+                        clock: any Clock<Duration> = ContinuousClock()) async throws -> Data? {
+        try await withThrowingTaskGroup(of: Data?.self) { group in
+            group.addTask { try await channel.receive() }
+            group.addTask {
+                try await clock.sleep(for: limit)
+                await channel.close(code: "cancelled", reason: "timed out")
+                throw ArtifactUnavailable("\(macName) stopped sending this file. Check that it's awake, then try again.")
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
+        }
     }
 
     static func unavailable(_ error: LinkError, path: String, macName: String) -> ArtifactUnavailable {

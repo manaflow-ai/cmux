@@ -33,6 +33,45 @@ public struct DiffFile: Identifiable, Hashable, Sendable {
         self.init(path: path, status: status, lines: LineDiff(old: old, new: new).lines(), hasFullContext: true)
     }
 
+    /// One file's agent edits in order. An edit with no old text is the whole file (a
+    /// write); an edit with old text is a snippet replaced in place (Claude's Edit sends only
+    /// `old_string` and `new_string`). From a whole file, later edits are applied to it, so the
+    /// diff is the file as created. From snippets, each edit is its own hunk with no line
+    /// numbers (where it sits in the file is unknown), as the Mac's Last turn view keeps each
+    /// edit separate; merging the first snippet's old text with the last one's new text
+    /// compared two different snippets.
+    public init(path: String, edits: [(oldText: String?, newText: String)]) {
+        guard let first = edits.first else {
+            self.init(path: path, status: .modified, lines: [], hasFullContext: false)
+            return
+        }
+        if first.oldText == nil {
+            var text = first.newText
+            var applied = true
+            for edit in edits.dropFirst() {
+                guard let old = edit.oldText else { text = edit.newText; continue }
+                guard !old.isEmpty, let range = text.range(of: old) else { applied = false; break }
+                text.replaceSubrange(range, with: edit.newText)
+            }
+            if applied {
+                self.init(path: path, oldText: nil, newText: text)
+                return
+            }
+        }
+        var lines: [DiffLine] = []
+        for (index, edit) in edits.enumerated() {
+            if index > 0 { lines.append(DiffLine(kind: .context, oldNumber: nil, newNumber: nil, text: "", isGap: true)) }
+            let old = edit.oldText.map(Self.splitLines) ?? []
+            lines += LineDiff(old: old, new: Self.splitLines(edit.newText)).lines().map { line in
+                var line = line
+                line.oldNumber = nil
+                line.newNumber = nil
+                return line
+            }
+        }
+        self.init(path: path, status: first.oldText == nil ? .added : .modified, lines: lines, hasFullContext: false)
+    }
+
     static func splitLines(_ text: String) -> [String] {
         var lines = text.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }

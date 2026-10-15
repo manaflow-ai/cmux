@@ -94,20 +94,17 @@ public final class AgentChatSurface {
         diffRoute = DiffRoute(changes: changes, fileID: nil)
     }
 
-    /// Each file the agent edited, once, in first-edit order (the later
-    /// entry wins for a file edited twice); nil when there are none.
+    /// Each file the agent edited, once, in first-edit order, built from every edit to it
+    /// across the loaded turns; nil when there are none.
     static func agentEdits(of store: AgentChatStore) -> DiffChangeSet? {
-        let files = store.turns.compactMap(\.changeSet).flatMap(\.files)
+        let files = AgentTurn.diffFiles(store.turns.flatMap(\.edits))
         guard !files.isEmpty else { return nil }
-        var unique: [String: DiffFile] = [:]
-        for file in files { unique[file.id] = file }
-        let ordered = files.map(\.id).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.compactMap { unique[$0] }
-        return DiffChangeSet(id: "session", title: "Agent Edits", subtitle: "Edits in this chat", files: ordered)
+        return DiffChangeSet(id: "session", title: "Agent Edits", subtitle: "Edits in this chat", files: files)
     }
 
     /// Whether the chat has agent edits to open.
     public static func hasAgentEdits(_ store: AgentChatStore) -> Bool {
-        store.turns.contains { $0.changeSet?.files.isEmpty == false }
+        store.turns.contains { !$0.edits.isEmpty }
     }
 
     public func scrollToBottom(animated: Bool = true) {

@@ -46,23 +46,32 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         return (endedAt ?? Date()).timeIntervalSince(startedAt)
     }
 
-    /// The edits in this turn, newest content per path (the edited-files card and Changes).
+    /// The edits in this turn, per path in order (the edited-files card and Changes).
     public var changeSet: DiffChangeSet? {
-        var order: [String] = []
-        var byPath: [String: (old: String?, new: String)] = [:]
-        for case .tool(let call) in items {
-            for diff in call.diffs {
-                if let existing = byPath[diff.path] {
-                    byPath[diff.path] = (existing.old, diff.newText)
-                } else {
-                    order.append(diff.path)
-                    byPath[diff.path] = (diff.oldText, diff.newText)
-                }
-            }
-        }
-        guard !order.isEmpty else { return nil }
-        let files = order.map { DiffFile(path: $0, oldText: byPath[$0]?.old, newText: byPath[$0]?.new) }
+        let files = Self.diffFiles(edits)
+        guard !files.isEmpty else { return nil }
         return DiffChangeSet(id: "turn-\(id)", title: "Changes", subtitle: "This turn", files: files)
+    }
+
+    /// The file edits of this turn's tool calls, in order. An edit still waiting on its
+    /// permission, or refused, is not a change (the Mac skips it too).
+    public var edits: [(path: String, oldText: String?, newText: String)] {
+        var out: [(path: String, oldText: String?, newText: String)] = []
+        for case .tool(let call) in items where call.status != .pending && call.status != .failed {
+            out += call.diffs
+        }
+        return out
+    }
+
+    /// One file per path, first-edit order, each built from all its edits in order.
+    public static func diffFiles(_ edits: [(path: String, oldText: String?, newText: String)]) -> [DiffFile] {
+        var order: [String] = []
+        var byPath: [String: [(oldText: String?, newText: String)]] = [:]
+        for edit in edits {
+            if byPath[edit.path] == nil { order.append(edit.path) }
+            byPath[edit.path, default: []].append((edit.oldText, edit.newText))
+        }
+        return order.map { DiffFile(path: $0, edits: byPath[$0] ?? []) }
     }
 
     public func question(_ id: String) -> AgentQuestion? {

@@ -55,9 +55,10 @@ public struct TerminalArtifact: Identifiable, Hashable, Sendable {
 
     public static func kind(forExtension ext: String) -> Kind? {
         switch ext.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "heic", "webp", "svg": .image
+        case "png", "jpg", "jpeg", "gif", "heic", "webp": .image
         case "mp4", "mov", "m4v", "webm": .video
-        case "html", "htm": .html
+        // SVG is markup: UIImage can't decode it, the web preview draws it (scripts off).
+        case "html", "htm", "svg": .html
         case "md", "markdown": .markdown
         case "swift", "rs", "zig", "c", "h", "m", "go", "py", "js", "ts", "tsx", "jsx", "sh", "toml", "json", "yml",
              "yaml", "css", "sql", "rb", "java", "kt": .code
