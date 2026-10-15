@@ -218,9 +218,9 @@ final class QuestionCardView: NSView {
         if question?.id != q.id {
             sentID = nil
             // The recommendation (first option) starts chosen in single-choice items.
-            chosen = Dictionary(uniqueKeysWithValues: q.items.map { item in
+            chosen = Dictionary(q.items.map { item in
                 (item.id, item.multiSelect ? [] : Array(item.options.prefix(1).map(\.id)))
-            })
+            }, uniquingKeysWith: { first, _ in first })
         }
         question = q
         self.context = context
@@ -451,8 +451,8 @@ final class QuestionChip: NSButton {
         let light = Fixture.lightAppearance
         let quiet = light ? NSColor(white: 0, alpha: 0.07) : NSColor(white: 1, alpha: 0.12)
         let accent = NSColor.controlAccentColor
-        layer?.backgroundColor = (isChosen ? accent.withAlphaComponent(light ? 0.14 : 0.24) : quiet)
-            .withAlphaComponent((isChosen ? (light ? 0.14 : 0.24) : quiet.alphaComponent) * (isHighlighted ? 0.7 : 1)).cgColor
+        let fill = isChosen ? accent.withAlphaComponent(light ? 0.14 : 0.24) : quiet
+        layer?.backgroundColor = fill.withAlphaComponent(fill.alphaComponent * (isHighlighted ? 0.7 : 1)).cgColor
         layer?.borderWidth = isChosen ? 1 : 0
         layer?.borderColor = accent.withAlphaComponent(0.8).cgColor
         alphaValue = isEnabled ? 1 : 0.5
