@@ -128,6 +128,14 @@ pub(crate) fn segment(packet: &[u8]) -> Option<Segment> {
     })
 }
 
+/// A bare SYN (no ACK: a SYN-ACK answers a SYN this flow already restarted
+/// for) that is not a retransmission of the one `seen_end` came from: a new
+/// connection on this 4-tuple, which must not inherit the old one's numbers.
+/// A retransmitted SYN keeps them, so its RTT sample stays Karn-safe.
+fn opens_again(segment: &Segment, seen_end: Option<u32>) -> bool {
+    segment.syn && segment.ack.is_none() && seen_end != Some(segment.seq.wrapping_add(1))
+}
+
 /// Where the TCP header of a packet [`segment`] parses starts.
 fn tcp_offset(packet: &[u8]) -> Option<usize> {
     let offset = match packet.first()? >> 4 {
@@ -167,6 +175,10 @@ struct Connection {
     snd_una: Option<u32>,
     /// The window the peer advertised with its latest `snd_una`.
     una_window: Option<u16>,
+    /// Sequence number of the segment `una_window` came from (RFC 9293
+    /// SND.WL1): a reordered older segment with the same ACK does not
+    /// replace it.
+    una_window_seq: Option<u32>,
     /// Highest sequence end received from the peer.
     rcv_max: Option<u32>,
     timed: Option<(u32, Instant)>,
@@ -183,6 +195,7 @@ impl Connection {
             snd_max: None,
             snd_una: None,
             una_window: None,
+            una_window_seq: None,
             rcv_max: None,
             timed: None,
             srtt: None,
@@ -240,23 +253,28 @@ impl Connection {
         }
     }
 
-    /// A SYN starts the sequence spaces again: a new connection on a
-    /// 4-tuple this one used (within [`FORGET_AFTER`]) must not inherit its
-    /// numbers.
+    /// A new connection on a 4-tuple this one used (within
+    /// [`FORGET_AFTER`]) starts the sequence spaces again (see
+    /// [`opens_again`]). The smoothed RTT is kept: same path.
     fn restart(&mut self) {
         self.snd_emitted = None;
         self.snd_max = None;
         self.snd_una = None;
         self.una_window = None;
+        self.una_window_seq = None;
         self.rcv_max = None;
         self.timed = None;
     }
 
-    fn acked(&mut self, ack: u32, window: u16, now: Instant) {
+    fn acked(&mut self, ack: u32, seq: u32, window: u16, now: Instant) {
         self.last_seen = now;
-        if self.snd_una.is_none_or(|una| !after(una, ack)) {
+        let newer = self.snd_una.is_none_or(|una| after(ack, una));
+        let same_later =
+            self.snd_una == Some(ack) && self.una_window_seq.is_none_or(|wl1| !after(wl1, seq));
+        if newer || same_later {
             self.snd_una = Some(ack);
             self.una_window = Some(window);
+            self.una_window_seq = Some(seq);
         }
         if let Some((timed, sent)) = self.timed
             && !after(timed, ack)
@@ -401,7 +419,7 @@ impl Pacer {
             });
         }
         let connection = self.connections.entry(flow).or_insert_with(|| Connection::new(now));
-        if segment.syn {
+        if opens_again(&segment, connection.snd_emitted) {
             connection.restart();
         }
         let fresh = connection.emitted(&segment);
@@ -419,11 +437,11 @@ impl Pacer {
         let Some(connection) = self.connections.get_mut(&flow) else {
             return segment.len > 0;
         };
-        if segment.syn {
+        if opens_again(&segment, connection.rcv_max) {
             connection.restart();
         }
         if let Some(ack) = segment.ack {
-            connection.acked(ack, segment.window, now);
+            connection.acked(ack, segment.seq, segment.window, now);
         }
         let end = segment.seq.wrapping_add(segment.len);
         let fresh = segment.len > 0 && connection.rcv_max.is_none_or(|max| after(end, max));
