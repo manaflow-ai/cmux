@@ -48,6 +48,10 @@ def log(msg):
 
 
 def rsh(cmd, timeout=180):
+    if HOST == "local":
+        # The rig Mac on this machine (PQ_HOST=local): the same commands, no ssh.
+        return subprocess.run(["/bin/bash", "-c", cmd.replace("~/", os.path.expanduser("~") + "/", 1) if cmd.startswith("cd ~/") else cmd],
+                              capture_output=True, text=True, timeout=timeout)
     return subprocess.run(["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", HOST, cmd],
                           capture_output=True, text=True, timeout=timeout)
 
