@@ -2122,6 +2122,16 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
+    /// The engine rendering this panel's page, fixed at creation.
+    let engineKind: BrowserEngineKind
+    /// The page of a non-WebKit engine; `nil` for WebKit panels, whose page
+    /// is ``webView``.
+    private(set) var enginePage: (any BrowserPage)?
+    /// Why this panel opened in WebKit although another engine was wanted,
+    /// shown once per run as a notice; `nil` otherwise.
+    @Published private(set) var engineFallbackNotice: BrowserEngineUnavailableReason?
+    var enginePageEventsTask: Task<Void, Never>?
+    private var webKitPageAdapter: WebKitBrowserPage?
     private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
@@ -3705,7 +3715,9 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
-        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
+        engineChoice: BrowserEngineChoice? = nil,
+        engineRuntime: BrowserEngineRuntime = .shared
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3716,6 +3728,20 @@ final class BrowserPanel: Panel, ObservableObject {
         self.externalNavigationHandler = BrowserExternalNavigationHandler()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
+        // Remote and proxied panels load through the WebKit proxy
+        // configuration; another engine would reach this Mac's own network.
+        let routesThroughBrowserProxy = isRemoteWorkspace || proxyEndpoint != nil || explicitWebsiteDataStore != nil
+        let enginePageSetup = Self.makeEnginePage(
+            choice: routesThroughBrowserProxy
+                ? BrowserEngineChoice(engine: .webkit, source: .inherited)
+                : engineChoice,
+            panelID: id,
+            profileID: resolvedProfileID,
+            runtime: engineRuntime
+        )
+        self.engineKind = enginePageSetup.page?.engineKind ?? .webkit
+        self.enginePage = enginePageSetup.page
+        self.engineFallbackNotice = enginePageSetup.notice
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -3742,7 +3768,14 @@ final class BrowserPanel: Panel, ObservableObject {
             preservesExplicitEphemeralWebsiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let popup = Self.takePendingPopupWebView(for: initialURL) {
+        if enginePageSetup.page != nil {
+            // The page renders in another engine; this web view stays blank
+            // and is never attached.
+            webView = Self.makeWebView(
+                profileID: resolvedProfileID,
+                websiteDataStore: websiteDataStore
+            )
+        } else if let popup = Self.takePendingPopupWebView(for: initialURL) {
             // WebKit loads the popup's document into this web view itself.
             webView = popup
             adoptedPrewarmedWebView = true
@@ -4012,6 +4045,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
+        startEnginePageEvents()
         installDetachedDeveloperToolsWindowCloseObserver()
         installHiddenWebViewDiscardPolicyObserver()
         applyBrowserThemeModeIfNeeded()
@@ -5091,6 +5125,10 @@ final class BrowserPanel: Panel, ObservableObject {
         if shouldSuppressWebViewFocus() {
             return
         }
+        if let enginePage {
+            enginePage.setFocused(true)
+            return
+        }
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
 
@@ -5221,6 +5259,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        closeEnginePage()
         BrowserReplTabAttachments.shared.panelDidClose(id)
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
@@ -5845,6 +5884,15 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil,
         skipsAppSessionBootstrap: Bool = false
     ) -> WKNavigation? {
+        if let enginePage {
+            routeNavigationToEnginePage(
+                enginePage,
+                request: request,
+                recordTypedNavigation: recordTypedNavigation,
+                onNavigationStarted: onNavigationStarted
+            )
+            return nil
+        }
         // A newer navigation supersedes an exchange that has not loaded yet.
         cancelAppSessionBootstrap()
         if !skipsAppSessionBootstrap,
@@ -6637,9 +6685,42 @@ extension BrowserPanel {
     }
 
     /// Go back in history
+    /// Mirrors a non-WebKit page's state into the published properties the
+    /// browser chrome reads. WebKit panels publish from their own observers.
+    func applyEnginePageState(_ state: BrowserPageState) {
+        if currentURL != state.url, let url = state.url { currentURL = url }
+        let title = state.title ?? ""
+        if pageTitle != title { pageTitle = title }
+        if isLoading != state.isLoading { isLoading = state.isLoading }
+        if estimatedProgress != state.estimatedProgress { estimatedProgress = state.estimatedProgress }
+        if canGoBack != state.canGoBack { canGoBack = state.canGoBack }
+        if canGoForward != state.canGoForward { canGoForward = state.canGoForward }
+    }
+
+    /// Publishes a non-WebKit page's favicon.
+    func applyEnginePageFavicon(_ pngData: Data?) {
+        faviconPNGData = pngData
+    }
+
+    /// Clears the fallback notice once the person dismissed it.
+    func dismissEngineFallbackNotice() {
+        engineFallbackNotice = nil
+    }
+
+    /// The panel's page through the engine-neutral protocol: the non-WebKit
+    /// page, or an adapter over ``webView`` that follows web view replacement.
+    var page: any BrowserPage {
+        if let enginePage { return enginePage }
+        if let adapter = webKitPageAdapter, adapter.webView === webView { return adapter }
+        let adapter = WebKitBrowserPage(webView: webView)
+        webKitPageAdapter = adapter
+        return adapter
+    }
+
     func goBack(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
+        if let enginePage { enginePage.goBack(); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6680,6 +6761,7 @@ extension BrowserPanel {
     func goForward(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
+        if let enginePage { enginePage.goForward(); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6855,6 +6937,7 @@ extension BrowserPanel {
     @discardableResult
     func reload(dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
         takeBrowserDialogOwnership(dialogOwner)
+        if let enginePage { enginePage.reload(); return nil }
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return nil
@@ -6871,6 +6954,7 @@ extension BrowserPanel {
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
+        if let enginePage { enginePage.reloadFromOrigin(); return }
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return
@@ -6885,6 +6969,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        if let enginePage { enginePage.stop(); return }
         cloudAccess.didCancel()
         cancelAppSessionBootstrap()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.

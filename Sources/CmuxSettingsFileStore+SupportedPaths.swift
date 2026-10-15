@@ -193,6 +193,7 @@ extension CmuxSettingsFileStore {
         "integrations.suppressSubagentNotifications",
         "automation.portBase",
         "automation.portRange",
+        "browser.engine",
         "browser.defaultSearchEngine",
         "browser.defaultZoomLevel",
         "browser.customSearchEngineName",

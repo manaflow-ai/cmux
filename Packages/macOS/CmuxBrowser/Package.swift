@@ -42,6 +42,7 @@ let package = Package(
             dependencies: [
                 "CmuxBrowser",
                 "CmuxFoundation",
+                "CmuxSettings",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

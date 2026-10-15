@@ -41,8 +41,9 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
-        // The Chromium engine behind CmuxBrowser's engine-neutral page protocols. CmuxCEF itself
-        // has no CmuxBrowser dependency.
+        // The Chromium engine for cmux browser panels: CmuxBrowser's
+        // BrowserPage and BrowserEngineProviding over CmuxCEF's CEFBrowser.
+        // CmuxCEF itself never imports CmuxBrowser.
         .target(
             name: "CmuxCEFBrowser",
             dependencies: [
@@ -57,11 +58,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxCEFBrowserTests",
-            dependencies: [
-                "CmuxCEF",
-                "CmuxCEFBrowser",
-                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
-            ],
+            dependencies: ["CmuxCEFBrowser", "CmuxCEF", .product(name: "CmuxBrowser", package: "CmuxBrowser")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
