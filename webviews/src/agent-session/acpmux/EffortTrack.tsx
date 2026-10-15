@@ -14,6 +14,7 @@ export function EffortTrack({
   autoFocus = false,
   fallback,
   onRangeKey,
+  onRangeClick,
 }: {
   efforts: Choice[];
   current?: string;
@@ -25,6 +26,8 @@ export function EffortTrack({
   onEscape?(): void;
   /// Sees the slider's keys first (the reasoning menu keeps its stepping keys from the menu's rows).
   onRangeKey?(event: React.KeyboardEvent<HTMLInputElement>): void;
+  /// A click on the slider, after any change it made (the reasoning menu commits the resting level).
+  onRangeClick?(): void;
   autoFocus?: boolean;
 }) {
   const t = useT();
@@ -67,6 +70,7 @@ export function EffortTrack({
           aria-label={t("effort.title")}
           aria-valuetext={efforts[level]?.recommended ? t("effort.valueRecommended", { level: name }) : name}
           onChange={(event) => pick(Number(event.target.value))}
+          onClick={() => onRangeClick?.()}
           onKeyDown={(event) => {
             onRangeKey?.(event);
             if (event.key !== "Escape" || !onEscape) return;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
@@ -165,7 +165,9 @@ const SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End", "PageUp",
 
 /// The Reasoning section as a slider: its title and the level it sits on, then the track. Left,
 /// Right, Home and End step it; Up and Down step it too unless the speed rows follow, where Down
-/// moves to them (and Up from the first climbs back). Escape closes the menu back to the chip.
+/// moves to them (and Up from the first climbs back). Enter closes the menu as a row would, and
+/// Escape closes it back to the chip. While the chat is on the agent's own default the thumb rests
+/// on the recommended level without picking it; Enter or a click on the slider picks that level.
 function ReasoningSlider({
   title,
   efforts,
@@ -183,9 +185,33 @@ function ReasoningSlider({
   onPick(value: string): void;
   onClose(): void;
 }) {
+  const titleId = useId();
+  // The host echoes `current` back after a pick, so the click that ends a drag (or a second Enter)
+  // must not resend the level that was just sent.
+  const sent = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    sent.current = undefined;
+  }, [current]);
+  const commit = (value: string | undefined) => {
+    if (value === undefined || value === current || value === sent.current) return;
+    sent.current = value;
+    onPick(value);
+  };
+  // The resting thumb (the agent's own default) is not a pick yet: Enter or a click takes it,
+  // unless the slider already moved since (that pick stands; the input waits on the host's echo).
+  const commitResting = () => {
+    if (current === undefined && sent.current === undefined) commit(shown?.id);
+  };
   const onRangeKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (SLIDER_KEYS.has(event.key)) {
       event.stopPropagation();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      commitResting();
+      onClose();
       return;
     }
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -199,9 +225,12 @@ function ReasoningSlider({
     if (event.key === "ArrowDown") below.focus();
   };
   return (
-    <div className="acpmux-effort-slider">
+    // A group (a fieldset), as the list's MenuGroup is: the menu holds groups, rows and separators.
+    <fieldset className="acpmux-effort-slider" aria-labelledby={titleId}>
       <div className="acpmux-effort-slider-head">
-        <span className="ui-menu-group-label">{title}</span>
+        <span id={titleId} className="ui-menu-group-label">
+          {title}
+        </span>
         <span className="acpmux-effort-slider-level" title={shown?.description}>
           {shown?.name}
         </span>
@@ -210,11 +239,12 @@ function ReasoningSlider({
         efforts={efforts}
         current={current}
         fallback={fallback}
-        onPick={onPick}
+        onPick={commit}
         onEscape={onClose}
         onRangeKey={onRangeKey}
+        onRangeClick={commitResting}
       />
-    </div>
+    </fieldset>
   );
 }
 

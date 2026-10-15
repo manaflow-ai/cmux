@@ -30,6 +30,9 @@
   width: min(232px, calc(100vw - 24px));
 }
 .acpmux-effort-slider {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
   padding: 0 8px 6px;
 }
 .acpmux-effort-slider-head {
@@ -42,7 +45,9 @@
   padding-inline: 0;
 }
 .acpmux-effort-slider-level {
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-control);
   color: var(--agent-text);
   white-space: nowrap;

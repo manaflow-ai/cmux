@@ -200,3 +200,59 @@ test("on, current level missing and no recommendation: the thumb rests on the fi
   expect(range()!.value).toBe("0");
   expect(doc.querySelector(".acpmux-effort-slider-level")?.textContent).toBe("Low");
 });
+
+const key = (target: Element, name: string) =>
+  act(
+    async () =>
+      void target.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
+      ),
+  );
+
+test("on, current level missing: a click on the resting thumb picks the recommended level once", async () => {
+  const picks = await openMenu({ slider: true, current: undefined });
+  await act(async () => void range()!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  await act(async () => void range()!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  expect(picks).toEqual(["high"]);
+});
+
+test("on, current level missing: a drag's closing click does not resend the level it picked", async () => {
+  const picks = await openMenu({ slider: true, current: undefined });
+  const input = range()!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, "3");
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => void input.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  expect(picks).toEqual(["max"]);
+});
+
+test("on, current level set: a click on the thumb sends nothing", async () => {
+  const picks = await openMenu({ slider: true });
+  await act(async () => void range()!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  expect(picks).toEqual([]);
+});
+
+test("on, current level missing: Enter picks the resting level and closes the menu", async () => {
+  const picks = await openMenu({ slider: true, current: undefined });
+  await key(range()!, "Enter");
+  await settle();
+  expect(picks).toEqual(["high"]);
+  expect(doc.querySelector(".acpmux-effort-menu")).toBeNull();
+});
+
+test("on, current level set: Enter closes the menu without a pick", async () => {
+  const picks = await openMenu({ slider: true });
+  await key(range()!, "Enter");
+  await settle();
+  expect(picks).toEqual([]);
+  expect(doc.querySelector(".acpmux-effort-menu")).toBeNull();
+});
+
+test("on: the slider is a group the menu names Reasoning", async () => {
+  await openMenu({ slider: true });
+  const group = range()!.closest("fieldset")!;
+  expect(group).not.toBeNull();
+  expect(doc.getElementById(group.getAttribute("aria-labelledby")!)?.textContent).toBe("Reasoning");
+});
