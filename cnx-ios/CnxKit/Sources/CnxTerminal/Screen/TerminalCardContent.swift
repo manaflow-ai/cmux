@@ -48,3 +48,15 @@ public struct TerminalCardCrop: Equatable, Sendable {
     /// The image's top in the card view (0 or negative).
     public var imageTop: CGFloat { min(0, visibleHeight - (imageHeight - max(0, bottomTrim))) }
 }
+
+/// When the page's frame is saved for the next cold launch after output is
+/// drawn (D11): never in the same turn as the output (Ghostty has not
+/// presented it yet: 0.5 s), and at most every 3 s.
+public enum TerminalFrameSaveSchedule {
+    public static let settle: Double = 0.5
+    public static let interval: Double = 3
+
+    public static func delay(sinceLastSave elapsed: Double) -> Double {
+        max(settle, interval - elapsed)
+    }
+}

@@ -129,10 +129,10 @@ public final class TerminalModel {
 
     func saveFrameSoon() {
         guard frameSaver != nil, !frameSavePending else { return }
-        let wait = max(0, 3 - (CACurrentMediaTime() - lastFrameSave))
+        let wait = TerminalFrameSaveSchedule.delay(sinceLastSave: lastFrameSave == 0 ? .infinity : CACurrentMediaTime() - lastFrameSave)
         frameSavePending = true
         Task { @MainActor [weak self] in
-            if wait > 0 { try? await ContinuousClock().sleep(for: .seconds(wait)) }
+            try? await ContinuousClock().sleep(for: .seconds(wait))
             guard let self else { return }
             frameSavePending = false
             lastFrameSave = CACurrentMediaTime()
