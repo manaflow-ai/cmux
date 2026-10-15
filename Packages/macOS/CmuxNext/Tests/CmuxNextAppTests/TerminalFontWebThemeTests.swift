@@ -17,6 +17,7 @@ struct TerminalFontWebThemeTests {
     }
 
     @Test func theGhosttyConfigFamilyReachesPagesUnlessCmuxJsonNamesOne() throws {
+        _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
         let settings = DesignSettings.shared
         let saved = (settings.terminalFontFamily, settings.terminalConfigFontFamily)
         defer { (settings.terminalFontFamily, settings.terminalConfigFontFamily) = saved }
@@ -25,24 +26,29 @@ struct TerminalFontWebThemeTests {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let config = folder.appending(path: "config")
+        let fonts = folder.appending(path: "fonts.conf")
         try """
         # a comment = not a key
         font-family = Menlo
+        font-size = 14
+        config-file = fonts.conf
+        """.write(to: config, atomically: true, encoding: .utf8)
+        // An include loads after the file that names it, so its list wins, as in the terminal.
+        try """
         font-family = ""
         font-family = "Fira Code"
         font-family = Symbols Nerd Font
-        font-size = 14
-        """.write(to: config, atomically: true, encoding: .utf8)
+        """.write(to: fonts, atomically: true, encoding: .utf8)
 
         settings.terminalFontFamily = nil
-        settings.terminalConfigFontFamily = GhosttyConfigFontFamily.read(environment: ["CMUX_NEXT_GHOSTTY_CONFIG": config.path])
+        settings.terminalConfigFontFamily = GhosttyConfigFontFamily.family(inFiles: GhosttyRuntime.loadedFiles(configFile: config.path))
         #expect(try sentFamily() as? String == "Fira Code")
 
         settings.terminalFontFamily = "Iosevka"
         #expect(try sentFamily() as? String == "Iosevka")
 
         settings.terminalFontFamily = nil
-        settings.terminalConfigFontFamily = GhosttyConfigFontFamily.read(environment: ["CMUX_NEXT_GHOSTTY_CONFIG": folder.appending(path: "missing").path])
+        settings.terminalConfigFontFamily = GhosttyConfigFontFamily.family(inFiles: [folder.appending(path: "missing").path])
         #expect(try sentFamily() is NSNull)
     }
 }

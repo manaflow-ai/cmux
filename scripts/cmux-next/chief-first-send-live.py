@@ -16,6 +16,7 @@ which ends the app, the Chief host, its acpmux and the owner daemon.
 Prints one row per round and a total; exits 0 only when every round passed.
 
 Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--keep-cache] [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 import re
@@ -35,6 +36,11 @@ parser.add_argument("--keep-cache", action="store_true",
                          " Mac does when the Chief home is made again at the same path (cx-ebm.55); from round 2 on"
                          " the cache names the previous round's Chief conversation")
 opts = parser.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-first-send-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG = opts.tag
 APP = opts.app
