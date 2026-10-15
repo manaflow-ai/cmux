@@ -2,8 +2,9 @@
 // acpmux, or Codex's own plan) draws as a checklist under its progress, and a turn's later updates
 // redraw its one list (direct.ts). Done items are struck through, the one in progress is bold; a
 // screen reader hears each item's state.
-// With Labs on (cx-ncc.102, Claude Code desktop's in-session status) the list is a quiet card: a
-// circle waits, a spinner runs and a check is done, with no heading, strike-through or bold.
+// With the agent.sessionStatus Debug toggle on (cx-ncc.102, Claude Code desktop's in-session
+// status) the list is a quiet card: a circle waits, a spinner runs and a check is done, with no
+// heading, strike-through or bold.
 import { createContext, useContext } from "react";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
@@ -15,7 +16,7 @@ const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   pending: "plan.status.pending",
 };
 
-/// Whether todo lists draw as the Labs card (the pane's preview features).
+/// Whether todo lists draw as the status card (the agent.sessionStatus Debug toggle).
 export const PlanCardStyle = createContext(false);
 
 export function PlanList({ entries }: { entries: readonly AcpmuxPlanEntry[] }) {

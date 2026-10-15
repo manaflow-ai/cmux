@@ -234,6 +234,27 @@ ${css}
           }
         }
       });
+
+      test("Interrupt shows whole while a turn runs; the chips give way, not the action", async () => {
+        for (const width of [600, 420, 360]) {
+          const page = await open(width);
+          await page.$eval(".acpmux-composer-actions", (node) => {
+            node.innerHTML =
+              '<button class="acpmux-steer">Interrupt</button>' +
+              '<button class="acpmux-send" style="width:28px;height:28px">mic</button>' +
+              '<button class="acpmux-send acpmux-send-ready">↑</button>';
+          });
+          const geometry = await page.$eval(".acpmux-composer-bar", (node) => {
+            const bar = node.getBoundingClientRect();
+            const steer = node.querySelector<HTMLElement>(".acpmux-steer")!;
+            const rect = steer.getBoundingClientRect();
+            return { barRight: bar.right, right: rect.right, client: steer.clientWidth, scroll: steer.scrollWidth };
+          });
+          expect(geometry.scroll).toBeLessThanOrEqual(geometry.client);
+          expect(geometry.right).toBeLessThanOrEqual(geometry.barRight + 1);
+          await page.close();
+        }
+      });
     });
   }
 });

@@ -6,7 +6,10 @@
 
 mod adoption;
 mod aside;
+mod btw;
+pub(crate) use btw::SIDE_TAG;
 mod bookmarks;
+mod cancel;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
@@ -24,19 +27,25 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod model_options;
-pub use model_options::{current_model, current_option, resolve_config_id, web_url};
+pub use model_options::{
+    current_effort, current_model, current_option, resolve_config_id, web_url,
+};
 mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
 mod pool;
+mod prompt_images;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
+pub(crate) use turns::is_limit_error;
+mod offer_results;
 mod offers;
 mod secrets;
 mod seen;
@@ -53,6 +62,7 @@ mod steer_end;
 mod stream;
 mod tags;
 mod tap;
+mod titles;
 mod tools;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -74,6 +84,7 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod turn_usage;
 mod turns;
 mod warm;
 mod xai;
@@ -359,6 +370,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
+            hub.watch_titles();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }

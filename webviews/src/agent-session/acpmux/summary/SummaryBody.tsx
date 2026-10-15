@@ -75,7 +75,6 @@ export function SummaryBody({
             <button
               type="button"
               className="acpmux-summary-row acpmux-summary-link"
-              title={file.path}
               disabled={!onOpenOutput}
               onClick={() => onOpenOutput?.(file.path)}
             >
@@ -119,12 +118,7 @@ export function SummaryBody({
         row={(source) => (
           <li key={source.url ?? source.label}>
             {source.url ? (
-              <a
-                className="acpmux-summary-row acpmux-summary-link"
-                href={source.url}
-                title={source.url}
-                onClick={onFollow}
-              >
+              <a className="acpmux-summary-row acpmux-summary-link" href={source.url} onClick={onFollow}>
                 <Icon name="link.web" size={ROW_ICON} row />
                 <span className="acpmux-summary-text">{source.label}</span>
               </a>
@@ -162,7 +156,6 @@ export function SummaryBody({
               <button
                 type="button"
                 className="acpmux-summary-row acpmux-summary-link acpmux-summary-file"
-                title={file.path}
                 disabled={!onOpenChanges}
                 onClick={() => onOpenChanges?.(file.path)}
               >
@@ -184,7 +177,6 @@ export function SummaryBody({
               href={pr.url}
               onClick={onFollow}
               data-state={pr.state}
-              title={`${pr.repo}#${pr.number}${pr.state === "open" ? "" : ` · ${t(`summary.pr.${pr.state}`)}`}`}
             >
               <Icon name="git.pullrequest" size={ROW_ICON} row />
               <span className="acpmux-summary-text">{pr.title ?? `${pr.repo}#${pr.number}`}</span>
@@ -199,9 +191,7 @@ export function SummaryBody({
         row={(task) => (
           <li key={task.id} className="acpmux-summary-row" data-state={task.state}>
             <Icon name="terminal" size={ROW_ICON} row />
-            <span className="acpmux-summary-text" title={task.command}>
-              {task.command}
-            </span>
+            <span className="acpmux-summary-text">{task.command}</span>
             <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
           </li>
         )}
@@ -212,9 +202,7 @@ export function SummaryBody({
         row={(wakeup) => (
           <li key={wakeup.id} className="acpmux-summary-row">
             <Icon name="task.status.started" size={ROW_ICON} row />
-            <span className="acpmux-summary-text" title={wakeup.text}>
-              {wakeup.text}
-            </span>
+            <span className="acpmux-summary-text">{wakeup.text}</span>
             {wakeup.cron && <span className="acpmux-summary-meta">{wakeup.cron}</span>}
           </li>
         )}

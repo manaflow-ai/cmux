@@ -206,6 +206,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.navigationDelegate = self
         webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
+        webView.pageAcceptsFirstMouse = { [weak self] in self?.descriptor.acceptsFirstMouse ?? false }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
@@ -254,17 +255,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
         }
     }
 
-    /// Keeps first-party pages proportional to native chrome as the live
-    /// interface scale changes.
+    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
     func applyUIScale() {
         webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -346,7 +347,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // The message conversion stays here: `handle` must start in the order the page posted, and
         // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
         guard let body = JSONValue(foundation: message.body) else { return nil }
+        let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)
+        let handled = ProcessInfo.processInfo.systemUptime
+        defer { Self.noteSlowReply(body, page: descriptor.id, started: started, handled: handled, logger: logger) }
         // The reply reaches the page after the events sent before it and before the events sent
         // after it (a subscribe's reply names the sub its first events use). A gate holds the
         // script FIFO here while those earlier events drain and a large reply converts off main.
@@ -357,6 +361,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if reply.isNull { return nil }
         guard large else { return reply.foundationObject }
         return await PageReplyObject.convert(reply).object
+    }
+
+    /// A page message whose reply took over a second: its op, the router's time and the time the
+    /// reply then waited for the page's script FIFO (a reply the page never gets looks the same
+    /// from the page as a call the host never answered).
+    private static func noteSlowReply(_ body: JSONValue, page: String, started: TimeInterval, handled: TimeInterval, logger: Logger) {
+        let done = ProcessInfo.processInfo.systemUptime
+        guard done - started > 1 else { return }
+        let op = body["op"]?.stringValue ?? body["t"]?.stringValue ?? "?"
+        logger.info("page \(page, privacy: .public) \(op, privacy: .public): handled in \(Int((handled - started) * 1000)) ms, replied after \(Int((done - started) * 1000)) ms")
     }
 
     // MARK: Theme

@@ -16,6 +16,10 @@ is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs.
+A prompt ending in "settings-probe" replies with the prompt text as Claude
+read it, every `apply_flag_settings` it got, and its argv.
+"slow-stop" runs until the interrupt, then echoes the next prompt line it
+reads before the stopped turn's result (a Stop Claude Code answers late).
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
@@ -28,6 +32,11 @@ FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
 control request is appended to that file, one per line. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
+"cost-probe" ends its turn the way Claude Code reports spend: the turn's own
+token usage, and `total_cost_usd` as the process's running total (0.25 more
+per cost-probe turn, from 0 at each start). "cost-restore X" first restores
+the running total X, as a resumed Claude Code does; "cost-zero" reports a
+zeroed total, as a crashed one's last result can.
 """
 import json
 import os
@@ -56,6 +65,7 @@ def stored(sid):
     return os.path.join(STORE, sid + (LAYOUT or ""))
 SESSION = "fake-claude-session"
 RESUME = None
+FLAG_SETTINGS = []
 if STORE:
     for flag in ("--session-id", "--resume"):
         if flag in sys.argv[:-1]:
@@ -65,6 +75,7 @@ if STORE:
 
 SESSION_RULES = []
 DESTINATIONS = []
+COST = 0.0
 
 # FAKE_CLAUDE_SKILLS=1: Claude Code with one skill installed, as Claude Code
 # 2.1.299 reports it: the initialize answer lists every slash command (a
@@ -97,7 +108,61 @@ def ask(rid, tool):
                                     "behavior": "allow", "destination": "localSettings"}]}}
 
 
-for line in sys.stdin:
+# stdin, read by a thread so a turn can wait for a line with a timeout ("slow-stop").
+import queue
+import threading
+LINES = queue.Queue()
+AGAIN = []
+
+
+def _read_stdin():
+    for got in sys.stdin:
+        LINES.put(got)
+    LINES.put(None)
+
+
+threading.Thread(target=_read_stdin, daemon=True).start()
+
+
+def slow_stop():
+    """The "slow-stop" turn: one Claude Code is slow to stop. It runs until the
+    interrupt, acks it, then waits (up to 12 s) for the next prompt line. That
+    line is echoed before this turn's interrupted result, then runs as its own
+    turn (the line goes back to the main loop)."""
+    import time
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "working"}}})
+    deadline = None
+    while True:
+        wait = None if deadline is None else max(0.0, deadline - time.monotonic())
+        try:
+            got = LINES.get(timeout=wait)
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        try:
+            msg = json.loads(got)
+        except ValueError:
+            continue
+        if msg.get("type") == "control_request":
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {}}})
+            if (msg.get("request") or {}).get("subtype") == "interrupt" and deadline is None:
+                deadline = time.monotonic() + 12
+            continue
+        if msg.get("type") == "user":
+            send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
+            AGAIN.append(got)
+            break
+    send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+          "num_turns": 1, "duration_api_ms": 5})
+
+
+while True:
+    line = AGAIN.pop(0) if AGAIN else LINES.get()
+    if line is None:
+        break
     try:
         msg = json.loads(line)
     except ValueError:
@@ -144,6 +209,8 @@ for line in sys.stdin:
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
+        if request.get("subtype") == "apply_flag_settings":
+            FLAG_SETTINGS.append(request.get("settings"))
         # Like Claude Code, a stopped task ends killed (task_updated); FAKE_CLAUDE_STOP_NOTIFY=1 also
         # sends its task_notification, as a Claude Code that does not suppress it would.
         if request.get("subtype") == "stop_task":
@@ -229,12 +296,17 @@ for line in sys.stdin:
         if said.strip() == "always-ask":
             send(ask("ask-1", "toolu_ask1"))
             continue
+        if said.strip() == "slow-stop":
+            slow_stop()
+            continue
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        if said.endswith("settings-probe"):
+            text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
         if said.strip() == "history-probe" and STORE and LAYOUT:
             with open(stored(SESSION)) as f:
                 records = [json.loads(line) for line in f if line.strip()]
@@ -257,10 +329,15 @@ for line in sys.stdin:
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process may query the keychain
-        # (`security dump-keychain` lists item metadata when it may).
+        # (`security dump-keychain` lists item metadata when it may). The
+        # System keychain, by path: the user's keychain search list depends
+        # on HOME, and a test's HOME is a scratch folder.
         if said.strip() == "keychain-probe":
             import subprocess
-            rc = subprocess.run(["/usr/bin/security", "dump-keychain"], capture_output=True).returncode
+            rc = subprocess.run(
+                ["/usr/bin/security", "dump-keychain", "/Library/Keychains/System.keychain"],
+                capture_output=True,
+            ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})
         if said.startswith("sandbox-probe "):
             import os
@@ -409,6 +486,18 @@ for line in sys.stdin:
         if said.strip() in ("usage-probe", "compact-probe"):
             result["modelUsage"] = {"claude-haiku": {"inputTokens": 50, "contextWindow": 100000},
                                     "fake": {"inputTokens": 1200, "contextWindow": 200000}}
+        # "cost-restore X": a process that restored its running total X first.
+        if said.strip().startswith("cost-restore "):
+            COST = float(said.split()[1])
+            said = "cost-probe"
+        if said.strip() == "cost-zero":
+            result["total_cost_usd"] = 0.0
+            result["usage"] = {"input_tokens": 100, "output_tokens": 20}
+        if said.strip() == "cost-probe":
+            COST += 0.25
+            result["total_cost_usd"] = COST
+            result["usage"] = {"input_tokens": 100, "output_tokens": 20,
+                               "cache_read_input_tokens": 300, "cache_creation_input_tokens": 40}
         if said.strip() == "switched-probe":
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}

@@ -36,9 +36,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   const deliver = () => {
     const bridge = window.cmuxAcpmuxBridge;
     if (!bridge) return;
-    bridge.applyTheme(context.agentTheme);
+    bridge.applyTheme({ ...context.agentTheme, ...state.theme });
     bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
-    if (state.labs) bridge.applyPreview?.(true);
+    bridge.applySessionStatus?.(state.sessionStatus === true);
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {

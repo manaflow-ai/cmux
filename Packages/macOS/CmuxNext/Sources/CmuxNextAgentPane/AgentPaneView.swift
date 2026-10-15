@@ -23,19 +23,11 @@ public final class AgentPaneView: NSView {
     public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     public let source: AgentPaneSource
-    public var customization = AgentPaneCustomization() {
-        didSet {
-            if customization != oldValue { applyCustomization() }
-        }
-    }
-    public var shortcuts = AgentPaneShortcuts() {
-        didSet {
-            if shortcuts != oldValue { applyShortcuts() }
-        }
-    }
-    public var previewFeatures = false {
-        didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
-    }
+    public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
+    public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
+    /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
+    public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     /// The newest recently closed items for the New Tab page's Recently Closed section.
@@ -64,7 +56,7 @@ public final class AgentPaneView: NSView {
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
-    private var motionObservation: Task<Void, Never>?
+    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
@@ -85,7 +77,7 @@ public final class AgentPaneView: NSView {
         NSPasteboard.general.setString(text, forType: .string)
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
-    let loadingView = AgentPaneLoadingView()
+    public let loadingView = AgentPaneLoadingView()
     public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -142,6 +134,10 @@ public final class AgentPaneView: NSView {
             // window (plans/cmux-next/windows.md).
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            if let script = AgentPaneTunables.documentScript {
+                configuration.userContentController.addUserScript(
+                    WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             #if DEBUG
@@ -209,6 +205,7 @@ public final class AgentPaneView: NSView {
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
+        sessionStatusObservation = AgentPaneSessionStatus.follow(self)
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -240,20 +237,16 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
         }
     }
 
-    private func applyZoom() {
-        let scale = Double(DesignSettings.shared.uiScale) * zoom
-        if let page {
-            page.additionalZoom = zoom
-        } else {
-            webView.pageZoom = scale
-        }
+    func applyZoom() {
+        if let page { page.additionalZoom = zoom } else { webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom }
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -261,6 +254,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            sessionStatusObservation?.cancel()
         }
     }
 
@@ -309,6 +303,7 @@ public final class AgentPaneView: NSView {
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
+        sessionStatusObservation?.cancel()
         if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
         if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
         (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)

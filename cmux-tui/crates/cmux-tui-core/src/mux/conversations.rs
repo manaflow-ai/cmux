@@ -59,6 +59,20 @@ impl Mux {
         let _order = self.conversations.publish.lock().unwrap();
         let value = self.with_conversations(write)?;
         for event in publish(&value) {
+            // A participant's posted message ends its typing (every client
+            // drops it on the message; the owner's state follows, so the Home
+            // rows never show a Chief working after it answered).
+            if let MuxEvent::Conversation(change) = &event
+                && let crate::conversation_store::ConversationEvent::Changed {
+                    conversation,
+                    change,
+                    ..
+                } = change.as_ref()
+                && change["kind"] == "message"
+                && let Some(author) = change["message"]["author"].as_str()
+            {
+                self.set_conversation_typing(conversation, author, false);
+            }
             self.emit(event);
         }
         Ok(value)
@@ -99,6 +113,38 @@ impl Mux {
         Ok(())
     }
 
+    /// Binds `client` to `participant` when `check` (the credential check)
+    /// passes, holding the bindings lock across both, so a credential revoked
+    /// by [`Mux::claim_unbound_participant`] never binds after it. Lock order:
+    /// bindings, then the conversation store.
+    pub(crate) fn bind_conversation_principal_if(
+        &self,
+        client: u64,
+        participant: String,
+        check: impl FnOnce() -> anyhow::Result<bool>,
+    ) -> anyhow::Result<bool> {
+        let mut bindings = lock_checked(&self.conversations.bindings, RelayLock::Bindings)?;
+        if !check()? {
+            return Ok(false);
+        }
+        bindings.insert(client, participant);
+        Ok(true)
+    }
+
+    /// For `chief.profile.adopt`: when no connection is bound to
+    /// `participant`, revokes every credential issued for it and answers
+    /// true; a bound participant answers false and nothing changes. Under the
+    /// bindings lock, so no bind lands between the check and the revoke.
+    pub(crate) fn claim_unbound_participant(&self, participant: &str) -> anyhow::Result<bool> {
+        let bindings = lock_checked(&self.conversations.bindings, RelayLock::Bindings)?;
+        if bindings.values().any(|bound| bound == participant) {
+            return Ok(false);
+        }
+        self.with_conversations(|store| store.revoke_agent_token(participant))?;
+        drop(bindings);
+        Ok(true)
+    }
+
     /// The bindings lock (tests poison it).
     #[cfg(test)]
     pub(crate) fn conversation_bindings(&self) -> &Mutex<std::collections::BTreeMap<u64, String>> {
@@ -116,6 +162,15 @@ impl Mux {
                 typing.remove(conversation);
             }
         }
+    }
+
+    /// Everyone typing now, by conversation (one lock for the Home rows).
+    pub(crate) fn conversation_typing_all(&self) -> HashMap<String, Vec<String>> {
+        let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        typing
+            .iter()
+            .map(|(conversation, set)| (conversation.clone(), set.iter().cloned().collect()))
+            .collect()
     }
 
     /// The participants typing in `conversation` now, sorted.

@@ -10,6 +10,7 @@ enum AgentPanePageHost {
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
         let page = PageWebView(descriptor: .agent, root: root,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
+                               documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in
@@ -19,13 +20,14 @@ enum AgentPanePageHost {
     }
 
     /// What the old host pushed again after each load and handshake: the theme, shortcuts, preview
-    /// features, the New Tab page's chats and closed items, the edited-files card's and the composer's
-    /// settings, and a non-empty customization.
+    /// features, the in-session status toggle, the New Tab page's chats and closed items, the
+    /// edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
         if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(.sessionStatus(view.sessionStatus))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(.recentlyClosed(view.recentlyClosed))
         events.append(.editedFiles(view.editedFiles))

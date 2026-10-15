@@ -1,6 +1,6 @@
-// Labs (cx-ncc.102, Claude Code desktop's in-session status): while a turn runs, its todo list
+// The agent.sessionStatus Debug toggle (cx-ncc.102, Claude Code desktop's in-session status): while a turn runs, its todo list
 // sits under the work as a card, and an activity line under it names what the agent is doing now,
-// in place of the "Working for" status. Labs off, or a turn without a list, draws as before.
+// in place of the "Working for" status. The toggle off, or a turn without a list, draws as before.
 import { expect, test } from "bun:test";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ACTIVITY_LINE, turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -18,16 +18,16 @@ const tool = (id: string, status: string) =>
 const plan = (...entries: [string, AcpmuxPlanEntry["status"]][]) =>
   row("plan", "plan", { plan: entries.map(([content, status]) => ({ content, status })) });
 const steps = plan(["Reproduce", "completed"], ["Reserve space", "in_progress"], ["Add a test", "pending"]);
-const live = (rows: AcpmuxRow[], labs: boolean) =>
-  turnView(rows, new Set(), { working: true, labs }).filter((shaped) => shaped.kind !== "date");
+const live = (rows: AcpmuxRow[], statusCards: boolean) =>
+  turnView(rows, new Set(), { working: true, statusCards }).filter((shaped) => shaped.kind !== "date");
 const kinds = (rows: AcpmuxRow[]) => rows.map((shaped) => `${shaped.kind}:${shaped.id}`);
 
-test("labs off keeps the status over the work and the list where it came", () => {
+test("status cards off keeps the status over the work and the list where it came", () => {
   const rows = [row("u", "user"), steps, tool("edit-a", "in_progress")];
   expect(kinds(live(rows, false))).toEqual(["user:u", "working:working-u", "plan:plan", "activity:edit-a"]);
 });
 
-test("labs on moves the list under the work, with the activity line in the status's place", () => {
+test("status cards on moves the list under the work, with the activity line in the status's place", () => {
   const rows = [row("u", "user"), steps, tool("edit-a", "in_progress")];
   expect(kinds(live(rows, true))).toEqual([
     "user:u",
@@ -78,7 +78,7 @@ test("while the answer streams the list stays above it and the line goes", () =>
   expect(kinds(live(rows, true))).toEqual(["user:u", "activity:edit-a", "plan:plan", "assistant:answer"]);
 });
 
-test("a turn without a list draws as before with labs on", () => {
+test("a turn without a list draws as before with status cards on", () => {
   const rows = [row("u", "user"), tool("edit-a", "in_progress")];
   expect(kinds(live(rows, true))).toEqual(kinds(live(rows, false)));
 });

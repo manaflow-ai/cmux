@@ -6,7 +6,7 @@
 // `<config dir>/editor/theme.css` (rule 4). Fonts follow the terminal by default (the Ghostty rule):
 // with no `fontFamily` or `fontSize` the editor uses the terminal font the host sends in
 // `appearance`. Every key is optional; an invalid value keeps its default. Pure: no Monaco import.
-import type { DiffViewerAppearance } from "../../appearance";
+import { hostTerminalFontFamily, type DiffViewerAppearance } from "../../appearance";
 import { monacoScrollerOptions, type ScrollerStyle } from "../../scrollers";
 
 export type WordWrap = "off" | "on" | "bounded" | "wordWrapColumn";
@@ -265,7 +265,9 @@ export function editorFont(
   appearance: DiffViewerAppearance | undefined,
 ): { family: string; size: number } {
   const terminal =
-    typeof appearance?.fontFamily === "string" && appearance.fontFamily.trim() ? appearance.fontFamily : null;
+    typeof appearance?.fontFamily === "string" && appearance.fontFamily.trim()
+      ? appearance.fontFamily
+      : hostTerminalFontFamily();
   const family =
     settings.fontFamily ??
     `${terminal ? `${JSON.stringify(terminal.trim())}, ` : ""}ui-monospace, SFMono-Regular, Menlo, Monaco, monospace`;

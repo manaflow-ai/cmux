@@ -6,6 +6,11 @@
 //! and the daemon's own records show no session, live agent or agent host).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -88,7 +93,9 @@ impl Daemon {
     )
     .unwrap();
         let socket = dir.join("s.sock");
-        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        // Launches allowed unless `switch` turns them off; the bare PATH holds
+        // no real agent either way.
+        let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
         cmd.args(["daemon", "run", "--ready-fd", "1", "--log", "warn"]);
         if memory {
             cmd.arg("--memory");
@@ -101,16 +108,11 @@ impl Daemon {
             .env("ACPMUX_HEALTH_FETCH", "0")
             // Only the fake harness: never the developer's own claude or codex
             // from PATH or ~/.acpmux, with their credentials.
-            .env("ACPMUX_PROBE_HARNESSES", "fake")
-            .env("HOME", &dir)
-            .env_remove("ACPMUX_AGENT_LAUNCH")
-            .env_remove("CMUX_AGENTS_DISABLED");
+            .env("ACPMUX_PROBE_HARNESSES", "fake");
         if let Some((key, value)) = switch {
             cmd.env(key, value);
         }
         let mut child = cmd
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("CLAUDECODE")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())

@@ -267,11 +267,11 @@ extension AgentTabStore {
                 }
             }
         }
-        tabs.bind = { [weak services] key, surface, expected, session in
+        tabs.bind = { [weak services] key, surface, expected, session, harness in
             guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
                 return (.failed, nil)
             }
-            let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected)
+            let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected, harness: harness)
             let outcome: AgentSessionBindOutcome, sequence: UInt64? // one return: swiftlang/swift#92698 (cx-21wc5)
             do {
                 _ = try await connection.request(request)

@@ -1,4 +1,4 @@
-// The live turn's activity line under its todo card (Labs, cx-ncc.102; Claude Code desktop's
+// The live turn's activity line under its todo card (agent.sessionStatus Debug toggle, cx-ncc.102; Claude Code desktop's
 // `••• Editing ProductGrid.module.css 26s`): what turns.ts names (the running tool call, else the
 // todo in progress) and the turn's time, ticking each second from the prompt like "Working for".
 import { useEffect, useState } from "react";
