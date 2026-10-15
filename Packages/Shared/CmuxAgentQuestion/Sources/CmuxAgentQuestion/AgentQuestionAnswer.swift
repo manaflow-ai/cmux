@@ -1,5 +1,3 @@
-public import Foundation
-
 /// A person's answer to an `AgentQuestion`, harness-neutral: one selection
 /// per item, plus who answered and from which device.
 public struct AgentQuestionAnswer: Hashable, Sendable, Codable {

@@ -330,7 +330,7 @@ final class TiledBody {
             return
         }
         guard folded else { bandRect = .zero; return }
-        let headH = CGFloat(LongTextFold.headLines) * lh, tailH = CGFloat(LongTextFold.tailLines) * lh
+        let headH = CGFloat(LongTextFold.headLines) * lh
         // Clips reach 4 pt past their line slots (descenders), never into the other region's text.
         headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH + 4 - body.minY)
         let tailTop = textTop + headH + LongTextFold.bandHeight
@@ -507,7 +507,7 @@ final class TiledBody {
     private func enqueue(_ k: TileCache.Key, layout: LongTextLayout, block: Int, width: CGFloat, visible: Bool) {
         let op = BlockOperation()
         op.queuePriority = visible ? .veryHigh : .normal
-        op.addExecutionBlock { [weak op] in
+        op.addExecutionBlock { [weak op, weak self] in
             guard let op, !op.isCancelled else { return }
             let img = TiledBubble.render(layout.blockLayout(block), chunk: k.chunk, outgoing: k.outgoing, width: width, scale: k.scale)
             DispatchQueue.main.async { [weak self] in

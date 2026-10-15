@@ -15,7 +15,7 @@ import UniformTypeIdentifiers
 /// before any picture arrives, and the picture is at least the bubble's
 /// pixel width so `Sizing` keeps that size.
 @MainActor
-final class HomeMedia {
+final class HomeMedia: @unchecked Sendable {
     typealias Fetch = @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
 
     /// Where the pictures are written (one folder per process).

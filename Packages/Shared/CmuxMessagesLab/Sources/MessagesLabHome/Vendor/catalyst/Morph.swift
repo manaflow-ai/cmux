@@ -433,7 +433,7 @@ final class MorphBubble {
 
     /// Three box-convolution passes (about a Gaussian), at the source's pixel size.
     static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
-        guard var format = vImage_CGImageFormat(cgImage: cg),
+        guard let format = vImage_CGImageFormat(cgImage: cg),
               var src = try? vImage_Buffer(cgImage: cg, format: format),
               let width = Int(exactly: src.width), let height = Int(exactly: src.height), // no trapping conversion
               var dst = try? vImage_Buffer(width: width, height: height, bitsPerPixel: format.bitsPerPixel) else { return nil }

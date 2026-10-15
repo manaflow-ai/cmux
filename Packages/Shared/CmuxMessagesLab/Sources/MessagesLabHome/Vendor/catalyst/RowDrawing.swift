@@ -458,7 +458,6 @@ enum PartRenderer {
         default:
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
             let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
-            let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
             if a.kind == "contact" {
                 UIColor(white: 0.55, alpha: 1).setFill()
                 UIBezierPath(ovalIn: CGRect(x: body.minX + 9, y: body.minY + 10, width: 36, height: 36)).fill()

@@ -63,6 +63,10 @@ let package = Package(
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ],
+            // The motion golden is read from its source path by the harness;
+            // exclude the fixture directory from SwiftPM's source scan so it
+            // does not become an unhandled-file warning.
+            exclude: ["Golden"],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),

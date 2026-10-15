@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The conversation owner's `question` part (snake_case, cmux-tui
 /// spec/commands.md `Question`) and the `question.answer` op's `answer`.

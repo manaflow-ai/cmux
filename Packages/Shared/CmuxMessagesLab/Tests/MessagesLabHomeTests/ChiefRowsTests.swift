@@ -19,7 +19,7 @@ import Testing
                             lastSeq: 10, createdAt: base, updatedAt: base)
     }
 
-    static func item(_ seq: Seq, _ parts: [MessagePart], by author: ParticipantID = chief) -> TranscriptItem {
+    static func item(_ seq: Seq, _ parts: [MessagePart], by author: ParticipantID = ParticipantID("agent_chief")) -> TranscriptItem {
         TranscriptItem(key: IdempotencyKey("k\(seq)"), seq: seq, author: author, parts: parts,
                        createdAt: base.addingTimeInterval(Double(seq)), delivery: .committed, messageID: MessageID("m\(seq)"))
     }

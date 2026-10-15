@@ -14,7 +14,7 @@ import Testing
     static let me = ChiefRowsTests.me
     static let chief = ChiefRowsTests.chief
 
-    static func message(_ seq: Seq, _ parts: [MessagePart], by author: ParticipantID = chief) -> CmuxHomeCore.Message {
+    static func message(_ seq: Seq, _ parts: [MessagePart], by author: ParticipantID = ParticipantID("agent_chief")) -> CmuxHomeCore.Message {
         CmuxHomeCore.Message(id: MessageID("m\(seq)"), conversation: ChiefRowsTests.id, seq: seq,
                              clientMessageID: IdempotencyKey("k\(seq)"), author: author, parts: parts,
                              createdAt: ChiefRowsTests.base.addingTimeInterval(Double(seq)))

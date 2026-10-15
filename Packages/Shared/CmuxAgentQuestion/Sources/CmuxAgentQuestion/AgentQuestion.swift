@@ -1,5 +1,3 @@
-public import Foundation
-
 /// A question an agent asks a person, independent of the harness that asked.
 ///
 /// One `AgentQuestion` holds one ask: one to four items (Claude Code asks up
