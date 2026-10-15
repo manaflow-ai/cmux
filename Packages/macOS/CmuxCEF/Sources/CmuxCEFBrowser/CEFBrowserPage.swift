@@ -25,6 +25,9 @@ public final class CEFBrowserPage: BrowserPage {
     private var muted = false
     private var lastFaviconURL: URL?
     private var isClosed = false
+    /// Captures running while the page is hidden, and the occlusion the page
+    /// had before the first of them (CEFBrowserPage+HiddenCapture).
+    var hiddenCapture = (depth: 0, savedOcclusion: [CGRect](), wantsVisible: true)
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
@@ -264,6 +267,9 @@ public final class CEFBrowserPage: BrowserPage {
     /// does for a hidden web view.
     /// - Parameter visible: `true` when the page is on screen.
     public func setContentVisible(_ visible: Bool) {
+        hiddenCapture.wantsVisible = visible
+        // While a capture of the hidden page runs, only its cover changes now.
+        if hiddenCapture.depth > 0 { return captureVisibilityChanged(visible) }
         guard browser.hostView.isHidden == visible else { return }
         browser.hostView.isHidden = !visible
     }
