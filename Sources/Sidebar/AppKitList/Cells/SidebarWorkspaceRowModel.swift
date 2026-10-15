@@ -37,6 +37,9 @@ struct SidebarWorkspaceRowModel: Equatable {
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
     let isGrouped: Bool
+    /// Extra leading inset on top of the group-member indent, for a row whose
+    /// group is itself nested (a workspace on a machine under "Cloud").
+    var extraLeadingIndent: CGFloat = 0
     // `var` only for `hasHeightEquivalentContent` (see `index`).
     var isFirstRow: Bool
     /// Resolved modifier-hold hint text (nil hides the pill).

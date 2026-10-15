@@ -367,6 +367,7 @@ enum CmuxExtensionSidebarSelection {
                 conversationSidebarEnabled: conversationSidebarEnabled
             )
         ).id
+        let previewLayout = SidebarProjectsAppHost.activeLayout()
         for descriptor in descriptors {
             let item = NSMenuItem(
                 title: localizedTitle(for: descriptor),
@@ -375,10 +376,44 @@ enum CmuxExtensionSidebarSelection {
             )
             item.representedObject = descriptor.id
             item.target = CmuxExtensionSidebarMenuTarget.shared
-            item.state = selectedProviderId == descriptor.id ? .on : .off
+            item.state = selectedProviderId == descriptor.id && !(previewLayout != nil && descriptor.id == defaultProviderId) ? .on : .off
             item.image = NSImage(systemSymbolName: descriptor.systemImageName, accessibilityDescription: nil)
             menu.addItem(item)
         }
+#if DEBUG
+        // Debug previews of the new sidebars (Sources/Sidebar/Projects): each takes the
+        // default list's place, so choosing one also selects the default provider.
+        menu.addItem(.separator())
+        let previews: [(layout: String, title: String, symbol: String)] = [
+            ("projects", String(localized: "sidebar.menu.projectsPreview", defaultValue: "Projects (Preview)"), "sidebar.squares.left"),
+            ("codex", String(localized: "sidebar.menu.codexPreview", defaultValue: "Codex (Preview)"), "list.bullet.rectangle"),
+            ("rail", String(localized: "sidebar.menu.railPreview", defaultValue: "Machine Rail (Preview)"), "rectangle.leadinghalf.inset.filled"),
+            ("panes", String(localized: "sidebar.menu.panesPreview", defaultValue: "Panes (Preview)"), "rectangle.split.1x2"),
+            ("flush", String(localized: "sidebar.menu.flushPreview", defaultValue: "Flush (Preview)"), "text.alignleft"),
+            ("machineTabs", String(localized: "sidebar.menu.machineTabsPreview", defaultValue: "Machine Tabs (Preview)"), "menubar.rectangle"),
+        ]
+        for preview in previews {
+            let item = NSMenuItem(
+                title: preview.title,
+                action: #selector(CmuxExtensionSidebarMenuTarget.selectPreviewLayout(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = preview.layout
+            item.target = CmuxExtensionSidebarMenuTarget.shared
+            item.state = previewLayout == preview.layout && selectedProviderId == defaultProviderId ? .on : .off
+            item.image = NSImage(systemSymbolName: preview.symbol, accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+        if previewLayout == "projects" {
+            let customizeItem = NSMenuItem(
+                title: String(localized: "sidebar.menu.customizeProjects", defaultValue: "Customize Sidebar…"),
+                action: #selector(CmuxExtensionSidebarMenuTarget.customizeProjectsSidebar),
+                keyEquivalent: ""
+            )
+            customizeItem.target = CmuxExtensionSidebarMenuTarget.shared
+            menu.addItem(customizeItem)
+        }
+#endif
         if customSidebarsEnabled {
             menu.addItem(.separator())
             let templatesItem = NSMenuItem(
@@ -403,7 +438,29 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
+        Self.setPreviewLayout(nil)
         CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+
+    /// Picks a preview sidebar; picking the one in use again goes back to the native list.
+    @objc func selectPreviewLayout(_ sender: NSMenuItem) {
+        guard let layout = sender.representedObject as? String else { return }
+        if SidebarProjectsAppHost.activeLayout() == layout {
+            Self.setPreviewLayout(nil)
+        } else {
+            Self.setPreviewLayout(layout)
+            CmuxExtensionSidebarSelection.setProviderId(CmuxExtensionSidebarSelection.defaultProviderId)
+        }
+    }
+
+    private static func setPreviewLayout(_ layout: String?) {
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: SidebarProjectsAppHost.enabledKey)
+        defaults.set(layout ?? "", forKey: SidebarProjectsAppHost.layoutKey)
+    }
+
+    @objc func customizeProjectsSidebar() {
+        SidebarProjectsStyleStore.shared.isCustomizing = true
     }
 
     @objc func browseTemplates() {

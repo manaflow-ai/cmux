@@ -57,6 +57,11 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let notificationBadgeColorHex: String?
     /// Resolved cmux accent for the badge fallback and drop indicators.
     var accentColor = CmuxAccentColor()
+    /// Extra leading inset, for a header nested under another (a machine under "Cloud").
+    var leadingIndent: CGFloat = 0
+    /// A press only folds this header, it never selects it, so the press
+    /// skips the optimistic selected paint (which would flash and clear).
+    var foldsOnPress = false
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded

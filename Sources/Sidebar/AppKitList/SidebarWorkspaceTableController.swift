@@ -2004,7 +2004,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // every cmd-click flash bright and settle dim).
             workspaceCell?.showOptimisticMultiSelection()
         }
-        if extendsSelection {
+        if headerCell?.model?.foldsOnPress == true {
+        } else if extendsSelection {
             headerCell?.showOptimisticMultiSelection()
         } else {
             headerCell?.showOptimisticAnchorActive()

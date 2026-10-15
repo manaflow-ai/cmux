@@ -81,7 +81,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         var compactStatusGlyph: SidebarCompactStatusGlyph? = nil
 
         var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
-        var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }
+        /// Replaces the machine glyph where the row already sits under its machine,
+        /// so the glyph can say what the workspace holds instead (terminal, browser).
+        var remoteWorkspaceBadgeSymbolOverride: String? = nil
+        var remoteWorkspaceBadgeSymbol: String {
+            remoteWorkspaceBadgeSymbolOverride ?? (deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer")
+        }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
             let position = String(

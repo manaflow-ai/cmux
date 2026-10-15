@@ -1287,6 +1287,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let contentPad = SidebarWorkspaceListMetrics.rowContentHorizontalPadding
         let leading = outerPad + contentPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            + model.extraLeadingIndent
         let trailing = width - outerPad - contentPad
         let contentWidth = max(10, trailing - leading)
         var y: CGFloat = model.settings.rowDensity.rowVerticalPadding
@@ -1358,7 +1359,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // The trailing word keeps its width while the close button covers it on
         // hover, so the title never shifts under the pointer.
         let statusWordSize = showsTrailingStatusWord ? trailingStatusLabel.intrinsicContentSize : .zero
-        let trailingReserve = max(trailingSlotActive ? closeWidth : 0, ceil(statusWordSize.width))
+        // A trailing unread badge keeps its corner; the word moves in beside it.
+        let wordInset: CGFloat = showsTrailingStatusWord && !trailingBadge.isHidden ? badgeSide + 6 : 0
+        let trailingReserve = max(trailingSlotActive ? closeWidth : 0, ceil(statusWordSize.width) + wordInset)
         let titleMaxX = trailingReserve > 0 ? (trailing - trailingReserve - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field
@@ -1392,7 +1395,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         if apply, showsTrailingStatusWord {
             trailingStatusLabel.frame = NSRect(
-                x: trailing - ceil(statusWordSize.width), y: firstLineCenter - statusWordSize.height / 2,
+                x: trailing - wordInset - ceil(statusWordSize.width), y: firstLineCenter - statusWordSize.height / 2,
                 width: ceil(statusWordSize.width), height: statusWordSize.height
             )
         }
@@ -1561,6 +1564,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // only the content left the full-width highlight hiding the
             // nesting ("can't tell when a workspace is in a group").
             let bgX = outerPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+                + model.extraLeadingIndent
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             SidebarGlassSelection.fitOverlay(hoverLayer)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
