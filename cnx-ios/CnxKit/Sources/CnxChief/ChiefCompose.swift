@@ -10,15 +10,16 @@ import UIKit
 /// Forward), Chief with the composer focused (Home's compose button), or an
 /// agent's chat.
 public enum HomeConversationRoute: Hashable, Sendable {
-    case chief
-    case chiefComposing
+    /// A Chief conversation: the Cloud Chief or the Mac Chief.
+    case chief(ChiefRoute.Place)
+    case chiefComposing(ChiefRoute.Place)
     case agent(AgentChatDestination)
 
     /// The navigation value to push for Chief, nil for an agent.
     public var chiefRoute: ChiefRoute? {
         switch self {
-        case .chief: ChiefRoute()
-        case .chiefComposing: ChiefRoute(focusesComposer: true)
+        case let .chief(place): ChiefRoute(place: place)
+        case let .chiefComposing(place): ChiefRoute(focusesComposer: true, place: place)
         case .agent: nil
         }
     }
@@ -43,13 +44,13 @@ final class ChiefDirectory: ConversationDirectory, @unchecked Sendable {
     }
 
     @MainActor
-    static func recipients(store: AppStore, identity: ChiefIdentity) -> [ChiefRecipient] {
+    static func recipients(store: AppStore, identity: ChiefIdentity, place: ChiefRoute.Place) -> [ChiefRecipient] {
         var all = [ChiefRecipient(
             contact: ConversationContact(
                 id: chiefContactID, name: identity.title, initials: identity.avatar, colorHex: "#636366",
                 handles: [ConversationContactHandle(value: String(localized: "Runs your agents"), label: "Chief", service: .iMessage)]
             ),
-            route: .chief
+            route: .chief(place)
         )]
         for workspace in store.activeWorkspaces {
             for tab in workspace.tabs where tab.kind == .agent {
@@ -134,10 +135,13 @@ public final class ChiefComposer {
         self.open = open
     }
 
+    /// The Chief this composer writes to, as a route place.
+    var place: ChiefRoute.Place { session === ChiefSession.cloud ? .cloud : .mac }
+
     @discardableResult
     public func present() -> Bool {
         guard let presenter = Self.topController() else { return false }
-        let directory = ChiefDirectory(recipients: ChiefDirectory.recipients(store: store, identity: session.identity))
+        let directory = ChiefDirectory(recipients: ChiefDirectory.recipients(store: store, identity: session.identity, place: place))
         let compose = ConversationComposeViewController(directory: directory)
         compose.onOpenConversation = { [weak self, weak compose] creation, message in
             guard let self else { return }
@@ -177,7 +181,7 @@ public final class ChiefComposer {
         if !others.isEmpty, !message.text.isEmpty {
             routed.text = "To \(others.map(\.name).joined(separator: ", ")): \(message.text)"
         }
-        open(.chief)
+        open(.chief(place))
         session.send(routed)
     }
 

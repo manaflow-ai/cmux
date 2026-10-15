@@ -7,6 +7,8 @@ import Foundation
 public struct ChiefLive: Equatable, Sendable {
     /// The run, as conversation + author + run (run ids repeat across Chiefs).
     public var key: String
+    /// The talk step that text belongs to (nil: activity only).
+    public var step: String?
     /// The newest talk step's text so far (thought text is never shown).
     public var text: String
     /// The owner cut the step's older text from its buffer: show "…" first.
@@ -16,8 +18,9 @@ public struct ChiefLive: Equatable, Sendable {
     /// When that activity began; the client draws the elapsed time itself.
     public var since: Date?
 
-    public init(key: String, text: String, truncated: Bool = false, activity: String? = nil, since: Date? = nil) {
+    public init(key: String, step: String? = nil, text: String, truncated: Bool = false, activity: String? = nil, since: Date? = nil) {
         self.key = key
+        self.step = step
         self.text = text
         self.truncated = truncated
         self.activity = activity
@@ -196,10 +199,11 @@ struct ChiefLiveState {
         guard let newest = shown.max(by: { $0.value.touched < $1.value.touched }) else { return nil }
         let key = newest.key
         let run = newest.value
-        let talk = run.order.last { run.steps[$0]?.kind == "talk" }.flatMap { run.steps[$0] }
+        let talkID = run.order.last { run.steps[$0]?.kind == "talk" }
+        let talk = talkID.flatMap { run.steps[$0] }
         return ChiefLive(
-            key: "\(conversation)\u{0}\(key)", text: talk?.text ?? "",
-            truncated: (talk?.text.utf16.count ?? 0) >= Self.bufferCap,
+            key: "\(conversation)\u{0}\(key)", step: talkID, text: talk?.text ?? "",
+            truncated: (talk?.text.utf16.count ?? 0) > Self.bufferCap,
             activity: run.activity?.line, since: run.activity?.since
         )
     }

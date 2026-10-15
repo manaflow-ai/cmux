@@ -52,10 +52,14 @@ public final class ChiefSources {
     /// The Chief Home pins first, compose writes to and New Message names.
     public var primary: ChiefSession { isCloudReady ? cloud : mac }
 
-    /// The Mac Chief beside the Cloud Chief: while the Cloud Chief is the
-    /// default and a Mac is linked (its Chief may still be starting).
+    /// The Mac Chief beside the Cloud Chief, while the Cloud Chief is the
+    /// default. It stays reachable once a Mac was linked in this session
+    /// (the link can drop; the last Mac's name is kept), and while it holds
+    /// anything for the user: an outbox, unread messages, an open question.
     public var secondary: ChiefSession? {
-        isCloudReady && mac.macName != nil ? mac : nil
+        guard isCloudReady else { return nil }
+        let holdsSomething = !mac.outbox.isEmpty || mac.unreadCount > 0 || mac.openQuestion != nil
+        return mac.macName != nil || holdsSomething ? mac : nil
     }
 
     /// Why the Cloud Chief is not the default; nil when it is, or when this
@@ -69,10 +73,13 @@ public final class ChiefSources {
     /// The session for a route.
     public func session(for place: ChiefRoute.Place) -> ChiefSession {
         switch place {
-        case .primary: primary
+        case .cloud: cloud
         case .mac: mac
         }
     }
+
+    /// Where the default Chief is now, for a route pushed now.
+    public var primaryPlace: ChiefRoute.Place { isCloudReady ? .cloud : .mac }
     #endif
 
     // MARK: Lifecycle
@@ -108,6 +115,8 @@ public final class ChiefSources {
         http = nil
         userID = nil
         cloudState = .off
+        // Signed out: the next account starts without this one's Mac pin.
+        mac.macName = nil
         if !(cloud.backend is ChiefOfflineBackend) {
             cloud.use(ChiefOfflineBackend(reason: Self.signedOutReason))
         }
@@ -146,18 +155,33 @@ public final class ChiefSources {
 
     private func adopt(_ chief: CloudChief, userID: String, http: ChiefCloudHTTP) {
         guard let conversation = chief.mainConversation else { return }
+        let identity = chief.identity(userID: userID)
         let unchanged: Bool
-        if case let .ready(current) = cloudState, let backend = cloud.backend as? ChiefCloudBackend {
-            unchanged = current.id == chief.id && backend.conversationID == conversation
+        if case .ready = cloudState, let backend = cloud.backend as? ChiefCloudBackend {
+            // A renamed chief takes a new identity (and backend) too.
+            unchanged = backend.conversationID == conversation && cloud.identity == identity
         } else {
             unchanged = false
         }
         cloudState = .ready(chief)
         guard !unchanged else { return }
-        let identity = chief.identity(userID: userID)
         cloud.status = nil
-        cloud.use(ChiefCloudBackend(http: http, conversationID: conversation, identity: identity, preferences: cloud.preferences),
-                  identity: identity)
+        let backend = ChiefCloudBackend(
+            http: http, conversationID: conversation, identity: identity, preferences: cloud.preferences,
+            refused: { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refused(conversation: conversation) }
+            }
+        )
+        cloud.use(backend, identity: identity)
+    }
+
+    /// The service refused the Cloud Chief's conversation: Home falls back to
+    /// the Mac Chief, and the next foreground or Home visit looks again.
+    private func refused(conversation: String) {
+        guard let backend = cloud.backend as? ChiefCloudBackend, backend.conversationID == conversation else { return }
+        let reason = String(localized: "Cloud Chief couldn't open your conversation.")
+        cloudState = .unavailable(reason)
+        cloud.use(ChiefOfflineBackend(reason: reason))
     }
 
     // MARK: Lookup

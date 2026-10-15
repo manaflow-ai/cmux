@@ -147,7 +147,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             if showsChief {
                 HStack(alignment: .bottom, spacing: 0) {
                     if shows(session) {
-                        PinnedGrid(session: session, route: ChiefRoute(), name: String(localized: "Chief"),
+                        PinnedGrid(session: session, route: ChiefRoute(place: sources.primaryPlace), name: String(localized: "Chief"),
                                    identifier: "home.chief")
                     }
                     if let mac = sources.secondary, shows(mac) {
@@ -260,7 +260,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // every other recipient is already a row here, and Chief
                 // routes work to agents itself.
                 Button("New Message to Chief", systemImage: "square.and.pencil") {
-                    open(.chiefComposing)
+                    open(.chiefComposing(sources.primaryPlace))
                 }
                 .accessibilityIdentifier("home.compose")
             }

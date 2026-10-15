@@ -26,12 +26,15 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
     let core: Core
     public let liveFeed: ChiefLiveFeed
 
+    /// `refused` runs once if the service refuses the conversation itself
+    /// (the socket upgrade or the subscribe): the backend stops dialing.
     init(http: ChiefCloudHTTP, conversationID: String, identity: ChiefIdentity,
-         preferences: ChiefPreferences, clock: any Clock<Duration> = ContinuousClock()) {
+         preferences: ChiefPreferences, clock: any Clock<Duration> = ContinuousClock(),
+         refused: @escaping @Sendable (String) -> Void = { _ in }) {
         let feed = ChiefLiveFeed()
         liveFeed = feed
         core = Core(http: http, conversationID: conversationID, identity: identity, preferences: preferences,
-                    clock: clock, liveFeed: feed)
+                    clock: clock, liveFeed: feed, refused: refused)
     }
 
     /// The conversation this backend talks to.
@@ -94,7 +97,12 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         let preferences: ChiefPreferences
         let clock: any Clock<Duration>
         nonisolated let liveFeed: ChiefLiveFeed
+        let refused: @Sendable (String) -> Void
         private var live: ChiefLiveState
+        /// The subscribe is the newest frame this socket sent and nothing
+        /// answered it yet: an auth error now refuses the subscription, not
+        /// a later frame (a typing or `run.live.get` refusal is not fatal).
+        private var subscribeOutstanding = false
         /// A `run.live.get` is out; another gap waits for its answer.
         private var liveResyncPending = false
 
@@ -117,7 +125,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private var known: [String: ConversationMessage] = [:]
 
         init(http: ChiefCloudHTTP, conversationID: String, identity: ChiefIdentity, preferences: ChiefPreferences,
-             clock: any Clock<Duration>, liveFeed: ChiefLiveFeed) {
+             clock: any Clock<Duration>, liveFeed: ChiefLiveFeed, refused: @escaping @Sendable (String) -> Void) {
+            self.refused = refused
             self.http = http
             self.conversationID = conversationID
             self.identity = identity
@@ -194,6 +203,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         func typing(_ on: Bool) async {
             guard let socket else { return }
             guard let text = try? Self.text(["t": "typing", "on": on]) else { return }
+            subscribeOutstanding = false
             try? await Self.send(text, on: socket)
         }
 
@@ -288,6 +298,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 switch end {
                 case let .refused(reason):
                     continuation?.yield(.disconnected(reason: reason))
+                    refused(reason)
                     return
                 case let .ended(welcomed, unauthorized, reason):
                     if welcomed { attempt = 0 }
@@ -315,30 +326,38 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             } catch {
                 return .ended(welcomed: false, unauthorized: false, reason: "no access token: \(error)")
             }
+            // Closed while the token came: open nothing.
+            guard !closed, !Task.isCancelled else { return .ended(welcomed: false, unauthorized: false, reason: "closed") }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
             request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
             let task = http.session.webSocketTask(with: request)
             socket = task
             awaitingSnapshot = false
+            subscribeOutstanding = false
             task.resume()
             let pinger = Task { await self.keepAlive(task) }
-            defer { pinger.cancel() }
+            // Every exit closes this socket (a no-op on one already closed).
+            defer {
+                pinger.cancel()
+                task.cancel(with: .goingAway, reason: nil)
+                if socket === task { socket = nil }
+            }
             var welcomed = false
             do {
-                while !closed {
+                while !closed, !Task.isCancelled {
                     guard let text = try await Self.receive(task) else { continue }
                     if try await handle(text, on: task) { welcomed = true }
                 }
                 return .ended(welcomed: welcomed, unauthorized: false, reason: "closed")
-            } catch let refused as Refused {
-                task.cancel(with: .normalClosure, reason: nil)
-                if socket === task { socket = nil }
-                return .refused(refused.reason)
+            } catch let refusal as Refused {
+                return .refused(refusal.reason)
             } catch {
                 let status = (task.response as? HTTPURLResponse)?.statusCode
-                task.cancel(with: .goingAway, reason: nil)
-                if socket === task { socket = nil }
+                // The upgrade itself was refused: not a member, or no such conversation.
+                if !welcomed, status == 403 || status == 404 {
+                    return .refused("the service refused the conversation (HTTP \(status ?? 0))")
+                }
                 return .ended(welcomed: welcomed, unauthorized: status == 401, reason: "socket ended: \(error.localizedDescription)")
             }
         }
@@ -415,8 +434,10 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 liveResyncPending = false
                 try await applyLive(live.snapshot(object), on: task)
             case "error":
+                // Only a refused subscribe ends the socket for good; an error
+                // that answers a typing or `run.live.get` frame is dropped.
                 let code = object["code"] as? String ?? ""
-                if code == "auth.forbidden" || code == "auth.unauthenticated" {
+                if subscribeOutstanding, code == "auth.forbidden" || code == "auth.unauthenticated" {
                     throw Refused(reason: object["message"] as? String ?? code)
                 }
             default:
@@ -443,6 +464,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             var subscribe: [String: Any] = ["t": "subscribe"]
             if let streamSeq { subscribe["after_seq"] = streamSeq }
             try await frame(subscribe, on: task)
+            subscribeOutstanding = true
             // A resume: the owner replays what was missed (or sends a
             // snapshot, which reconnects with a refetch); nothing missed
             // sends nothing, so the conversation is live now.
@@ -456,13 +478,15 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             guard let seq = Self.int(object["seq"]), let head = object["state"] as? [String: Any],
                   var info = wire.info(head) else { return }
             awaitingSnapshot = false
+            subscribeOutstanding = false
             streamSeq = seq
             info.listState = preferences.listState(conversationID)
             self.info = info
-            absorb(head, peer: true)
+            absorb(head, peer: false)
             let lagged = everConnected
             everConnected = true
             continuation?.yield(.connected(info: info, meID: identity.meID, lagged: lagged))
+            takeChiefCursor(head)
             // With receipts off the service's cursor lags what this phone read.
             let server = wire.readCursor(head, of: identity.meID)
             yieldReadState(lastRead: preferences.sendsReadReceipts(conversationID) ? server : max(server, lastReadHere ?? 0))
@@ -471,12 +495,14 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private func requestSnapshot(on task: URLSessionWebSocketTask) async throws {
             guard !awaitingSnapshot else { return }
             awaitingSnapshot = true
+            subscribeOutstanding = false
             try await frame(["t": "snapshot.request"], on: task)
         }
 
         private func event(_ object: [String: Any], on task: URLSessionWebSocketTask) async throws {
             if let named = object["stream"] as? String, named != stream { return }
             guard !awaitingSnapshot, let seq = Self.int(object["seq"]), let last = streamSeq, seq > last else { return }
+            subscribeOutstanding = false
             guard seq == last + 1, apply(object) else {
                 try await requestSnapshot(on: task)
                 return
@@ -490,6 +516,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             guard let op = object["op"] as? String, !op.hasPrefix("conversation.import"),
                   let effects = object["effects"] as? [String: Any], let head = effects["state"] as? [String: Any] else { return false }
             absorb(head, peer: false)
+            // Every head carries Chief's read cursor: receipts move with any op.
+            takeChiefCursor(head)
             let rows = (effects["writes"] as? [[String: Any]] ?? [])
                 .filter { $0["table"] as? String == "msg" && $0["op"] as? String == "upsert" }
                 .compactMap { $0["row"] as? [String: Any] }
@@ -540,6 +568,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             if outcome != .ignored { liveFeed.update(live.current) }
             guard outcome == .resync, !liveResyncPending else { return }
             liveResyncPending = true
+            subscribeOutstanding = false
             try await frame(["t": "run.live.get", "type": "run.live.get", "conversation": conversationID], on: task)
         }
 
@@ -556,6 +585,11 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private func absorb(_ head: [String: Any], peer: Bool) {
             lastSeq = max(lastSeq, Self.int(head["last_seq"]) ?? 0)
             if peer { peerReadSeq = max(peerReadSeq, wire.readCursor(head, of: identity.chiefID)) }
+        }
+
+        /// Chief's read cursor from a head: my messages it covers read as Read.
+        private func takeChiefCursor(_ head: [String: Any]) {
+            readCursor(identity.chiefID, seq: wire.readCursor(head, of: identity.chiefID))
         }
 
         private func yieldReadState(lastRead: Int) {

@@ -743,8 +743,6 @@ public final class LiveCoordinator {
                 ChiefSession.shared.status = nil
                 chiefLive = false
             }
-            // No Mac: Home pins only the Cloud Chief (when it answers).
-            ChiefSession.shared.macName = nil
             return
         }
         if let prepared = self.link.takePrepared(for: link) as? PreparedLink {

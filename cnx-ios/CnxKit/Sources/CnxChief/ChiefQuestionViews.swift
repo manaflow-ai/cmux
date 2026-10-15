@@ -60,17 +60,12 @@ struct ChiefQuestionBar: View {
         switch shown {
         case .question(let question)?: question.id + (session.answers[question.id]?.statusText ?? "")
         case .failure(let id, _)?: id
-        // The live bar keeps one height while text streams in.
-        case .live(let live)?: "live:" + live.key
         case nil: ""
         }
     }
 
     @ViewBuilder private var content: some View {
-        if case .live(let live)? = shown {
-            ChiefLiveBar(live: live)
-                .opacity(visible ? 1 : 0)
-        } else if case .failure(_, let failure)? = shown {
+        if case .failure(_, let failure)? = shown {
             failureBar(failure)
         } else if case .question(let question)? = shown {
             let flow = session.answers[question.id] ?? ChiefAnswerFlow()
@@ -406,57 +401,4 @@ struct ChiefQuestionSheet: View {
         .accessibilityAddTraits(.updatesFrequently)
     }
 }
-/// Under the chat header while a Cloud run works (Live frames v1): the
-/// compact "working on" line with the time since it began (counted here, no
-/// per-second frames), and the reply so far, newest text last. One fixed
-/// height while text streams, so the conversation does not move; the
-/// reply's message replaces it when the run ends. Thought text never shows.
-struct ChiefLiveBar: View {
-    let live: ChiefLive
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text(activityLine(now: context.date))
-                        .font(.footnote.weight(.semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-            Text(replyText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                // The newest text: the head is cut, not the tail.
-                .lineLimit(2, reservesSpace: true)
-                .truncationMode(.head)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Opaque: nothing scrolled under the header shows through (R2-1).
-        .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .padding(.horizontal, 16)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("chief.live.bar")
-    }
-
-    /// "Editing src/app.ts in sb-3 · 12s", or "Writing the reply" before an activity frame.
-    private func activityLine(now: Date) -> String {
-        let line = live.activity ?? String(localized: "Writing the reply")
-        guard let since = live.since else { return line }
-        let seconds = max(0, Int(now.timeIntervalSince(since)))
-        let elapsed = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(seconds % 60)s"
-        return "\(line) · \(elapsed)"
-    }
-
-    private var replyText: String {
-        let text = live.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return " " }
-        return live.truncated ? "…" + text : text
-    }
-}
-
 #endif
