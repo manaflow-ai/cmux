@@ -569,6 +569,7 @@
 		B4245003000000000000PW01 /* BrowserPrewarmedWebViewPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */; };
 		B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */; };
 		2720B0012720B0012720B001 /* BrowserProfileSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2720F0012720F0012720F001 /* BrowserProfileSocketTests.swift */; };
+		77DEAF114573BA64673B4310 /* BrowserRawInputDevToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48BFE1FB203113F934C3E74 /* BrowserRawInputDevToolsTests.swift */; };
 		8478A0000000000000000002 /* BrowserRecoveryHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8478A0000000000000000001 /* BrowserRecoveryHTTPServer.swift */; };
 		7B5F1A2E9C0D4B6A8E217304 /* BrowserReliabilityRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5F1A2E9C0D4B6A8E217303 /* BrowserReliabilityRegressionUITests.swift */; };
 		129980000000000000000003 /* BrowserReloadRecordingWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129980000000000000000004 /* BrowserReloadRecordingWebView.swift */; };
@@ -3847,6 +3848,7 @@
 		9874FB5B355515AFE8925C06 /* TerminalController+BrowserEmulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */; };
 		C12791C00000000000000004 /* TerminalController+BrowserImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791C00000000000000003 /* TerminalController+BrowserImport.swift */; };
 		45E6B5FF5624FF345E149ADF /* TerminalController+BrowserRawInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26930C4CD0BFCE82BFD30A3A /* TerminalController+BrowserRawInput.swift */; };
+		C0689098E8E8211A0E8C68F0 /* TerminalController+BrowserRawInputDevTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99152F67A0EC50EFFA4A429F /* TerminalController+BrowserRawInputDevTools.swift */; };
 		157D17626EF0EC8B98525DCE /* TerminalController+BrowserRepl.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC616BEADB26FE7A9AD00228 /* TerminalController+BrowserRepl.swift */; };
 		805600000000000000000005 /* TerminalController+BrowserViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000006 /* TerminalController+BrowserViewport.swift */; };
 		D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */; };
@@ -5309,6 +5311,7 @@
 		B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPrewarmedWebViewPool.swift; sourceTree = "<group>"; };
 		B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPrewarmedWebViewPoolTests.swift; sourceTree = "<group>"; };
 		2720F0012720F0012720F001 /* BrowserProfileSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserProfileSocketTests.swift; sourceTree = "<group>"; };
+		C48BFE1FB203113F934C3E74 /* BrowserRawInputDevToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserRawInputDevToolsTests.swift"; sourceTree = "<group>"; };
 		8478A0000000000000000001 /* BrowserRecoveryHTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserRecoveryHTTPServer.swift; sourceTree = "<group>"; };
 		7B5F1A2E9C0D4B6A8E217303 /* BrowserReliabilityRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserReliabilityRegressionUITests.swift; sourceTree = "<group>"; };
 		129980000000000000000004 /* BrowserReloadRecordingWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserReloadRecordingWebView.swift; sourceTree = "<group>"; };
@@ -8406,6 +8409,7 @@
 		30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserEmulation.swift"; sourceTree = "<group>"; };
 		C12791C00000000000000003 /* TerminalController+BrowserImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserImport.swift"; sourceTree = "<group>"; };
 		26930C4CD0BFCE82BFD30A3A /* TerminalController+BrowserRawInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserRawInput.swift"; sourceTree = "<group>"; };
+		99152F67A0EC50EFFA4A429F /* TerminalController+BrowserRawInputDevTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserRawInputDevTools.swift"; sourceTree = "<group>"; };
 		AC616BEADB26FE7A9AD00228 /* TerminalController+BrowserRepl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserRepl.swift"; sourceTree = "<group>"; };
 		805600000000000000000006 /* TerminalController+BrowserViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserViewport.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserWorkerSupport.swift"; sourceTree = "<group>"; };
@@ -12371,6 +12375,7 @@
 				46B25AEF7E3533D8C74A393B /* BrowserPanel+NativeInput.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 				D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */,
+				99152F67A0EC50EFFA4A429F /* TerminalController+BrowserRawInputDevTools.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13952,6 +13957,7 @@
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				1B8829D76A6D3ACDAC3462FE /* BrowserPanelEngineTests.swift */,
 				DD6E7FEBADAD51C572FD361C /* BrowserPanelNativeInputEngineTests.swift */,
+				C48BFE1FB203113F934C3E74 /* BrowserRawInputDevToolsTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16916,6 +16922,7 @@
 				9874FB5B355515AFE8925C06 /* TerminalController+BrowserEmulation.swift in Sources */,
 				C12791C00000000000000004 /* TerminalController+BrowserImport.swift in Sources */,
 				45E6B5FF5624FF345E149ADF /* TerminalController+BrowserRawInput.swift in Sources */,
+				C0689098E8E8211A0E8C68F0 /* TerminalController+BrowserRawInputDevTools.swift in Sources */,
 				157D17626EF0EC8B98525DCE /* TerminalController+BrowserRepl.swift in Sources */,
 				805600000000000000000005 /* TerminalController+BrowserViewport.swift in Sources */,
 				D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */,
@@ -18047,6 +18054,7 @@
 				C0DE78950000000000000001 /* BrowserPortalFirstRevealScrollTests.swift in Sources */,
 				B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */,
 				2720B0012720B0012720B001 /* BrowserProfileSocketTests.swift in Sources */,
+				77DEAF114573BA64673B4310 /* BrowserRawInputDevToolsTests.swift in Sources */,
 				129980000000000000000003 /* BrowserReloadRecordingWebView.swift in Sources */,
 				4FAE5FD3871D480E4A030434 /* BrowserReplRenderHostTests.swift in Sources */,
 				8827C0010000000000000001 /* BrowserScreenshotCropTests.swift in Sources */,
