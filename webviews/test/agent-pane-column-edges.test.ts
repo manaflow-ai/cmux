@@ -174,6 +174,13 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       // tones on focus. With no strip the layer stays on the card.
       rimTop: strip ? c.top + (parseFloat(getComputedStyle(card, "::before").top) || 0) - h.top : 0,
       stripRim: strip ? getComputedStyle(strip).boxShadow : "none",
+      // Every queued prompt's text starts at one edge, right after the narrow mark column (12px in,
+      // a 14px mark, an 8px gap): a "Steering" label in that column pushed every row's text right.
+      textStarts: queue
+        ? [...queue.querySelectorAll(".acpmux-queued-text")].map((el) =>
+            Math.round(el.getBoundingClientRect().left - queue.getBoundingClientRect().left),
+          )
+        : [],
       // The queue's last row keeps room above what is under it: its descenders never touch it.
       queueRoom: queue && last ? Math.round(queue.getBoundingClientRect().bottom - last.bottom) : null,
     };
@@ -182,7 +189,8 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
   test("the strip or queue and the card meet square in one rim, and the queue keeps room above", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const JOINS = [
-      { entry: "agent-pane.composer", variant: "idle", edge: ".acpmux-composer-box" },
+      // A new chat, before its first send, shows the strip (#20869).
+      { entry: "agent-pane.composer", variant: "new-chat", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-paused", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-steering", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.new-tab", variant: "empty", edge: ".nt-box" },
@@ -211,6 +219,8 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         if (Math.abs(join.rimTop) > 0.5)
           offenders.push(`${label} card rim starts ${join.rimTop}px below the strip's top`);
         if (join.stripRim !== "none") offenders.push(`${label} strip draws its own rim (${join.stripRim})`);
+        if (join.textStarts.some((x) => x > 36 || x !== join.textStarts[0]))
+          offenders.push(`${label} queued text starts at ${join.textStarts.join("/")}px`);
         if (join.queueRoom !== null && join.queueRoom < 4) offenders.push(`${label} queue room ${join.queueRoom}px`);
       }
     }
