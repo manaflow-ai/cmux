@@ -233,11 +233,10 @@ final class HostView: NSView {
         controller?.followDisplay(backingChanged: true)
     }
 
-    /// A tab shown again (it or a container was hidden): it may have missed a scale change while hidden.
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        controller?.followWindowScale()
-    }
+    /// A tab shown again (it or a container was hidden): it may have missed a scale change while hidden. Shown or
+    /// hidden, it changes whether its window hosts a shown Home (HomeKeyState, cx-4o3vq).
+    override func viewDidUnhide() { super.viewDidUnhide(); controller?.followWindowScale(); HomeKeyState.shared.setNeedsApply() }
+    override func viewDidHide() { super.viewDidHide(); HomeKeyState.shared.setNeedsApply() }
 
     // MARK: Events outside the transcript (the header and compose bar)
 
@@ -402,7 +401,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.paneHeader.title = store.state.conversation.title
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
-        if window != nil, !Self.noFocus { HomeKeyState.shared.register(demo) }  // the app-wide key palette counts it (cx-4o3vq)
+        if window != nil, !Self.noFocus { HomeKeyState.shared.register(self) }  // the app-wide key palette counts it (cx-4o3vq)
         // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
         followWindowScale()
         host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
@@ -458,11 +457,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)
-        // The key-window palette is app-wide (HomeKeyState, cx-4o3vq): a pane never sets it from its own window.
-        guard let window, let demo else { if !Self.noFocus { HomeKeyState.shared.apply() }; return }
+        guard let window, let demo else { if !Self.noFocus { HomeKeyState.shared.setNeedsApply() }; return }  // cx-4o3vq
         let nc = NotificationCenter.default
         if !Self.noFocus {
-            HomeKeyState.shared.register(demo)
+            HomeKeyState.shared.register(self)
         } else {
             demo.setInactive(!Self.args.contains("--active"))
         }

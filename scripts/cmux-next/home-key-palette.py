@@ -14,7 +14,7 @@ fixtureInactive, appActive) and the incoming balloon fill in each window's snaps
   2. window B key, B without a Home pane: the inactive palette; A shows the inactive fill.
   3. B gets a Home tab, B key: the key palette; A and B show the same fill.
   4. A key again: the key palette; A and B show the same fill (before cx-4o3vq B kept the inactive fill).
-  5. the app inactive (or no key window): the inactive palette; A and B show the same fill, the inactive one.
+  5. the app inactive (Finder takes the activation): the inactive palette; A and B show the same fill, the inactive one.
   6. A key, then A moved to a 1x virtual display and back: the palette state and A's fill do not change.
 
 Usage: home-key-palette.py --tag <tag> [--out DIR]
@@ -144,7 +144,7 @@ try:
         sys.exit(1)
     a = ids[0]
     rpc("debug.window.focus", {"window": a})
-    poll(lambda: state(a).get("appActive") == 1, timeout=10)
+    check("the app is active", bool(poll(lambda: state(a).get("appActive") == 1, timeout=10)), state(a))
     wait_settled()
     s1, fa1 = state(), fill(a, "1-a-key")
     print(f"     1 A key: {s1} A fill {fa1}", flush=True)
@@ -180,23 +180,27 @@ try:
     check("4: A and B show the same fill, the key fill (one palette state, every Home view drawn with it)",
           same(fa4, fb4, key_fill), {"a": fa4, "b": fb4, "key": key_fill})
 
-    rpc("debug.focus", {"deactivate": True})
-    poll(lambda: state(a).get("appActive") == 0, timeout=10)
+    # Another app takes the activation (Finder; the input lock holds the GUI session).
+    subprocess.run(["/usr/bin/open", "-b", "com.apple.finder"], capture_output=True)
+    check("the app is no longer active (Finder is)", bool(poll(lambda: state(a).get("appActive") == 0, timeout=10)), state(a))
     wait_settled()
     s5, fa5, fb5 = state(a), fill(a, "5-a"), fill(b, "5-b")
     print(f"     5 app inactive: {s5} A fill {fa5} B fill {fb5}", flush=True)
-    check("5: the app inactive or no key window: the inactive palette", s5.get("fixtureInactive") == 1, s5)
+    check("5: the app inactive: the inactive palette", s5.get("appActive") == 0 and s5.get("fixtureInactive") == 1, s5)
     check("5: A and B show the same fill, the inactive fill", same(fa5, fb5, inactive_fill),
           {"a": fa5, "b": fb5, "inactive": inactive_fill})
 
     # 6: A key, then a display move and back: no palette change (the display change never sets the palette state).
     rpc("debug.window.focus", {"window": a})
     subprocess.run(["/usr/bin/open", "-a", app], capture_output=True)  # the app active again (the input lock is held)
-    poll(lambda: state(a).get("appActive") == 1, timeout=10)
+    check("the app is active again", bool(poll(lambda: state(a).get("appActive") == 1, timeout=10)), state(a))
     rpc("debug.window.focus", {"window": a})
     wait_settled()
     s6, fa6 = state(a), fill(a, "6-a-before")
     print(f"     6 A key before the move: {s6} A fill {fa6}", flush=True)
+    check("6: before the move A is key: the key palette and the key fill",
+          s6.get("appActive") == 1 and s6.get("windowKey") == 1 and s6.get("fixtureInactive") == 0 and same(fa6, key_fill),
+          [s6, fa6, key_fill])
     vdbin = os.path.expanduser("~/messageslab-rig/bin/vdisplay")
     run = subprocess.run([vdbin, "1600", "1000", "60", "240", "0", "--detach", "--owner", str(os.getpid()), "--log",
                           os.path.join(opts.out, "vdisplay.log")], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
@@ -209,7 +213,7 @@ try:
         wait_settled()
         s7 = state(a)
         print(f"     6 A on the 1x display: {s7}", flush=True)
-        check("6: the move does not change the palette state", s7.get("fixtureInactive") == s6.get("fixtureInactive"), [s6, s7])
+        check("6: the move does not change the palette state", s7.get("fixtureInactive") == 0, [s6, s7])
         subprocess.run(["kill", str(vd)], capture_output=True)  # the virtual display this script started (its pid=)
         gone = poll(lambda: subprocess.run(["kill", "-0", str(vd)], capture_output=True).returncode != 0, timeout=15)
         vd = None if gone else vd
@@ -219,7 +223,7 @@ try:
         s8, fa8 = state(a), fill(a, "6-a-after")
         print(f"     6 A back on the 2x display: {s8} A fill {fa8}", flush=True)
         check("6: after the move back: the same palette state and the same fill",
-              s8.get("fixtureInactive") == s6.get("fixtureInactive") and same(fa8, fa6), {"before": [s6, fa6], "after": [s8, fa8]})
+              s8.get("fixtureInactive") == 0 and same(fa8, fa6, key_fill), {"before": [s6, fa6], "after": [s8, fa8]})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
@@ -228,7 +232,8 @@ finally:
     try:
         process.wait(timeout=30)  # `open -W` returns when the app it launched exits
     except subprocess.TimeoutExpired:
-        print("     the app did not quit in 30 s (nx-remote's app stop ends it)", flush=True)
+        print("     the app did not quit in 30 s (run under nx-remote: its app stop ends the app)", flush=True)
+        process.kill()  # the `open -W` this script started
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))

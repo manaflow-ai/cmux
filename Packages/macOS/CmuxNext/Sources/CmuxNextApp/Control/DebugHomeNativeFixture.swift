@@ -60,7 +60,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 .flatMap(HomePageTab.transcript(in:))
         } else {
             // `window`: the Home view shown in that window (default: the active window's).
-            let window = params["window"]?.stringValue.flatMap { services.windows.controller(for: $0)?.window }
+            let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }
+            if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
             view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
         guard let view else {
