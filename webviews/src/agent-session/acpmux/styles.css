@@ -562,16 +562,3 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-/* An agent's offer of a parallel chat (cx-807da, OfferChip.tsx): a placeholder look until the chip's design lands. */
-.acpmux-session-offer{display:flex;align-items:center;gap:12px;margin:4px 0;padding:8px 8px 8px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:var(--text-control)}
-.acpmux-session-offer-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
-.acpmux-session-offer-label{font-size:var(--text-detail)}
-.acpmux-session-offer-title{color:var(--agent-text);overflow-wrap:anywhere}
-.acpmux-session-offer[data-outcome="dismissed"] .acpmux-session-offer-title{color:var(--acpmux-composer-dim)}
-.acpmux-session-offer-error{overflow-wrap:anywhere}
-.acpmux-session-offer-row{display:flex;align-items:center;gap:4px;flex:none}
-.acpmux-session-offer-status{padding:0 6px}
-.acpmux-session-offer-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}
-.acpmux-session-offer-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
-.acpmux-session-offer-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
-.acpmux-session-offer-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
