@@ -14,9 +14,14 @@ Status 2026-10-14: partly built. What exists:
 - The registry for Claude Code's shells (`hub/processes.rs`,
   `server/processes.rs`, #20724): `process/list`, `process/kill` and
   `process_update`. The idle reaper asks it whether anything runs.
+- Codex's background terminals in the same registry (cx-gmkk5): the bridge
+  (`codex_app_server/background.rs`) reports them as
+  `background_task_update`, and `process/kill` calls
+  `thread/backgroundTerminals/terminate`.
 
-Not built yet: `process/tail` and `process/watch`, Codex, and the
-per-session resource valve. The valve was dropped from #20585 because it
+Not built yet: `process/tail` and `process/watch`, Codex's
+`thread/backgroundTerminals/list` at session load, and the per-session
+resource valve. The valve was dropped from #20585 because it
 read `ps` and `/proc`, and cmux-next never scans processes
 (`plans/cmux-next/pty-holder.md` §4). It comes back without scanning in
 cx-v9s8g. The NEXT GUI (op-next-launch) is built
@@ -88,12 +93,25 @@ harness itself exited. Its last output is kept and its command is shown with
 **Codex** (`codex app-server`, through the `cmux-codex-acp` bridge):
 
 - A `commandExecution` item whose `processId` is still running when the item
-  completes, which is unified exec handing back a session id.
+  completes, which is unified exec handing back a session id. As built, the
+  bridge (`codex_app_server/background.rs`) watches the raw app-server lines
+  beside the translator, which drops `processId`. An exec item with a
+  `processId` is a background terminal when its `item/completed` still says
+  `inProgress`, or when its turn completes before the item does. It is
+  reported as a `background_task_update` (`toolCallId` the item id, `taskId`
+  the `processId`, `origin` `background`), so the hub's registry folds it as
+  it folds Claude's. A later `item/completed` ends it (`exited` or `failed`,
+  with its `exitCode`).
 - At session load, `thread/backgroundTerminals/list` (experimental) rebuilds
-  the set.
+  the set. Not built: the hub rebuilds from the session log, and a
+  terminal left running at a daemon restart stays `running` until the
+  bridge sees its end or the harness exits.
 - Output comes from `item/commandExecution/outputDelta`. The bridge spools it
   to a file per process in the session's state directory.
-- To stop a process, acpmux calls `thread/backgroundTerminals/terminate`.
+- To stop a process, acpmux calls `thread/backgroundTerminals/terminate`
+  `{threadId, processId}` (built). The bridge sends it under its own request
+  ids. `terminated: true` ends it `killed` by the person; `false` (Codex no
+  longer had it) ends it `exited` with that detail.
 - Codex caps a session at 64 unified-exec processes; that cap is compiled
   in.
 
@@ -159,8 +177,12 @@ process's command line and its kill never leave the machine.
   and Peer connections are refused.
 - To build: `process/tail` returns the output file's bytes; after a daemon
   restart an adopted host's processes are listed again.
-- The fake Codex app-server: a completed exec item with a live `processId`
-  is listed, and `process/kill` calls `backgroundTerminals/terminate`.
+- Built (`tests/hub_integration/codex_processes.rs`, the fake Codex
+  app-server): an exec item left open at its turn's end, or completed while
+  its process runs, is listed `running` with harness `codex`; one that exits
+  keeps its exit code; `process/kill` calls
+  `thread/backgroundTerminals/terminate` and the process ends `killed` by
+  the person, once; the app-server's exit marks it `lost`.
 
 ## Open questions
 
