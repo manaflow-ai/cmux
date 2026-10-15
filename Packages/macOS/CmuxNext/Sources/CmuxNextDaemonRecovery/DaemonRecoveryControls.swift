@@ -1,4 +1,4 @@
-public import AppKit
+import AppKit
 public import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextDaemonService
@@ -32,7 +32,7 @@ enum DaemonRecoveryStrings {
 /// Restart cmux-tui's question and the App Store banner's controls, one path
 /// for both surfaces (cx-jniyz.1). The question is the cmux dialog every
 /// destructive confirm uses, so the debug socket can answer it.
-public enum DaemonRestartPrompt {
+enum DaemonRestartPrompt {
     static let confirmID = "restart"
     static let identifier = "cmux.dialog.restartDaemon"
 
@@ -56,7 +56,7 @@ public enum DaemonRestartPrompt {
     }
 
     /// The App Store's disconnected banner controls (AppStoreModel.recovery).
-    public static func appsRecovery(_ recovery: DaemonRecovery) -> AppsRecovery {
+    static func appsRecovery(_ recovery: DaemonRecovery) -> AppsRecovery {
         guard recovery.canRetry else { return AppsRecovery(actions: [], status: nil) }
         var actions = [AppsRecoveryAction(id: "retryNow", title: DaemonRecoveryStrings.retryNow, isEnabled: !recovery.isRestarting) {
             recovery.retryNow()
@@ -68,6 +68,11 @@ public enum DaemonRestartPrompt {
         }
         return AppsRecovery(actions: actions, status: status(recovery))
     }
+}
+
+extension DaemonRecovery {
+    /// The App Store's disconnected banner controls (AppStoreModel.recovery).
+    public var appsRecovery: AppsRecovery { DaemonRestartPrompt.appsRecovery(self) }
 }
 
 /// Retry Now and Restart cmux-tui under the launch window's failure

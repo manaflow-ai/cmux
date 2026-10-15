@@ -38,7 +38,7 @@ final class AppsService {
     /// outlives the service still makes models.
     private(set) lazy var storePages = AppStorePages { [weak self, client = self.client, recovery = self.services.daemon.recovery] in
         let model = AppStoreModel(client: client)
-        model.recovery = { DaemonRestartPrompt.appsRecovery(recovery) }
+        model.recovery = { recovery.appsRecovery }
         model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
         return model
     }
