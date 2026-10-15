@@ -61,7 +61,7 @@ const SCROLL_SCRIPT = `(() => {
 const FOCUS_BINDING = "__cmuxNextFocus";
 /**
  * Reports which element has focus (browser.focus) on every focus change and
- * after every tap, so the phone raises its keyboard for an editable element
+ * after every click (tap), so the phone raises its keyboard for an editable element
  * (as Safari does) and drops it when focus leaves one. Runs in every frame;
  * a frame's report covers its own document.
  */
@@ -101,7 +101,9 @@ export const FOCUS_SCRIPT = `(() => {
   const queue = () => { if (!queued) { queued = true; setTimeout(post, 0); } };
   const input = () => { lastInput = performance.now(); };
   for (const type of ["touchstart", "touchend", "pointerdown", "mousedown", "keydown"]) addEventListener(type, input, { capture: true, passive: true });
-  for (const type of ["touchend", "click"]) addEventListener(type, queue, { capture: true, passive: true });
+  // After a click (a tap), not after every touchend: a scroll ends with no
+  // click, so a drag that lowered the phone's keyboard does not raise it.
+  addEventListener("click", queue, { capture: true, passive: true });
   addEventListener("focusin", queue, true);
   addEventListener("focusout", queue, true);
 })()`;

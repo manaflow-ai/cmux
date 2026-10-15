@@ -225,7 +225,7 @@ Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, a
   (another client attached the same tab; this client's stream ended)
 - event `browser.focus {tabId, streamId, editable, multiline?, inputType?, inputMode?, enterKeyHint?, userInitiated?}`:
   sent only to the client that owns the tab's stream, on every focus change in the page (any frame)
-  and after every tap. `editable` is true for a text-like `<input>` (text, search, url, tel, email,
+  and after every click (a tap; a scroll sends none). `editable` is true for a text-like `<input>` (text, search, url, tel, email,
   password, number), a `<textarea>` or a contenteditable element that is not read-only or disabled;
   `multiline` is false only for `<input>`. `inputType`, `inputMode` and `enterKeyHint` echo the
   element's `type`, `inputmode` and `enterkeyhint`. `userInitiated` is true when touch, pointer or
