@@ -84,16 +84,29 @@ public struct LinkFileArtifactSource: ArtifactSource {
     /// closed so the read ends.
     static func receive(_ channel: any LinkChannel, within limit: Duration, macName: String,
                         clock: any Clock<Duration> = ContinuousClock()) async throws -> Data? {
-        try await withThrowingTaskGroup(of: Data?.self) { group in
+        let stalled = ArtifactUnavailable("\(macName) stopped sending this file. Check that it's awake, then try again.")
+        let timedOut = TimedOut()
+        let next = try await withThrowingTaskGroup(of: Data?.self) { group in
             group.addTask { try await channel.receive() }
             group.addTask {
                 try await clock.sleep(for: limit)
+                timedOut.set()
                 await channel.close(code: "cancelled", reason: "timed out")
-                throw ArtifactUnavailable("\(macName) stopped sending this file. Check that it's awake, then try again.")
+                throw stalled
             }
             defer { group.cancelAll() }
             return try await group.next() ?? nil
         }
+        // Closing the channel ends the receive with nil: that is the timeout, not the end of the file.
+        if timedOut.value { throw stalled }
+        return next
+    }
+
+    private final class TimedOut: @unchecked Sendable {
+        private let lock = NSLock()
+        private var fired = false
+        func set() { lock.withLock { fired = true } }
+        var value: Bool { lock.withLock { fired } }
     }
 
     static func unavailable(_ error: LinkError, path: String, macName: String) -> ArtifactUnavailable {
