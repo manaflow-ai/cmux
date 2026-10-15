@@ -13,6 +13,13 @@
 //    limited trial entitlement only for an account with a verified claim
 //    (apple/store.ts); bit0 is set when the trial starts, so an account that
 //    never buys does not burn the device.
+//
+// Accepted race (coordinator decision 2026-10-15): two accounts on one iPhone
+// that both verified within the claim TTL and start their trials within the
+// same few seconds can both read bit0 = 0 before either sets it, so both get
+// the trial. Closing it needs a device identity Apple does not give us
+// (DeviceCheck tokens differ per call); the window is seconds and needs two
+// cmux accounts and two Apple IDs on one device.
 
 import { randomBytes } from "node:crypto";
 import { IntroductoryOfferEligibilitySignatureCreator } from "@apple/app-store-server-library";
