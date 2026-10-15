@@ -8,6 +8,9 @@ extension CmuxConfigSnapshot {
     /// `labs.newTabStyle`: How the New Tab page shows its style switch (Leo 2026-10-14: every look he compared ships as an opt-in). The page draws round for an unknown value; webviews newtab/templates.ts STYLE_SWITCHES has the same values.
     public nonisolated static let newTabStylePath = ["labs", "newTabStyle"]
     public nonisolated static let newTabStyleDefault: NewTabStyleSwitch = .round
+    /// `labs.classicHome`: Home as the classic top page (the Chief conversation full window) instead of the home workspace with the Chief's page in a left dock (hq-6d cx-ebm.59.5). Off by default; kept for one release. HomeDock.classic reads it through DesignSettings.classicHome.
+    public nonisolated static let classicHomePath = ["labs", "classicHome"]
+    public nonisolated static let classicHomeDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -41,6 +44,16 @@ nonisolated enum LabsSettingsSchema {
                 ]),
                 default: .string(CmuxConfigSnapshot.newTabStyleDefault.rawValue),
                 keywords: ["labs", "new tab", "style", "template", "dots", "switch"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.classicHomePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.classicHome", "Classic Home"),
+                help: SettingsText.keyed("settings.labs.classicHome.help", "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.classicHomeDefault),
+                keywords: ["home", "chief", "classic", "dock", "page"]
             ),
         ]
     }

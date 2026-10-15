@@ -158,6 +158,7 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "labs.newTabStyle",
+        "labs.classicHome",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
