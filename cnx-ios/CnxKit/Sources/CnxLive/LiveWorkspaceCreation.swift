@@ -13,7 +13,7 @@ private let creationLog = Logger(subsystem: "dev.cmux.cnx", category: "creation"
 /// long-press menu offers no recent directories and no git clone.
 @MainActor
 public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
-    private let sync: WorkspaceSync
+    let sync: WorkspaceSync
     private let link: LinkController
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
     private weak var acpmux: AcpmuxHub?
@@ -53,11 +53,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         // The line is typed into a real shell: a character its line editor acts on (control
         // and format characters, DEL), a backslash (fish quotes) or `!` (csh history) could
         // edit the line or leave the quotes, so such a folder is never typed.
-        guard !trimmed.unicodeScalars.contains(where: { scalar in
-            scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format
-                || scalar == "\\" || scalar == "!" || scalar.value == 0x7f
-                || scalar.properties.generalCategory == .lineSeparator || scalar.properties.generalCategory == .paragraphSeparator
-        }) else { return nil }
+        guard WorkspaceFolderPath.isTypable(trimmed) else { return nil }
         func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         if trimmed.hasPrefix("~/") { return "cd ~/\(quoted(String(trimmed.dropFirst(2)))) && clear\n" }
         guard trimmed.hasPrefix("/") else { return nil }
@@ -215,11 +211,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("This workspace has no folder on the Mac yet. Open a terminal tab first.", isForPerson: true)
         }
         guard !Self.isHomeOrAbove(cwd) else {
-            throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Recent Directories) or cd into one in its terminal.",
+            throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Open Folder… or Recent Directories) or cd into one in its terminal.",
                                          isForPerson: true)
         }
         let catalog = try await agentCatalog(on: workspace.macID, models: start.model != nil)
-        guard let (choice, model) = catalog.resolve(start) else {
+        guard let (choice, model) = catalog.resolve(start, folder: cwd) else {
             if let id = start.harness, let reason = catalog.harness(id)?.unavailableReason {
                 throw WorkspaceCreationError(reason, isForPerson: true)
             }
@@ -237,7 +233,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             let folder = (cwd as NSString).lastPathComponent
             throw WorkspaceCreationError(error.reason == "trust.untrusted"
                 ? "\(folder) is marked Don't Trust on this Mac. Trust it in cmux on the Mac to start agent chats there."
-                : "Trust \(folder) on this Mac first: answer its trust question in cmux on the Mac, or run claude in this workspace's terminal and accept it.",
+                : Self.trustSteps(folder: folder),
                 isForPerson: true)
         } catch {
             throw WorkspaceCreationError(AcpmuxSessionSource.message(error))
@@ -255,6 +251,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
         }
         return (choice.id, session)
+    }
+
+    /// What to do when acpmux waits for the person to trust a new folder: it
+    /// asks only on the Mac (a phone may not answer `acp.trust.set`), and
+    /// Claude's own trust answer counts too.
+    nonisolated static func trustSteps(folder: String) -> String {
+        "Claude hasn't been trusted in \(folder) yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
+            + "Or 2. Here, open this workspace's terminal, type claude, press Return, choose \u{201C}Yes, I trust this folder\u{201D}, then type /exit. "
+            + "Then start the chat again."
     }
 
     /// `/`, `/Users`, or a home folder (`/Users/<name>`, `/var/root`): acpmux never starts a

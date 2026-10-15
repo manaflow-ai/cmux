@@ -122,6 +122,8 @@ public final class AgentChatStore {
     public private(set) var models: [ACPModelInfo] = []
     public private(set) var currentModelID: String?
     public private(set) var modes: [ACPMode] = []
+    /// Every mode the agent offers; ``modes`` is what a phone may pick (``ACPMode/phoneChoices(_:current:)``).
+    private var offeredModes: [ACPMode] = []
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
     /// The title the agent gave the session (`session_info_update`).
@@ -334,7 +336,8 @@ public final class AgentChatStore {
             self.models = models
             currentModelID = current
         case .modesAvailable(let modes, let current):
-            self.modes = modes
+            offeredModes = modes
+            self.modes = ACPMode.phoneChoices(modes, current: current)
             currentModeID = current
         case .status(let status):
             summary.status = status
@@ -445,6 +448,7 @@ public final class AgentChatStore {
             availableCommands = commands
         case .currentMode(let mode):
             currentModeID = mode
+            modes = ACPMode.phoneChoices(offeredModes, current: mode)
         case .configOptions(let options):
             configOptions = options
         case .usage(let used, let size):

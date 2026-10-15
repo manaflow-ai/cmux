@@ -54,6 +54,9 @@ public final class IPhoneHostService {
         var workspaceFolders: @MainActor @Sendable () -> [String] = { [] }
         /// This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
         var agentTabHost: @MainActor () -> String? = { nil }
+        /// The agent and model this Mac's New Tab page picked last (``NewChatPicks``):
+        /// a phone's New Agent Chat starts there (``CnxApproverSync/updateNewChatPicks(_:)``).
+        var newChatPicks: @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() }
         var computerName: @Sendable () async -> String
         /// The app's acpmux, for the phones' approval keys; nil without agents.
         var acpmuxEnvironment: AcpmuxEnvironment?
@@ -96,6 +99,7 @@ public final class IPhoneHostService {
     @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
     @ObservationIgnored var approverSync: CnxApproverSync?
     @ObservationIgnored private var followingFolders: Task<Void, Never>?
+    @ObservationIgnored private var followingPicks: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
@@ -221,6 +225,26 @@ public final class IPhoneHostService {
         }
     }
 
+    /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
+    /// connections are allowed for a signed-in account, so a phone's New Agent Chat starts
+    /// where this Mac's does (the Mac keeps them locally: `newTab.lastAgent`, `newTab.lastPicks`).
+    func followNewChatPicks() {
+        followingPicks?.cancel()
+        // task-owner: lives as long as the app; re-reads the picks on each remembered pick
+        followingPicks = Task { [weak self] in
+            for await picks in ObservationStream({ [weak self] () -> NewChatPicks? in
+                guard let self, allowed, account != nil else { return nil }
+                return dependencies?.newChatPicks()
+            }) {
+                guard let self, let picks, !picks.isEmpty else { continue }
+                if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
+                    approverSync = CnxApproverSync(environment: environment)
+                }
+                approverSync?.updateNewChatPicks(picks.params)
+            }
+        }
+    }
+
     /// Follows the signed-in account (sign-in, sign-out, a user or team switch).
     func followAccount(_ read: @escaping @MainActor @Sendable () -> Account?) {
         followingAccount?.cancel()
@@ -276,6 +300,7 @@ public final class IPhoneHostService {
         applying?.cancel()
         pairingWatch?.cancel()
         followingFolders?.cancel()
+        followingPicks?.cancel()
         approverSync?.stop()
         quietAttention()
         let supervisor = supervisor

@@ -16,7 +16,8 @@ import os
 import subprocess
 import sys
 
-BASE = os.path.expanduser("~/cnx-ios-e2e/parity")
+# The rig folder is this file's (~/cnx-ios-e2e/parity, ~/cnx-ios-e2e/p2, ...).
+BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(BASE, "e2e"))
 import mac as rig_mac  # noqa: E402
 from mac import Mac  # noqa: E402

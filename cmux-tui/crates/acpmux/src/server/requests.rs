@@ -167,6 +167,12 @@ async fn dispatch_request(
         method::MUX_WORKSPACE_ROOTS_SET => {
             Err(crate::hub::person::person_required("changing the workspace folders"))
         }
+        method::MUX_NEW_CHAT_PICKS_SET if conn.is_person() => {
+            hub.person.set_new_chat_picks(&params)
+        }
+        method::MUX_NEW_CHAT_PICKS_SET => {
+            Err(crate::hub::person::person_required("changing the new chat picks"))
+        }
         method::MUX_PERSON_HOLDS => {
             // The unix socket only: the app reaches a daemon it started over
             // its own exec channel (`acp stdio`), never over a WebSocket.

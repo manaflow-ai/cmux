@@ -27,7 +27,7 @@ STATE = os.path.expanduser(os.environ.get("PQ_STATE", "~/cnx-ios-e2e/parity-stat
 RAW = os.path.expanduser(os.environ.get("PQ_RAW", "~/cnx-ios-e2e/parity-raw"))
 ART = os.path.join(HERE, "artifacts")
 HOST = os.environ.get("PQ_HOST", "mini-cmux11s-mac-mini")
-RBASE = "~/cnx-ios-e2e/parity"
+RBASE = os.environ.get("PQ_RBASE", "~/cnx-ios-e2e/parity")
 BUNDLE = journey_mod.BUNDLE
 SIM_NAME = os.environ.get("PQ_SIM", "cnx-parity-1")
 DEVICE = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"
@@ -112,7 +112,7 @@ def setup(app_path=os.path.expanduser("~/cnx-ios-e2e/parity/CnxApp.app")):
     save(st)
     sim, mac, j = ctx()
     # A workspace in a project folder, so the phone has a folder to start agent chats in.
-    proj = "~/cnx-ios-e2e/parity/proj"
+    proj = f"{RBASE}/proj"
     rsh(f"mkdir -p {proj} && printf '# parity\\n' > {proj}/README.md")
     created = mac.cmux("workspace", "create", "--name", st["ws_name"], "--cwd",
                        rsh(f"cd {proj} && pwd").stdout.strip(), json_out=True)

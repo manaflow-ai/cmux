@@ -260,7 +260,7 @@ public final class WorkspaceCreator {
     /// A rename or close the Mac refused: the workspace, what failed
     /// ("Couldn't close cmux") and the reason. The change is already undone.
     @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
-    @ObservationIgnored private let store: AppStore
+    @ObservationIgnored let store: AppStore
     @ObservationIgnored private let recents: RecentDirectories
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
@@ -383,7 +383,7 @@ public final class WorkspaceCreator {
         }
     }
 
-    private func track(_ id: String, _ work: @escaping @MainActor () async -> Void) {
+    func track(_ id: String, _ work: @escaping @MainActor () async -> Void) {
         let key = "manage-\(id)-\(UUID().uuidString)"
         tasks[key] = Task { [weak self] in
             await work()
@@ -391,7 +391,7 @@ public final class WorkspaceCreator {
         }
     }
 
-    private static func message(_ error: any Error) -> String {
+    static func message(_ error: any Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 

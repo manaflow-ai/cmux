@@ -480,6 +480,14 @@ async fn acpmux(
             event = receiver.recv() => match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
+                    // An agent a phone drives stays in a mode that asks
+                    // (`acpmux_policy`): a refused mode set is answered here.
+                    if let Some(answer) = crate::acpmux_policy::refusal(&text) {
+                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
                     if ws_sink.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }

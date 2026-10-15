@@ -23,7 +23,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | New Terminal Tab (⌃`) | `new-tab {cwd}` | + > **New Terminal** | works | hostd picks the pane's folder (`with_pane_folder`); the phone never sends `cwd`. |
 | New Browser Tab (⇧⌘L) | `new-frontend-browser-tab` | + > **New Browser Tab** | works on a Mac that streams (`browser-stream-v1`) | An older Mac now keeps the entry; a tap says "Update cmux on <Mac> to open browser tabs from your phone." (was: silently missing). |
 | New Workspace (⌘N) | `create-workspace`, `create-terminal {cwd}` | **New Workspace** (tap) | works | Mac default folder (home). |
-| New Workspace in a folder / Open Folder… (⌘O) / New Workspace Like This | `create-workspace` + `create-terminal {cwd}` | New Workspace (hold) > **Recent Directories** | partial (this branch) | The folders of the Mac's workspaces and the ones used on this phone. The new terminal types `cd '<folder>' && clear`, since the phone sends no `cwd`. No free folder picker: a phone browses no Mac folders. |
+| New Workspace in a folder / Open Folder… (⌘O) / New Workspace Like This | `create-workspace` + `create-terminal {cwd}` | New Workspace (hold) > **Recent Directories**, **Open Folder…** (parity2) | partial | Recent Directories: the folders of the Mac's workspaces and the ones used on this phone. Open Folder… takes a typed full path (`/…`, `~`, `~/…`); a relative path is refused with "Type the folder's full path on <Mac>, starting with / or ~/.". The new terminal types `cd '<folder>' && clear`, since the phone sends no `cwd`; a folder with a control or format character, a backslash or `!` is never typed ("Open it in cmux on <Mac>"). A folder that does not exist shows the shell's own `cd` error in the new terminal. Not possible from a phone: browsing the Mac's folders (no file picker over the link). |
 | New Browser Workspace (⌥⌘N) | `new-frontend-browser-tab` | New Workspace (hold) > **New Browser Workspace** | works | |
 | New Agent Chat over Home (a workspace whose only tab is the chat) | `create-workspace`, `new-conversation-tab` | — | missing | Two steps on the phone: New Workspace in a folder, then New Agent Chat. |
 
@@ -51,12 +51,14 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- | --- |
 | Rename Workspace… (⇧⌘R) | `rename-workspace` | row swipe / menu Rename | works | |
 | Close Workspace (⇧⌘W) | `close-workspace` | row swipe / menu Close Workspace | works | |
-| Close Other / Above / Below / All | `close-workspace` × n | — | missing | |
-| Move Workspace Up / Down, drag | `move-workspace` | — | missing | The phone list is ordered by activity. |
-| Pin, Color, Icon, Description, Clear Name | `set-workspace-metadata` | — | missing | Allowlisted. |
-| Mark as Read / Unread | `ack-tab-notifications` | open marks read | partial | |
-| Duplicate Workspace | composed app-side | — | missing | |
-| Workspace groups | `*-workspace-group*` | — | missing | Allowlisted; no UI. |
+| Close Other Workspaces / Close Workspaces Below / Above | `close-workspace` × n | row menu > **Close** > the Mac's three titles | works (parity2) | Over the Mac's sidebar order of that Mac's workspaces (pinned first). The Mac closes at once; the phone asks first ("Close 3 workspaces?", naming them), since a long press is easy to misplace. The Mac has no "Close All Workspaces". |
+| Move Workspace Up / Down | `set-personal-workspace {index}` (personal order), else `move-workspace {index}` | row menu > **Move** > **Move Workspace Up / Down** | works (parity2) | The same index the Mac's `movePersonalWorkspace` computes. No drag: a long press opens the row menu, and the list is not a reorderable List. |
+| Pin Workspace / Unpin Workspace | layout tile in `sec_pinned` (`sidebar_layout.update`), legacy `set-workspace-metadata {pinned}` | row menu > **Pin Workspace / Unpin Workspace** | works (parity2) | Pin sends the legacy flag, which the Mac turns into its pinned tile (`migrateLegacyPins`); Unpin removes the tile (`item.remove`). The phone reads the tiles (`sidebar_layout.get`). |
+| Set Workspace Color… / Reset Workspace Color | `set-workspace-metadata {color}` | row menu > **Appearance** > the Mac's nine colors (Grey…Orange), **Reset Workspace Color** | works (parity2) | The row shows the color as a bar in its gutter (idle rows). |
+| Icon, Description, Clear Name | `set-workspace-metadata` | — | missing | Not in this round. |
+| Mark Workspace as Read / Unread | `ack-tab-notifications` on unread tabs + `set-workspace-metadata {marked_unread}` | row menu > **Options** > **Mark Workspace as Read / Unread**; opening marks read | works (parity2) | |
+| Duplicate Workspace | composed app-side (new workspace, then each tab) | — | missing | The Mac composes it in the app (its tabs' programs and folders); a phone would have to start programs in folders it may not choose (`cwd`). Use New Workspace in the same folder. |
+| Workspace groups | personal groups (`set-personal-workspace {group}`, `workspace_group.*`) | — | missing | On a Mac with personal order, groups are personal resource ops not on the phone's lane; the phone shows grouped workspaces in the Mac's order, without the group headers. |
 | Move to Window / New Window, Show in Finder, Copy Path | app-local | Copy Directory (terminal page) | not applicable | Mac windows and Finder. |
 
 ## Terminal
@@ -90,7 +92,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Fork (chat menu "Fork"; palette Fork Conversation to New Tab) | page menu **Fork** | works (parity2 tabs; live run pending) | acpmux `session/fork` (the whole chat), then `new-conversation-tab` of the copy in the chat's pane; the copy comes to the front, as the Mac opens a fork in a tab of its own. A Claude chat the Mac started is refused for a remote connection (acpmux D13, `remote_guard.rs`); the phone shows acpmux's own reason: "This chat runs with <Mac>'s Claude permissions. Start a new chat from this device to control it remotely." Fork from an earlier turn (Fork from here) is not on the phone. |
 | Archive (chat menu "Archive", Archive Chat ⌃⌘A) | page menu **Archive** | works (parity2 tabs; live run pending) | acpmux `_acpmux/archive {archived: true}`, then `close-surface`, as the Mac's pane asks its app to close the tab. Unarchive is on the Mac (its archived list). |
 | Checkpoints, Commit, Push | Checkpoints shown as unavailable | missing | The link carries no checkpoints. |
-| Trust this folder ("Trust / Don't trust") | the toast says how; `claude` in the terminal works | partial | acpmux refuses `acp.trust.set` from a remote connection (finding 2). |
+| Trust this folder ("Trust / Don't trust") | the toast says how, step by step; `claude` in the terminal works | partial | acpmux refuses `acp.trust.set` from a remote connection (finding 2). The phone now says: "Claude hasn't been trusted in <folder> yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. Or 2. Here, open this workspace's terminal, type claude, press Return, choose "Yes, I trust this folder", then type /exit. Then start the chat again." Whether a Face ID answer from the phone may count is the person's decision (#13742). |
 
 ## Chief and the Feed
 
@@ -100,7 +102,18 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Stop the Chief, Chief settings | Chief settings | works | `chief.stop`, `chief.engine.*`. |
 | New Chief…, Archive Chief, Memory Inspector | — | missing | |
 | Show Feed, Jump to Latest Unread, Mark read | Feed tab, swipe | works | |
-| Clear All Notifications, Mute workspace | — | missing | Resource op `notification.clear` is not on the lane. |
+| Clear All Notifications | Feed > Filter menu > **Clear All Notifications** | works (parity2) | `notification.clear` on the Mac's current session (new on the lane, see SECURITY.md); the Feed's terminal events go with it. No confirmation, as on the Mac. |
+| Mute workspace | Feed > Filter > Workspaces toggles | partial | The phone's mute is the phone's own (the Mac's mute is not on the lane). |
+
+## Workspace list order (parity2 decision)
+
+The phone's Workspaces list follows the Mac's sidebar: **Needs You** first (the
+phone's own attention section; those rows are also in the Mac's list), then
+**Pinned** in the Mac's tile order, then the rest titled **Workspaces** in the
+Mac's order: the person's personal order (`list-personal`) on a Mac that has
+one, else the daemon's workspace order. Rows of a Mac whose order the phone
+does not know yet (cached, mock) keep the old newest-activity order under
+**Recent**. Move Up / Down moves within the row's section on its Mac.
 
 ## Live run (2026-10-14/15)
 

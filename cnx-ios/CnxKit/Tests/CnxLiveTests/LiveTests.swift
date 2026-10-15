@@ -350,7 +350,7 @@ struct MockDialer: MacLinkDialer {
             for line in data.split(separator: 0x0A) {
             let object = try! JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
             let id = object["id"] as! String
-            let cmd = object["cmd"] as! String
+            let cmd = (object["cmd"] as? String ?? "")
             switch cmd {
             case "list-workspaces":
                 let n = lists.increment()
@@ -387,7 +387,7 @@ struct MockDialer: MacLinkDialer {
             data.split(separator: 0x0A).map { request -> Data in
                 let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
                 let id = object["id"] as! String
-                switch object["cmd"] as! String {
+                switch (object["cmd"] as? String ?? "") {
                 case "list-workspaces":
                     return Data(#"{"id":"\#(id)","ok":true,"data":{"workspaces":[{"id":1,"key":"k1","name":"one","screens":[]},{"id":2,"key":"k2","name":"two","screens":[]}]}}"#.utf8) + Data([0x0A])
                 case "list-agents":
@@ -417,7 +417,7 @@ private func setupDaemon(_ log: CommandLog? = nil) -> MockMacLink {
         data.split(separator: 0x0A).map { request -> Data in
             let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
-            let cmd = object["cmd"] as! String
+            let cmd = (object["cmd"] as? String ?? "")
             log?.append("\(service):\(cmd)", nil)
             let line: String
             switch cmd {
@@ -505,7 +505,7 @@ private struct LinkOf: MacLinkDialer {
             data.split(separator: 0x0A).map { request -> Data in
             let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
-            let cmd = object["cmd"] as! String
+            let cmd = (object["cmd"] as? String ?? "")
             seen.append(cmd, object["name"] as? String)
             let line: String
             switch cmd {
