@@ -255,17 +255,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
         }
     }
 
-    /// Keeps first-party pages proportional to native chrome as the live
-    /// interface scale changes.
+    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
     func applyUIScale() {
         webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     /// Marks a claimed pooled host as used by real input.
