@@ -470,6 +470,9 @@ pub(crate) fn public_terminal_snapshot(
             extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
         }
     }
+    if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
+        extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
+    }
     if !extra.is_empty() {
         terminal["extra"] = Value::Object(extra);
     }

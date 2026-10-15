@@ -64,9 +64,11 @@ pub fn start() {
 }
 
 /// Each file as listed, plus the same name under its folder's real path
-/// (`/etc` is `/private/etc` on macOS, and events carry real paths).
+/// (`/etc` is `/private/etc` on macOS, and events carry real paths), plus
+/// a symlinked file's real path (`~/.zshrc -> ~/dotfiles/zshrc`), whose
+/// folder is then watched too.
 fn watched(files: Vec<PathBuf>) -> Vec<PathBuf> {
-    let mut out = Vec::with_capacity(files.len() * 2);
+    let mut out = Vec::with_capacity(files.len() * 3);
     for f in files {
         if let (Some(dir), Some(name)) = (f.parent(), f.file_name())
             && let Ok(real) = std::fs::canonicalize(dir)
@@ -75,6 +77,12 @@ fn watched(files: Vec<PathBuf>) -> Vec<PathBuf> {
             if alias != f {
                 out.push(alias);
             }
+        }
+        if let Ok(target) = std::fs::canonicalize(&f)
+            && target != f
+            && !out.contains(&target)
+        {
+            out.push(target);
         }
         out.push(f);
     }
