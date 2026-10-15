@@ -105,9 +105,7 @@ extension BrowserPanel {
         }
     }
 
-    /// Applies one page event (internal for tests).
-    func handleEnginePageEvent(_ event: BrowserPageEvent) {
-        noteEnginePageAutomationNavigation(event)
+    private func handleEnginePageEvent(_ event: BrowserPageEvent) {
         noteEnginePageSafetyEvent(event)
         switch event {
         case .stateChanged(let state):
