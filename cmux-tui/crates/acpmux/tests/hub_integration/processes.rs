@@ -411,6 +411,19 @@ async fn tail_reads_the_shells_output_file_in_pages() {
     assert!(data.is_empty(), "{r}");
     assert_eq!(r["nextByte"], len);
     assert_eq!(listed(&mut c, &id).await[0]["outputBytes"], len);
+    // The path stays in the registry: the session update, which every
+    // client of the chat gets, a remote one too, does not carry it.
+    let updates: Vec<_> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "background_task_update")
+        .collect();
+    assert!(!updates.is_empty());
+    for e in &updates {
+        let text = e.msg.to_string();
+        assert!(!text.contains("outputFile") && !text.contains("o1.output"), "{text}");
+    }
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -476,6 +489,26 @@ async fn tail_of_a_missing_output_file_is_empty() {
     let (data, r) = tail(&mut c, &format!("{none}/r1"), json!({})).await;
     assert!(data.is_empty(), "{r}");
     assert_eq!(r["nextByte"], 0);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An output file that is not a regular file (a FIFO no one writes) is
+/// never opened: tail answers at once, empty.
+#[tokio::test]
+async fn tail_of_a_fifo_answers_at_once_and_empty() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let file = root.join("tasks").join("o1.output");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(&file).status().unwrap();
+    assert!(made.success());
+    let id = chat(&mut c, &format!("bg-output: {}", file.display())).await;
+    let pid = format!("{id}/o1");
+    let tailed = tokio::time::timeout(Duration::from_secs(5), tail(&mut c, &pid, json!({})));
+    let (data, r) = tailed.await.expect("tail of a FIFO hung");
+    assert!(data.is_empty(), "{r}");
+    assert_eq!(r["nextByte"], 0);
+    assert_eq!(listed(&mut c, &id).await[0]["outputBytes"], 0);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
