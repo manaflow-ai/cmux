@@ -40,6 +40,44 @@ struct CrashMarkerChildTests {
     }
 }
 
+/// A fault signal sent by software (`raise`, `pthread_kill`) reads like a
+/// CPU fault on Darwin arm64: XNU gives SIGSEGV, SIGBUS and SIGILL fixed
+/// fault codes and SIGTRAP code 0, never `SI_USER`. The handler returned
+/// as for a fault, nothing ran the signal again, and the process went on
+/// (cx-sjv65). A Swift trap (`brk`, also SIGTRAP code 0) must still end on
+/// its own instruction.
+struct CrashMarkerSentSignalTests {
+    @Test func aRaisedSegmentationFaultEndsTheProcess() async throws {
+        let directory = CrashChild.directory("raise-segv", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .signal(SIGSEGV)) {
+            await CrashChild.send(SIGSEGV, name: "raise-segv", toSelf: false)
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGSEGV, "a raised SIGSEGV recorded \(previous.signal.map(String.init) ?? "none")")
+    }
+
+    @Test func aTrapSentToTheThreadEndsTheProcess() async throws {
+        let directory = CrashChild.directory("kill-trap", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .signal(SIGTRAP)) {
+            await CrashChild.send(SIGTRAP, name: "kill-trap", toSelf: true)
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGTRAP, "a SIGTRAP from pthread_kill recorded \(previous.signal.map(String.init) ?? "none")")
+    }
+
+    @Test func aSwiftTrapStillEndsOnItsInstruction() async throws {
+        let directory = CrashChild.directory("swift-trap", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .signal(SIGTRAP)) {
+            await CrashChild.trap()
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGTRAP, "a Swift trap recorded \(previous.signal.map(String.init) ?? "none")")
+    }
+}
+
 /// What the exit-test children run. An exit test captures nothing, so the
 /// child finds its marker folder from its parent's pid.
 enum CrashChild {
@@ -85,6 +123,24 @@ enum CrashChild {
         await engine.warmStart(reason: "test")
         #expect(!engine.isRunning)
         badAccess()
+        withExtendedLifetime(marker) {}
+    }
+
+    /// Sends `signal` with `raise`, or with `pthread_kill` to this thread,
+    /// then returns: a lost signal lets the child exit normally.
+    @MainActor
+    static func send(_ signal: Int32, name: String, toSelf: Bool) async {
+        let marker = await markRun(name)
+        _ = toSelf ? pthread_kill(pthread_self(), signal) : raise(signal)
+        withExtendedLifetime(marker) {}
+    }
+
+    /// A Swift runtime trap (`brk` on arm64).
+    @MainActor
+    static func trap() async {
+        let marker = await markRun("swift-trap")
+        let values: [Int] = []
+        _ = values[Int(getpid() & 1) + 1]
         withExtendedLifetime(marker) {}
     }
 
