@@ -94,12 +94,16 @@ async function firstParentChain(github, owner, repo, from, to) {
     const { data } = await github.rest.repos.getCommit({ owner, repo, ref: cursor, per_page: 100, page: 1 });
     // getCommit pages its file list; read every page (GitHub caps it at 3000).
     let files = data.files || [];
-    for (let page = 2; files.length === (page - 1) * 100 && page <= 30; page += 1) {
+    let last = files.length;
+    let page = 2;
+    // Keep reading while a page came back full (100, or more if per_page is ignored).
+    for (; last >= 100 && page <= 30; page += 1) {
       const { data: more } = await github.rest.repos.getCommit({ owner, repo, ref: cursor, per_page: 100, page });
+      last = (more.files || []).length;
       files = files.concat(more.files || []);
     }
     data.files = files;
-    data.filesTruncated = files.length >= 3000;
+    data.filesTruncated = files.length >= 3000 || (last >= 100 && page > 30);
     chain.push(data);
     const parent = data.parents?.[0]?.sha;
     if (!parent) return null;
@@ -108,19 +112,23 @@ async function firstParentChain(github, owner, repo, from, to) {
   return chain;
 }
 
-async function pushActors(github, owner, repo, chainShas) {
+async function pushActors(github, owner, repo, chainShas, boundary) {
   // Map each first-parent commit to every actor whose push brought it. The
   // activity API pages with a cursor (Link header), so read it through
   // github.paginate.iterator; stop once every commit has an actor.
   const order = new Map(chainShas.map((sha, index) => [sha, index]));
   const actors = new Map(chainShas.map((sha) => [sha, new Set()]));
   const unresolved = () => chainShas.some((sha) => actors.get(sha).size === 0);
+  // Read back to the push that started from the range's base, so an earlier
+  // push of the same commits (before a force push) adds its actor too.
+  let reachedBoundary = !boundary;
   let pages = 0;
   for await (const response of github.paginate.iterator('GET /repos/{owner}/{repo}/activity', {
     owner, repo, ref: `refs/heads/${SOURCE}`, per_page: 100,
   })) {
     pages += 1;
     for (const event of response.data || []) {
+      if (boundary && event.before === boundary) reachedBoundary = true;
       if (!order.has(event.after)) continue;
       // Every chain commit from `after` back to `before` arrived in this push
       // (to the end of the chain when `before` is outside it, a force push).
@@ -130,7 +138,7 @@ async function pushActors(github, owner, repo, chainShas) {
         actors.get(sha).add(event.actor?.login || '');
       }
     }
-    if (!unresolved() || pages >= MAX_ACTIVITY_PAGES) break;
+    if ((!unresolved() && reachedBoundary) || pages >= MAX_ACTIVITY_PAGES) break;
   }
   return actors;
 }
@@ -265,7 +273,7 @@ export async function decide({
   if (touching.length === 0 && !force) {
     return refuse(`the range changes ${surfaceFiles.join(', ')} but no first-parent commit shows it`);
   }
-  const actors = await pushActors(github, owner, repo, chain.map((commit) => commit.sha));
+  const actors = await pushActors(github, owner, repo, chain.map((commit) => commit.sha), mergeBase);
   const landers = new Set();
   const unresolved = [];
   for (const commit of touching) {
