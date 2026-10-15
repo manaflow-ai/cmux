@@ -126,7 +126,8 @@ struct BrowserSearchOverlay: View {
                     }
                 }
             )
-            .browserPageOccluding(pageOverlays, id: "find")
+            // Notched hole: the page shows in the card's rounded corners (spec §0.9).
+            .browserPageOccluding(pageOverlays, id: "find", cornerRadius: 8)
             .padding(padding)
             .offset(dragOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)

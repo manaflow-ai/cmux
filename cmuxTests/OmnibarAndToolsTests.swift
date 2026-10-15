@@ -1147,6 +1147,24 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
         XCTAssertEqual(withEmpty.first?.completion, "https://example.com")
     }
 
+    func testWebKitPanelsDropChromiumOnlyHistoryButChromiumPanelsKeepIt() {
+        let now = Date()
+        let entries = [
+            BrowserHistoryStore.Entry(id: UUID(), url: "chrome://extensions/", title: "Extensions", lastVisited: now, visitCount: 3),
+            BrowserHistoryStore.Entry(id: UUID(), url: "chrome-extension://abc/popup.html", title: nil, lastVisited: now, visitCount: 1),
+            BrowserHistoryStore.Entry(id: UUID(), url: "https://example.com/", title: "Example", lastVisited: now, visitCount: 2),
+        ]
+        let webKit = BrowserPanel.omnibarHistoryEntries(entries, allowsChromiumPages: false)
+        XCTAssertEqual(webKit.map(\.url), ["https://example.com/"])
+        let chromium = BrowserPanel.omnibarHistoryEntries(entries, allowsChromiumPages: true)
+        XCTAssertEqual(chromium.map(\.url), entries.map(\.url))
+        let results = buildOmnibarSuggestions(
+            query: "chrome", engineName: "Google", historyEntries: webKit, openTabMatches: [],
+            remoteQueries: [], resolvedURL: nil, limit: 8
+        )
+        XCTAssertFalse(results.contains { $0.completion.hasPrefix("chrome://") || $0.completion.hasPrefix("chrome-extension://") })
+    }
+
     func testWebKitPanelsGetNoInternalPageCompletions() {
         let results = buildOmnibarSuggestions(
             query: "chrome://ex",
