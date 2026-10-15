@@ -3178,12 +3178,13 @@ function AcpmuxPane() {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
-    if (opensSideSessions && snapshot.sessionId) enabledCmuxActions.add("btw");
+    // A side session asks nothing aside: its composer answers in it.
+    if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     return projectDraft && !snapshot.sessionId
       ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
       : withCommands;
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions]);
+  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -3912,12 +3913,8 @@ function AcpmuxPane() {
             await send(String(text ?? ""), attachments);
             return true;
           },
-          // `/btw <question>`: acpmux starts the side session, the app opens it in the side pane.
-          "chat.btw": async ({ question }) => {
-            const sessionId = await client.btw(String(question ?? ""));
-            await postNative("chat.sideChat", { sessionId });
-            return sessionId;
-          },
+          // `/btw <question>`: acpmux starts the side session; the composer then opens it.
+          "chat.btw": ({ question }) => client.btw(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
@@ -4841,8 +4838,11 @@ function AcpmuxPane() {
               setBtwFailure(undefined);
               // Not a prompt: the chat's turn keeps running and nothing joins its queue. The
               // composer keeps the question until the side session has started.
+              const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
               const started = callNative<string>("chat.btw", { question });
-              started.catch((error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) }));
+              // Started is sent: the question clears even when the app can't open the side session,
+              // so sending it again can't start a second one.
+              started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
               return started;
             }
             if (command.action === "fork") {
