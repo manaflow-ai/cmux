@@ -168,6 +168,13 @@ Object.assign(variants, {
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
+  // The Fonts group's live preview (FontPreview.tsx) in a chosen text face, code face and size.
+  fonts: variant("appearance", {
+    focus: "appearance.fonts.ui",
+    options: {
+      values: { "appearance.fonts.ui": "serif", "appearance.fonts.code": "Menlo", "appearance.fonts.chatSize": 17 },
+    },
+  }),
   "backdrops-workspace": variant("appearance", {
     focus: "appearance.background",
     workspace: "ws-1",
@@ -755,6 +762,7 @@ export default settingsPageEntry({
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
+    "pages/settings/components/FontPreview.tsx",
     "pages/settings/components/Highlight.tsx",
     "pages/settings/components/HostCards.tsx",
     "pages/settings/components/HostSections.tsx",
