@@ -3181,6 +3181,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # The license check on an accepted build (verify-app-bundle-licenses.sh)
+      # reads ghostty-next/build.zig.zon. Without it, every build Apple
+      # accepted was skipped as "Apple did not accept" (runs 38625732642
+      # through 38659284357; tests/test_nightly_notices_submodule.py).
+      - name: Initialize cmux-next notices submodule
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
