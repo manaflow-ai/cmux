@@ -2206,6 +2206,7 @@
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
           "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
+          "engine": "Moteur utilisé par les nouveaux onglets du navigateur. chromium n’est utilisé que si cette version inclut l’environnement Chromium ; sinon, l’onglet s’ouvre dans WebKit et en indique la raison. La variable d’environnement CMUX_BROWSER_ENGINE est prioritaire.",
           "showLinkHoverURL": "Affiche la destination d’un lien en bas à gauche du panneau du navigateur lorsque le pointeur survole le lien ou que le lien a le focus clavier.",
           "urlAllowlist": "Motifs d’hôte ou d’URL qui limitent la navigation du navigateur intégré. Les réglages suggèrent les origines de développement local ; enregistrer une liste active la restriction facultative. Supprimez des entrées pour les bloquer ou laissez la valeur utilisateur vide, sans politique gérée, pour désactiver la restriction."
         },

@@ -23,6 +23,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var eventContinuation: AsyncStream<BrowserPageEvent>.Continuation?
     private var pendingEvents: [BrowserPageEvent] = []
     private var userScriptIdentifiers: [String] = []
+    /// User scripts added before the Chromium browser existed.
+    private(set) var pendingUserScriptSources: [String] = []
     private var devToolsVisible = false
     private var muted = false
     private var lastFaviconURL: URL?
@@ -39,6 +41,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var appliedNavigationGuardMode: Int32?
     /// Permission prompts waiting for the UI delegate, by shim token.
     private var pendingPermissions: [Int32: Task<Void, Never>] = [:]
+    /// JavaScript dialogs waiting for the UI delegate, by shim token.
+    private var pendingDialogs: [Int32: Task<Void, Never>] = [:]
     /// Downloads of this page, by shim token.
     private var downloads: [Int32: BrowserPageDownload] = [:]
     /// Captures running while the page is hidden, and the occlusion the page
@@ -72,6 +76,9 @@ public final class CEFBrowserPage: BrowserPage {
         )
         browser.onEvent = { [weak self] event in
             self?.handle(event)
+        }
+        browser.onWindowCreated = { [weak self] id in
+            self?.registerPendingUserScripts(browserID: id)
         }
     }
 
@@ -195,12 +202,12 @@ public final class CEFBrowserPage: BrowserPage {
     /// Injects a script into every new document of this page.
     /// - Parameter script: The script; `documentEnd` scripts wait for `DOMContentLoaded`.
     public func addUserScript(_ script: BrowserPageUserScript) {
-        var source = script.source
-        if script.injectionTime == .documentEnd {
-            source = "document.addEventListener('DOMContentLoaded', () => {\n\(source)\n}, { once: true });"
-        }
-        if script.isMainFrameOnly {
-            source = "if (window === window.top) {\n\(source)\n}"
+        let source = Self.userScriptSource(script)
+        guard browser.browserID != nil else {
+            // Registered synchronously when the browser is created, before
+            // its first load (`registerPendingUserScripts`).
+            pendingUserScriptSources.append(source)
+            return
         }
         let params = Self.json(["source": source])
         Task { @MainActor [weak self, browser] in
@@ -212,8 +219,35 @@ public final class CEFBrowserPage: BrowserPage {
         }
     }
 
+    /// Sends the scripts added before the browser existed, in order, right
+    /// before its first load. Their DevTools identifiers are not collected,
+    /// so ``removeAllUserScripts()`` cannot remove them later.
+    func registerPendingUserScripts(browserID: Int32) {
+        let sources = pendingUserScriptSources
+        pendingUserScriptSources.removeAll()
+        guard !sources.isEmpty, let shim = shimProvider() else { return }
+        for source in sources {
+            let params = Self.json(["source": source])
+            _ = shim.devToolsCall(browserID, "Page.addScriptToEvaluateOnNewDocument", params)
+        }
+    }
+
+    /// The script source as Chromium runs it: `documentEnd` waits for
+    /// `DOMContentLoaded`; main-frame-only scripts skip subframes.
+    nonisolated static func userScriptSource(_ script: BrowserPageUserScript) -> String {
+        var source = script.source
+        if script.injectionTime == .documentEnd {
+            source = "document.addEventListener('DOMContentLoaded', () => {\n\(source)\n}, { once: true });"
+        }
+        if script.isMainFrameOnly {
+            source = "if (window === window.top) {\n\(source)\n}"
+        }
+        return source
+    }
+
     /// Removes every script added with ``addUserScript(_:)``.
     public func removeAllUserScripts() {
+        pendingUserScriptSources.removeAll()
         let identifiers = userScriptIdentifiers
         userScriptIdentifiers.removeAll()
         Task { @MainActor [browser] in
@@ -369,6 +403,8 @@ public final class CEFBrowserPage: BrowserPage {
         isClosed = true
         pendingPermissions.values.forEach { $0.cancel() }
         pendingPermissions.removeAll()
+        pendingDialogs.values.forEach { $0.cancel() }
+        pendingDialogs.removeAll()
         features.tearDown()
         browser.close()
         eventContinuation?.finish()
@@ -429,6 +465,11 @@ public final class CEFBrowserPage: BrowserPage {
             handlePermissionPrompt(token: token, bits: permissions, origin: origin)
         case .permissionDismissed(_, let token):
             pendingPermissions.removeValue(forKey: token)?.cancel()
+        case .jsDialog(_, let token, let kind, let message, let origin, let defaultText, let isReload):
+            handleJavaScriptDialog(token: token, kind: kind, message: message, origin: origin,
+                                   defaultText: defaultText, isReload: isReload)
+        case .jsDialogDismissed(_, let token):
+            pendingDialogs.removeValue(forKey: token)?.cancel()
         case .download(let kind, _, let token, let a, let b, let s1, let s2):
             handleDownload(kind: kind, token: token, a: a, b: b, s1: s1, s2: s2)
         default:
@@ -457,6 +498,46 @@ public final class CEFBrowserPage: BrowserPage {
             case .prompt:
                 break
             }
+        }
+    }
+
+    // MARK: JavaScript dialogs
+
+    /// Chromium shows no dialog of its own and waits for the answer, so
+    /// every dialog is answered: by the UI delegate, or with Chrome's
+    /// defaults (OK for an alert and Leave, Cancel otherwise) without one.
+    private func handleJavaScriptDialog(
+        token: Int32, kind: CEFJSDialogKind, message: String, origin: String, defaultText: String, isReload: Bool
+    ) {
+        let pageKind: BrowserPageJavaScriptDialog.Kind = switch kind {
+        case .alert: .alert
+        case .confirm: .confirm
+        case .prompt: .prompt(defaultText: defaultText)
+        case .beforeUnload: .beforeUnload(isReload: isReload)
+        }
+        let dialog = BrowserPageJavaScriptDialog(kind: pageKind, message: message, origin: URL(string: origin))
+        pendingDialogs[token]?.cancel()
+        pendingDialogs[token] = Task { @MainActor [weak self] in
+            let response: BrowserPageJavaScriptDialogResponse
+            if let self, let uiDelegate = self.uiDelegate {
+                response = await uiDelegate.page(self, runJavaScriptDialog: dialog)
+            } else {
+                response = Self.defaultResponse(for: pageKind)
+            }
+            guard !Task.isCancelled, self?.pendingDialogs.removeValue(forKey: token) != nil else { return }
+            switch response {
+            case .accept(let text):
+                CEFRuntime.shared.answerJSDialog(token: token, accept: true, text: text ?? "")
+            case .dismiss:
+                CEFRuntime.shared.answerJSDialog(token: token, accept: false)
+            }
+        }
+    }
+
+    nonisolated static func defaultResponse(for kind: BrowserPageJavaScriptDialog.Kind) -> BrowserPageJavaScriptDialogResponse {
+        switch kind {
+        case .alert, .beforeUnload: .accept(text: nil)
+        case .confirm, .prompt: .dismiss
         }
     }
 

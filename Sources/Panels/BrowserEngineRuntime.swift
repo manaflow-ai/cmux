@@ -87,6 +87,13 @@ final class BrowserEngineRuntime {
         chromiumWarmup?.engineLikely(reason)
     }
 
+    /// The Chromium log (this run's, else the previous run's); nil when none exists.
+    var chromiumLogFile: URL? {
+        let storage = CEFRuntime.shared.storage
+        return [storage.logFile, storage.previousLogFile]
+            .first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     /// Whether an engine can create pages now.
     func availability(for kind: BrowserEngineKind) -> BrowserEngineAvailability {
         registry.availability(for: kind)

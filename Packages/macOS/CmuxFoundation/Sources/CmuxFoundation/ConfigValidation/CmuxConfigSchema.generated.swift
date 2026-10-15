@@ -2194,6 +2194,7 @@ enum CmuxEmbeddedConfigSchema {
           "type": "string",
           "enum": ["webkit", "chromium"],
           "default": "webkit",
+          "descriptionKey": "schemaDescriptions.browser.engine",
           "description": "Engine new browser tabs open with. chromium is used only when this build includes the Chromium runtime; otherwise the tab opens in WebKit and says why. The CMUX_BROWSER_ENGINE environment variable overrides it."
         },
         "theme": {

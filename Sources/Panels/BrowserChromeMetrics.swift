@@ -121,5 +121,20 @@ struct BrowserChromeMetrics: Equatable {
     /// height (hit target plus the row's vertical padding). Base `34`.
     var recoveryVerticalLift: CGFloat { scaled(34) }
 
+    /// Point size of the engine fallback strip's message. Base `12`.
+    var noticeStripFontSize: CGFloat { scaled(12) }
+
+    /// Point size of the engine fallback strip's `info.circle` glyph. Base `12`.
+    var noticeStripIconFontSize: CGFloat { scaled(12) }
+
+    /// Point size of the engine fallback strip's close glyph. Base `10`.
+    var noticeStripCloseFontSize: CGFloat { scaled(10) }
+
+    /// Vertical padding inside the engine fallback strip. Base `6`.
+    var noticeStripVerticalPadding: CGFloat { scaled(6) }
+
+    /// Horizontal padding inside the engine fallback strip. Base `8`.
+    var noticeStripHorizontalPadding: CGFloat { scaled(8) }
+
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }

@@ -96,6 +96,10 @@ public final class CEFBrowser {
     public var onEvent: (@MainActor (CEFBrowserEvent) -> Void)?
     /// Sees key downs before the page; return true to consume (app shortcuts).
     public var keyDownHandler: (@MainActor (NSEvent) -> Bool)?
+    /// Runs once the Chromium browser exists, right before its first load,
+    /// with its id: the moment to register per-page setup (user scripts)
+    /// that must apply to the first document.
+    public var onWindowCreated: (@MainActor (Int32) -> Void)?
 
     unowned let runtime: CEFRuntime
     private var pendingURL: URL?
@@ -260,6 +264,7 @@ public final class CEFBrowser {
             shim.close(id)
             return
         }
+        onWindowCreated?(id)
         if state.zoom != 1 { shim.setZoomLevel(id, Self.zoomLevel(forFactor: state.zoom)) }
         if let restore = pendingRestore {
             pendingRestore = nil

@@ -12424,6 +12424,7 @@
 				909581C88CA7A063EAA60F65 /* BrowserPanel+AgentURLPolicy.swift */,
 				8E9367F765EC011170028F94 /* ChromiumHelperCrashWatch.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
+				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";

@@ -70,4 +70,11 @@ struct CEFBrowserPageMappingTests {
         #expect(commands[0].0 == "Input.insertText")
         #expect(commands[0].1["text"] as? String == "hi")
     }
+
+    @Test func dialogsWithoutADelegateGetChromesDefaults() {
+        #expect(CEFBrowserPage.defaultResponse(for: .alert) == .accept(text: nil))
+        #expect(CEFBrowserPage.defaultResponse(for: .beforeUnload(isReload: false)) == .accept(text: nil))
+        #expect(CEFBrowserPage.defaultResponse(for: .confirm) == .dismiss)
+        #expect(CEFBrowserPage.defaultResponse(for: .prompt(defaultText: "x")) == .dismiss)
+    }
 }
