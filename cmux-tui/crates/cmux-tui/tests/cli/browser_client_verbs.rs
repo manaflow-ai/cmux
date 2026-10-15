@@ -341,7 +341,7 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
     assert!(tree_has_surface(&mut cli, surface));
 
     // 3. The close goes through: the tab leaves the store on the report.
-    let asked = cli.call(close.clone());
+    let asked = cli.call(close);
     let request_id = asked["request_id"].as_str().expect("request id").to_string();
     let event = browser.event("frontend-browser-tab-close-requested");
     assert_eq!(event["request_id"], request_id.as_str(), "{event}");
