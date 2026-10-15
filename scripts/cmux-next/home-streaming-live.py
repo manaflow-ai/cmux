@@ -168,7 +168,7 @@ def cleanup():
     # agent daemon (~/.acpmux/builds/<build key>, AcpmuxEnvironment); a
     # daemon left running keeps its agent harnesses (and their PTYs) alive.
     for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser("~/.acpmux/builds/com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip("."))):
-        done = subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": home},
+        done = subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": home},
                               capture_output=True, text=True, timeout=60)
         with open(os.path.join(opts.out, "cleanup.log"), "a") as log:
             log.write(f"acpmux daemon shutdown ACPMUX_HOME={home}: rc={done.returncode} "

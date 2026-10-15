@@ -174,7 +174,7 @@ finally:
     rpc("action.run", {"id": "endAgents"}, timeout=10)
     for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):
         if os.path.isdir(acp):
-            subprocess.run([ACPMUX, "daemon", "shutdown"], env=dict(env, ACPMUX_HOME=acp), capture_output=True, timeout=30)
+            subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=dict(env, ACPMUX_HOME=acp), capture_output=True, timeout=30)
     if STOP:
         subprocess.run([STOP], capture_output=True, timeout=180)
     shutil.rmtree(SCRATCH, ignore_errors=True)
