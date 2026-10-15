@@ -7489,19 +7489,28 @@ class TerminalController {
             frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
         )
         let evaluate: (BrowserPageScriptWorld) -> BrowserJavaScriptEvaluationResult = { world in
-            let outcome: BrowserJavaScriptEvaluationResult? = self.v2AwaitEnginePage(timeout: timeout) {
-                do {
-                    let value = try await BrowserPageAutomation(page: page).evaluate(
-                        asyncFunctionBody,
-                        form: .asyncFunctionBody,
-                        world: world
-                    )
-                    return .success(value)
-                } catch {
-                    return .failure(TerminalController.v2EngineAutomationMessage(error))
+            let outcome: (result: BrowserJavaScriptEvaluationResult, unavailable: BrowserAutomationPageError?)? =
+                self.v2AwaitEnginePage(timeout: timeout) {
+                    do {
+                        let value = try await BrowserPageAutomation(page: page).evaluate(
+                            asyncFunctionBody,
+                            form: .asyncFunctionBody,
+                            world: world
+                        )
+                        return (.success(value), nil)
+                    } catch {
+                        let pageError = error as? BrowserAutomationPageError
+                        let unavailable: BrowserAutomationPageError?
+                        if case .pageUnavailable? = pageError { unavailable = pageError } else { unavailable = nil }
+                        return (.failure(TerminalController.v2EngineAutomationMessage(error)), unavailable)
+                    }
                 }
+            // The page could not run: the command answers engine_unavailable
+            // with the engine's reason, whatever its own error wrapping.
+            if case .pageUnavailable(let reason)? = outcome?.unavailable {
+                self.v2RecordEnginePageUnavailable(reason, surfaceId: surfaceId)
             }
-            return outcome ?? .timedOut
+            return outcome?.result ?? .timedOut
         }
 
         var rawResult = evaluate(.page)
@@ -8029,7 +8038,7 @@ class TerminalController {
                     "bypass_remote_proxy": bypassRemoteProxy,
                 ]
             )
-            payload.merge(v2BrowserEngineFields(placement.panel)) { _, engine in engine }
+            payload.merge(v2BrowserEngineFields(placement.panel, requested: requestedEngine.engine)) { _, engine in engine }
             if focus,
                case .dock = container,
                let appDelegate = AppDelegate.shared {
@@ -10682,6 +10691,12 @@ class TerminalController {
     /// Socket-worker router for browser automation methods that may wait on WebKit.
     /// See ControlCommandExecutionPolicy for why these must not hold the main actor.
     private nonisolated func v2BrowserAutomationCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
+        // A Chromium page that could not run answers one error on every verb.
+        v2ClearEnginePageUnavailable()
+        return v2ApplyEnginePageUnavailable(v2BrowserAutomationCommandDispatch(method: method, params: params))
+    }
+
+    private nonisolated func v2BrowserAutomationCommandDispatch(method: String, params: [String: Any]) -> V2CallResult {
         switch method {
         case "browser.design_mode.set": return v2BrowserDesignMode(params: params, statusOnly: false)
         case "browser.design_mode.status": return v2BrowserDesignMode(params: params, statusOnly: true)
@@ -11130,6 +11145,9 @@ class TerminalController {
         case nil:
             return .failure(.err(code: "timeout", message: timeoutMessage, data: nil))
         case .failure(let error):
+            if case .pageUnavailable(let reason)? = error as? BrowserAutomationPageError {
+                return .failure(v2EnginePageUnavailable(reason, surfaceId: nil))
+            }
             return .failure(.err(code: "internal_error", message: Self.v2EngineAutomationMessage(error), data: nil))
         case .success(let value):
             return .value(value)
@@ -11658,7 +11676,7 @@ class TerminalController {
                     "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                     "url": panel.currentURL?.absoluteString ?? ""
                 ]
-                payload.merge(v2BrowserEngineFields(panel)) { _, engine in engine }
+                payload.merge(v2BrowserEngineFields(panel, requested: requestedEngine.engine)) { _, engine in engine }
                 result = .ok(payload)
                 return
             }
@@ -11697,7 +11715,7 @@ class TerminalController {
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                 "url": panel.currentURL?.absoluteString ?? ""
             ]
-            payload.merge(v2BrowserEngineFields(panel)) { _, engine in engine }
+            payload.merge(v2BrowserEngineFields(panel, requested: requestedEngine.engine)) { _, engine in engine }
             result = .ok(payload)
         }
         return result
