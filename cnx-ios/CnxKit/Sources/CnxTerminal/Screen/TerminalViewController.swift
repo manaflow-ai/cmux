@@ -872,6 +872,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // TerminalReadingMark); otherwise to the prompt.
                 markReadingPosition()
                 freezeLastFrame()
+                // Held already (a second reset, D4): the frame that releases
+                // it is one placed after this reset's replay.
+                placedSinceHold = false
+                freezeBatches = 0
                 // A second reset (D4) waits for its own replay.
                 readingMarkAwaitsReport = false
                 scroll.reset()
@@ -1110,7 +1114,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The replay is parsed and draws something: drop the held frame on
             // the next present (or after one more batch, whichever comes first).
             freezeBatches += 1
-            if freezeBatches >= 2, readingMark == nil { unfreeze() }
+            if freezeBatches >= 2, heldFrameMayGo() { unfreeze() }
         }
         if raw > Self.mirrorReset.count { model.liveOutputDrawn() }
         #if DEBUG
@@ -1190,6 +1194,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.insertSubview(snapshot, belowSubview: bottomBacking)
         freezeView = snapshot
         freezeBatches = 0
+        placedSinceHold = false
         // A TUI's replay at a new size can be an empty alternate screen until
         // the program repaints (R3-2: `top` waits for its 1 s tick); the held
         // frame waits for that, but never longer than this.
@@ -1465,8 +1470,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         TerminalBenchProbe.shared?.presented()
         #endif
-        // A reader's rows are placed first (V2-3): the held frame stays until then.
-        if freezeView != nil, freezeBatches > 0, readingMark == nil { unfreeze() }
+        // A TUI's screen has no scroll: the held frame goes once the replay drew.
+        if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? 3
         let rowPixels = Int((cell.height * scale).rounded())
@@ -1507,6 +1512,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         place(atRow: placesFromReport ? scrollbar.offset : top)
         if followAwaitsPresent { applyScroll() }
+        // A reader's rows are placed first (V2-3), and the held frame goes
+        // only once the frame just placed covers the rows the page shows
+        // (qa11 wt-read2-a: a frame of the end released it over the
+        // reader's rows, one black frame).
+        if freezeView != nil {
+            placedSinceHold = true
+            if heldFrameMayGo() { unfreeze() }
+        }
+    }
+
+    /// A frame was placed since the frame was held (`presentedTop` is in
+    /// the replay's numbering).
+    private var placedSinceHold = false
+
+    /// The held frame may go (`TerminalHeldFrame.releasesOnPresent`).
+    private func heldFrameMayGo() -> Bool {
+        guard model.isTUI || (placedSinceHold && document != nil && cell.height > 0) else { return false }
+        let visible = model.isTUI ? 0..<0 : visibleRowRange
+        return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: readingMark != nil,
+                                                   cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
+                                                   visibleTop: visible.lowerBound, visibleBottom: visible.upperBound,
+                                                   documentRows: (document?.originRow ?? 0)..<(document?.endRow ?? 0))
     }
 
     /// While following, a present reads only the rows on screen and 16 rows
