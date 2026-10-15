@@ -327,6 +327,10 @@ body,
   }
 }
 
+/* The row's content, as one right-click target that keeps the row's layout. */
+.hc-msg-menu-host {
+  display: contents;
+}
 /* The hover card: on the row's top edge at the end, over the row above, never in the flow. */
 /* Hidden by opacity only, so Tab still reaches it (one stop per row; the arrows move inside). */
 .hc-msg-actions {
@@ -375,6 +379,13 @@ body,
 .hc-tool[aria-pressed="true"] {
   background: var(--hc-fill-strong);
   color: var(--page-text);
+}
+/* The hover-actions experiment's "one" arm: More alone, framed as the card. */
+.hc-tool.hc-msg-more {
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--surface-popup);
+  box-shadow: var(--elevation-2);
 }
 .hc-tool-glyph {
   display: inline-grid;

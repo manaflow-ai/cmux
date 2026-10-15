@@ -2,7 +2,7 @@
 // The channels Home (cmux-page://cmux.home-channels/): the same page main.tsx mounts, over the
 // in-memory provider's sample channels and direct messages, so the rail, timeline, message rows,
 // composer, thread panel and the Cmd-K switcher show without the app.
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
 import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
@@ -30,6 +30,8 @@ type Props = {
   refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
+  /** The theme's terminal selection color, as the app sets `--cmux-text-selection`. */
+  terminalSelection?: string;
   /** A sheet route (routes.ts) to open. */
   route?: HomeRoute;
   /** The host relays the person's click for a Chief's grant and delete (the app). */
@@ -50,6 +52,7 @@ function HomeChannelsGallery({
   runs = "none",
   refuseInbox = false,
   media = false,
+  terminalSelection,
   route,
   hostGrants = false,
   extraChief = false,
@@ -73,7 +76,10 @@ function HomeChannelsGallery({
   const [strings] = useState(() => createStrings(table));
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   return (
-    <div ref={setRoot} style={{ height: "100%", width: width ?? "100%" }}>
+    <div
+      ref={setRoot}
+      style={{ height: "100%", width: width ?? "100%", "--cmux-text-selection": terminalSelection } as CSSProperties}
+    >
       {root ? (
         <UiProvider container={root}>
           <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} />
@@ -206,6 +212,14 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => switcherOpen(ctx));
         await ctx.type("zzzz", { selector: switcherField });
         await ctx.waitFor(() => ctx.document.querySelector(".lg-palette-none"));
+      },
+    },
+    "selected-text": {
+      note: "Selected message text under the default theme: it takes the theme's terminal selection color (slate blue), like every page (cx-wqn5).",
+      props: { select: "c-release", terminalSelection: "#3f638b" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-msg.head .hc-md"));
+        await ctx.selectText({ selector: ".lg-main .hc-msg.head .hc-md" });
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },

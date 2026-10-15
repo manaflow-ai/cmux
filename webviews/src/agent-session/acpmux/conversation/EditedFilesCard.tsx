@@ -1,6 +1,6 @@
-// The card that closes a turn which edited files: a diff icon, "Edited 2 files" with the totals,
-// then Undo and View changes; under it one row per file (the dimmed folder, the bold name, its
-// counts). The data is turnChanges/model.ts; this file is only its view.
+// The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
+// totals, then Undo and View changes; under it one row per file in monospace (the dimmed folder,
+// the name, its counts). The data is turnChanges/model.ts; this file is only its view.
 //
 // Undo is a host revert (`turn.undo`): the host puts a file back only while it still holds the
 // turn's last bytes, and moves a file the turn created to the Trash. The Undo click asks the host
@@ -142,7 +142,7 @@ function Card({
       )}
       {shown.map((entry) => {
         if (!entry.file) {
-          // An edit with no diff: its path (dimmed folder, bold name), or "Unknown file".
+          // An edit with no diff: its path (dimmed folder, then the name), or "Unknown file".
           const path = entry.path;
           const cut = path ? path.replace(/\/+$/, "").lastIndexOf("/") : -1;
           return (
@@ -195,7 +195,7 @@ function Card({
           onClick={() => setShowAll(!showAll)}
         >
           {showAll ? t("edited.fewer") : more === 1 ? t("edited.more.one") : t("edited.more.other", { n: more })}
-          <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
+          <ChevronDown width={12} height={12} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
         </button>
       )}
     </div>
@@ -246,7 +246,7 @@ function UndoButton({
         : state.phase === "failed"
           ? t("edited.undoFailed")
           : t("edited.undo")}
-      <Undo size={14} />
+      <Undo size={12} />
     </button>
   );
 }
@@ -355,8 +355,8 @@ function DirPart({ dir }: { dir: string }) {
 
 const PlusMinus = () => (
   <svg
-    width={16}
-    height={16}
+    width={14}
+    height={14}
     viewBox="0 0 16 16"
     fill="none"
     stroke="currentColor"
