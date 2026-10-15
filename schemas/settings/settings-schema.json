@@ -21976,7 +21976,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "blink",
+      "default" : "none",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
@@ -23939,7 +23939,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "21c6125a0405ff65d091d63750d336906eab192dcf3fc0fa90bc9cd55b527239",
+  "schema_hash" : "5e760fe67cbf81a6ffde88cbddaebc98cf06460c6a8034d6bae4559cd5453451",
   "sections" : [
     {
       "id" : "general",
