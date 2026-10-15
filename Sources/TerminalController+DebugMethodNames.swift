@@ -25,6 +25,7 @@ extension TerminalController {
         "debug.command_palette.rename_input.select_all",
         "debug.browser.address_bar_focused",
         "debug.browser.favicon",
+        "debug.browser.find",
         "debug.right_sidebar.focus",
         "debug.sidebar.visible",
         "debug.terminal.is_focused",
