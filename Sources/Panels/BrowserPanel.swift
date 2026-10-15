@@ -2131,6 +2131,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// shown once per run as a notice; `nil` otherwise.
     @Published private(set) var engineFallbackNotice: BrowserEngineUnavailableReason?
     var enginePageEventsTask: Task<Void, Never>?
+    /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
+    /// child-window (Chromium) page; does nothing for a WebKit page.
+    let pageOverlays = BrowserPageOverlayCoordinator()
     private var webKitPageAdapter: WebKitBrowserPage?
     private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
@@ -6144,6 +6147,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
         takeBrowserDialogOwnership(dialogOwner)
+        if openCmuxPageForChromiumRoute(input) { return nil }
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
         return navigate(
             to: navigation.url,
@@ -6167,7 +6171,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func resolveNavigableURL(from input: String) -> URL? {
-        resolveBrowserNavigableURL(input)
+        guard allowsChromiumInternalPages else { return resolveBrowserNavigableURL(input) }
+        return BrowserURLResolver(allowsChromiumSchemes: true).navigableURL(from: input)
     }
 
     private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
@@ -6688,6 +6693,15 @@ extension BrowserPanel {
         if estimatedProgress != state.estimatedProgress { estimatedProgress = state.estimatedProgress }
         if canGoBack != state.canGoBack { canGoBack = state.canGoBack }
         if canGoForward != state.canGoForward { canGoForward = state.canGoForward }
+    }
+
+    /// A non-WebKit page's main-frame load failed. Chromium shows its own
+    /// error page; a new panel's first load has no committed URL, so the
+    /// address bar keeps the address that failed instead of going blank
+    /// (Next `chromium-error-page-new-tab`, design spec §8).
+    func applyEnginePageNavigationFailure(url: URL?) {
+        guard currentURL == nil, let url else { return }
+        currentURL = url
     }
 
     /// Publishes a non-WebKit page's favicon.

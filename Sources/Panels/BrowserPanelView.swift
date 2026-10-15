@@ -1880,7 +1880,16 @@ struct BrowserPanelView: View {
                 BrowserEnginePageHost(
                     page: enginePage,
                     isVisible: isVisibleInUI && isCurrentPaneOwner,
-                    shouldFocus: isFocused && !addressBarFocused
+                    shouldFocus: isFocused && !addressBarFocused,
+                    onAttach: { contentView in panel.attachPageOverlays(contentView: contentView) },
+                    onPageClicked: {
+                        // As a click into a WebKit page: the pane takes focus
+                        // and the address bar lets go.
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            setAddressBarFocused(false, reason: "chromiumPage.click")
+                        }
+                    }
                 )
             } else if panel.shouldAttachWebViewInUI {
                 WebViewRepresentable(
@@ -1961,6 +1970,8 @@ struct BrowserPanelView: View {
                 BrowserPageRecoveryOverlay(prompt: prompt, backgroundColor: browserChromeBackgroundColor, metrics: chromeMetrics) {
                     panel.performPageRecovery(prompt)
                 }
+                // Over a Chromium page the page leaves a hole here (design spec §8).
+                .browserPageOccluding(panel.pageOverlays, id: "pageRecovery")
             }
         }
         .layoutPriority(1)
@@ -2835,6 +2846,7 @@ struct BrowserPanelView: View {
             )
         }
         let resolvedURL = query.isEmpty ? nil : panel.resolveNavigableURL(from: query)
+        let internalPageCompletions = panel.chromiumInternalPageCompletions(for: query)
         let items = buildOmnibarSuggestions(
             query: query,
             engineName: searchConfiguration.displayName,
@@ -2842,6 +2854,7 @@ struct BrowserPanelView: View {
             openTabMatches: openTabMatches,
             remoteQueries: staleRemote,
             resolvedURL: resolvedURL,
+            internalPageCompletions: internalPageCompletions,
             limit: 8
         )
         let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(items))
@@ -2869,6 +2882,7 @@ struct BrowserPanelView: View {
                 openTabMatches: openTabMatches,
                 remoteQueries: forcedRemote,
                 resolvedURL: resolvedURL,
+                internalPageCompletions: internalPageCompletions,
                 limit: 8
             )
             let forcedEffects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
@@ -2886,6 +2900,8 @@ struct BrowserPanelView: View {
         guard remoteSuggestionsEnabled else { return }
         guard !isSingleCharacterQuery else { return }
         guard omnibarInputIntent(for: query) != .urlLike else { return }
+        // A `chrome://` address typed in a Chromium panel stays on this Mac.
+        guard !panel.keepsOmnibarQueryLocal(query) else { return }
 
         // Keep current remote rows visible while fetching fresh predictions.
         guard let engine = remoteSuggestionsEngine else { return }
@@ -2908,6 +2924,7 @@ struct BrowserPanelView: View {
                     openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
                     remoteQueries: remote,
                     resolvedURL: panel.resolveNavigableURL(from: query),
+                    internalPageCompletions: internalPageCompletions,
                     limit: 8
                 )
                 let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
@@ -3145,7 +3162,10 @@ func omnibarSuggestionSupportsAutocompletion(query: String, suggestion: OmnibarS
     if case .remote = suggestion.kind { return false }
     guard let completion = omnibarSuggestionCompletion(for: suggestion) else { return false }
     // Reject URLs whose host lacks a TLD (e.g. "https://news." → host "news").
+    // Chromium's internal pages (`chrome://extensions/`, offered only in
+    // Chromium panels) have single-word hosts by design.
     if let components = URLComponents(string: completion),
+       components.scheme?.lowercased() != "chrome",
        let host = components.host?.lowercased() {
         let trimmedHost = host.hasSuffix(".") ? String(host.dropLast()) : host
         if !trimmedHost.contains(".") { return false }
@@ -3217,6 +3237,7 @@ func buildOmnibarSuggestions(
     openTabMatches: [OmnibarOpenTabMatch] = [],
     remoteQueries: [String],
     resolvedURL: URL?,
+    internalPageCompletions: [URL] = [],
     limit: Int = 8,
     now: Date = Date()
 ) -> [OmnibarSuggestion] {
@@ -3341,6 +3362,13 @@ func buildOmnibarSuggestions(
         case .queryLike: navigateBaseScore = 470
         }
         insert(.navigate(url: completion), score: navigateBaseScore + completionScore(for: completion))
+    }
+
+    // `chrome://` page names a Chromium panel completes (`chrome://ex` ->
+    // `chrome://extensions/`): above the typed address, which names no page
+    // until the name is complete. Empty for WebKit panels.
+    for (index, url) in internalPageCompletions.enumerated() {
+        insert(.navigate(url: url.absoluteString), score: 1_400 - Double(index))
     }
 
     for (index, entry) in filteredHistoryEntries.prefix(max(limit * 2, limit)).enumerated() {
