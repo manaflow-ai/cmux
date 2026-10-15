@@ -41,7 +41,7 @@ extension AgentPaneComposerSetting {
 
     /// Follows Debug Settings' plain footer look for the agent tabs: `push` (the tabs' push of their
     /// page settings to every view) runs on each change.
-    @MainActor public static func followLook(_ push: @escaping @MainActor () -> Void) {
+    @MainActor public static func followLook(_ push: @escaping () -> Void) {
         lookObservation?.cancel()
         // task-owner: lives as long as the agent tabs (one per app); event-driven (Observation)
         lookObservation = Task {
