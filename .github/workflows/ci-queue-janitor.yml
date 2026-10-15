@@ -75,26 +75,14 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
-      - name: Mint the cmux-bot token
-        id: cmux-bot-token
-        if: vars.CMUX_BOT_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-actions: write
-          permission-checks: read
-          permission-contents: read
-          permission-issues: write
-          permission-pull-requests: write
-
       - name: Skip when the pool snapshot is fresh
         id: fresh
         if: github.event_name != 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # This gate must remain the first step so requested-run freshness
+          # stays cheap; the App token is minted only after a stale snapshot
+          # needs the cancellation API.
+          GH_TOKEN: ${{ github.token }}
           FRESH_SECONDS: ${{ github.event_name == 'workflow_run' && '600' || '300' }}
         run: |
           set -euo pipefail
@@ -108,6 +96,21 @@ jobs:
           if [ "$age" -lt "$FRESH_SECONDS" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != '' && steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: Check out trusted janitor
         if: steps.fresh.outputs.skip != 'true'

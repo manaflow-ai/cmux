@@ -31,21 +31,6 @@ jobs:
       build_time: ${{ steps.pr.outputs.build_time }}
       digest: ${{ steps.artifact.outputs.digest }}
     steps:
-      - name: Mint the cmux-bot token
-        id: cmux-bot-token
-        if: vars.CMUX_BOT_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-actions: write
-          permission-checks: read
-          permission-contents: read
-          permission-issues: write
-          permission-pull-requests: write
-
       # Every workflow shares GITHUB_TOKEN's API budget (it ran out on
       # 2026-10-06). The run's pull request and times come from the event, and
       # each read below happens only when the checks before it passed: most
@@ -53,7 +38,11 @@ jobs:
       - name: Find the trusted org-member dogfood artifact
         id: pr
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # This job runs in the artifacts environment, whose trust boundary
+          # intentionally contains only R2 credentials. Keep GitHub API calls
+          # on its explicitly scoped workflow token; the capture job below has
+          # no artifact secrets and may use cmux-bot's separate budget.
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
@@ -142,7 +131,7 @@ jobs:
         id: artifact
         if: steps.pr.outputs.publish == 'true'
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           PR: ${{ steps.pr.outputs.pr }}
@@ -203,7 +192,7 @@ jobs:
       - name: Post the signed dogfood link
         if: steps.pr.outputs.publish == 'true'
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.pr }}
           HEAD_SHA: ${{ steps.pr.outputs.sha }}
