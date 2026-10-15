@@ -272,14 +272,18 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   private async runMirror(entity: string, now: number): Promise<void> {
     const due = mirrorDue(this.ctx.storage.sql)
     if (due === null || due > now) return
-    let client: { end(): Promise<void> } | undefined
+    let client: { end(): Promise<void>; destroy(): void } | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let late = false
     try {
       const { connectMysql } = await import("./mysql-connect.ts")
       const c = await connectMysql(this.env.PS_MYSQL!, { timeoutMs: 5_000 })
       client = c
       // One deadline for the whole run, so a hung query never holds the alarm (hold expiry, outbox) for long.
       const deadline = Date.now() + MIRROR_DEADLINE_MS
-      const bounded = { query: (q: string, v?: Array<unknown>) => Promise.race([c.query(q, v), new Promise<never>((_, reject) => setTimeout(() => reject(Object.assign(new Error("mirror deadline"), { code: "MIRROR_DEADLINE" })), Math.max(0, deadline - Date.now())))]) }
+      const expired = new Promise<never>((_, reject) => (timer = setTimeout(() => [(late = true), reject(Object.assign(new Error("mirror deadline"), { code: "MIRROR_DEADLINE" }))], Math.max(0, deadline - Date.now()))))
+      expired.catch(() => undefined)
+      const bounded = { query: (q: string, v?: Array<unknown>) => Promise.race([c.query(q, v), expired]) }
       const r = await mirrorCredits(this.ctx.storage, entity, bounded)
       if (r.entries > 0) console.log(JSON.stringify({ msg: "credits.mirror", team: entity, entries: r.entries, version: r.version }))
     } catch (e) {
@@ -287,7 +291,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       const failures = mirrorFailed(this.ctx.storage.sql, now)
       console.error(JSON.stringify({ msg: "credits.mirror_failed", team: entity, failures, code: String(err.code ?? ""), errno: typeof err.errno === "number" ? err.errno : null }))
     } finally {
-      await client?.end().catch(() => undefined)
+      clearTimeout(timer)
+      // After the deadline a hung query sits ahead of a graceful end: close the socket instead.
+      if (late) client?.destroy()
+      else await client?.end().catch(() => undefined)
     }
   }
 

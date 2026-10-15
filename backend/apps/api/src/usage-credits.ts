@@ -64,10 +64,10 @@ export const ensureCreditTables = (storage: DurableObjectStorage) => {
       sql.exec(`ALTER TABLE credit_state ADD COLUMN version INTEGER NOT NULL DEFAULT 0`)
       sql.exec(`ALTER TABLE credit_state ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0`)
       sql.exec(`ALTER TABLE credit_state ADD COLUMN changed_at INTEGER NOT NULL DEFAULT 0`)
-      sql.exec(`ALTER TABLE credit_state ADD COLUMN dirty_since INTEGER`)
       sql.exec(`UPDATE credit_state SET last_seq = (SELECT COALESCE(MAX(seq), 0) FROM credit_entry), version = (SELECT COUNT(*) FROM credit_entry)`)
     })
   }
+  if (!stateCols.has("dirty_since")) sql.exec(`ALTER TABLE credit_state ADD COLUMN dirty_since INTEGER`)
 }
 
 /** Longest entry key the billing database takes (credit_ledger.entry_key is 255; a key may get ":late"). */
@@ -86,7 +86,8 @@ type Entry = { key: string; kind: CreditEntryKind; micros: number; cost?: number
 const writeEntry = (sql: SqlStorage, e: Entry, now: number): boolean => {
   const inserted = sql.exec(
     `INSERT OR IGNORE INTO credit_entry (key, kind, micros, cost_micros, chief, conversation, actor, reason, corrects, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    e.key, e.kind, e.micros, e.cost ?? null, e.chief ?? null, e.conversation ?? null, e.actor ?? null, e.reason ?? null, e.corrects ?? null, now
+    // Text sized to the billing database's columns (actor 128, reason 256), so the mirror never refuses a row.
+    e.key, e.kind, e.micros, e.cost ?? null, e.chief ?? null, e.conversation ?? null, e.actor?.slice(0, 128) ?? null, e.reason?.slice(0, 256) ?? null, e.corrects ?? null, now
   ).rowsWritten
   if (inserted === 0) return false
   touch(sql, now)
@@ -112,12 +113,19 @@ export const creditAdd = (storage: DurableObjectStorage, key: string, kind: "top
  * hold (a retried RPC or a recovered request); an id already charged is refused with
  * `credits.settled` (the caller's next attempt needs a new id).
  */
-const checkId = (id: string) => {
-  if (id.length === 0 || id.length > MAX_CREDIT_ID) throw new Error(`credit id must be 1-${MAX_CREDIT_ID} characters`)
+/** Ids the billing database takes (ascii columns): printable ASCII, no spaces. */
+const ASCII_ID = /^[\x21-\x7e]+$/
+const checkId = (id: string, max = MAX_CREDIT_ID) => {
+  if (id.length === 0 || id.length > max || !ASCII_ID.test(id)) throw new Error(`credit id must be 1-${max} printable ASCII characters`)
+}
+const checkRef = (v: string | null) => {
+  if (v !== null) checkId(v, 64)
 }
 
 export const creditReserve = (storage: DurableObjectStorage, id: string, maxMicros: number, chief: string | null, conversation: string | null, now: number): CreditReserve => {
   checkId(id)
+  checkRef(chief)
+  checkRef(conversation)
   const sql = storage.sql
   const max = Math.max(0, Math.ceil(maxMicros))
   return storage.transactionSync((): CreditReserve => {
@@ -141,6 +149,8 @@ export const creditReserve = (storage: DurableObjectStorage, id: string, maxMicr
  */
 export const creditSettle = (storage: DurableObjectStorage, id: string, priceMicros: number, costMicros: number, chief: string | null, conversation: string | null, now: number): { charged: boolean; balance_micros: number } => {
   checkId(id)
+  checkRef(chief)
+  checkRef(conversation)
   const sql = storage.sql
   const price = Math.max(0, Math.round(priceMicros))
   return storage.transactionSync(() => {
