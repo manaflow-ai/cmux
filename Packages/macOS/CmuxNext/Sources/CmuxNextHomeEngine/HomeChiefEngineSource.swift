@@ -28,12 +28,16 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
     /// `asked`: a user's set, not a read, which also starts it after
     /// `cmux chief shutdown` (`ChiefBrainKeeper.ensure`).
     let startBrain: @MainActor @Sendable (_ asked: Bool) -> Bool
+    /// The Chief this panel shows when it is not the default (chief-brains-v1):
+    /// its own brain, which the owner daemon starts; nil: the default Chief.
+    let chief: String?
     public var isLocal: Bool { true }
     public var place: String? { nil }
 
     public init(files: HomeChiefFiles, connection: @escaping @MainActor @Sendable () -> DaemonConnection?,
-                startBrain: @escaping @MainActor @Sendable (_ asked: Bool) -> Bool = { _ in false }) {
+                startBrain: @escaping @MainActor @Sendable (_ asked: Bool) -> Bool = { _ in false }, chief: String? = nil) {
         self.files = files
+        self.chief = chief
         self.connection = connection
         self.startBrain = startBrain
     }
@@ -43,7 +47,7 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
     public func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         let snapshot = files.snapshot()
         guard let connection = await connection() else { return snapshot }
-        guard let report = try? await ChiefControlClient(connection).chiefEngine() else {
+        guard let report = try? await ChiefControlClient(connection).chiefEngine(chief: chief) else {
             // A read (the sidebar refreshes on its own) is no ask.
             _ = await startBrain(false)
             return snapshot
@@ -54,7 +58,7 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
     public func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         guard let connection = await connection() else { throw .localUnreachable }
         do {
-            return files.snapshot().offering(try await HomeChiefEngineSet.send(key, value, on: connection))
+            return files.snapshot().offering(try await HomeChiefEngineSet.send(key, value, on: connection, chief: chief))
         } catch .unreachable {
             throw await startBrain(true) ? .localStarting : .localUnreachable
         }
@@ -66,12 +70,12 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
 nonisolated enum HomeChiefEngineSet {
     @discardableResult
     static func send(_ key: String, _ value: String?,
-                     on connection: DaemonConnection) async throws(HomeChiefEngineError) -> ChiefEngineReport {
+                     on connection: DaemonConnection, chief: String? = nil) async throws(HomeChiefEngineError) -> ChiefEngineReport {
         let value = value ?? "default"
         do {
             return try await ChiefControlClient(connection).setChiefEngine(harness: key == "harness" ? value : nil,
                                                                            model: key == "model" ? value : nil,
-                                                                           effort: key == "effort" ? value : nil)
+                                                                           effort: key == "effort" ? value : nil, chief: chief)
         } catch let error as ChiefControlError {
             throw HomeChiefEngineError(error)
         } catch {
