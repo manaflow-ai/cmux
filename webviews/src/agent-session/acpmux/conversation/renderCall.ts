@@ -53,7 +53,11 @@ function readCall(tool: Tool): RenderCall | undefined {
   const input = parseInput(tool.inputSummary);
   const html = input?.html;
   if (typeof html !== "string" || !html.trim()) return undefined;
-  const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : undefined;
+  // A call with no title of its own is named by its page's <title>, as a fence's card is.
+  const title =
+    typeof input?.title === "string" && input.title.trim()
+      ? input.title.trim()
+      : documentName({ kind: "html", lang: "html", code: html }) || undefined;
   const update = typeof input?.id === "string" && input.id ? input.id : undefined;
   return update ? { html, title, id: update, update: true } : { html, title, id: renderId(html) };
 }

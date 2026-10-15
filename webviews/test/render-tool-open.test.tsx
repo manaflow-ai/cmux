@@ -92,7 +92,10 @@ async function pane(input: Record<string, unknown>) {
                 ).cmuxAcpmuxBridge?.receive(structuredClone(snapshot)),
               0,
             );
-            return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "preview", machineName: "Mac" } });
+            return Promise.resolve({
+              ok: true,
+              value: { protocolVersion: 1, transport: "preview", machineName: "Mac" },
+            });
           }
           return Promise.resolve({ ok: true, value: null });
         },
