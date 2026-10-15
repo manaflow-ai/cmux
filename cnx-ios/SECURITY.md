@@ -583,6 +583,65 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   a New Tab chat was started in, not only open workspace folders). Tests: acpmux `the_apps_last_new_chat_picks_reach_a_remote_device`,
   CmuxNext `NewChatPicksTests`.
 
+## Parity round 3 (`feat-cnx-ios-parity3`)
+
+### `daemon`: Reopen Saved Tab Group (`reopen-saved-tab-group`, `delete-saved-tab-group`)
+
+Both commands were already on the allowlist with any params. They now take only
+what the Mac's own palette rows send, in `policy.rs` (`creation_fields`,
+`saved_group_refusal`) and `DaemonLanePolicy.swift` (`creationFields`,
+`savedGroupRefusal`), kept identical:
+
+- `reopen-saved-tab-group {saved, pane, transaction?}`
+- `delete-saved-tab-group {saved}`
+
+`saved` must be a short identifier (`[A-Za-z0-9._:-]`, at most 128 bytes; the
+daemon mints `saved_<hex>`), `pane` a non-negative pane number or a short public
+pane id, `transaction` 1-128 printable ASCII characters (the daemon's own rule).
+Every other field is refused: `command`, `argv`, `cwd`, `env`, `members`,
+`origin`, a terminal host and any field the daemon adds later.
+`list-saved-tab-groups` takes nothing and is unchanged.
+
+What the daemon does (cmux-tui `mux/tab_groups/reopen_saved.rs`,
+`reopen_saved_tab_group_as`):
+
+- It looks the record up by id in this daemon's own presentation state
+  (`presentation_snapshot().saved_tab_groups`). The saved groups are personal
+  state of this Mac's home session (`SavedTabGroupRecord`, one room each); a
+  phone cannot name a record of another Mac or person, and an unknown id is
+  `not found`. A group that is already open is returned unchanged (no spawn).
+- A terminal member whose saved terminal still runs is reattached (a new view of
+  the same terminal). Otherwise it calls `new_tab_as(actor, pane, cwd, None)`:
+  the person's login shell, no command and no environment, in the folder the
+  record holds, on this Mac's terminal host, as New Terminal does. The record
+  holds only `terminal_id`, `cwd` and `title` for a terminal
+  (`SavedTabMember::Terminal`); it has no command field, so nothing but a shell
+  can start.
+- A browser member reopens its saved page (`new_browser_tab_as` or the frontend
+  browser record with its saved engine and profile).
+- Records are written only from a live group by `save-tab-group`
+  (`saved_record_for`: the members' presented folder and page). The phone can
+  pin a group of its own tabs; the folder of a terminal it reopens is a folder that
+  terminal was in, which the phone could already reach by typing `cd`.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | It starts the person's login shell (no command, no env) in each saved terminal's folder, and reopens saved pages, on this Mac. The phone names only the record and a pane. |
+| Mutates or destroys objects the session does not own? | Only this daemon's saved records and panes, the person's own. Delete removes the record; an open group stays, unlinked, as on the Mac. |
+| Reads local state the remote should not see? | `list-saved-tab-groups` returns the saved groups' names, colors, folders and page URLs: the same folders and pages the phone already reads for the open tabs (`list-workspaces`). |
+
+- A browser member may be a page that is not http or https (a page the person had
+  open on the Mac). The phone never sends such a URL itself (`new-browser-tab`
+  stays http/https only); a reopen restores the page the person saved.
+- Tests: hostd `saved_tab_groups_take_only_the_saved_id_and_a_pane`, Swift
+  `DaemonLanePolicySavedGroupTests`; phone CnxLive `SavedTabGroupTests`, CnxWorkspaces
+  `savedTabGroupsFromThePageMenu`.
+- **Live check: pending orchestrator.** Rule 4 needs it shown on a rig Mac that a
+  reopen from the phone starts shells on the Mac, as children of the rig app's own
+  `cmux-tui __terminal-host`, in the saved folders, and that a line with any other
+  field is refused. Until then the rows stay "pending live check" in
+  `verify/parity-mac.md`.
+
 ## Test-only pairing seed (DEBUG builds)
 
 A hidden rig app cannot press the person-only "Allow … to connect?" prompt.
