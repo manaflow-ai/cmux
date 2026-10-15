@@ -8,6 +8,27 @@ import Testing
 /// show up as missing entries.
 @MainActor
 struct SceneNodeViewRenderingTests {
+    /// Sends a left click through AppKit so SwiftUI's native gesture routing
+    /// is exercised instead of calling the scene event sink directly.
+    private func postLeftClick(at point: NSPoint, in window: NSWindow) async {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(
+                with: type,
+                location: point,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ) else { continue }
+            NSApp.postEvent(event, atStart: false)
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        for _ in 0..<5 { await Task.yield() }
+    }
+
     private func contextMenu(ofRoot runtime: SidebarJSRuntime) throws -> NSMenu {
         let rootId = try #require(runtime.store.rootId)
         let host = NSHostingView(
@@ -94,5 +115,69 @@ struct SceneNodeViewRenderingTests {
         let submenuItem = try #require(menu.items.first { $0.title == "Move to project" })
         let submenu = try #require(submenuItem.submenu)
         #expect(submenu.items.map(\.title) == ["fun", "Landing"])
+    }
+
+    /// A keyed row keeps its native tap after attaching a context menu. This
+    /// is the same modifier combination used by the bundled workspace rows.
+    @Test func forEachRowTapDispatchesThroughNativeHost() async throws {
+        _ = NSApplication.shared
+        let runtime = SidebarJSRuntime()
+        var captured: [ActionCommand] = []
+        runtime.dispatch = SidebarActionDispatch { action in
+            captured.append(contentsOf: action.commands)
+        }
+        runtime.start(source: """
+        sidebar(() => VStack([
+          ForEach(
+            { items: () => data.items() ?? [], key: (item) => item.id },
+            (item) => HStack([
+              Text(() => item().title),
+              Spacer(),
+            ])
+              .paddingVertical(6)
+              .frame({ maxWidth: "infinity" })
+              .onTap(() => cmux("workspace.select", { workspace_id: item().id }))
+              .contextMenu([Button("Pin", () => {})])
+          ),
+        ]))
+        """)
+        #expect(runtime.errorMessage == nil)
+        runtime.updateData(key: "items", value: .array([
+            .object(["id": .string("w1"), "title": .string("Workspace")]),
+        ]))
+        let rootId = try #require(runtime.store.rootId)
+        let rowId = try #require(runtime.store.node(rootId)?.children.first)
+        let sink = SceneEventSink { nodeId, event, payload in
+            runtime.dispatchEvent(nodeId: nodeId, event: event, payload: payload)
+        }
+        let host = NSHostingView(
+            rootView: SceneNodeView(nodeId: rootId)
+                .environment(\.sceneStore, runtime.store)
+                .environment(\.sceneEventSink, sink)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: -4000, y: -4000, width: 320, height: 120),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.orderBack(nil)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        host.frame = window.contentView?.bounds ?? .zero
+        host.layoutSubtreeIfNeeded()
+        defer { window.orderOut(nil) }
+
+        #expect(runtime.store.node(rowId)?.bool("tappable") == true)
+        let clickPoint = host.convert(
+            NSPoint(x: host.bounds.midX, y: 14),
+            to: nil
+        )
+        await postLeftClick(at: clickPoint, in: window)
+
+        #expect(captured == [
+            .cmux(method: "workspace.select", params: ["workspace_id": "w1"]),
+        ])
     }
 }
