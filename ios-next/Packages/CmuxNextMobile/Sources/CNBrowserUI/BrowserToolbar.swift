@@ -225,14 +225,10 @@ struct BrowserToolbar: View {
             Button {
                 onHistory(entry)
             } label: {
-                let address = entry.menuAddress
-                if entry.title.isEmpty {
-                    Text(address)
-                } else {
-                    Text(entry.title)
-                    Text(address)
-                }
+                Text(entry.menuTitle)
+                if let subtitle = entry.menuSubtitle { Text(subtitle) }
             }
+            .accessibilityLabel(entry.menuSubtitle.map { "\(entry.menuTitle), \($0)" } ?? entry.menuTitle)
         }
         .onAppear(perform: onHistoryMenu)
     }

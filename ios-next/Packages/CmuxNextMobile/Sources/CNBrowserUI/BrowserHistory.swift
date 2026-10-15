@@ -37,6 +37,18 @@ enum BrowserHistoryStep: Sendable {
 }
 
 extension BrowserHistoryEntry {
+    /// A new tab's blank first page, which the phone shows as its Start
+    /// Page. Safari never lists a raw "about:blank": the menu calls it
+    /// Start Page (Back really goes there).
+    var isStartPage: Bool { url.isEmpty || url == "about:blank" || url.hasPrefix("chrome://newtab") }
+
+    /// The row's title line: the page title, "Start Page", or the address.
+    var menuTitle: String { isStartPage ? "Start Page" : (title.isEmpty ? menuAddress : title) }
+
+    /// The address line under the title (none for the start page or when
+    /// the title already is the address).
+    var menuSubtitle: String? { isStartPage || title.isEmpty ? nil : menuAddress }
+
     /// The address line of a history menu row, as Safari shows it: no
     /// scheme, no "www.", no trailing slash.
     var menuAddress: String {
