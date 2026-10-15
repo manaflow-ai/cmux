@@ -48,12 +48,15 @@ final class HomeKeyState {
 
     /// The state from the app and its key window; on a change every Home view draws again with it.
     func apply() {
-        let views = panes.allObjects.compactMap(\.demo)
+        let all = panes.allObjects
+        let views = all.compactMap(\.demo)
         let key = NSApp.isActive ? NSApp.keyWindow : nil
-        // A shown Home only: a workspace or tab that is not selected keeps its hidden Home in the window.
-        let hostsHome = key.map { (window: NSWindow) -> Bool in
-            views.contains { (view: MessagesWindowView) in view.window === window && !view.isHiddenOrHasHiddenAncestor }
-        } ?? false
+        // A shown Home only (its host view, the NSView in the window): a workspace or tab that is not selected keeps
+        // its hidden Home in the window.
+        var hostsHome = false
+        if let key {
+            for pane in all where pane.demo != nil && pane.host.window === key && !pane.host.isHiddenOrHasHiddenAncestor { hostsHome = true }
+        }
         let inactive = !hostsHome
         guard inactive != Fixture.inactive else { return }
         // setInactive sets the state, drops the shared row bitmaps and redraws its own view; the other views
@@ -67,6 +70,6 @@ final class HomeKeyState {
             view.refreshVisibleCells()
         }
         // The header's tint is the palette's background (MessagesLabHomeView.applyTheme sets it the same way).
-        for pane in panes.allObjects { pane.host.headerBackdrop.setTint(Fixture.background) }
+        for pane in all { pane.host.headerBackdrop.setTint(Fixture.background) }
     }
 }
