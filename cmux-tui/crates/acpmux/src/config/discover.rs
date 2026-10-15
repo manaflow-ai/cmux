@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{HarnessKind, HarnessProfile, codex_through_adapter_package, which};
+use super::{HarnessKind, HarnessProfile, which};
 
 /// The profile name of a configured CodeRouter Claude route.
 pub const CODEROUTER_CLAUDE_PROFILE: &str = "claude-cr";
@@ -284,52 +284,37 @@ pub fn discover_harnesses_from(
             },
         );
     }
-    // Codex speaks ACP only through its adapter. Without a codex-acp on PATH (or an ~/.acpx
-    // entry), an installed codex still gets a harness through the pinned adapter package.
-    if !agents.contains_key("codex")
-        && let Some(profile) =
-            codex_through_adapter_package(which("codex").as_deref(), which("npx").as_deref())
-    {
-        agents.insert("codex".to_owned(), profile);
-    }
     // Codex through `codex app-server`, bridged in process (cmux-codex-acp,
-    // `codex_app_server.rs`), is `codex` whenever codex is installed; the
-    // ACP adapter, when found, stays as `codex-acp`. A profile's (or the
-    // family's) CODEX_PATH picks the codex binary it runs (`agent.rs`), and
-    // a `prefer` list still picks among the family's profiles.
+    // `codex_app_server.rs`), is `codex` whenever codex is installed; an ACP
+    // adapter on PATH stays as `codex-acp`. A profile's (or the family's)
+    // CODEX_PATH picks the codex binary it runs (`agent.rs`), and a `prefer`
+    // list still picks among the family's profiles. Without an adapter on
+    // PATH no npx adapter package is offered: it reads the account through
+    // codex's `account/read`, which a ChatGPT login behind a routing proxy
+    // (subrouter) fails, so its chats never started; the bridge does not.
     if !codex_imported && let Some(codex) = which("codex") {
         if let Some(adapter) = agents.remove("codex") {
             agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
         }
-        // The name the bridge had before it became `codex`, for sessions and
-        // presets that recorded it.
-        agents.entry(CODEX_APP_SERVER.to_owned()).or_insert_with(|| HarnessProfile {
+        let bridge = |description: &str| HarnessProfile {
             kind: HarnessKind::Acp,
             argv: vec![codex.clone(), "app-server".into()],
             env: BTreeMap::new(),
-            description: Some("Codex through codex app-server, in process (same as codex)".into()),
+            description: Some(description.into()),
             fallback: None,
             family: None,
             models: vec![],
             model: None,
             effort: None,
             policy: None,
-        });
-        agents.insert(
-            "codex".to_owned(),
-            HarnessProfile {
-                kind: HarnessKind::Acp,
-                argv: vec![codex, "app-server".into()],
-                env: BTreeMap::new(),
-                description: Some("Codex through codex app-server, in process".into()),
-                fallback: None,
-                family: None,
-                models: vec![],
-                model: None,
-                effort: None,
-                policy: None,
-            },
-        );
+        };
+        // Names the bridge stands in for, so sessions, presets and model picks
+        // that recorded them run it: its name before it became `codex`, and
+        // `codex-acp` when no adapter is on PATH.
+        let alias = "Codex through codex app-server, in process (same as codex)";
+        agents.entry(CODEX_APP_SERVER.to_owned()).or_insert_with(|| bridge(alias));
+        agents.entry(CODEX_ACP.to_owned()).or_insert_with(|| bridge(alias));
+        agents.insert("codex".to_owned(), bridge("Codex through codex app-server, in process"));
     }
     agents
 }
