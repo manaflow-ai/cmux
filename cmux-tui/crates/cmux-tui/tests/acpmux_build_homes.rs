@@ -131,7 +131,8 @@ struct StopDaemons<'a> {
 impl Drop for StopDaemons<'_> {
     fn drop(&mut self) {
         for bundle in self.bundles {
-            let _ = acp_as(Some(bundle), None, self.user_home, &["daemon", "shutdown"]);
+            let _ =
+                acp_as(Some(bundle), None, self.user_home, &["daemon", "shutdown", "--end-agents"]);
         }
     }
 }

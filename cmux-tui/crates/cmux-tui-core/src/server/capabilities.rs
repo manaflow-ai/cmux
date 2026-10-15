@@ -22,6 +22,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
     }
     if mux.serves_ws_listen() {
@@ -56,6 +57,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
+    }
+    if crate::chief_brains::taken().is_some() {
+        capabilities.push(chief_control::CAPABILITY);
     }
     #[cfg(debug_assertions)]
     capabilities
@@ -178,6 +182,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+        conversation_live::CHIEF_LIVE_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,
         participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,

@@ -64,6 +64,9 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
   /// folds under one summary line (conversation/toolRunSummary.ts).
   settled?: boolean;
+  /// A running turn's run of tool calls still in flight, drawn as its newest call alone (Debug toggle,
+  /// conversation/turns.ts `codexRuns`).
+  inFlight?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
@@ -230,6 +233,9 @@ export type AcpmuxSnapshot = {
     steering?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
+    /// system/init); unset when it reports none (every ACP harness).
+    mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
     status?: string;
     enforcement?: Enforcement;
     modes?: {
