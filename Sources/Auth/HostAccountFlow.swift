@@ -188,7 +188,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     /// Completes an external hosted Stack callback through the shared attempt.
     func handleCallbackURL(_ url: URL, delivery: AuthCallbackDelivery) async -> Bool {
-        await browserSignIn.handleCallbackURL(url, delivery: delivery)
+        let signedIn = await browserSignIn.handleCallbackURL(url, delivery: delivery)
+        guard signedIn else { return false }
+
+        // Checkout returns through the same callback as sign-in. Refresh the
+        // entitlement before the sidebar, Settings, and Cloud gates render so
+        // a newly-paid account does not keep showing the Free state.
+        await refreshBillingPlan()
+        return true
     }
 
     func openSignInInDefaultBrowser() {
