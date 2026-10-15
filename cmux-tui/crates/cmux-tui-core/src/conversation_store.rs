@@ -273,6 +273,14 @@ impl ConversationStore {
         Ok(token)
     }
 
+    /// Removes `participant`'s credential (`chief.profile.adopt`): no token
+    /// issued for it before binds again; the next credential is minted anew.
+    pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
+        self.connection
+            .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        Ok(())
+    }
+
     /// Whether `token` is the current credential of `participant`.
     pub(crate) fn verify_agent_token(
         &mut self,

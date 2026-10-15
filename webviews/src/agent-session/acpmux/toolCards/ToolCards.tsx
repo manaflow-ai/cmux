@@ -50,9 +50,7 @@ function ToolCardRow({
         if (submit) send(submit.id, true);
       }}
     >
-      <span className="acpmux-trust-ask-text" title={card.text}>
-        {card.text}
-      </span>
+      <span className="acpmux-trust-ask-text">{card.text}</span>
       {input && (
         <input
           className="acpmux-tool-card-input"
@@ -73,6 +71,7 @@ function ToolCardRow({
           key={action.id}
           type={action.submitsInput && input ? "submit" : "button"}
           className="acpmux-trust-ask-action"
+          /* tooltip-allow: the button names the action; the tooltip is its scope, shown nowhere else */
           title={action.hint}
           disabled={action.submitsInput === true && (!input || !value || !fits)}
           onClick={action.submitsInput && input ? undefined : () => send(action.id, action.submitsInput)}
