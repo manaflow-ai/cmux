@@ -15,7 +15,7 @@ import Foundation
 ///   client ids from CEF, matched to helper processes by their
 ///   `--renderer-client-id`). GPU, network, utility and extension
 ///   renderers are shared, never a tab's.
-/// - WebKit tabs: the web view's WebContent process.
+/// - WebKit tabs and agent chats: the web view's WebContent process.
 /// - The app process is shared (chrome, Ghostty, Chromium's browser process).
 ///
 /// Resolution reads the main-actor model; process counters are read off
@@ -166,6 +166,12 @@ final class AppResourceSource: ResourceSampleSource {
                 case .none: break
                 }
                 resolved.tabs.append(sources)
+            case .conversation where tab.agentSession != nil:
+                // An agent chat's page (its acpmux agent runs apart); none while it hibernates.
+                let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
+                let pid = view.flatMap { WebContentProcess.identifier(of: $0.webView) }
+                resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .webkit,
+                                                        processes: pid.map { [ProcessKey(pid: $0)] } ?? [], available: pid != nil))
             case .remoteTerminal, .conversation, .other:
                 // A remote reference or a conversation's processes run on its own session.
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .other,

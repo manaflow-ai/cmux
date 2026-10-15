@@ -91559,6 +91559,399 @@
           }
         }
       }
+    },
+    "settings.tabs.hoverPreviews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover Previews"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معاينات التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregledi pri lebdenju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsvisning ved hover"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorschau beim Darüberfahren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vistas previas al pasar el cursor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperçus au survol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprime al passaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホバープレビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការមើលជាមុនពេលដាក់ទស្សន៍ទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호버 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsvisning ved peking"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pré-visualizações ao passar o cursor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предпросмотр при наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวอย่างเมื่อชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üzerine gelince önizleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередній перегляд під курсором"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước khi di chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "悬停预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "懸停預覽"
+          }
+        }
+      }
+    },
+    "settings.tabs.hoverPreviews.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما يظهر عند إبقاء المؤشر على علامة تبويب: عنوانها وذاكرتها وما تفعله، مع صورة مصغرة في الوضع الكامل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta se prikazuje kad pokazivač miruje na kartici: njen naslov, memorija i šta radi, uz sličicu u opciji Puno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad der vises, når markøren hviler på en fane: titel, hukommelse og hvad den laver, med miniature i Fuld."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was beim Verweilen des Zeigers auf einem Tab erscheint: Titel, Speicher und was er gerade tut, bei Vollständig mit Vorschaubild."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo que muestra dejar el puntero sobre una pestaña: su título, memoria y lo que está haciendo, con miniatura en Completa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce qu’affiche le pointeur posé sur un onglet : son titre, sa mémoire et ce qu’il fait, avec une vignette en mode Complet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa mostra il puntatore fermo su una scheda: titolo, memoria e cosa sta facendo, con miniatura in Completa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブにポインタを置いたときの表示：タイトル、メモリ、実行中の内容。「フル」ではサムネイルも表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលបង្ហាញពេលទស្សន៍ទ្រនិចនៅលើផ្ទាំង៖ ចំណងជើង អង្គចងចាំ និងអ្វីដែលវាកំពុងធ្វើ ជាមួយរូបតូចក្នុងរបៀបពេញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 위에 포인터를 올렸을 때 표시되는 내용: 제목, 메모리, 현재 하는 일. 전체에서는 썸네일도 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva som vises når pekeren hviler på en fane: tittel, minne og hva den gjør, med miniatyrbilde i Full."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co pokazuje wskaźnik zatrzymany na karcie: tytuł, pamięć i to, co robi, z miniaturą w trybie Pełny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que aparece ao deixar o ponteiro sobre uma aba: título, memória e o que ela está fazendo, com miniatura em Completa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что показывается при наведении на вкладку: заголовок, память и что она делает, с миниатюрой в режиме «Полный»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่แสดงเมื่อพักตัวชี้บนแท็บ: ชื่อ หน่วยความจำ และสิ่งที่กำลังทำ พร้อมภาพย่อในโหมดเต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İmleç bir sekmenin üzerinde durunca gösterilenler: başlığı, belleği ve ne yaptığı; Tam modunda küçük resimle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що показує курсор, наведений на вкладку: назву, пам’ять і що вона робить, з мініатюрою в режимі «Повний»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nội dung hiện khi đặt con trỏ trên một tab: tiêu đề, bộ nhớ và việc tab đang làm, kèm hình thu nhỏ ở chế độ Đầy đủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "指针停留在标签页上时显示的内容：标题、内存和正在做的事；“完整”还显示缩略图。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "指標停留在分頁上時顯示的內容：標題、記憶體和正在做的事；「完整」還會顯示縮圖。"
+          }
+        }
+      }
+    },
+    "settings.choice.hoverPreviews.full": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vollständig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Full"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Полный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầy đủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

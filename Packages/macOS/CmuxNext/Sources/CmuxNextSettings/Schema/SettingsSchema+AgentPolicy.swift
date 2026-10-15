@@ -44,7 +44,7 @@ extension SettingsSchema {
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
+        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "tabs.hoverPreviews",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",

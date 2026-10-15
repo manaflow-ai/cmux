@@ -4,18 +4,20 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// POLISH.md on the tab strip and sidebar: a hover card opens on the first frame, a lifted tab,
+/// POLISH.md on the tab strip and sidebar: a tab's hover card waits a browser's preview delay
+/// (Leo 2026-10-14, about 600 ms) and then swaps at once between tabs, a lifted tab,
 /// group chip or sidebar row casts the one shared popover shadow rather than a dark one, and a
 /// count badge is a small-radius rect, never a capsule.
 @MainActor
 struct PolishCalmChromeTests {
     private let shadow = PopupStyle.standard.elevation
 
-    @Test func aTabHoverCardShowsWithoutWaiting() {
+    @Test func aTabHoverCardWaitsABrowsersPreviewDelayThenSwapsAtOnce() {
         let policy = HoverCardPolicy()
         let metrics = TabStripMetrics.standard
         for width in [metrics.minInactiveTabWidth, metrics.maxTabWidth] {
-            #expect(policy.delay(tabWidth: width, cardIsVisible: false, sinceLastHidden: nil) == .zero)
+            #expect(policy.delay(tabWidth: width, cardIsVisible: false, sinceLastHidden: nil) == .milliseconds(600))
+            #expect(policy.delay(tabWidth: width, cardIsVisible: true, sinceLastHidden: nil) == .zero)
         }
     }
 

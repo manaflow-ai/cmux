@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CoreGraphics
 
 /// Supplies hover-card thumbnails. The App implements it with a snapshot of
@@ -13,16 +14,21 @@ public struct HoverCardPolicy: Equatable, Sendable {
     public var minimumDelay: Duration
     /// Delay over full-width tabs, where the title is already readable.
     public var maximumDelay: Duration
-    /// After a card hides, a new hover within this window shows immediately.
+    /// After a card hides, a new hover within this window shows immediately
+    /// (a gap between tabs keeps swapping).
     public var reshowWindow: Duration
 
-    /// Delays default to zero: the card opens on the first frame, as the sidebar's does
-    /// (`TabTunables`, overridable in Debug Settings).
+    /// Like a browser's tab preview (Leo 2026-10-14): about 600 ms on a tab
+    /// before its card opens (`TabTunables`, overridable in Debug Settings),
+    /// then other tabs swap it at once; leaving hides it, with a 300 ms grace.
     public init() {
         minimumDelay = Self.milliseconds(TabTunables.hoverCardMinimumDelay.value)
         maximumDelay = Self.milliseconds(TabTunables.hoverCardMaximumDelay.value)
-        reshowWindow = .milliseconds(700)
+        reshowWindow = .milliseconds(300)
     }
+
+    /// What leaving a tab does to its card: it hides at once.
+    public var leave: HoverCardLeave { .hides(reshow: reshowWindow) }
 
     /// Whole milliseconds, so 0.3 s is exactly `.milliseconds(300)`.
     private static func milliseconds(_ seconds: Double) -> Duration {
