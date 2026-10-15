@@ -107,6 +107,7 @@ fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
             "conversation-runs",
             "conversation-run",
             "conversation-inbox-op",
+            "home-inbox",
             "conversation-attachment-upload",
             "conversation-attachment-read",
             "conversation-attachment-link",
