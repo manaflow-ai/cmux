@@ -296,7 +296,7 @@ final class TabCell {
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize
-        var iconX = m.contentLeadingInset
+        var iconX = m.contentLeadingInset + statusLeadingSlot(iconSide: iconSide) // a mark on the left (TabCell+StatusBadge)
         var closeRect: CGRect?
         if visibility.showsClose {
             let side = m.closeButtonSize
@@ -372,7 +372,7 @@ final class TabCell {
             let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
             titleLayer.opacity = 1
-            let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
+            let titleEnd = statusTitleEnd(iconFrame: iconFrame, closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset))
             let badgesEnd = layoutAudioBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
             let profileEnd = layoutProfileBadge(titleX: titleX, titleEnd: badgesEnd, midY: midY)
             let visibleEnd = layoutPresenceDot(titleX: titleX, titleEnd: profileEnd, midY: midY)

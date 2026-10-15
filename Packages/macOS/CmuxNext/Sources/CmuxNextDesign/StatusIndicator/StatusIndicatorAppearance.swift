@@ -71,7 +71,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             spinnerPeriod: Motion.period(.spinner),
             pulsePeriod: Motion.period(.pulse),
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
-            iconSet: StatusIconSet.tunable.value)
+            iconSet: StatusIconSet.tunable.value,
+            statusSide: SidebarRowBadgeStyle.tunable.value == .status ? SidebarStatusIconSide.tunable.value : nil)
     }
 }
 
