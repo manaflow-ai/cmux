@@ -185,6 +185,8 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await tabs.waitFor({ timeout: 5_000 });
     expect(await tab("Subagents").getAttribute("aria-pressed")).toBe("true");
     expect(await tab("Summary").getAttribute("aria-pressed")).toBe("false");
+    // The tabs take the head's row: its counts (the tab lists them) leave room for them.
+    expect(await panel(page).locator(".acpmux-summary-card__counts").count()).toBe(0);
     // Its own list in the card's place: no summary sections under it.
     expect(await panel(page).getByRole("region", { name: "Outputs" }).count()).toBe(0);
     const active = panel(page).getByRole("region", { name: "Active · 1" });
