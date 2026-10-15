@@ -289,6 +289,21 @@ public protocol ControlDebugContext: AnyObject {
     ///   - params: The decoded request params.
     /// - Returns: The full call result.
     func controlDebugBrowserSafety(method: String, params: [String: JSONValue]) -> ControlCallResult
+    /// Runs `debug.browser.find` for the given params: opens the panel's find
+    /// bar with `needle`, or steps or closes it with `action`, and reports the
+    /// find bar's needle and match count. Same passthrough shape as
+    /// ``controlDebugBrowserFavicon(params:)``.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The full call result.
+    func controlDebugBrowserFind(params: [String: JSONValue]) -> ControlCallResult
+
+    /// Runs `debug.browser.devtools` for the given params: moves the panel's
+    /// in-pane DevTools to `dock` and reports whether they are open and where.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The full call result.
+    func controlDebugBrowserDevTools(params: [String: JSONValue]) -> ControlCallResult
 
     /// Reveals and focuses the right sidebar for `debug.right_sidebar.focus`.
     ///

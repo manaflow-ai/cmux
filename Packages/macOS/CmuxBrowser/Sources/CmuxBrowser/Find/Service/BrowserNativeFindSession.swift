@@ -19,6 +19,12 @@ public final class BrowserNativeFindSession: BrowserFinding {
     private let matchCase: Bool
     private var needle = ""
     private var pending: CheckedContinuation<BrowserFindMatchCount?, Never>?
+    /// The latest active ordinal Chromium reported for the pending request; its updates carry
+    /// -1 ("unchanged") while it counts, sometimes up to the final one.
+    private var latestActiveOrdinal = 0
+    /// The active ordinal of the last answered request, kept for a step whose events report
+    /// no ordinal at all.
+    private var answeredActiveOrdinal = 0
 
     /// Creates a session over an engine's native find.
     /// - Parameters:
@@ -71,9 +77,13 @@ public final class BrowserNativeFindSession: BrowserFinding {
     ///   - activeOrdinal: The 1-based ordinal of the active match, or `0` when none is active.
     ///   - isFinal: Whether this is the request's last event.
     public func receiveResult(count: Int, activeOrdinal: Int, isFinal: Bool) {
-        guard isFinal, let continuation = pending else { return }
+        guard let continuation = pending else { return }
+        if activeOrdinal > 0 { latestActiveOrdinal = activeOrdinal }
+        guard isFinal else { return }
         pending = nil
-        continuation.resume(returning: Self.matchCount(count: count, activeOrdinal: activeOrdinal))
+        let ordinal = latestActiveOrdinal > 0 ? latestActiveOrdinal : answeredActiveOrdinal
+        answeredActiveOrdinal = ordinal
+        continuation.resume(returning: Self.matchCount(count: count, activeOrdinal: ordinal))
     }
 
     /// Answers a pending request with `nil` (superseded, page navigated, engine closed).
@@ -104,6 +114,8 @@ public final class BrowserNativeFindSession: BrowserFinding {
 
     private func request(forward: Bool, findNext: Bool) async -> BrowserFindMatchCount? {
         cancelPending()
+        latestActiveOrdinal = 0
+        if !findNext { answeredActiveOrdinal = 0 }
         let needle = self.needle
         return await withCheckedContinuation { continuation in
             pending = continuation

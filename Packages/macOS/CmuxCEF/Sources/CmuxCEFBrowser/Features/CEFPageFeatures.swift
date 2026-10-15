@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxBrowser
 public import CmuxCEF
+import os
 
 /// DevTools, find, zoom and the context menu of one Chromium page, wired to the engine-neutral
 /// CmuxBrowser models. A CEF page owns one and forwards its shim events here.
@@ -40,6 +41,7 @@ public final class CEFPageFeatures {
     private let pageHostView: CEFHostView
     /// Held here: the DevTools controller keeps its driver weakly.
     private let devToolsDriver: CEFDevToolsEngineDriver
+    private let logger = Logger(subsystem: "com.cmuxterm.app", category: "cef.features")
     private let composer = BrowserChromiumContextMenuComposer()
     private let presenter = BrowserContextMenuPresenter()
     private var frames: BrowserDevToolsLayoutFrames?
@@ -83,6 +85,7 @@ public final class CEFPageFeatures {
         guard let id = browserID() else { return false }
         switch event {
         case .findResult(let browser, let count, let activeOrdinal, let isFinal) where browser == id:
+            logger.debug("find result browser=\(browser) count=\(count) active=\(activeOrdinal) final=\(isFinal)")
             nativeFind.receiveResult(count: count, activeOrdinal: activeOrdinal, isFinal: isFinal)
         case .devToolsWillOpen(let browser) where browser == id:
             devTools.engineWillOpenDevTools()
