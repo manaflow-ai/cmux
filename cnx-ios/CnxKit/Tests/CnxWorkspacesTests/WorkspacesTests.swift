@@ -199,6 +199,21 @@ import SwiftUI
         #expect(source.toastText == "Couldn't move Swift docs.")
     }
 
+    /// The Mac: "Home's tabs stay in Home." A Home tab's menus offer no move out of it.
+    @Test func homeTabsStayInHome() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let index = try #require(store.workspaces.firstIndex { $0.id == "ws-cmux" })
+        store.workspaces[index].isHome = true
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        let titles = (source.pageMenu(for: zsh) + source.cardMenu(for: zsh)).flatMap { $0 }.map(\.title)
+        #expect(!titles.contains("Move Tab to Workspace…") && !titles.contains("Move Tab to New Workspace"))
+        #expect(titles.contains("Pin Tab"))
+        await source.move("t-zsh", to: nil)
+        #expect(source.tabs.contains { $0.id == "t-zsh" })
+        #expect(source.toastText == "Home's tabs stay in Home.")
+    }
+
     @Test func pinAndUnpinTab() async throws {
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
