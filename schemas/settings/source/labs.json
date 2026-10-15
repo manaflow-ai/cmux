@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Labs settings (cx-d5b5d); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "$comment": "HAND-EDITED source of the Labs flags (cx-d5b5d, hq#1980); gen-settings-sources.py writes the Swift descriptors, the LabsFlag registry and webviews/src/experiments/labs.generated.ts. Row fields: see schemas/settings/source/updates.json, plus every Labs row's owner, created and expires (YYYY-MM-DD, about 14 days apart) and cohort (off, nightly-next or default; default is the promoted flag and is the row's default). help is the one-line intent. How to add one: skills/cmux-architecture/references/labs-flags.md.",
   "lists": [
     {
       "name": "labs",
@@ -8,10 +8,14 @@
         "key": "settings.group.labs",
         "text": "Labs"
       },
-      "note": "Settings > Advanced > Labs: surfaces still being shaped, off by default.",
+      "note": "Settings > Experimental > Labs: new looks and behaviors that a person turns on; each row is a LabsFlag.",
       "rows": [
         {
           "key": "labs.previewFeatures",
+          "owner": "leo",
+          "created": "2026-10-03",
+          "expires": "2026-10-27",
+          "cohort": "off",
           "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
           "title": {
             "key": "settings.labs.previewFeatures",
@@ -29,6 +33,32 @@
             "experimental",
             "beta",
             "prototype"
+          ]
+        },
+        {
+          "key": "labs.savedEnvironments",
+          "owner": "op-next-call-chats",
+          "created": "2026-10-14",
+          "expires": "2026-10-28",
+          "cohort": "nightly-next",
+          "note": "Saved environments on the New Tab page (cx-ncc.104): a named set of folders, machine and settings a new chat starts with.",
+          "title": {
+            "key": "settings.labs.savedEnvironments",
+            "text": "Saved Environments"
+          },
+          "help": {
+            "key": "settings.labs.savedEnvironments.help",
+            "text": "Pick a saved set of folders, machine and settings when you start a chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "environment",
+            "environments",
+            "folders",
+            "ssh",
+            "cloud"
           ]
         }
       ]
