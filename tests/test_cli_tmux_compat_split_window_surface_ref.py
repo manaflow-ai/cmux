@@ -26,6 +26,10 @@ class FakeCmuxState:
     def __init__(self) -> None:
         self.split_created = False
 
+    def close_teammate_without_cli(self) -> None:
+        """Model a tab close, which bypasses tmux-compat cleanup."""
+        self.split_created = False
+
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         if method == "workspace.list":
             return {
@@ -195,21 +199,13 @@ def assert_resplit_after_close(
     cli_path: str,
     socket_path: Path,
     fake_home: Path,
+    state: FakeCmuxState,
 ) -> None:
     assert_successful_split(cli_path, socket_path, fake_home, "initial split-window")
 
-    closed = run_cli(
-        cli_path,
-        socket_path,
-        fake_home,
-        ["close-surface", "--workspace", "workspace:1", "--surface", "surface:2"],
-    )
-    if closed.returncode != 0:
-        raise AssertionError(
-            "close-surface returned non-zero\n"
-            f"stdout={closed.stdout.strip()}\n"
-            f"stderr={closed.stderr.strip()}"
-        )
+    # A tab x closes the surface without going through the tmux shim. The
+    # persisted column anchor is therefore stale when the next spawn arrives.
+    state.close_teammate_without_cli()
 
     assert_successful_split(cli_path, socket_path, fake_home, "second split-window")
 
@@ -233,7 +229,7 @@ def main() -> int:
             fake_home.mkdir(parents=True, exist_ok=True)
 
             try:
-                assert_resplit_after_close(cli_path, socket_path, fake_home)
+                assert_resplit_after_close(cli_path, socket_path, fake_home, state)
             finally:
                 server.shutdown()
                 server.server_close()
