@@ -10,7 +10,13 @@
 //! outcome, childSessionId?}`, accepted only from the person's connection,
 //! records `session_offer_decision`. An accepted offer's new session records
 //! the offering session as its parent (`parentId`, with no `forkSeq`: it is
-//! not a fork).
+//! not a fork). Outcome `here` (cx-lo9yf) starts no chat: the page sends the
+//! prompt to this chat itself.
+//!
+//! Suggested tasks (cx-lo9yf): the agent's `suggest_tasks` tool offers each
+//! task with one shared `groupId`, which `session_offer` records, so the chat
+//! shows them as one card. When an accepted offer's chat ends its first turn,
+//! its reply comes back to this chat (`offer_results.rs`).
 //!
 //! - The records are the state: an offer is open until its decision is
 //!   recorded, across daemon restarts. The daemon reads a chat's records
@@ -25,20 +31,24 @@ use super::{Hub, Session};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 
 pub(super) const MAX_TITLE_CHARS: usize = 80;
 pub(super) const MAX_PROMPT_CHARS: usize = 20_000;
 pub(super) const OPEN_LIMIT: usize = 8;
 const MAX_NAME_CHARS: usize = 120;
+/// Longest `groupId`, in bytes.
+const MAX_GROUP_BYTES: usize = 64;
 
 /// Each chat's open offers (id to when it was made, Unix ms), read from its
 /// records at its first offer call.
 #[derive(Default)]
 pub(crate) struct Offers {
     open: StdMutex<HashMap<String, HashMap<String, u64>>>,
+    /// Chats whose suggested-task result this daemon sends or sent (`offer_results.rs`).
+    pub(super) results: StdMutex<HashSet<String>>,
 }
 
 impl Offers {
@@ -86,6 +96,17 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
         "cwd": cwd,
         "worktree": worktree,
     });
+    match params.get("groupId") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(group)) if one_line(group, MAX_GROUP_BYTES) => {
+            record["groupId"] = Value::String(group.clone());
+        }
+        Some(_) => {
+            return Err(RpcError::invalid_params(format!(
+                "groupId must be one line of 1 to {MAX_GROUP_BYTES} bytes"
+            )));
+        }
+    }
     for key in ["harness", "model"] {
         let value = text(key);
         if value.chars().count() > MAX_NAME_CHARS {
@@ -96,6 +117,12 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
         }
     }
     Ok(record)
+}
+
+/// Whether `value` is one line of 1 to `max` bytes: no control or line break.
+fn one_line(value: &str, max: usize) -> bool {
+    let shown = |c: char| !c.is_control() && (c == ' ' || !c.is_whitespace());
+    !value.trim().is_empty() && value.len() <= max && value.chars().all(shown)
 }
 
 impl Hub {
@@ -120,16 +147,17 @@ impl Hub {
     }
 
     /// The person's answer to an open offer: `accepted` names the session it
-    /// started (`childSessionId`), which takes this chat as its parent.
+    /// started (`childSessionId`), which takes this chat as its parent;
+    /// `here` and `dismissed` start none.
     pub fn answer_offer(
-        &self,
+        self: &Arc<Self>,
         session: &Session,
         offer_id: &str,
         outcome: &str,
         child: Option<&str>,
     ) -> Result<Value, RpcError> {
         let child = match (outcome, child) {
-            ("dismissed", None) => None,
+            ("dismissed" | "here", None) => None,
             ("accepted", Some(key)) => {
                 let child = self.resolve(key)?;
                 if child.id == session.id {
@@ -142,7 +170,7 @@ impl Hub {
             }
             _ => {
                 return Err(RpcError::invalid_params(
-                    "outcome must be accepted (with childSessionId) or dismissed",
+                    "outcome must be accepted (with childSessionId), here or dismissed",
                 ));
             }
         };
@@ -168,11 +196,15 @@ impl Hub {
             return Err(no_offer());
         }
         let mut decision = json!({"offerId": offer_id, "outcome": outcome});
-        if let Some(child) = child {
-            self.save_meta(&child);
+        if let Some(child) = &child {
+            self.save_meta(child);
             decision["childSessionId"] = Value::String(child.id.clone());
         }
         self.append(session, "mux", "session_offer_decision", decision.clone());
+        // A chat whose first turn ended before this answer sends its result now.
+        if let Some(child) = &child {
+            self.send_offer_result(child);
+        }
         Ok(decision)
     }
 
