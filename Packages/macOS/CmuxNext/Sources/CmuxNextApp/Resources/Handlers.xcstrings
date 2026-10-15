@@ -10093,6 +10093,138 @@
           }
         }
       }
+    },
+    "homeDock.switch.channelsOff": {
+      "comment": "Refusal of Switch Home View (channels) while the Channels entry is off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Channels is off. Turn it on with Enable Channels in the command palette."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "القنوات متوقفة. شغّلها باستخدام «تفعيل القنوات» في لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanali su isključeni. Uključite ih naredbom „Uključi kanale” u paleti naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanaler er slået fra. Slå dem til med Slå kanaler til i kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanäle sind aus. Schalte sie in der Befehlspalette mit „Kanäle aktivieren“ ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los canales están desactivados. Actívalos con Activar canales en la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les canaux sont désactivés. Activez-les avec Activer les canaux dans la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I canali sono disattivati. Attivali con Attiva canali nella palette dei comandi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャンネルはオフです。コマンドパレットの「チャンネルを有効にする」でオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឆានែលត្រូវបានបិទ។ បើកវាដោយ «បើកឆានែល» ក្នុងផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채널이 꺼져 있습니다. 명령 팔레트에서 채널 켜기로 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanaler er slått av. Slå dem på med Slå på kanaler i kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanały są wyłączone. Włącz je poleceniem Włącz kanały w palecie poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os canais estão desativados. Ative-os com Ativar canais na paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каналы отключены. Включите их командой «Включить каналы» в палитре команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ช่องปิดอยู่ เปิดได้ด้วยคำสั่ง เปิดใช้ช่อง ในชุดคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanallar kapalı. Komut paletinde Kanalları Etkinleştir ile açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Канали вимкнено. Увімкніть їх командою «Увімкнути канали» в палітрі команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kênh đang tắt. Hãy bật bằng lệnh Bật kênh trong bảng lệnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "频道已关闭。请在命令面板中使用“启用频道”打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頻道已關閉。請在指令面板中使用「啟用頻道」開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
