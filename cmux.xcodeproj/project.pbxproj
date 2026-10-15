@@ -468,6 +468,7 @@
 		D93410060000000000000001 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410060000000000000002 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift */; };
 		D93410000000000000000001 /* BrowserDownloadsPopoverContrastUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */; };
 		C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */; };
+		E8D7A0FCD5C425CC3FD43378 /* BrowserEngineFallbackNoticeBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D7A0FCD5C425CC3FD43378 /* BrowserEngineFallbackNoticeBar.swift */; };
 		E8D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift */; };
 		E8346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
@@ -5199,6 +5200,7 @@
 		D93410060000000000000002 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/BrowserDownloadsPopoverAppearanceWindowObservingView.swift; sourceTree = "<group>"; };
 		D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadsPopoverContrastUITests.swift; sourceTree = "<group>"; };
 		C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadsToolbarButton.swift; sourceTree = "<group>"; };
+		E9D7A0FCD5C425CC3FD43378 /* BrowserEngineFallbackNoticeBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserEngineFallbackNoticeBar.swift"; sourceTree = "<group>"; };
 		E9D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserEnginePageHost.swift"; sourceTree = "<group>"; };
 		E9346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserEngineRuntime.swift"; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
@@ -11576,6 +11578,7 @@
 				C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */,
 				C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */,
 				129980000000000000000006 /* BrowserPanel+Reload.swift */,
+				E9D7A0FCD5C425CC3FD43378 /* BrowserEngineFallbackNoticeBar.swift */,
 				E9346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift */,
 				E9D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift */,
 				E9DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift */,
@@ -15055,6 +15058,7 @@
 				D93410050000000000000001 /* BrowserDownloadsPopoverAppearanceWindowAccessor.swift in Sources */,
 				D93410060000000000000001 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift in Sources */,
 				C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */,
+				E8D7A0FCD5C425CC3FD43378 /* BrowserEngineFallbackNoticeBar.swift in Sources */,
 				E8D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift in Sources */,
 				E8346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,

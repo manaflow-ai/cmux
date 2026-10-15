@@ -1062,6 +1062,13 @@ struct BrowserPanelView: View {
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             omnibarHeaderView
+            if let fallbackReason = panel.engineFallbackNotice {
+                BrowserEngineFallbackNoticeBar(
+                    reason: fallbackReason,
+                    backgroundColor: browserChromeBackgroundColor,
+                    onDismiss: { panel.dismissEngineFallbackNotice() }
+                )
+            }
             CloudBrowserAccessView(panel: panel, backgroundColor: browserChromeBackgroundColor, isVisibleInUI: isVisibleInUI) {
                 webView
             }
