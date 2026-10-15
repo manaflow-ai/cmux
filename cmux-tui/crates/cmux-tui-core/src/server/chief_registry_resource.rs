@@ -99,7 +99,36 @@ pub(super) fn handle(
     send_resource_response(writer, id, operation, result)
 }
 
+thread_local! {
+    /// A new Chief's brain outcome from `mutate`, waited for by `answer`
+    /// after the registry lock is released (the supervisor reads the
+    /// registry to start the brain).
+    static PENDING_BRAIN: std::cell::RefCell<Option<crate::chief_brains::BrainPending>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The answer, with a new Chief's `brain` (what happened to its brain, from
+/// the supervisor's real state) in the created record.
 fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
+    PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
+    let result = answer_locked(mux, client, request);
+    let pending = PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
+    match (result, pending) {
+        (Ok(mut value), Some(pending)) => {
+            if let Some(record) = value.get_mut("value").and_then(Value::as_object_mut) {
+                record.insert("brain".into(), pending.resolve().wire());
+            }
+            Ok(value)
+        }
+        (result, _) => result,
+    }
+}
+
+fn answer_locked(
+    mux: &Mux,
+    client: u64,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
     let fields = &request.fields;
     // The participant an adopt names, read before the registry lock (the
@@ -358,12 +387,15 @@ fn mutate(
                     change,
                 })));
             }
-            if !replayed {
-                mux.chiefs().brains.chief_written(
+            if !replayed
+                && let Some(pending) = mux.chiefs().brains.chief_written(
                     &record,
                     matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileAdopt),
                     operation == Op::ChiefProfileDelete,
-                );
+                )
+            {
+                // Resolved by `answer` once the registry lock is released.
+                PENDING_BRAIN.with(|slot| *slot.borrow_mut() = Some(pending));
             }
             let (_, generation) = mux.registry_identity();
             Ok(json!({"value": chief_registry::wire(&record), "generation": generation,

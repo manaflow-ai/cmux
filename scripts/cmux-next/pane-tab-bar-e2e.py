@@ -200,6 +200,7 @@ def docked_chat():
 
 
 def snapshot(name):
+    time.sleep(1.5)  # test harness: the strip change is laid out and drawn before the capture
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, name)})
 
 
@@ -237,7 +238,6 @@ def main():
     swap = setting("tabs.swapCmdTAndCmdN", False)
     terminal = setting("tabs.tabBar.terminal", "auto")
     agent = setting("tabs.tabBar.agent", "auto")
-    warn = setting("app.warnBeforeClosingTab", False)
     try:
         # Cmd-I in a terminal workspace docks a chat left (cx-ihyx2): the chat dock shows its tab bar.
         opened_workspace(lambda: action("newTab", focus=True), "New Workspace (script: a terminal)")
@@ -278,7 +278,6 @@ def main():
         opened_workspace(lambda: action("newTab", focus=True), "New Workspace (script: a terminal)")
         strip("tabs.tabBar.terminal never hides a terminal pane's tab bar", True, kind="terminal", choice=None)
     finally:
-        restore("app.warnBeforeClosingTab", warn)
         restore("tabs.tabBar.agent", agent)
         restore("tabs.tabBar.terminal", terminal)
         restore("tabs.swapCmdTAndCmdN", swap)
