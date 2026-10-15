@@ -10,8 +10,9 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+// This process runs stand-in CLIs (shell scripts) for the version, sign-in
+// and update checks, which launch-deny would skip.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};

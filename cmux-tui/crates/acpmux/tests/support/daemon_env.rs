@@ -81,6 +81,16 @@ pub const PASS: &[&str] = &[
     "RUST_TEST_NOCAPTURE",
     "RUST_TEST_TIME_UNIT",
     "RUST_TEST_TIME_INTEGRATION",
+    "RUST_TEST_SHUFFLE",
+    "RUST_TEST_SHUFFLE_SEED",
+    "TERM",
+    "NO_COLOR",
+    "ASAN_OPTIONS",
+    "LSAN_OPTIONS",
+    "TSAN_OPTIONS",
+    "MSAN_OPTIONS",
+    "LD_LIBRARY_PATH",
+    "DYLD_FALLBACK_LIBRARY_PATH",
     "LLVM_PROFILE_FILE",
     "CARGO_MANIFEST_DIR",
     "CARGO_TARGET_TMPDIR",
@@ -90,13 +100,17 @@ pub const PASS: &[&str] = &[
 
 /// Set in the hermetic process, so it does not start itself again.
 const ENTERED: &str = "ACPMUX_TEST_HERMETIC";
+/// The python3 interpreter the process found before it went hermetic.
+const PYTHON: &str = "ACPMUX_TEST_PYTHON";
 
 /// Runs before `main` in every test binary that includes this module, with
 /// the crate root's `HERMETIC`. `argv` comes from the loader (glibc and
 /// macOS pass it to initializers), because std may not have read it yet.
+/// Other unix targets (musl passes no arguments) get no initializer and run
+/// with the host environment; no CI job runs these tests there.
 #[cfg(unix)]
 #[used]
-#[cfg_attr(target_os = "linux", unsafe(link_section = ".init_array"))]
+#[cfg_attr(all(target_os = "linux", target_env = "gnu"), unsafe(link_section = ".init_array"))]
 #[cfg_attr(target_vendor = "apple", unsafe(link_section = "__DATA,__mod_init_func"))]
 static ENTER_HERMETIC: extern "C" fn(i32, *const *const std::ffi::c_char) = {
     extern "C" fn init(argc: i32, argv: *const *const std::ffi::c_char) {
@@ -117,8 +131,10 @@ static ENTER_HERMETIC: extern "C" fn(i32, *const *const std::ffi::c_char) = {
     init
 };
 
-/// Windows runs no re-start before `main` (its tests run no hub in process
-/// and start every daemon through [`apply`]); the constant is still required.
+/// Windows runs no re-start before `main`: Windows CI runs only
+/// `windows_daemon`, which starts every daemon through [`apply`]. Other test
+/// files that run a hub in process compile there but run with the host
+/// environment. The constant is still required.
 #[cfg(windows)]
 const _: Process = super::HERMETIC;
 
@@ -130,7 +146,9 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     if std::env::var_os(ENTERED).is_some() {
         return;
     }
+    // A folder an earlier process with this pid left is not this one's.
     let scratch = std::env::temp_dir().join(format!("amx-proc-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(home(&scratch)).unwrap();
     let mut env = vars(&scratch, process.agents, &[]);
     for key in PASS.iter().chain(process.keep) {
@@ -140,6 +158,8 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
         }
     }
     env.push((ENTERED.into(), "1".into()));
+    // The interpreter found now, so the hermetic process does not look again.
+    env.push((PYTHON.into(), host_tool("python3").display().to_string()));
     let exe = std::env::current_exe().expect("the test binary's path");
     let mut args = args.into_iter();
     let mut cmd = Command::new(&exe);
@@ -283,6 +303,11 @@ pub fn tool_dir(tools: &[&str]) -> PathBuf {
 /// scratch folder.
 #[cfg(unix)]
 fn host_tool(name: &str) -> PathBuf {
+    if name == "python3"
+        && let Some(python) = std::env::var_os(PYTHON)
+    {
+        return PathBuf::from(python);
+    }
     let found = std::env::var_os("PATH")
         .iter()
         .flat_map(std::env::split_paths)
@@ -293,8 +318,8 @@ fn host_tool(name: &str) -> PathBuf {
     if name != "python3" {
         return found;
     }
-    static PYTHON: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    PYTHON
+    static INTERPRETER: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    INTERPRETER
         .get_or_init(|| {
             let out = Command::new(&found)
                 .args(["-c", "import sys; print(sys.executable)"])
@@ -303,7 +328,9 @@ fn host_tool(name: &str) -> PathBuf {
             let exe = String::from_utf8(out.stdout).unwrap();
             let exe = PathBuf::from(exe.trim());
             assert!(out.status.success() && exe.is_absolute(), "python3 names no interpreter");
-            exe
+            // `sys.executable` is the path python was started by, which can be
+            // a link (ours, too): the file itself.
+            std::fs::canonicalize(&exe).unwrap_or(exe)
         })
         .clone()
 }

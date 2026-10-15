@@ -66,7 +66,14 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
     );
     // The helper itself still clears the environment and denies launches.
     let helper = std::fs::read_to_string(tests.join(HELPER)).unwrap();
-    for needle in ["env_clear()", "\"ACPMUX_AGENT_LAUNCH\".into(), \"deny\".into()", binary] {
+    for needle in [
+        "env_clear()",
+        "\"ACPMUX_AGENT_LAUNCH\".into(), \"deny\".into()",
+        binary,
+        "unsafe(link_section = \".init_array\")",
+        "unsafe(link_section = \"__DATA,__mod_init_func\")",
+        "enter(super::HERMETIC, args)",
+    ] {
         assert!(helper.contains(needle), "tests/{HELPER} lost `{needle}`");
     }
 }
@@ -82,7 +89,8 @@ fn every_test_binary_runs_in_the_hermetic_environment() {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();
-        let included = text.contains("#[path = \"support/daemon_env.rs\"]\nmod daemon_env;");
+        let included = text.contains("#[path = \"support/daemon_env.rs\"]")
+            && text.contains("mod daemon_env;");
         if !included || !text.contains("const HERMETIC: daemon_env::Process") {
             missing.push(format!("tests/{name}"));
         }
