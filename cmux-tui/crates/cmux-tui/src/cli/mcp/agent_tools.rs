@@ -107,7 +107,8 @@ pub(super) const TOOLS: &[AgentTool] = &[
             and its agent reads it as input, not as its operator's instruction. Never the \
             caller's own chat. Answers {action, origin, result: {chat, message_id, state}, \
             idempotency_key}; state is delivered, queued, or held for a person's approval. \
-            Read the answer with agents_chat_read.",
+            Read the answer with agents_chat_read. When the message is stored but cannot be \
+            handed to the chat, the call is an error whose receipt says state failed.",
     },
     AgentTool {
         name: "agents_chat_read",
@@ -115,9 +116,10 @@ pub(super) const TOOLS: &[AgentTool] = &[
         title: "Read a chat",
         description: "Read an agent chat of this cmux session (`cmux agents chat read`) as \
             items {id, role, text}: user (with origin and from when another agent sent it), \
-            assistant, tool (a summary: title, kind, status) and turn_end. Pass after = \
-            next_after to read on; an item still being written is marked partial and read \
-            again. Changes nothing.",
+            assistant, tool (a summary: kind and status only, never its title, input or \
+            output) and turn_end. Pass after = next_after to read on; an answer still being \
+            written or a tool call still running is marked partial and read again whole. \
+            Changes nothing.",
     },
 ];
 
@@ -324,7 +326,16 @@ impl AgentTool {
             Err(message) => return not_run(message),
         };
         match agents::execute(backend, session.as_deref(), &command, key.as_deref(), "mcp") {
-            Ok(receipt) if self.chat() => success(receipt, !self.read_only()),
+            Ok(receipt) if self.chat() => {
+                let failed = chat::delivery_failed(&receipt);
+                let mut result = success(receipt, !self.read_only());
+                // Stored but not handed to the chat: an error that keeps its
+                // receipt, so a retry can name the message.
+                if failed {
+                    result["isError"] = json!(true);
+                }
+                result
+            }
             Ok(receipt) => success(fit_receipt(receipt), !self.read_only()),
             Err(AgentFailure::Usage(message)) => not_run(message),
             Err(AgentFailure::Owner(failure)) => failure_result(failure),

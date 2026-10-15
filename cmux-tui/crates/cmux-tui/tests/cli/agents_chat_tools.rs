@@ -306,7 +306,9 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     let answers = items_of(items, "assistant");
     assert_eq!(answers.len(), 1, "{page}");
     assert!(answers[0]["text"].as_str().unwrap().starts_with("echo: "), "{page}");
-    assert_eq!(page["next_after"], items.last().unwrap()["id"], "{page}");
+    // Every item is finished, so the next read starts after the last one
+    // (or after the events read past it).
+    assert!(page["next_after"].as_u64() >= items.last().unwrap()["id"].as_u64(), "{page}");
 
     // The person prompts the chat directly; a tool call reads as a summary.
     let prompted = Acp::connect(&daemon).call(

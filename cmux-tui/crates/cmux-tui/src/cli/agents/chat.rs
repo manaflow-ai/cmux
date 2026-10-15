@@ -44,23 +44,30 @@ pub(in crate::cli) enum ChatCommand {
     Read { target: String, after: u64, limit: usize },
 }
 
-/// `chat send <chat> [--] <text…>` and `chat read <chat> [--after N]
+/// `chat send <chat> [--] <text>` and `chat read <chat> [--after N]
 /// [--limit N]` (the words after `agents`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
         ["send", target, rest @ ..] => {
             let target = chat_word(target)?;
-            let rest = match rest {
-                ["--", text @ ..] => text,
-                [first, ..] if first.starts_with('-') => {
+            // One argument: cmux reads its own flags (`--session`, `--json`)
+            // anywhere before `--`, so unquoted words could lose one to it.
+            let text = match rest {
+                ["--", text] => *text,
+                [text] if !text.starts_with('-') => *text,
+                [text] if *text != "--" => {
                     return Err(UsageError::new(
                         "agents chat send: put text that starts with a dash after --",
                     ));
                 }
-                text => text,
+                _ => {
+                    return Err(UsageError::new(
+                        "agents chat send: give the text as one quoted argument, or after --",
+                    ));
+                }
             };
             // The body rules of `cmux agent message`: not empty, at most 32 KiB.
-            let text = agent_message::read_body(Body::Text(rest.join(" ")))
+            let text = agent_message::read_body(Body::Text(text.to_owned()))
                 .map_err(|error| UsageError::new(format!("agents chat send: {}", error.0)))?;
             Ok(ChatCommand::Send { target, text })
         }
@@ -262,6 +269,11 @@ fn send(
     {
         result["reason"] = reason.clone();
     }
+    // Stored but not handed to the chat: the receipt says so, and the CLI
+    // and the tool report it as an error (`delivery_failed`).
+    if sent.failed {
+        result["state"] = json!("failed");
+    }
     if !sent.problems.is_empty() {
         result["problems"] = json!(sent.problems);
     }
@@ -272,6 +284,12 @@ fn send(
         "result": result,
         "idempotency_key": key,
     }))
+}
+
+/// Whether a `chat.send` receipt reports a message that was stored but
+/// could not be handed to its chat.
+pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
+    receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed"
 }
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
@@ -296,7 +314,7 @@ fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<V
             break;
         }
     }
-    Ok(transcript.page(&chat, after, limit, more))
+    Ok(transcript.page(&chat, after, limit, more, cursor))
 }
 
 /// One transcript item as a read returns it.
@@ -310,16 +328,6 @@ struct Item {
 }
 
 impl Item {
-    fn complete(&self) -> bool {
-        match self.role {
-            "assistant" => false,
-            "tool" => {
-                matches!(self.extra["tool"]["status"].as_str(), Some("completed" | "failed"))
-            }
-            _ => true,
-        }
-    }
-
     fn json(&self, partial: bool) -> Value {
         let mut value = Map::new();
         value.insert("id".into(), json!(self.id));
@@ -342,9 +350,10 @@ impl Item {
 
 /// A chat's acpmux events as plain items: the person's or another agent's
 /// prompts (`user`), the agent's text (`assistant`, its chunks joined), each
-/// tool call as one summary (`tool`: title, kind, status, never its input or
-/// output) and each turn's end (`turn_end`). Thoughts, plans and acpmux
-/// bookkeeping are left out.
+/// tool call as one summary (`tool`: kind and status only; never its
+/// title, which harnesses fill with the input, such as a command or a path,
+/// nor its input or output) and each turn's end (`turn_end`). Thoughts,
+/// plans and acpmux bookkeeping are left out.
 #[derive(Default)]
 struct Transcript {
     items: Vec<Item>,
@@ -412,7 +421,6 @@ impl Transcript {
             }
             "tool_call" => {
                 let id = update["toolCallId"].as_str().unwrap_or_default().to_owned();
-                let title = update["title"].as_str().unwrap_or_default().to_owned();
                 let tool = json!({
                     "id": id,
                     "kind": update["kind"].as_str().unwrap_or("other"),
@@ -420,7 +428,7 @@ impl Transcript {
                 });
                 let mut extra = Map::new();
                 extra.insert("tool".into(), tool);
-                self.push(seq, "tool", title, extra);
+                self.push(seq, "tool", String::new(), extra);
                 self.tools.insert(id, self.items.len() - 1);
             }
             "tool_call_update" => {
@@ -429,9 +437,6 @@ impl Transcript {
                 let item = &mut self.items[index];
                 if let Some(status) = update["status"].as_str() {
                     item.extra["tool"]["status"] = json!(status);
-                }
-                if let Some(title) = update["title"].as_str() {
-                    item.text = title.to_owned();
                 }
             }
             _ => {}
@@ -444,10 +449,25 @@ impl Transcript {
         self.items.push(Item { id, role, text, extra });
     }
 
-    /// The items after `after`, at most `limit`; `next_after` passes every
-    /// returned item that is complete, so an item still growing (an answer
-    /// being written, a tool call running) is read again in full next time.
-    fn page(&self, chat: &str, after: u64, limit: usize, more_events: bool) -> Value {
+    /// Whether item `index` is finished: an answer once another item
+    /// follows it, a tool call once it completed or failed.
+    fn complete(&self, index: usize) -> bool {
+        let item = &self.items[index];
+        match item.role {
+            "assistant" => self.open_text != Some(index),
+            "tool" => {
+                matches!(item.extra["tool"]["status"].as_str(), Some("completed" | "failed"))
+            }
+            _ => true,
+        }
+    }
+
+    /// The items after `after`, at most `limit`. `next_after` never passes
+    /// an unfinished item (an answer being written, a tool call running), so
+    /// it is read again whole next time, with what follows it. When every
+    /// item read is finished and returned, it moves to `scanned`, the last
+    /// event read, so a long run of events with no item is not read again.
+    fn page(&self, chat: &str, after: u64, limit: usize, more_events: bool, scanned: u64) -> Value {
         let candidates: Vec<(usize, &Item)> =
             self.items.iter().enumerate().filter(|(_, item)| item.id > after).collect();
         let mut items = Vec::new();
@@ -459,7 +479,7 @@ impl Transcript {
             if returned == limit || (returned > 0 && bytes > MAX_READ_TEXT_BYTES) {
                 break;
             }
-            let complete = item.complete() || index + 1 < self.items.len();
+            let complete = self.complete(*index);
             settled &= complete;
             if settled {
                 next_after = item.id;
@@ -467,6 +487,9 @@ impl Transcript {
             bytes += item.text.len().min(MAX_ITEM_TEXT_BYTES);
             items.push(item.json(!complete));
             returned += 1;
+        }
+        if settled && returned == candidates.len() {
+            next_after = next_after.max(scanned);
         }
         json!({
             "schema_version": 1,

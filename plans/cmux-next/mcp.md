@@ -82,9 +82,13 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     message. It never goes to the caller's own chat (`chat.own_chat`), refuses empty text
     and text over 32 KiB, is `destructiveHint`, and answers `{action, origin, result:
     {chat, message_id, state}, idempotency_key}`; a retry with the key is the same
-    message. A read answers items `{id, role, text}` (`user` with `origin`/`from` for an
-    agent's prompt, `assistant`, `tool` as title, kind and status only, `turn_end`),
-    paged with `after` = `next_after`; an item still being written is `partial`.
+    message. A message stored but not handed to the chat is an error that keeps its
+    receipt (`state: failed`; the CLI exits 1). The CLI takes the text as one argument
+    or after `--`. A read answers items `{id, role, text}` (`user` with `origin`/`from`
+    for an agent's prompt, `assistant`, `tool` as kind and status only, never its title,
+    which harnesses fill with the input, `turn_end`), paged with `after` = `next_after`;
+    an answer being written or a tool call running is `partial`, and `next_after` never
+    passes it.
     Waiting for the reply is `agents_wait` (#20810);
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is

@@ -104,7 +104,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     };
     let backend = mcp::cli_backend(global.clone());
     match execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents") {
-        Ok(value) => wire::print_local_success(&value, global.output),
+        Ok(value) => {
+            let code = wire::print_local_success(&value, global.output);
+            // A chat message stored but not handed to its chat: the receipt
+            // is printed, and the exit status says it failed.
+            if code == 0 && chat::delivery_failed(&value) { 1 } else { code }
+        }
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
             wire::print_local_error(&mcp::agent_failure_value(failure), global.output, 3)
