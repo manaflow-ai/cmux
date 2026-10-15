@@ -151,6 +151,11 @@ public nonisolated final class HomeSourceRouter: HomeSource {
         try await source(for: location.conversation).fetch(ref, at: location, variant: variant)
     }
 
+    /// The live snapshot request goes to the conversation's owner.
+    public func requestLive(of conversation: ConversationID) async {
+        await source(for: conversation).requestLive(of: conversation)
+    }
+
     /// A closed transcript goes to its owner; one no owner reported was
     /// never opened on the cloud, and the local owner ignores it.
     public func close(_ conversation: ConversationID) {

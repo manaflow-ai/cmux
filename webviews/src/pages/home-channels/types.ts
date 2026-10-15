@@ -31,6 +31,9 @@ export const HomeOps = {
   avatar: "cmux.home.avatar",
   runs: "cmux.home.runs",
   run: "cmux.home.run",
+  /** The live text of a conversation's running runs ({conversation}): a `run.live` snapshot
+   * (HomeLiveSnapshot), or null when it arrives as a live event instead (a Cloud owner). */
+  live: "cmux.home.live",
   events: "cmux.home.events",
   /** What this host and its owners let the page do beyond messages (HomeCapabilities). */
   capabilities: "cmux.home.capabilities",
@@ -62,7 +65,7 @@ export interface HomeCapabilities {
 /** The tools a Chief may be granted (the daemon's closed catalog). */
 export const CHIEF_TOOLS = ["spawn", "tell", "workspaces", "browser", "cloud_vms", "chiefs", "memory_import"] as const;
 /** A new Chief's tools when the person names none (the daemon's default). */
-export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces"] as const;
+export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces", "chiefs"] as const;
 /** The agent harnesses a Chief's subagents may use (none checked: every harness). */
 export const CHIEF_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 
@@ -146,6 +149,8 @@ export interface HomeConversation {
   lastAuthor?: string;
   /** The status of the last message's work part, when it has one (a Chief's live state). */
   lastWork?: "running" | "waiting" | "done" | "failed";
+  /** A Chief's state as the owner derives it (home-inbox-v1): typing, its runs, its last work. */
+  chiefState?: "working" | "waiting" | "idle";
 }
 
 export interface HomeMention {
@@ -345,6 +350,47 @@ export interface HomeEventBatch {
   runs?: HomeRunChange[];
   /** Participants whose picture changed (`participant-avatar-changed`). */
   avatars?: string[];
+  /** A Chief's live run frames (`chief-live-v1`), in order: never stored by any owner. */
+  live?: HomeLiveFrame[];
+}
+
+/** One live frame of a running run (the "Live frames" contract both brains send). */
+export type HomeLiveFrame =
+  | {
+      type: "step.delta";
+      conversation: string;
+      run: string;
+      /** The run's agent (the owner stamps it; run ids repeat across Cloud Chiefs). */
+      author?: string;
+      step: string;
+      kind: "talk" | "thought";
+      /** Per (run, step), from 0, +1 per frame. */
+      seq: number;
+      text: string;
+      /** The step's last frame: its row with the whole text follows on the run. */
+      final?: true;
+    }
+  | {
+      type: "run.activity";
+      conversation: string;
+      run: string;
+      author?: string;
+      line: string;
+      since: number;
+      at: number;
+    }
+  | HomeLiveSnapshot;
+
+/** The text so far of a conversation's running runs (`run.live`): on join, reconnect and gap. */
+export interface HomeLiveSnapshot {
+  type: "run.live";
+  conversation: string;
+  runs: {
+    run: string;
+    author?: string;
+    steps: { step: string; kind: "talk" | "thought"; seq: number; text: string; final?: true }[];
+    activity?: { line: string; since: number; at: number };
+  }[];
 }
 
 export interface HomeSearchHit {

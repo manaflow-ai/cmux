@@ -8,6 +8,7 @@ use acpmux::server::{Origin, serve_connection_with};
 
 const LIST: &str = "_acpmux/process/list";
 const KILL: &str = "_acpmux/process/kill";
+const TAIL: &str = "_acpmux/process/tail";
 const UPDATE: &str = "_acpmux/process_update";
 
 /// A Claude hub (fake_claude.py) under a fresh folder, with `env`.
@@ -91,7 +92,7 @@ async fn initialize_advertises_the_process_methods() {
         .unwrap();
     let acpmux = &init["_meta"]["acpmux"];
     let extensions = acpmux["extensions"].as_array().cloned().unwrap_or_default();
-    for m in [LIST, KILL] {
+    for m in [LIST, KILL, TAIL] {
         assert!(extensions.iter().any(|e| e == m), "{m} not in {extensions:?}");
     }
     let features = acpmux["features"].as_array().cloned().unwrap_or_default();
@@ -310,7 +311,7 @@ async fn a_harness_exit_marks_running_processes_lost() {
 }
 
 /// The registry is served to this machine's clients only: a remote device
-/// or a peer daemon can neither list nor kill; the local app can list.
+/// or a peer daemon can neither list, tail nor kill; the local app can list.
 #[tokio::test]
 async fn a_web_or_peer_connection_cannot_list_or_kill_processes() {
     let (hub, mut c, root) = claude_hub(&[]).await;
@@ -324,6 +325,7 @@ async fn a_web_or_peer_connection_cannot_list_or_kill_processes() {
             (LIST, json!({"sessionId": id})),
             (LIST, json!({})),
             (KILL, json!({"processId": pid, "sessionId": id})),
+            (TAIL, json!({"processId": pid})),
         ] {
             let refused = remote.request(m, params.clone()).await;
             assert!(refused.is_err(), "{origin:?} {m} {params}: {refused:?}");
@@ -349,4 +351,189 @@ async fn kill_on_a_chat_that_is_not_claude_is_refused() {
     assert!(refused.contains("Claude Code"), "{refused}");
     assert_eq!(c.request(LIST, json!({"sessionId": id})).await.unwrap(), json!({"processes": []}));
     hub.shutdown_all().await;
+}
+
+/// What fake_claude.py's "bg-output" shell writes to its output file.
+fn shell_output() -> String {
+    (0..100).map(|i| format!("line {i}\n")).collect()
+}
+
+/// A chat whose background shell writes to a file under `root`; returns the
+/// chat, the process id and the file.
+async fn output_chat(
+    c: &mut TestClient,
+    root: &std::path::Path,
+) -> (String, String, std::path::PathBuf) {
+    let file = root.join("tasks").join("o1.output");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let id = chat(c, &format!("bg-output: {}", file.display())).await;
+    let pid = format!("{id}/o1");
+    (id, pid, file)
+}
+
+/// `_acpmux/process/tail` with `params` added to the process id; the reply
+/// with its data decoded.
+async fn tail(c: &mut TestClient, pid: &str, params: Value) -> (Vec<u8>, Value) {
+    use base64::Engine;
+    let mut p = json!({"processId": pid});
+    p.as_object_mut().unwrap().extend(params.as_object().unwrap().clone());
+    let r = c.request(TAIL, p).await.unwrap();
+    let data = r["data"].as_str().unwrap_or_else(|| panic!("no data: {r}"));
+    let data = base64::engine::general_purpose::STANDARD.decode(data).unwrap();
+    (data, r)
+}
+
+/// Tail reads the output file Claude Code names for the shell: from a byte
+/// on, in pages of maxBytes, and by default the end of it; the list says
+/// how long the output is.
+#[tokio::test]
+async fn tail_reads_the_shells_output_file_in_pages() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (id, pid, _file) = output_chat(&mut c, &root).await;
+    let out = shell_output();
+    let len = out.len() as u64;
+    let (data, r) = tail(&mut c, &pid, json!({})).await;
+    assert_eq!(String::from_utf8(data).unwrap(), out);
+    assert_eq!((r["fromByte"].clone(), r["nextByte"].clone()), (json!(0), json!(len)), "{r}");
+    assert_eq!(r["eof"], false, "a running shell may write more: {r}");
+    let (data, r) = tail(&mut c, &pid, json!({"fromByte": 7, "maxBytes": 7})).await;
+    assert_eq!(data, b"line 1\n");
+    assert_eq!((r["fromByte"].clone(), r["nextByte"].clone()), (json!(7), json!(14)), "{r}");
+    let (data, r) = tail(&mut c, &pid, json!({"fromByte": r["nextByte"], "maxBytes": 7})).await;
+    assert_eq!(data, b"line 2\n");
+    assert_eq!(r["nextByte"], 21);
+    // Without fromByte, the last maxBytes.
+    let (data, r) = tail(&mut c, &pid, json!({"maxBytes": 8})).await;
+    assert_eq!(data, b"line 99\n");
+    assert_eq!((r["fromByte"].clone(), r["nextByte"].clone()), (json!(len - 8), json!(len)), "{r}");
+    // Past the end: nothing, at the end.
+    let (data, r) = tail(&mut c, &pid, json!({"fromByte": len + 50})).await;
+    assert!(data.is_empty(), "{r}");
+    assert_eq!(r["nextByte"], len);
+    assert_eq!(listed(&mut c, &id).await[0]["outputBytes"], len);
+    // The path stays in the registry: the session update, which every
+    // client of the chat gets, a remote one too, does not carry it.
+    let updates: Vec<_> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "background_task_update")
+        .collect();
+    assert!(!updates.is_empty());
+    for e in &updates {
+        let text = e.msg.to_string();
+        assert!(!text.contains("outputFile") && !text.contains("o1.output"), "{text}");
+    }
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The default is the last 64 KiB, and no page is over 1 MiB.
+#[tokio::test]
+async fn tail_defaults_to_the_last_64_kib_and_caps_a_page_at_1_mib() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (_id, pid, file) = output_chat(&mut c, &root).await;
+    let big = vec![b'x'; 3 << 20];
+    std::fs::write(&file, &big).unwrap();
+    let len = big.len() as u64;
+    let (data, r) = tail(&mut c, &pid, json!({})).await;
+    assert_eq!(data.len(), 64 << 10, "{r}");
+    assert_eq!(
+        (r["fromByte"].clone(), r["nextByte"].clone()),
+        (json!(len - (64 << 10)), json!(len))
+    );
+    let (data, r) = tail(&mut c, &pid, json!({"fromByte": 0, "maxBytes": 10u64 << 20})).await;
+    assert_eq!(data.len(), 1 << 20, "{r}");
+    assert_eq!(r["nextByte"], 1u64 << 20);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Once the shell ended, tail reaches eof at the end of its output.
+#[tokio::test]
+async fn tail_says_eof_once_the_shell_ended_and_its_output_is_read() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (id, pid, file) = output_chat(&mut c, &root).await;
+    let ended = format!("bg-output-end: {}", file.display());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": ended}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    until_state(&mut c, &id, "exited").await;
+    let out = shell_output() + "done\n";
+    let len = out.len() as u64;
+    let (data, r) = tail(&mut c, &pid, json!({"fromByte": 0, "maxBytes": 7})).await;
+    assert_eq!(data, b"line 0\n");
+    assert_eq!(r["eof"], false, "more output is left: {r}");
+    let (data, r) = tail(&mut c, &pid, json!({})).await;
+    assert_eq!(String::from_utf8(data).unwrap(), out);
+    assert_eq!(r["nextByte"], len);
+    assert_eq!(r["eof"], true, "{r}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An output file that is gone, or a shell Claude Code named none for, has
+/// no output yet: empty, not an error.
+#[tokio::test]
+async fn tail_of_a_missing_output_file_is_empty() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (_id, pid, file) = output_chat(&mut c, &root).await;
+    std::fs::remove_file(&file).unwrap();
+    let (data, r) = tail(&mut c, &pid, json!({})).await;
+    assert!(data.is_empty(), "{r}");
+    assert_eq!(
+        (r["fromByte"].clone(), r["nextByte"].clone(), r["eof"].clone()),
+        (json!(0), json!(0), json!(false)),
+        "{r}"
+    );
+    let none = chat(&mut c, "bg-running").await;
+    let (data, r) = tail(&mut c, &format!("{none}/r1"), json!({})).await;
+    assert!(data.is_empty(), "{r}");
+    assert_eq!(r["nextByte"], 0);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An output file that is not a regular file (a FIFO no one writes) is
+/// never opened: tail answers at once, empty.
+#[tokio::test]
+async fn tail_of_a_fifo_answers_at_once_and_empty() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let file = root.join("tasks").join("o1.output");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(&file).status().unwrap();
+    assert!(made.success());
+    let id = chat(&mut c, &format!("bg-output: {}", file.display())).await;
+    let pid = format!("{id}/o1");
+    let tailed = tokio::time::timeout(Duration::from_secs(5), tail(&mut c, &pid, json!({})));
+    let tailed = tailed.await;
+    if tailed.is_err() {
+        // Free the read that hangs, so the test ends.
+        let _ = std::fs::OpenOptions::new().write(true).open(&file);
+    }
+    let (data, r) = tailed.expect("tail of a FIFO hung");
+    assert!(data.is_empty(), "{r}");
+    assert_eq!(r["nextByte"], 0);
+    assert_eq!(listed(&mut c, &id).await[0]["outputBytes"], 0);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn tail_of_an_unknown_or_malformed_process_is_refused() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (id, pid, _file) = output_chat(&mut c, &root).await;
+    for params in [
+        json!({"processId": format!("{id}/nope")}),
+        json!({"processId": "no-such-chat/o1"}),
+        json!({"processId": "o1"}),
+        json!({"processId": 7}),
+        json!({}),
+        json!({"processId": pid, "fromByte": -1}),
+        json!({"processId": pid, "maxBytes": "lots"}),
+    ] {
+        let refused = c.request(TAIL, params.clone()).await;
+        assert!(refused.is_err(), "{params} was not refused: {refused:?}");
+    }
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }
