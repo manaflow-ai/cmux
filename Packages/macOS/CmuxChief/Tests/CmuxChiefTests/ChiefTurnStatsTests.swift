@@ -6,9 +6,10 @@ import Testing
 @Suite struct ChiefTurnStatsTests {
     let conversation = ChiefConversationOwner.defaultConversationID
 
-    private func owner(_ brain: FakeBrain, engine: ChiefTurnEngine?) throws -> ChiefConversationOwner {
+    private func owner(_ brain: FakeBrain, engine: ChiefTurnEngine?,
+                       now: @escaping @Sendable () -> Date = { Date() }) throws -> ChiefConversationOwner {
         let home = ChiefFixture().home
-        return try ChiefConversationOwner(home: home, brain: brain, userDisplayName: "Tester") { _ in
+        return try ChiefConversationOwner(home: home, brain: brain, userDisplayName: "Tester", now: now) { _ in
             ChiefTurnContext(systemPrompt: "You are Chief.", workingDirectory: home.root, engine: engine)
         }
     }
@@ -26,7 +27,8 @@ import Testing
             .finished,
         ])
         let engine = ChiefTurnEngine(harness: "claude", model: "claude-opus-5-5", effort: "medium")
-        let owner = try owner(brain, engine: engine)
+        // A fixed clock: the turn starts and ends at the same instant.
+        let owner = try owner(brain, engine: engine, now: { Date(timeIntervalSince1970: 1_792_000_000) })
         #expect(await owner.lastTurnStats(in: conversation) == nil)
         try await ChiefFixture.send("hi", to: owner)
         _ = try await ChiefFixture.idleMessages(owner, count: 4)
@@ -37,7 +39,7 @@ import Testing
         #expect(stats.cacheHitRate == 0.6)
         #expect(!stats.failed)
         #expect(!stats.stopped)
-        #expect(stats.duration >= 0)
+        #expect(stats.duration == 0)
     }
 
     @Test func claudeResultUsageBecomesAUsageEvent() throws {

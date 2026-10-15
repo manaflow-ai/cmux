@@ -244,7 +244,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(stripped.ref.name == "memo.m4a")
         #expect(stripped.ref.hash == sha256Hex(try Data(contentsOf: stripped.fileURL)))
         let duration = try #require(stripped.ref.durationMs)
-        #expect(abs(duration - 1000) <= 100)
+        #expect((900...1100).contains(duration), "the one-second fixture encodes to about 1000 ms")
 
         let pasted = try await store.prepareAttachment(data: try Data(contentsOf: audio), typeIdentifier: UTType.mpeg4Audio.identifier)
         #expect(try await movieLocation(pasted.fileURL) == MovieLocation())

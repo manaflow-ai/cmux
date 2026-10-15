@@ -285,7 +285,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(prepared.ref.width == 64)
         #expect(prepared.ref.height == 128)
         let duration = try #require(prepared.ref.durationMs)
-        #expect(abs(duration - 1000) <= 100)
+        #expect((900...1100).contains(duration), "the one-second fixture encodes to about 1000 ms")
         let poster = try #require(prepared.posterURL)
         let meta = try #require(prepared.ref.poster)
         let posterData = try Data(contentsOf: poster)
