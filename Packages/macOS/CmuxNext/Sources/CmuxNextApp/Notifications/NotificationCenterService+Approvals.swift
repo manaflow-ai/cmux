@@ -29,14 +29,36 @@ extension NotificationCenterService {
     }
 
     /// Runs `post` with the chat's pending permission when `notification` stands for one, at
-    /// once with nil otherwise.
+    /// once with nil otherwise. A read that the tab outlived posts nothing: the tab was read
+    /// meanwhile (focused, or answered in the chat), or a newer notification of it posted.
     func withApproval(of notification: DaemonNotification, tab: TabModel?,
                       post: @escaping @MainActor (AgentApproval?) -> Void) {
-        guard let session = approvalSession(of: notification, tab: tab), let answerer = approvalAnswerer else {
+        guard let tab, let session = approvalSession(of: notification, tab: tab), let answerer = approvalAnswerer else {
+            if let tab { approvalReads[tab.id] = nil }
             return post(nil)
         }
+        let id = notification.notification.rawValue
+        approvalReads[tab.id] = id
         // task-owner: NotificationCenterService.withApproval: one prompt read before one banner posts.
-        Task { @MainActor in post(await answerer.pendingApproval(session: session)) }
+        Task { @MainActor [weak self] in
+            let approval = await answerer.pendingApproval(session: session)
+            guard let self else { return }
+            guard self.approvalReads[tab.id] == id else {
+                return self.note("approval banner \(id) skipped: \(tab.id) was read or notified again")
+            }
+            self.approvalReads[tab.id] = nil
+            if let marker = tab.notification, marker.notification.rawValue > id || (marker.notification.rawValue == id && !marker.unread) {
+                return self.note("approval banner \(id) skipped: \(tab.id) holds no unread \(id)")
+            }
+            post(approval)
+        }
+    }
+
+    /// A banner posted on `tab`: it retires the buttons of the tab's older approval banners (one
+    /// chat waits on one prompt; the newer banner stands for it), and keeps its own.
+    func keepApprovalBanner(_ banner: String, approval: AgentApproval?, tab: String) {
+        approvalBanners = approvalBanners.filter { $0.value.tab != tab }
+        if let approval { approvalBanners[banner] = (approval, tab) }
     }
 
     /// Allow once or Deny on an approval banner. Only a banner this launch posted answers, and

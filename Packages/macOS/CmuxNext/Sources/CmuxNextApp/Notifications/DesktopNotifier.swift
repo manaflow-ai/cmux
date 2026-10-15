@@ -185,7 +185,11 @@ final class DesktopNotifier: NSObject {
             identifier: denyAction,
             title: String(localized: "notifications.approval.deny", defaultValue: "Deny", bundle: .module),
             options: [.destructive])
-        return UNNotificationCategory(identifier: approvalCategory, actions: [allow, deny], intentIdentifiers: [])
+        // Where macOS hides previews (locked screen, Show Previews off), the command stays hidden too.
+        let hidden = String(localized: "notifications.approval.hiddenBody",
+                            defaultValue: "An agent is waiting for your approval", bundle: .module)
+        return UNNotificationCategory(identifier: approvalCategory, actions: [allow, deny], intentIdentifiers: [],
+                                      hiddenPreviewsBodyPlaceholder: hidden, options: [])
     }
 }
 

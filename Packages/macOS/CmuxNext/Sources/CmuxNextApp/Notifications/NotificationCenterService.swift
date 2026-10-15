@@ -52,6 +52,8 @@ final class NotificationCenterService {
     @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
     /// Approval banners posted this launch, by banner id: what Allow once or Deny answers.
     @ObservationIgnored var approvalBanners: [String: (approval: AgentApproval, tab: String)] = [:]
+    /// Per tab id, the notification whose banner waits for its chat's prompt to be read.
+    @ObservationIgnored var approvalReads: [String: UInt64] = [:]
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -227,6 +229,7 @@ final class NotificationCenterService {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         let withdrawn = banners.removeValue(forKey: tab.id) ?? []
         for id in withdrawn { approvalBanners[id] = nil }
+        approvalReads[tab.id] = nil
         desktop.withdraw(withdrawn)
         let surface = tab.surface
         let driver = feedDriver
@@ -355,8 +358,10 @@ final class NotificationCenterService {
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
                               reply: notification.reply && tab?.kind == .pty, approval: approval != nil)
             if let sound, sound != "default" { NotificationSounds.play(sound) }
-            if let tab { self.banners[tab.id, default: []].append(id) }
-            if let approval, let tab { self.approvalBanners[id] = (approval, tab.id) }
+            if let tab {
+                self.banners[tab.id, default: []].append(id)
+                self.keepApprovalBanner(id, approval: approval, tab: tab.id)
+            }
         }
     }
 
