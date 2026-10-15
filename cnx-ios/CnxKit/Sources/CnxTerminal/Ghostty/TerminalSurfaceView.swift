@@ -199,6 +199,35 @@ final class TerminalSurfaceView: UIView {
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
+    /// The grid's padding inside the surface (points): where cell (0, 0) starts.
+    var gridPadding: CGPoint {
+        guard let surface else { return .zero }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics) else { return .zero }
+        return CGPoint(x: metrics.padding_left, y: metrics.padding_top)
+    }
+
+    /// Plain text from `start` to `end` in viewport rows (0 = the top row of
+    /// Ghostty's viewport, the surface's first row), inclusive, for a
+    /// selection's Copy. Viewport rows, not screen rows: a screen point's y
+    /// does not count the rows the scrollbar's total does (round 7: screen y
+    /// 109 was absolute row 305). Takes the surface lock: on demand only.
+    func viewportText(from start: TerminalCellPoint, to end: TerminalCellPoint) -> String? {
+        guard let surface else { return nil }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                                      x: UInt32(max(0, start.column)), y: UInt32(max(0, start.row))),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                                          x: UInt32(max(0, end.column)), y: UInt32(max(0, end.row))),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
     /// Blank rows at the top of the screen (absolute rows `0...lastRow`):
     /// the mirror's rows above the remote screen that nothing ever wrote
     /// (`TerminalRowShift` puts the Mac's screen at the bottom of the taller

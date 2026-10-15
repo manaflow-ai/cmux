@@ -90,6 +90,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The session's document: absolute rows from the first row with text
     /// (never the blank rows above the Mac's screen) to the cursor's row.
     private var document: TerminalDocumentLayout?
+    /// Text selection over the rows (G-14).
+    let selection = TerminalSelectionController()
     private var documentRows: Int { document?.rowCount ?? 0 }
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
@@ -470,6 +472,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scrollView.addGestureRecognizer(tap)
         let tuiTap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         tuiClip.addGestureRecognizer(tuiTap)
+        installSelection()
 
         surface.configurePasteControlTarget()
         surface.onInput = { [weak self] data in self?.model.session.send(data) }
@@ -921,6 +924,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if shiftY != 0 { scrollView.contentOffset.y += shiftY }
         settingOffset = false
         place(atRow: presentedTop)
+        selection.shiftRows(by: -rows)
     }
 
     /// The reader's rows kept over a mirror reset (V2-3).
@@ -1300,6 +1304,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The top moved (cleared, or found): the frame on screen goes
             // where its rows now belong.
             place(atRow: presentedTop)
+            selection.redraw()
         }
         // The scroll model places the rows: the bottom when following, the
         // anchored rows when reading, nothing while a finger owns the page.
@@ -1686,7 +1691,83 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Keyboard
 
     @objc private func terminalTapped() {
+        // A tap outside the menu ends a selection, like iOS text.
+        if selection.selection != nil {
+            selection.clear()
+            return
+        }
         focusTerminal()
+    }
+
+    private func installSelection() {
+        selection.isEnabled = { [weak self] in
+            guard let self else { return false }
+            return !self.model.isTUI && self.document != nil && self.cell.height > 0
+        }
+        selection.columns = { [weak self] in max(1, self?.surface.grid.columns ?? 1) }
+        selection.documentRows = { [weak self] in
+            guard let document = self?.document else { return 0..<0 }
+            return document.originRow..<document.endRow
+        }
+        selection.cellAt = { [weak self] point in
+            guard let self, let document, cell.height > 0, cell.width > 0 else { return nil }
+            let padding = surface.gridPadding
+            // Within the document and the rows the surface holds (a handle
+            // stops at the edge of the rendered rows).
+            let top = max(document.originRow, scrollbar.offset)
+            let bottom = min(document.endRow, scrollbar.offset + surface.grid.rows) - 1
+            guard bottom >= top else { return nil }
+            let row = min(max(top, document.row(atContentY: point.y - padding.y, cellHeight: cell.height)), bottom)
+            let column = Int(floor((point.x - Self.sidePadding - padding.x) / cell.width))
+            return TerminalCellPoint(row: row, column: min(max(0, column), max(0, surface.grid.columns - 1)))
+        }
+        selection.rectFor = { [weak self] point in
+            guard let self, let document else { return .zero }
+            let padding = surface.gridPadding
+            return CGRect(x: Self.sidePadding + padding.x + CGFloat(point.column) * cell.width,
+                          y: document.contentY(ofRow: point.row, cellHeight: cell.height) + padding.y,
+                          width: cell.width, height: cell.height)
+        }
+        // Rows go to Ghostty as viewport rows (absolute row - the viewport's
+        // top): the rows the surface holds, the visible ones and the margins.
+        selection.rowText = { [weak self] row in
+            guard let self else { return nil }
+            let y = row - scrollbar.offset
+            guard y >= 0, y < surface.grid.rows else { return nil }
+            return surface.viewportText(from: TerminalCellPoint(row: y, column: 0),
+                                        to: TerminalCellPoint(row: y, column: max(0, surface.grid.columns - 1)))
+        }
+        selection.text = { [weak self] start, end in
+            guard let self, let document else { return nil }
+            let columns = max(1, surface.grid.columns)
+            // Select All: the whole screen, scrollback included.
+            if start == TerminalCellPoint(row: document.originRow, column: 0),
+               end == TerminalCellPoint(row: document.endRow - 1, column: columns - 1) {
+                return surface.screenText()
+            }
+            let top = scrollbar.offset, last = surface.grid.rows - 1
+            let from = TerminalCellPoint(row: min(max(0, start.row - top), last), column: start.row < top ? 0 : start.column)
+            let to = TerminalCellPoint(row: min(max(0, end.row - top), last), column: end.row - top > last ? columns - 1 : end.column)
+            return surface.viewportText(from: from, to: to)
+        }
+        selection.install(in: scrollView)
+        if let press = selection.longPress {
+            press.addTarget(self, action: #selector(selectionPressChanged(_:)))
+        }
+    }
+
+    /// While a long press selects, the page does not scroll under the finger.
+    @objc private func selectionPressChanged(_ press: UILongPressGestureRecognizer) {
+        switch press.state {
+        case .began:
+            scrollView.panGestureRecognizer.isEnabled = false
+            scrollView.panGestureRecognizer.isEnabled = true
+            scrollView.isScrollEnabled = false
+        case .ended, .cancelled, .failed:
+            scrollView.isScrollEnabled = true
+        default:
+            break
+        }
     }
 
     func focusTerminal() {
