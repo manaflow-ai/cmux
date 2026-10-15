@@ -644,6 +644,43 @@
   line-height: 16px;
   color: var(--page-text-3);
 }
+/* A Chief's run streams (chief-live-v1): the end of its reply, then what it works on, one line
+   each; the whole row opens the run sheet. */
+.lg-typing.live {
+  height: auto;
+  min-height: 16px;
+}
+.lg-live {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.lg-live-text,
+.lg-live-activity {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-live-text {
+  color: var(--page-text-2);
+}
+.lg-live-text strong {
+  color: var(--page-text);
+  font-weight: 600;
+}
+.lg-live:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: 1px;
+}
 .lg-page .hc-composer:not(.hc-edit) {
   margin: 0;
 }
@@ -1162,6 +1199,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A running run's reply as it streams (chief-live-v1): its end, in the label's column. */
+.lg-run-live {
+  margin: -2px 0 4px;
+  margin-inline-start: var(--lg-run-lead);
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+}
 /* The rail: under the first glyph's center, the steps in the label's column. */
 .lg-run-steps {
   margin-inline-start: var(--lg-run-rail);
@@ -1227,6 +1272,18 @@
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);
+}
+/* A thought in the run sheet: folded under "Thought". */
+.lg-run-block.thought {
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+}
+.lg-run-block.thought > summary {
+  cursor: default;
+}
+.lg-run-block.thought > p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
 }
 .lg-run-links,
 .lg-run-files {

@@ -72,7 +72,7 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
-  options: { now?: number; working?: boolean; clockOffset?: number; statusCards?: boolean } = {},
+  options: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; statusCards?: boolean } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
 }
@@ -82,6 +82,7 @@ export type TurnView = {
   source: readonly AcpmuxRow[];
   expanded: ReadonlySet<string>;
   clockOffset: number;
+  liveRuns: boolean;
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -103,14 +104,21 @@ export function turnViewFrom(
     now = Date.now(),
     working = false,
     clockOffset = 0,
+    liveRuns = false,
     statusCards = false,
-  }: { now?: number; working?: boolean; clockOffset?: number; statusCards?: boolean } = {},
+  }: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; statusCards?: boolean } = {},
   previous?: TurnView,
 ): TurnView {
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   let reuse = 0;
-  if (previous && previous.expanded === expanded && previous.clockOffset === clockOffset && previous.starts.length) {
+  if (
+    previous &&
+    previous.expanded === expanded &&
+    previous.clockOffset === clockOffset &&
+    previous.liveRuns === liveRuns &&
+    previous.starts.length
+  ) {
     const shared = previous.source;
     let from = 0;
     while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
@@ -169,11 +177,22 @@ export function turnViewFrom(
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
-    const shaped = shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!, statusCards);
+    const shaped = shapedTurn(
+      rows,
+      start,
+      end,
+      expanded,
+      working && last,
+      last,
+      clockOffset,
+      dated[at]!,
+      liveRuns,
+      statusCards,
+    );
     for (const row of shaped) out.push(row);
     ends.push(out.length);
   }
-  return { source: rows, expanded, clockOffset, lead, starts, times, dated, ends, rows: out };
+  return { source: rows, expanded, clockOffset, liveRuns, lead, starts, times, dated, ends, rows: out };
 }
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
@@ -200,6 +219,7 @@ function shapedTurn(
   last: boolean,
   clockOffset: number,
   dated: boolean,
+  liveRuns = false,
   statusCards = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
@@ -237,7 +257,7 @@ function shapedTurn(
     shaped = [
       ...date,
       user,
-      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, statusCards),
+      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns, statusCards),
       ...held,
     ];
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
@@ -273,6 +293,7 @@ function shapeTurn(
   last: boolean,
   retryable: boolean,
   clockOffset = 0,
+  liveRuns = false,
   statusCards = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
@@ -282,7 +303,7 @@ function shapeTurn(
   // summary, so it draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, statusCards)
+      ? liveTurn(user, turn, clockOffset, liveRuns, statusCards)
       : last
         ? turn
         : settledWithoutSummary(user, turn, expanded);
@@ -419,8 +440,15 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 /// The client's empty "typing" placeholder gives way to it.
 /// With the agent.sessionStatus Debug toggle on (`statusCards`) and a todo list, the list sits under the work as a card instead, and the activity
 /// line under it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
-function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, statusCards = false): AcpmuxRow[] {
-  const rows = turn.filter((row) => row.kind !== "typing");
+function liveTurn(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  clockOffset: number,
+  liveRuns = false,
+  statusCards = false,
+): AcpmuxRow[] {
+  const drawn = turn.filter((row) => row.kind !== "typing");
+  const rows = liveRuns ? codexRuns(drawn) : drawn;
   const last = rows.at(-1);
   if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
   const answering = last.kind === "assistant";
@@ -463,6 +491,19 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   if (!path || tool.kind === "execute") return toolLabel(tool, text, (command) => command);
   const verb = toolLabel(tool, text, (command) => command).split(/\s+/, 1)[0];
   return `${verb} ${path.split("/").pop() || path}`;
+}
+
+/// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text
+/// followed settles into its summary line, as in an open "Worked for"; the run in flight
+/// (`inFlight`) shows only its newest call, so its line replaces itself instead of growing into a
+/// list. Each derived row's version moves with its drawn state.
+function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
+  return rows.map((row, index) => {
+    if (row.kind !== "activity" || isEdit(row)) return row;
+    return index === rows.length - 1
+      ? { ...row, inFlight: true, version: row.version * 4 + 1 }
+      : { ...row, settled: true, version: row.version * 4 + 2 };
+  });
 }
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
