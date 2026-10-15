@@ -44,10 +44,10 @@ final class CloudFirstRunPresenter {
         let model = self.model ?? makeModel()
         self.model = model
         let actions = CloudFirstRunSheetActions(
-            close: { [weak self] in self?.hide() },
+            close: { [weak self] in self?.close() },
             addSubscription: { [weak self] agent in self?.addSubscription(agent, preferredWindow: preferredWindow) },
             openSecrets: { [weak self] in
-                self?.hide()
+                self?.leave(for: .secrets, preferredWindow: preferredWindow)
                 CloudSecretsSheetPresenter.shared.present(preferredWindow: preferredWindow)
             }
         )
@@ -71,6 +71,69 @@ final class CloudFirstRunPresenter {
         } else {
             hostWindow = nil
             sheet.orderFrontFloating()
+        }
+    }
+
+    /// Cancel, Esc, or `debug.cloud_first_run.interact {action: cancel}`.
+    /// Before Go it cancels the tour, deleting the machine the tour started
+    /// (``CloudFirstRunModel/cancel()``); after Go it only hides, and the run
+    /// finishes and opens the agent.
+    func close() {
+        guard let model, !model.run.isBusy else {
+            hide()
+            return
+        }
+        model.cancel()
+        detour = nil
+        hide()
+        self.model = nil
+    }
+
+    /// Where the person went from the sheet before Go, so the tour comes
+    /// back by itself once that errand is done.
+    enum Detour {
+        /// Cloud Secrets: back on the next vault change.
+        case secrets
+        /// A subscription sign-in in a terminal: back once the key step is ready.
+        case subscription
+    }
+
+    private var detour: Detour?
+    private var detourWindow: NSWindow?
+    private var detourObserver: NSObjectProtocol?
+
+    /// Leaving the sheet for an errand counts as leaving before Go: a machine
+    /// the tour started is cleaned up rather than left running unattended,
+    /// and the machine step starts again when the tour comes back.
+    func leave(for detour: Detour, preferredWindow: NSWindow?) {
+        if let model, !model.run.isBusy { model.cancel() }
+        hide()
+        self.detour = detour
+        detourWindow = preferredWindow
+        if detourObserver == nil {
+            detourObserver = NotificationCenter.default.addObserver(
+                forName: CloudSecretsService.didChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.resumeAfterDetour(vaultChanged: true) }
+            }
+        }
+    }
+
+    fileprivate func resumeAfterDetour(vaultChanged: Bool) {
+        guard let detour, sheetWindow == nil, let model else { return }
+        let done: Bool
+        switch detour {
+        case .secrets: done = vaultChanged
+        case .subscription: done = model.keySource.isReady
+        }
+        guard done else { return }
+        self.detour = nil
+        if let detourObserver { NotificationCenter.default.removeObserver(detourObserver) }
+        detourObserver = nil
+        // Let the secrets sheet finish closing before attaching again.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.sheetWindow == nil else { return }
+            self.present(preferredWindow: self.detourWindow)
         }
     }
 
@@ -127,6 +190,7 @@ final class CloudFirstRunPresenter {
             Task { @MainActor in
                 guard let store, let model else { return }
                 model.refreshKeys()
+                CloudFirstRunPresenter.shared.resumeAfterDetour(vaultChanged: false)
                 followAccounts(store: store, model: model)
             }
         }
@@ -142,7 +206,7 @@ final class CloudFirstRunPresenter {
     /// same command the Cloud panel's New Account row runs. The tour hides so
     /// the terminal is usable, and resumes when reopened.
     private func addSubscription(_ agent: CloudFirstRunAgent, preferredWindow: NSWindow?) {
-        hide()
+        leave(for: .subscription, preferredWindow: preferredWindow)
         let provider = CoderouterProvider(id: agent.coderouterProviderID)
         let store = Self.coderouterStore()
         let destination = store.flatMap { $0.state.destination(for: $0.state.scope) }
@@ -212,6 +276,15 @@ final class CloudFirstRunPresenter {
                     }
                 )
             },
+            cancelCreate: {
+                guard let operationID = inFlightCreateOperationID else { return }
+                MachineCreateCoordinator.shared.cancel(operationID)
+            },
+            deleteMachine: { machineID in
+                // The app's shared delete: `vm rm` through the socket, with the
+                // delete coordinator's cleanup (Cloud Secrets forgets the machine).
+                CloudVMActionLauncher.shared.destroyMachineBestEffort(machineID)
+            },
             log: { line in
 #if DEBUG
                 cmuxDebugLog(line)
@@ -232,6 +305,9 @@ final class CloudFirstRunPresenter {
         return CloudFirstRunMachine.reusable(from: rows, hiddenIDs: hidden)
     }
 
+    /// The create the tour started, while it runs: what Cancel cancels.
+    private static var inFlightCreateOperationID: UUID?
+
     /// A default machine through the shared create coordinator, so the
     /// Machines panel shows the same pending row New Cloud Machine shows.
     private static func startMachineCreate(
@@ -245,6 +321,7 @@ final class CloudFirstRunPresenter {
             arguments: ["vm", "new", kind.cliFlag, "--focus", "false"]
         )
         return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { operationID, arguments, progress, completion in
+            inFlightCreateOperationID = operationID
             var cancellation: CloudVMActionLauncher.CancellationHandle?
             let didStart = MachineRowActions.openNewMachine(
                 arguments: arguments,
@@ -252,6 +329,7 @@ final class CloudFirstRunPresenter {
                 onOutput: progress,
                 onCompletion: { result in
                     MainActor.assumeIsolated {
+                        if inFlightCreateOperationID == operationID { inFlightCreateOperationID = nil }
                         completion(result)
                         machineCreateFinished(result, finished: finished)
                     }
@@ -267,6 +345,10 @@ final class CloudFirstRunPresenter {
         finished: @escaping @MainActor (Result<CloudFirstRunMachine, CloudFirstRunFailure>) -> Void
     ) {
         guard result.succeeded, !result.wasCancelled else {
+            // A cancel that raced the provider: never leave its machine behind.
+            if result.wasCancelled, let id = result.machineId {
+                CloudVMActionLauncher.shared.destroyMachineBestEffort(id)
+            }
             finished(.failure(machineFailure(result)))
             return
         }

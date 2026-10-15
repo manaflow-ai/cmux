@@ -39,6 +39,11 @@ final class CloudFirstRunModel {
             _ onOutput: @escaping @MainActor (String) -> Void,
             _ finished: @escaping @MainActor (_ status: Int32, _ output: String) -> Void
         ) -> Bool
+        /// Cancels the in-flight create this tour started (the coordinator
+        /// deletes the machine if the provider already made it).
+        var cancelCreate: @MainActor () -> Void = {}
+        /// Deletes a machine through the app's shared delete path.
+        var deleteMachine: @MainActor (_ machineID: String) -> Void = { _ in }
         var log: @MainActor (String) -> Void = { _ in }
         var now: @MainActor () -> Date = Date.init
     }
@@ -61,6 +66,24 @@ final class CloudFirstRunModel {
         case starting
         case ready(CloudFirstRunMachine)
         case failed(CloudFirstRunFailure)
+    }
+
+    /// Where the machine came from. Only a machine the tour itself started
+    /// is ever cleaned up; a reused one is never touched.
+    enum MachineOrigin: Equatable {
+        case none
+        case reused
+        case provisioning
+        case provisioned(machineID: String)
+    }
+
+    /// What cancelling did about the tour's own machine.
+    enum Cleanup: String, Equatable {
+        case none
+        /// The create was still running; it is cancelled, and a machine it
+        /// still produces is deleted the moment its id arrives.
+        case cancellingCreate = "cancelling_create"
+        case deleted
     }
 
     enum RunState: Equatable {
@@ -94,6 +117,8 @@ final class CloudFirstRunModel {
     private(set) var keyFailure: CloudFirstRunFailure?
     private(set) var machine: MachineState = .looking
     private(set) var run: RunState = .editing
+    private(set) var origin: MachineOrigin = .none
+    private(set) var lastCleanup: Cleanup = .none
     private(set) var progress = CloudFirstRunCloneProgress()
     private(set) var timeline: CloudFirstRunTimeline
     /// Bumped when the key field should take focus (Fix the Key).
@@ -106,6 +131,9 @@ final class CloudFirstRunModel {
     @ObservationIgnored private var teamProviders: Set<String> = []
     @ObservationIgnored private var pendingRepo: CloudOpenRepositoryReference?
     @ObservationIgnored private var hasStarted = false
+    /// Bumped by every machine start and by cancel, so a lookup or create
+    /// that finishes for an earlier start is recognized as stale.
+    @ObservationIgnored private var machineGeneration = 0
     /// The fleet read in flight and the key save in flight; tests await them.
     @ObservationIgnored private(set) var machineTask: Task<Void, Never>?
     @ObservationIgnored private(set) var keyTask: Task<Void, Never>?
@@ -209,26 +237,50 @@ final class CloudFirstRunModel {
     // MARK: Machine
 
     private func startMachine() {
+        machineGeneration &+= 1
+        let generation = machineGeneration
         machine = .looking
+        origin = .none
         machineTask = Task { [weak self] in
             guard let self else { return }
-            if let found = await self.backend.findReadyMachine() {
+            let found = await self.backend.findReadyMachine()
+            // Cancelled (or restarted) while the fleet read was out.
+            guard generation == self.machineGeneration else { return }
+            if let found {
+                self.origin = .reused
                 self.machineReady(found)
             } else {
-                self.createMachine()
+                self.createMachine(generation: generation)
             }
         }
     }
 
-    private func createMachine() {
+    private func createMachine(generation: Int) {
         machine = .starting
-        let started = backend.createMachine { [weak self] result in
+        origin = .provisioning
+        // Strong capture on purpose: the create's owner holds this callback
+        // until the create ends, so a cancelled tour still deletes a machine
+        // that arrives after the sheet is gone.
+        let started = backend.createMachine { result in
+            guard generation == self.machineGeneration else {
+                if case .success(let created) = result {
+                    self.backend.deleteMachine(created.id)
+                    self.lastCleanup = .deleted
+                    self.backend.log("cloud.firstRun.cleanup deleted=late")
+                }
+                return
+            }
             switch result {
-            case .success(let created): self?.machineReady(created)
-            case .failure(let failure): self?.machineFailed(failure)
+            case .success(let created):
+                self.origin = .provisioned(machineID: created.id)
+                self.machineReady(created)
+            case .failure(let failure):
+                self.origin = .none
+                self.machineFailed(failure)
             }
         }
         if !started {
+            origin = .none
             machineFailed(CloudFirstRunFailure(
                 reason: String(
                     localized: "cloud.firstRun.machine.couldNotStart",
@@ -382,6 +434,47 @@ final class CloudFirstRunModel {
             run = .editing
             return false
         }
+    }
+
+    // MARK: Cancel
+
+    /// Whether cancelling now deletes a machine this tour started: true until
+    /// an agent runs on it.
+    var cancelDeletesMachine: Bool {
+        guard !timeline.isFinished else { return false }
+        switch origin {
+        case .provisioning, .provisioned: return true
+        case .none, .reused: return false
+        }
+    }
+
+    /// The person left before any agent ran (Cancel, Esc, or a detour out of
+    /// the sheet before Go). A machine this tour started is deleted, or its
+    /// create cancelled, since nothing was set up on it; a reused machine is
+    /// left alone. Inputs stay, and ``start()`` starts the machine step
+    /// again. Deleting rather than pausing: a paused machine costs nothing,
+    /// but it would stay in the person's list as a machine they never asked
+    /// for, and a never-used one holds nothing worth keeping. No-op once an agent has started or while a Go is running.
+    func cancel() {
+        // After Go the run owns the machine: closing then is Hide, not cancel.
+        guard !timeline.isFinished, !run.isBusy else { return }
+        switch origin {
+        case .provisioned(let machineID):
+            backend.deleteMachine(machineID)
+            lastCleanup = .deleted
+        case .provisioning:
+            backend.cancelCreate()
+            lastCleanup = .cancellingCreate
+        case .none, .reused:
+            lastCleanup = .none
+        }
+        machineGeneration &+= 1
+        machineTask = nil
+        origin = .none
+        machine = .looking
+        hasStarted = false
+        run = .editing
+        backend.log(timeline.logLine() + " outcome=cancelled cleanup=\(lastCleanup.rawValue)")
     }
 
     /// The recovery the surface shows now, wherever the failure sits.

@@ -770,6 +770,8 @@ extension TerminalController {
         case "vm.secrets_list", "vm.secrets_set", "vm.secrets_rm", "vm.secrets_sync",
              "vm.secrets_status", "vm.secrets_link", "vm.secrets_unlink", "vm.secrets_check":
             return socketWorkerVMSecretsResponse(method: method, id: id, params: params)
+        case "vm.agent_readiness":
+            return socketWorkerVMAgentReadinessResponse(id: id, params: params)
         case "vm.terminal_rename":
             return socketWorkerVMTerminalRenameResponse(id: id, params: params)
         case "vm.tab_rename":

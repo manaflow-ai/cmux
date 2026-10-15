@@ -2112,6 +2112,8 @@ extension CMUXCLI {
         for line in vmSecretsPreflightWarnings(machine: selection.id, project: nil, directory: workDirectory, client: client) {
             cliWriteStderr(line + "\n")
         }
+        // Whether the agent has a credential at all (quick, no network, 5 s at most).
+        warnIfVMAgentNotReady(machine: selection.id, agent: agent, client: client)
         // Reported, not requested: the daemon starts the terminal in its own home and the
         // command cd's from there, so the CLI never has to know which user owns the machine.
         let agentDirectory = syncedRemoteDir ?? remoteStartDirectory

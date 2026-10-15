@@ -28,6 +28,12 @@ extension ShortcutAction {
             return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
         case .newCloudMachine:
             return String(localized: "shortcut.newCloudMachine.label", defaultValue: "New Cloud Machine")
+        case .openRepositoryInCloud:
+            return String(localized: "shortcut.openRepositoryInCloud.label", defaultValue: "Open Repository in Cloud")
+        case .openCloudSecrets:
+            return String(localized: "shortcut.openCloudSecrets.label", defaultValue: "Cloud Secrets")
+        case .toggleCloudPanel:
+            return String(localized: "shortcut.toggleCloudPanel.label", defaultValue: "Toggle Cloud Sidebar")
         case .saveLayoutTemplate:
             return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
         case .openFolder: return "Open Folder"

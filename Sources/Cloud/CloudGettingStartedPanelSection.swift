@@ -90,7 +90,10 @@ struct CloudGettingStartedPanelSection: View {
             openSecrets: bridge.openSecrets,
             createMachine: createMachine,
             openLocalAgent: { [weak viewModel] in viewModel?.launchCloudAgent(.claude) },
-            dismiss: dismiss
+            dismiss: dismiss,
+            startFirstAgent: {
+                CloudFirstRunPresenter.shared.present(preferredWindow: tabManager?.window)
+            }
         )
     }
 

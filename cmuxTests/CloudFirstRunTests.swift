@@ -207,6 +207,8 @@ struct CloudFirstRunModelTests {
         var cloneOutput: (@MainActor (String) -> Void)?
         var cloneFinished: (@MainActor (Int32, String) -> Void)?
         var logs: [String] = []
+        var deletedMachines: [String] = []
+        var cancelCreateCount = 0
         var clock = Date(timeIntervalSince1970: 0)
     }
 
@@ -235,6 +237,8 @@ struct CloudFirstRunModelTests {
                 fake.cloneFinished = finished
                 return true
             },
+            cancelCreate: { fake.cancelCreateCount += 1 },
+            deleteMachine: { fake.deletedMachines.append($0) },
             log: { fake.logs.append($0) },
             now: { fake.clock }
         ))
@@ -375,5 +379,110 @@ struct CloudFirstRunModelTests {
         fake.cloneFinished?(0, Self.receipt)
         #expect(started.map(\.agentTerminalID) == ["t-1"])
         #expect(!model.canGo)
+    }
+
+    // MARK: Cancel never leaves a surprise machine
+
+    @Test func cancelDeletesTheMachineTheTourStarted() async {
+        let fake = Fake()
+        let model = makeModel(fake)
+        model.start()
+        await model.machineTask?.value
+        #expect(model.origin == .provisioning)
+        #expect(model.cancelDeletesMachine)
+        fake.createFinished?(.success(CloudFirstRunMachine(id: "vm-new", name: "new")))
+        #expect(model.origin == .provisioned(machineID: "vm-new"))
+        #expect(model.cancelDeletesMachine)
+        model.cancel()
+        #expect(fake.deletedMachines == ["vm-new"])
+        #expect(model.lastCleanup == .deleted)
+        #expect(model.origin == .none)
+        #expect(!model.cancelDeletesMachine)
+        #expect(fake.logs.last?.hasSuffix("outcome=cancelled cleanup=deleted") == true)
+    }
+
+    @Test func cancelNeverTouchesAReusedMachine() async {
+        let fake = Fake()
+        fake.ready = CloudFirstRunMachine(id: "vm-mine", name: "mine")
+        let model = makeModel(fake)
+        model.start()
+        await model.machineTask?.value
+        #expect(model.origin == .reused)
+        #expect(!model.cancelDeletesMachine)
+        model.cancel()
+        #expect(fake.deletedMachines.isEmpty)
+        #expect(fake.cancelCreateCount == 0)
+        #expect(model.lastCleanup == .none)
+    }
+
+    @Test func createInFlightAtCancelIsDeletedWhenItsIdArrives() async {
+        let fake = Fake()
+        let model = makeModel(fake)
+        model.start()
+        await model.machineTask?.value
+        model.cancel()
+        #expect(fake.cancelCreateCount == 1)
+        #expect(model.lastCleanup == .cancellingCreate)
+        #expect(fake.deletedMachines.isEmpty)
+        // The provider finished anyway: the late machine goes, and the tour
+        // does not adopt it.
+        fake.createFinished?(.success(CloudFirstRunMachine(id: "vm-late", name: "late")))
+        #expect(fake.deletedMachines == ["vm-late"])
+        #expect(model.lastCleanup == .deleted)
+        #expect(model.readyMachine == nil)
+    }
+
+    @Test func lookupFinishingAfterCancelStartsNothing() async {
+        let fake = Fake()
+        let model = makeModel(fake)
+        model.start()
+        let lookup = model.machineTask
+        model.cancel()
+        await lookup?.value
+        #expect(fake.createCount == 0)
+        #expect(model.origin == .none)
+    }
+
+    @Test func machineIsKeptOnceTheAgentStarted() async {
+        let fake = Fake()
+        fake.team = ["claude"]
+        let model = makeModel(fake)
+        model.start()
+        await model.machineTask?.value
+        fake.createFinished?(.success(CloudFirstRunMachine(id: "vm-new", name: "new")))
+        model.useSampleRepo()
+        model.go()
+        fake.cloneFinished?(0, Self.receipt)
+        #expect(!model.cancelDeletesMachine)
+        model.cancel()
+        #expect(fake.deletedMachines.isEmpty)
+    }
+
+    @Test func cancelWhileGoIsRunningIsHideAndKeepsTheMachine() async {
+        let fake = Fake()
+        fake.team = ["claude"]
+        let model = makeModel(fake)
+        model.start()
+        await model.machineTask?.value
+        model.useSampleRepo()
+        model.go()
+        #expect(model.run == .waitingForMachine)
+        model.cancel()
+        #expect(fake.cancelCreateCount == 0)
+        fake.createFinished?(.success(CloudFirstRunMachine(id: "vm-new", name: "new")))
+        #expect(model.run == .cloning)
+        #expect(fake.deletedMachines.isEmpty)
+    }
+
+    @Test func reopeningAfterCancelStartsTheMachineAgain() async {
+        let fake = Fake()
+        let model = makeModel(fake)
+        model.start()
+        await model.machineTask?.value
+        model.cancel()
+        model.start()
+        await model.machineTask?.value
+        #expect(fake.createCount == 2)
+        #expect(model.origin == .provisioning)
     }
 }

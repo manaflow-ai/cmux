@@ -1488,6 +1488,7 @@ extension CMUXCLI {
         var agentTerminal: String?
         var agentSurface: String?
         if !setupFailed, let agent, let agentArgv {
+            warnIfVMAgentNotReady(machine: machine, agent: agent, client: client)
             let agentLabel = String(localized: "cli.vm.clone.phase.agent", defaultValue: "Agent")
             let agentStarted = Date()
             var agentParams: [String: Any] = [

@@ -549,7 +549,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // shell is replaced by one started in the checkout: nothing is typed into it.
         XCTAssertEqual(
             log.methods,
-            ["vm.list", "vm.secrets_sync", "vm.exec", "vm.workspace_new", "surface.new_terminal", "vm.terminal_close", "surface.new_terminal"],
+            ["vm.list", "vm.secrets_sync", "vm.exec", "vm.workspace_new", "surface.new_terminal", "vm.terminal_close", "vm.agent_readiness", "surface.new_terminal"],
             log.methods.description
         )
         let secrets = try XCTUnwrap(log.params(ofFirst: "vm.secrets_sync"))
@@ -749,7 +749,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             log.methods,
             ["vm.list", "vm.secrets_sync", "vm.exec", "vm.secrets_check", "vm.workspace_new", "vm.terminal_write",
-             "surface.new_terminal", "vm.terminal_wait", "vm.terminal_output", "surface.new_terminal"],
+             "surface.new_terminal", "vm.terminal_wait", "vm.terminal_output", "vm.agent_readiness", "surface.new_terminal"],
             "setup runs after the workspace and before the agent: \(log.methods)"
         )
         // The same exec that clones reads the manifest back (names and commands only).

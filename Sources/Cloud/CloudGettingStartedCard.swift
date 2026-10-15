@@ -13,6 +13,8 @@ struct CloudGettingStartedActions {
     /// Opens a local agent that knows the `cmux vm` CLI. nil hides the button.
     var openLocalAgent: (() -> Void)?
     var dismiss: () -> Void
+    /// Opens the first-run tour that does all three steps at once. nil hides it.
+    var startFirstAgent: (() -> Void)? = nil
 }
 
 /// The Cloud panel's "Get started" card, pinned under the machine list.
@@ -45,6 +47,9 @@ struct CloudGettingStartedCard: View {
                     ForEach(checklist.steps, id: \.self) { step in
                         stepRow(step)
                     }
+                }
+                if let startFirstAgent = actions.startFirstAgent, !checklist.isDone(.startAgent) {
+                    allAtOnceButton(startFirstAgent)
                 }
             }
         }
@@ -278,6 +283,30 @@ struct CloudGettingStartedCard: View {
     }
 
     // MARK: Controls
+
+    /// The one-surface shortcut through every step: key, machine and agent
+    /// in parallel (``CloudFirstRunSheet``). A quiet accent line under the
+    /// steps, so the checklist stays the card's structure.
+    private func allAtOnceButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(String(localized: "cloud.gettingStarted.allAtOnce", defaultValue: "Do all three at once\u{2026}"))
+                    .cmuxFont(size: 11, weight: .medium)
+            }
+            .foregroundStyle(Color.accentColor)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(String(
+            localized: "cloud.gettingStarted.allAtOnce.help",
+            defaultValue: "Starts a machine, checks your key and starts an agent on a repository, usually in under a minute."
+        ))
+        .padding(.leading, 21)
+        .padding(.top, 6)
+        .accessibilityIdentifier("CloudGettingStartedAllAtOnceButton")
+    }
 
     /// A small bordered button sized to its label (Cursor's neutral fill).
     private func compactButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {

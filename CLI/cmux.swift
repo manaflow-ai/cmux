@@ -7312,6 +7312,11 @@ struct CMUXCLI {
                         }
                     }
                 }
+                // A bare `cmux vm` is someone looking around: one next step, on
+                // stderr and only at a terminal (CMUXCLI+CloudTeaching.swift).
+                if commandArgs.isEmpty {
+                    Self.printCLITeachingHint(Self.vmBareListNextLine(machines: rows.map { (address: $0.1, state: $0.2) }))
+                }
 
             case "open", "port":
                 // Three forms, one resolver (see vmOpenUsage):
@@ -8069,6 +8074,9 @@ struct CMUXCLI {
             case "agent":
                 try runVMAgentCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "doctor":
+                try runVMDoctorCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "clone":
                 try runVMCloneCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
@@ -8145,7 +8153,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|doctor|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -21307,7 +21315,7 @@ struct CMUXCLI {
                 """
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|doctor|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             \(quickStart)
 
@@ -21342,6 +21350,9 @@ struct CMUXCLI {
               agent --agent <claude|codex|opencode|pi> [--machine <id>] [--wait] -- <prompt>
                                         Start a coding agent in a detached terminal on a
                                         routed machine; reattach with `vm open`.
+              doctor <machine> [--agent <name>] [--probe]
+                                        Check each agent's install, credential, and
+                                        endpoint; --probe tests each key with its provider.
               run [--sync] [--machine <id>] [--new] -- <command...>
                                         Run a command on a routed pool machine and pass its
                                         exit code through.

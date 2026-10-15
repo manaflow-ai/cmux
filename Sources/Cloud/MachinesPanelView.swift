@@ -253,6 +253,12 @@ struct MachinesPanelView: View {
                 tabManager: tabManager,
                 dismissals: bannerDismissals
             )
+            // At most one contextual tip, and only when Get started is gone.
+            CloudHintsPanelSection(
+                viewModel: viewModel,
+                dismissals: bannerDismissals,
+                presentation: teamPickerPresentation
+            )
         }
     }
 
@@ -313,6 +319,7 @@ struct MachinesPanelView: View {
             isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
             onRefresh: refreshMachines,
             onNewMachine: requestNewMachine,
+            teachingHelp: CloudTeachingHelpContext.bound(viewModel: viewModel, tabManager: tabManager),
             status: { cloudStatus }
         )
         .disabled(activationCoordinator.isPreparing)
@@ -745,6 +752,26 @@ struct MachinesPanelView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
+                if viewModel.plan?.isPaidPlan != false {
+                    // The 60-second path: key, machine and agent in one surface.
+                    // An empty machine stays one quiet click away.
+                    Button {
+                        CloudFirstRunPresenter.shared.present(preferredWindow: tabManager?.window)
+                    } label: {
+                        Text(String(localized: "machines.empty.firstAgent", defaultValue: "Start Your First Agent"))
+                            .cmuxFont(size: 12)
+                    }
+                    .cloudProminentButtonStyle()
+                    .controlSize(.small)
+                    .padding(.top, 2)
+                    .accessibilityIdentifier("CloudMachinesEmptyStateFirstAgent")
+                    Button { requestNewMachine() } label: {
+                        Text(String(localized: "machines.empty.createEmpty", defaultValue: "New Empty Machine"))
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                } else {
                 Button {
                     requestNewMachine()
                 } label: {
@@ -754,6 +781,7 @@ struct MachinesPanelView: View {
                 .cloudProminentButtonStyle()
                 .controlSize(.small)
                 .padding(.top, 2)
+                }
                 if let plan = viewModel.plan, !plan.isPaidPlan {
                     // The upgrade nudge under the create button: same Pro flow
                     // as the header count's at-limit tooltip and the ＋ at the ceiling.

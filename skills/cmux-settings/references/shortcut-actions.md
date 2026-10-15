@@ -47,11 +47,14 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newCloudMachine`
 - `shortcuts.bindings.newCloudWorkspace`
 - `shortcuts.bindings.newWorkspaceGroup`
+- `shortcuts.bindings.openCloudSecrets`
+- `shortcuts.bindings.openRepositoryInCloud`
 - `shortcuts.bindings.renameWorkspace`
 - `shortcuts.bindings.reopenClosedBrowserPanel`
 - `shortcuts.bindings.reopenClosedWorkspace`
 - `shortcuts.bindings.saveLayoutTemplate`
 - `shortcuts.bindings.selectWorkspaceByNumber`
+- `shortcuts.bindings.toggleCloudPanel`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
 
 ## Panes and surfaces

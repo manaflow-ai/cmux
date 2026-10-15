@@ -21,6 +21,7 @@ extension CMUXCLI {
         case "run": return vmRunUsage
         case "route": return vmRouteUsage
         case "agent": return vmAgentUsage
+        case "doctor": return vmDoctorUsage
         case "clone", "repo": return vmCloneUsage
         case "push", "upload": return vmPushUsage
         case "pull", "download": return vmPullUsage

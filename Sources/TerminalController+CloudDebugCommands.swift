@@ -12,6 +12,7 @@ import Foundation
 /// - `debug.cloud_getting_started.state`
 /// - `debug.cloud_getting_started.interact {action: dismiss|press_current|copy_command}`
 /// - `debug.cloud_panel.show`
+/// - `debug.cloud_first_run.show` / `.state` / `.interact {action, value?}`
 ///
 /// They run on the main-actor lane because every one reads or presents AppKit
 /// and SwiftUI model state. Responses carry names and labels, never a secret
@@ -24,6 +25,9 @@ extension TerminalController {
         "debug.cloud_getting_started.state",
         "debug.cloud_getting_started.interact",
         "debug.cloud_panel.show",
+        "debug.cloud_first_run.show",
+        "debug.cloud_first_run.state",
+        "debug.cloud_first_run.interact",
     ]
 
     nonisolated static func isCloudDebugMethod(_ method: String) -> Bool {
@@ -48,6 +52,8 @@ extension TerminalController {
             return v2DebugCloudGettingStartedInteract(id: id, params: params)
         case "debug.cloud_panel.show":
             return v2DebugCloudPanelShow(id: id)
+        case "debug.cloud_first_run.show", "debug.cloud_first_run.state", "debug.cloud_first_run.interact":
+            return v2DebugCloudFirstRun(id: id, method: method, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }

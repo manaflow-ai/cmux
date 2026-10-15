@@ -8,7 +8,8 @@ import Foundation
 /// - `debug.cloud_first_run.show` presents it (the Get started card's path);
 /// - `debug.cloud_first_run.state` reads steps, phases and timings;
 /// - `debug.cloud_first_run.interact {action, value?}` with `set_agent`,
-///   `set_repo`, `use_sample`, `set_prompt`, `set_key`, `go`, `recover`, `hide`.
+///   `set_repo`, `use_sample`, `set_prompt`, `set_key`, `go`, `recover`, `hide`,
+///   `cancel` (the Cancel button).
 ///
 /// State carries names, phases and durations. A typed key is reported only as
 /// `key_typed: true`; its value is never read back.
@@ -23,6 +24,8 @@ enum CloudFirstRunDebugProbe {
         case go
         case recover
         case hide
+        /// The Cancel button: cancels before Go (cleaning up the tour's machine), hides after.
+        case cancel
     }
 
     static func state(presenter: CloudFirstRunPresenter) -> [String: Any] {
@@ -43,6 +46,14 @@ enum CloudFirstRunDebugProbe {
         result["run"] = runName(model.run)
         result["clone_phases_finished"] = model.progress.finishedPhases
         result["can_go"] = model.canGo
+        result["machine_origin"] = originName(model.origin)
+        if case .provisioned(let machineID) = model.origin {
+            result["provisioned_machine"] = machineID
+        } else {
+            result["provisioned_machine"] = NSNull()
+        }
+        result["cancel_deletes_machine"] = model.cancelDeletesMachine
+        result["cleanup"] = model.lastCleanup.rawValue
         var steps: [String: String] = [:]
         for step in CloudFirstRunModel.Step.allCases {
             steps[step.rawValue] = stepName(model.state(of: step))
@@ -78,6 +89,10 @@ enum CloudFirstRunDebugProbe {
             presenter.hide()
             return .applied
         }
+        if action == .cancel {
+            presenter.close()
+            return .applied
+        }
         guard let model = presenter.currentModel else {
             return .ignored("the tour is not active; call debug.cloud_first_run.show first")
         }
@@ -101,13 +116,23 @@ enum CloudFirstRunDebugProbe {
         case .recover:
             guard let failure = model.currentFailure else { return .ignored("nothing has failed") }
             if !model.perform(failure.recovery), failure.recovery == .addGitHubToken {
-                presenter.hide()
-                CloudSecretsSheetPresenter.shared.present(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+                let window = NSApp.keyWindow ?? NSApp.mainWindow
+                presenter.leave(for: .secrets, preferredWindow: window)
+                CloudSecretsSheetPresenter.shared.present(preferredWindow: window)
             }
-        case .hide:
+        case .hide, .cancel:
             break
         }
         return .applied
+    }
+
+    private static func originName(_ origin: CloudFirstRunModel.MachineOrigin) -> String {
+        switch origin {
+        case .none: return "none"
+        case .reused: return "reused"
+        case .provisioning: return "provisioning"
+        case .provisioned: return "provisioned"
+        }
     }
 
     private static func keySourceName(_ source: CloudFirstRunKeySource) -> String {

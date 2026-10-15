@@ -98,6 +98,10 @@ struct CloudSecretsSheet: View {
             if model.isMachineMode {
                 CloudSecretsMachineStatusView(model: model)
             }
+            if let machineID = model.machineID {
+                CloudAgentReadinessSection(sheet: model, machineID: machineID)
+                    .id(machineID)
+            }
         }
     }
 

@@ -151,6 +151,7 @@ extension TerminalController {
             "vm.secrets_link",
             "vm.secrets_unlink",
             "vm.secrets_check",
+            "vm.agent_readiness",
             "vm.file_put",
             "vm.reflection",
             "vm.open_port",

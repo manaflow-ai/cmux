@@ -380,10 +380,7 @@ struct CloudFirstRunSheet: View {
                 actions.close()
             }
             .keyboardShortcut(.cancelAction)
-            .help(model.run.isBusy ? String(
-                localized: "cloud.firstRun.hide.help",
-                defaultValue: "The agent keeps starting and opens when it is ready."
-            ) : "")
+            .help(cancelHelp)
             .accessibilityIdentifier("CloudFirstRunCancelButton")
             Button {
                 model.go()
@@ -402,6 +399,26 @@ struct CloudFirstRunSheet: View {
             .disabled(!model.canGo)
             .accessibilityIdentifier("CloudFirstRunGoButton")
         }
+    }
+}
+
+extension CloudFirstRunSheet {
+    /// One line on what Cancel does to the machine: Hide keeps it for the
+    /// run; before Go, a machine this tour started is deleted with the tour.
+    var cancelHelp: String {
+        if model.run.isBusy {
+            return String(
+                localized: "cloud.firstRun.hide.help",
+                defaultValue: "The agent keeps starting and opens when it is ready."
+            )
+        }
+        if model.cancelDeletesMachine {
+            return String(
+                localized: "cloud.firstRun.cancel.deletesMachine.help",
+                defaultValue: "Cancel and delete the machine this started (nothing was set up on it yet)."
+            )
+        }
+        return String(localized: "cloud.firstRun.cancel.help", defaultValue: "Close without starting an agent.")
     }
 }
 

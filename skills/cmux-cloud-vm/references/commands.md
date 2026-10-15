@@ -630,6 +630,15 @@ cmux secrets …                                       # alias of `cmux vm secre
 
 The vault lives in this Mac's Keychain (this device only). Scopes: `all` (every machine), `project:<host/owner/repo>` (machines linked to that git remote), `machine:<id>`; the most specific wins on a name clash. Delivery uses the same end-to-end path as `vm env set` (the machine's `cmux env receive`, into `~/.config/cmux/env`), so values never pass through cmux servers; removal runs the names-only `cmux env rm`. When `GH_TOKEN` or `GITHUB_TOKEN` is delivered, git's GitHub credential helper is set to read it from the environment. New machines are synced on creation and machines already synced are updated after every change unless auto-sync is off; `vm agent` syncs its machine (linking the `--cwd` project) before the agent starts and warns instead of failing. Open a new terminal to pick up changed values.
 
+## Agent readiness (`cmux vm doctor`)
+
+```bash
+cmux vm doctor <id> [--agent claude|codex|opencode|pi|gh] [--probe] [--json]
+                                                     # AGENT · CREDENTIAL · ENDPOINT · STATUS, then one Fix: line per problem; exit 1 when one needs a fix
+```
+
+For each agent CLI on the machine (`gh` covers `gh` and git over HTTPS): whether it is installed (version from the image), which credential its next launch uses (a key from Cloud Secrets or `vm env set`, its own sign-in, cmux model routing, its own config, or none), and where that credential goes: the key's own provider, cmux model routing, or an endpoint of the user's (shown by host only). A user's key bound for cmux model routing is a problem whose fix is `cmux vm secrets sync <id>` (Cloud Secrets' routing guard). `--probe` also sends each key to its own provider in one minimal, no-cost request (a models or rate-limit listing at a constant https URL, on curl's stdin, never in argv) and reports only the HTTP status: "Key rejected by Anthropic (401)" comes with `Fix: Replace it in Cloud Secrets: cmux vm secrets set ANTHROPIC_API_KEY`. A key bound for cmux model routing or for the user's own endpoint is never sent. The check is one names-only script over `vm.exec` (socket method `vm.agent_readiness {id, agent?, probe?, fast?}`, also behind the Cloud Secrets sheet's Agents section): no value is in its command, its output, or anything printed. `vm agent` and `vm clone --agent` run its quick form (`fast`: no network on the machine, 5 s at most) before they start the agent and print one `Warning: <agent> may not start: … Fix: …` line on stderr when it has no usable credential; they never wait or fail on it.
+
 ## Open a repo (`cmux vm clone`)
 
 ```bash

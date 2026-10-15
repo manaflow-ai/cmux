@@ -199,6 +199,7 @@ enum CloudMenuContent {
             .action(CloudMenuAction(
                 id: "cloud.openRepository",
                 title: String(localized: "cloudOpenRepository.menu", defaultValue: "Open Repository in Cloud…"),
+                shortcut: .openRepositoryInCloud,
                 perform: actions.openRepository
             )),
             .action(CloudMenuAction(
@@ -215,11 +216,13 @@ enum CloudMenuContent {
             .action(CloudMenuAction(
                 id: "cloud.secrets",
                 title: String(localized: "cloudSecrets.menu.app", defaultValue: "Cloud Secrets\u{2026}"),
+                shortcut: .openCloudSecrets,
                 perform: actions.showSecrets
             )),
             .action(CloudMenuAction(
                 id: "cloud.showMachines",
                 title: String(localized: "cloudMenu.showMachines", defaultValue: "Show Machines Sidebar"),
+                shortcut: .toggleCloudPanel,
                 perform: actions.showMachines
             )),
             dashboardEntry(actions),

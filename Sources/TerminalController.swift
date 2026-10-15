@@ -423,7 +423,7 @@ class TerminalController {
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.native_pricing.show",
-        "debug.cloud_secrets.show", "debug.cloud_panel.show",
+        "debug.cloud_secrets.show", "debug.cloud_panel.show", "debug.cloud_first_run.show",
         "debug.notification.focus",
         "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",

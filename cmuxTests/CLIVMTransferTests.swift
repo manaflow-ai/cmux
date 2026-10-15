@@ -1152,7 +1152,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // Cloud Secrets and checks repo-declared names (best effort; this mock answers
         // none of them), then launches and waits.
         XCTAssertEqual(
-            log.methods.filter { !$0.hasPrefix("vm.secrets_") },
+            log.methods.filter { !$0.hasPrefix("vm.secrets_") && $0 != "vm.agent_readiness" },
             ["vm.status", "surface.new_terminal", "vm.terminal_wait_exit", "vm.terminal_wait_exit", "vm.terminal_output", "vm.terminal_output"],
             log.methods.description
         )
