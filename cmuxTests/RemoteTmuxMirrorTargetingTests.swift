@@ -788,7 +788,11 @@ struct RemoteTmuxMirrorTargetingTests {
             .commandResult(commandNumber: 0, lines: [], isError: false)
         )
         connection.handleMessageForTesting(
-            .commandResult(commandNumber: 1, lines: [], isError: false)
+            .commandResult(
+                commandNumber: 1,
+                lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] main"],
+                isError: false
+            )
         )
 
         #expect(connection.paneTitleSubscriptionActive)
@@ -817,9 +821,36 @@ struct RemoteTmuxMirrorTargetingTests {
             .commandResult(commandNumber: 0, lines: [], isError: false)
         )
         connection.handleMessageForTesting(
-            .commandResult(commandNumber: 1, lines: [], isError: false)
+            .commandResult(
+                commandNumber: 1,
+                lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] main"],
+                isError: false
+            )
         )
         #expect(connection.paneTitleSubscriptionActive)
+        // The valid topology queues ordinary setup and its pane-rect fetch
+        // before the watcher. Drain only those known setup commands; a second
+        // tracked request would be a fixture error rather than a watcher reply.
+        drainSetup: while let kind = connection.pendingCommandKindsForTesting.first {
+            switch kind {
+            case .other:
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2, lines: [], isError: false
+                ))
+            case .paneRects:
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2,
+                    lines: ["%0 0 0 80 24 1 off :0 \"host\""],
+                    isError: false
+                ))
+            default:
+                break drainSetup
+            }
+        }
+        guard case .tracked(_) = try #require(connection.pendingCommandKindsForTesting.first) else {
+            Issue.record("expected the pane-title watcher at the command FIFO head; FIFO: \(connection.pendingCommandKindsForTesting)")
+            return
+        }
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 2, lines: ["unknown option"], isError: true
         ))
