@@ -19,8 +19,10 @@ const DESCRIPTION: &str = "Long-poll what changes in cmux instead of polling age
     (default 30, at most 60) for the first one; an empty answer is timed_out true, not an \
     error. The server answers one call at a time, so a wait holds this connection's other \
     calls. Tab, workspace, notification and terminal agent events come from the daemon's \
-    journal; dialogs and agent chat states are read from the app every second. A kind \
-    reset says the daemon restarted or the cursor expired: read agents_snapshot again. \
+    journal; dialogs and agent chat states are read from the app every second, so one \
+    that opens and resolves between two reads is missed, and their baseline is the first \
+    app read that answers. A kind reset says the daemon restarted, the cursor expired or \
+    grew too large: read agents_snapshot again. \
     Events carry ids, states and short titles only (no terminal text, chat text or tool \
     input); notification text is cut (truncated true). Changes nothing.";
 

@@ -39,6 +39,8 @@ const TICK: Duration = Duration::from_millis(200);
 const SETTLE: Duration = Duration::from_millis(200);
 /// Even a call with timeout 0 reads the events already pending.
 const CATCH_UP: Duration = Duration::from_millis(500);
+/// Less time than this left for an app read: skip it.
+const MIN_APP_READ: Duration = Duration::from_millis(50);
 const TITLE_CHARS: usize = 80;
 const BODY_CHARS: usize = 160;
 const CURSOR_PREFIX: &str = "evc1_";
@@ -82,6 +84,9 @@ struct Cursor {
     /// Agent chat tab id to state; `None` until the app answers once.
     #[serde(rename = "c", default, skip_serializing_if = "Option::is_none")]
     chats: Option<BTreeMap<String, String>>,
+    /// A reset the caller has not got yet (an answer was full).
+    #[serde(rename = "x", default, skip_serializing_if = "Option::is_none")]
+    reset: Option<String>,
 }
 
 /// The journal batch after `revision` in `generation`, of which the first
@@ -210,11 +215,14 @@ pub(in crate::cli) fn run<B: Backend>(
     session: Option<&str>,
     request: &EventsRequest,
 ) -> Result<Value, AgentFailure> {
-    let deadline = Instant::now() + request.timeout;
-    let mut poll = Poll::new(request);
+    let started = Instant::now();
+    let deadline = started + request.timeout;
+    // No read outlasts this: the timeout, or a short catch-up for timeout 0.
+    let mut poll = Poll::new(request, deadline.max(started + CATCH_UP));
     match &request.after {
         Some(after) => {
             poll.cursor = after.clone();
+            poll.flush_reset();
             poll.check_app(backend, session);
         }
         // From now: the daemon's journal position and agents, and the app's
@@ -236,10 +244,11 @@ pub(in crate::cli) fn run<B: Backend>(
         }
     }
     poll.stream(backend, session, deadline);
+    let next_after = poll.fit_cursor();
     Ok(json!({
         "schema_version": 1,
         "events": poll.events,
-        "next_after": poll.cursor.encode(),
+        "next_after": next_after,
         "timed_out": poll.events.is_empty(),
         "sources": {"daemon": poll.daemon_seen, "app": poll.app_seen},
     }))
@@ -253,12 +262,12 @@ struct Poll<'a> {
     last_app: Instant,
     daemon_seen: bool,
     app_seen: bool,
-    /// The daemon refused the cursor: its snapshot restarts the journal.
-    reset: Option<&'static str>,
+    /// When the call's reads must end.
+    bound: Instant,
 }
 
 impl<'a> Poll<'a> {
-    fn new(request: &'a EventsRequest) -> Self {
+    fn new(request: &'a EventsRequest, bound: Instant) -> Self {
         Self {
             request,
             cursor: Cursor::default(),
@@ -267,14 +276,45 @@ impl<'a> Poll<'a> {
             last_app: Instant::now(),
             daemon_seen: false,
             app_seen: false,
-            reset: None,
+            bound,
         }
+    }
+
+    /// Adds the reset the cursor holds, unless the answer is full. Answers
+    /// whether none is left.
+    fn flush_reset(&mut self) -> bool {
+        let Some(reason) = self.cursor.reset.clone() else { return true };
+        let source = if reason == "cursor_too_large" { "cursor" } else { "daemon" };
+        if !self.push("reset", None, json!({"source": source, "reason": reason})) {
+            return false;
+        }
+        self.cursor.reset = None;
+        true
+    }
+
+    /// The cursor as `next_after`, within [`MAX_CURSOR_BYTES`]: past it,
+    /// the app's diff state (then the agents' states) is dropped and a
+    /// reset says so, since the next read starts from a new baseline.
+    fn fit_cursor(&mut self) -> String {
+        let fits =
+            |cursor: &Cursor| cursor.encode().len() - CURSOR_PREFIX.len() <= MAX_CURSOR_BYTES;
+        if fits(&self.cursor) {
+            return self.cursor.encode();
+        }
+        self.cursor.dialogs = None;
+        self.cursor.chats = None;
+        if !fits(&self.cursor) {
+            self.cursor.agents.clear();
+        }
+        self.cursor.reset = Some("cursor_too_large".into());
+        self.flush_reset();
+        self.cursor.encode()
     }
 
     /// Holds the daemon's stream from the cursor until an answer is ready;
     /// with no stream, reads the app every [`RECHECK`] until the deadline.
     fn stream<B: Backend>(&mut self, backend: &B, session: Option<&str>, deadline: Instant) {
-        let stream_until = deadline.max(Instant::now() + CATCH_UP);
+        let stream_until = self.bound;
         for _attempt in 0..2 {
             let from = self.cursor.daemon_param();
             let mut done = false;
@@ -292,7 +332,7 @@ impl<'a> Poll<'a> {
                         && self.cursor.daemon.is_some() =>
                 {
                     self.cursor.daemon = None;
-                    self.reset = Some("cursor_invalid");
+                    self.cursor.reset.get_or_insert_with(|| "cursor_invalid".into());
                 }
                 Err(_) => break,
             }
@@ -363,18 +403,15 @@ impl<'a> Poll<'a> {
     fn item(&mut self, item: &Value) -> bool {
         match item["kind"].as_str() {
             Some("snapshot") => {
+                // The reset is kept in the cursor until an answer has room.
                 let reason = item["reset_reason"].as_str().unwrap_or("initial");
-                let reason = self.reset.take().unwrap_or(reason);
-                if (self.cursor.daemon.is_some() || reason == "cursor_invalid")
-                    && reason != "initial"
-                    && !self.push("reset", None, json!({"source": "daemon", "reason": reason}))
-                {
-                    return false;
+                if self.cursor.daemon.is_some() && reason != "initial" {
+                    self.cursor.reset.get_or_insert_with(|| reason.to_owned());
                 }
                 self.cursor.agents = agent_states(&item["snapshot"]);
                 self.cursor.daemon =
                     daemon_cursor(&item["cursor"], 0).or(self.cursor.daemon.take());
-                true
+                self.flush_reset()
             }
             Some("delta") => {
                 let Some(next) = daemon_cursor(&item["cursor"], 0) else { return true };
@@ -499,26 +536,42 @@ impl<'a> Poll<'a> {
     /// cursor's. Answers whether the app answered.
     fn check_app<B: Backend>(&mut self, backend: &B, session: Option<&str>) -> bool {
         self.last_app = Instant::now();
-        let feed =
-            backend.app("feed.list", json!({"pending_only": true}), app::READ_TIMEOUT, None, false);
-        let topology = backend.app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false);
-        if feed.is_err() && topology.is_err() {
+        let feed = self.app_read(backend, "feed.list", json!({"pending_only": true}));
+        let topology = self.app_read(backend, "snapshot.get", json!({}));
+        if feed.is_none() && topology.is_none() {
             return false;
         }
         self.app_seen = true;
-        // The daemon's view of this session scopes what the app shows.
+        // The daemon's view of this session scopes what the app shows. When
+        // a daemon there was does not answer, nothing is diffed this time:
+        // an unscoped read would show other sessions' chats and dialogs.
         let daemon = backend.resource(session, snapshot_plan(), &[]);
+        if daemon.is_err()
+            && (session.is_some() || self.daemon_seen || self.cursor.daemon.is_some())
+        {
+            return true;
+        }
         let snapshot = compose_snapshot(
             daemon.map_err(mcp::agent_failure_value),
-            topology.as_ref().cloned().map_err(|_| Value::Null),
+            topology.clone().ok_or(Value::Null),
         );
-        if let Ok(feed) = &feed {
+        if let Some(feed) = &feed {
             self.diff_dialogs(&scoped_dialogs(feed, &snapshot));
         }
-        if topology.is_ok() {
+        if topology.is_some() {
             self.diff_chats(chat_states(&snapshot));
         }
         true
+    }
+
+    /// One app read, bounded by the time the call has left; `None` when it
+    /// fails or no time is left.
+    fn app_read<B: Backend>(&self, backend: &B, method: &str, params: Value) -> Option<Value> {
+        let left = self.bound.saturating_duration_since(Instant::now()).min(app::READ_TIMEOUT);
+        if left < MIN_APP_READ {
+            return None;
+        }
+        backend.app(method, params, left, None, false).ok()
     }
 
     fn diff_dialogs(&mut self, now: &[(String, &Value)]) {

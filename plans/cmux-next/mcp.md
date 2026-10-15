@@ -119,9 +119,14 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     resumes there. Tabs, workspaces, notifications and terminal agents come from the
     daemon's `session.events` journal, resumed from the cursor's revision; dialogs (the
     `agents_dialog_list` feed) and agent chat states (the app's tabs) have no event and
-    are read every second and diffed against the state the cursor carries (opaque:
-    `evc1_` and base64url JSON). Scoped like `agents_snapshot`: chat tabs and dialogs of
-    terminals or tabs outside the session are left out. Events carry ids, states and
+    are read every second (each read bounded by the call's time left) and diffed against
+    the state the cursor carries (opaque: `evc1_` and base64url JSON, at most 64 KiB).
+    So a dialog that opens and resolves between two reads is missed, and the baseline is
+    the first app read that answers. A cursor that would pass 64 KiB drops that state and
+    gives a `reset` (`cursor_too_large`); a reset that finds an answer full waits in the
+    cursor for the next call. Scoped like `agents_snapshot`: chat tabs and dialogs of
+    terminals or tabs outside the session are left out, and when a daemon there was does
+    not answer, the app is not diffed that time (nothing from other sessions leaks). Events carry ids, states and
     short titles; no terminal text, chat text or tool input, and notification title and
     body are cut to 80 and 160 characters (`truncated: true`). Kinds not asked for are
     skipped, not kept. Read-only;

@@ -137,7 +137,7 @@ cmux agents events --after evc1_… --timeout 60 --json    # the events since, o
 cmux agents events --after evc1_… --kind dialog --kind agent
 ```
 
-It prints `{events, next_after, timed_out}` and exits 0 either way; pass `next_after` back as `--after` for no gaps or duplicates. Kinds are `dialog`, `notification`, `tab`, `workspace` and `agent`; a `reset` event means the daemon restarted, so read `cmux agents snapshot` again. Without `--json` it prints one line per event and the cursor on stderr. The timeout is at most 60 s. The MCP tool `agents_events` takes the same arguments.
+It prints `{events, next_after, timed_out}` and exits 0 either way; pass `next_after` back as `--after` for no gaps or duplicates. Kinds are `dialog`, `notification`, `tab`, `workspace` and `agent`; a `reset` event means the daemon restarted or the cursor had to start over, so read `cmux agents snapshot` again. Dialogs and agent chat states are read every second, so one that opens and resolves between two reads is missed, and their baseline is the first app read that answers. Without `--json` it prints one line per event and the cursor on stderr. The timeout is at most 60 s. The MCP tool `agents_events` takes the same arguments.
 
 ## Notifications and attention
 
