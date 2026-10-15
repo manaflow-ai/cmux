@@ -32,6 +32,7 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
+              "tabs.hoverPreviews",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
               "tabs.tabBar.terminal",
@@ -2042,6 +2043,73 @@
     },
     {
       "accepts" : [
+        "compact",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.compact",
+            "text" : "Compact"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverPreviews.full",
+            "text" : "Full"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "full",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hoverPreviews.help",
+        "text" : "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hoverPreviews",
+      "keywords" : [
+        "tabs",
+        "hover",
+        "preview",
+        "card",
+        "tooltip",
+        "thumbnail",
+        "memory",
+        "compact"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "hoverPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.hoverPreviews",
+        "text" : "Hover Previews"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -2229,7 +2297,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.terminal",
@@ -2305,7 +2373,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.browser",
@@ -2381,7 +2449,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.agent",
@@ -23997,7 +24065,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fc56c4fea858de0e8912bfab9adf86bb9257dc12d1863f26beaa423157c7dd63",
+  "schema_hash" : "8da2515e9ff32966404b92f75efe81639270c507c75060f3f6c6c0db18db1a7f",
   "sections" : [
     {
       "id" : "general",
