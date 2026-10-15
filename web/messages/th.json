@@ -114,6 +114,16 @@
       "shapeMessage": "Go รองรับ 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "ใช้โควตาการประมวลผลของ {plan} หมดแล้ว",
+      "computeMessage": "แพ็กเกจ {plan} ของคุณใช้ชั่วโมงประมวลผล {included} ชั่วโมงของรอบการเรียกเก็บเงินนี้หมดแล้ว หนึ่งชั่วโมงประมวลผลคือ 1 vCPU พร้อมหน่วยความจำ 2 GB ทำงานหนึ่งชั่วโมง เครื่องของคุณจะเริ่มทำงานได้อีกครั้งในวันที่ {resetDate}",
+      "computeAction": "เครื่องที่หยุดชั่วคราวจะเก็บไฟล์ไว้ โปรดติดต่อฝ่ายสนับสนุนหากต้องการการประมวลผลเพิ่มก่อนวันที่ {resetDate}",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "ใช้โควตาดิสก์ของ {plan} หมดแล้ว",
+      "storageMessage": "แพ็กเกจ {plan} ของคุณมีดิสก์รวม {included} GB สำหรับเครื่องที่บันทึกไว้ทั้งหมด เครื่องที่บันทึกไว้ใช้ {used} GB และคำขอนี้ต้องการ {requested} GB",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "ทรัพยากร Cloud VM ไม่พอ",
       "memoryMessage": "VM ของคุณใช้ RAM ไปแล้ว {used} จาก {pool} GB VM นี้ต้องใช้ {requested} GB",
