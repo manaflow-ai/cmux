@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 public import CmuxBrowser
 public import CoreGraphics
 public import Foundation
@@ -145,6 +145,18 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
             x: Int32(clamping: Int(point.x.rounded())),
             y: Int32(clamping: Int((primaryScreenHeight - point.y).rounded()))
         )
+    }
+
+    /// Runs the extension keyboard shortcut (`chrome.commands`) matching a key
+    /// down in this page. cmux's window holds key focus, not Chromium's Views
+    /// focus manager, so the app routes these keys itself.
+    ///
+    /// - Parameter event: The key down.
+    /// - Returns: True when a shortcut ran (the key is consumed).
+    public func handleKeyDown(_ event: NSEvent) -> Bool {
+        let store = extensionStore
+        guard let command = store.command(matching: event) else { return false }
+        return store.run(command, in: self)
     }
 
     /// Chromium reported that the popup closed.

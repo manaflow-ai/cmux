@@ -63,6 +63,10 @@ public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     /// shows the Browser Engine row). Defaults to `false`.
     func isChromiumBrowserEngineBundled() -> Bool
 
+    /// Opens `chrome://extensions` in a Chromium browser tab of the selected
+    /// workspace (Settings > Browser > Chrome Extensions). Defaults to doing nothing.
+    func openBrowserExtensionsManagement()
+
     /// Opens the cmux JSON config file in the user's preferred
     /// external editor. The package's inline editor still works;
     /// this is the escape hatch for users who prefer their own

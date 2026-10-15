@@ -51,6 +51,13 @@ public final class CEFBrowserPage: BrowserPage {
         browser.onEvent = { [weak self] event in
             self?.handle(event)
         }
+        // Extension shortcuts first; other key routing installed later must call
+        // `extensionSupport?.handleKeyDown(_:)` before its own handling.
+        if extensionSupport != nil {
+            browser.keyDownHandler = { [weak self] event in
+                self?.extensionSupport?.handleKeyDown(event) ?? false
+            }
+        }
     }
 
     /// Always ``BrowserEngineKind/chromium``.
