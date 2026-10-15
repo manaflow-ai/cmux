@@ -5,7 +5,6 @@
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
 // pane after a real click; its icon is the site's favicon when cmux already has one.
 import type { ReactNode } from "react";
-import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
@@ -19,7 +18,6 @@ export function PathChip({ path, label, written }: { path: string; label?: React
 }
 
 function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
-  const t = useT();
   const { info, policy } = usePathInfo(path);
   const plain =
     info?.place === "denied" ||
@@ -32,7 +30,6 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
     <button
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
-      title={outside ? `${path}\n${t("chip.outsideProject")}` : path}
       data-path={path}
       onClick={() => void callChipHost("link.openPath", { path })}
     >
@@ -53,7 +50,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     (icon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />)
   );
   return (
-    <a className="cv-link cv-chip is-web" href={href} rel="noreferrer" title={href}>
+    <a className="cv-link cv-chip is-web" href={href} rel="noreferrer">
       {mark}
       <span className="cv-chip__label">{children}</span>
     </a>
