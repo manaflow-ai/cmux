@@ -89,9 +89,10 @@ nonisolated struct SessionTransferPeer: Sendable {
 
 /// Discovers live sibling builds and performs an acknowledge-then-close move.
 /// The destination creates every item first; a source is only asked to close
-/// after the corresponding destination operation succeeds. Reached only over
-/// the control socket (`session.transfer.peers` / `session.transfer.pull`),
-/// for scripts and agents; there is no migration UI.
+/// after the corresponding destination operation succeeds. A person runs it
+/// from the palette (Move Sessions from Another cmux Build…, `SessionMoveFromBuild`);
+/// scripts and agents use the control socket (`session.transfer.peers` /
+/// `session.transfer.pull`).
 @MainActor
 final class SessionTransferService {
     private(set) weak var services: AppServices?
