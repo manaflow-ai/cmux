@@ -134,7 +134,7 @@ jobs:
           if grep -Fxq 'ready=true' "$RUNNER_TEMP/artifact-check"; then
             # Bundle code runs only in the source run's secret-free verify jobs.
             # Publish a variant only when its verify job passed on this attempt.
-            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/attempts/$SOURCE_RUN_ATTEMPT/jobs?per_page=100" \
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
               --jq '.jobs[] | [.name, (.conclusion // "")] | @tsv' > "$RUNNER_TEMP/source-jobs.tsv"
             for variant in arm64 x86_64 universal; do
               if ! grep -Fxq "$(printf 'Verify signed nightly app (%s)\tsuccess' "$variant")" "$RUNNER_TEMP/source-jobs.tsv"; then
@@ -779,7 +779,7 @@ jobs:
         variant: [arm64, x86_64, universal]
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     env:
       CHANNEL: ${{ needs.preflight.outputs.channel }}
@@ -808,8 +808,8 @@ jobs:
           immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
           expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_dmg_sha256"])' "$manifest")"
           mkdir -p tested
-          ./scripts/ci/smoke-dmg.sh "verified/$immutable" "$CHANNEL" --expect-sha256 "$expected" \
-            | tail -n 1 | awk '$1 == "tested" {print $2 "  " $3}' > "tested/tested-${VARIANT}.sha256"
+          ./scripts/ci/smoke-dmg.sh "verified/$immutable" "$CHANNEL" --expect-sha256 "$expected" 3>"$RUNNER_TEMP/tested.line"
+          awk '$1 == "tested" {print $2 "  " $3}' "$RUNNER_TEMP/tested.line" > "tested/tested-${VARIANT}.sha256"
           test -s "tested/tested-${VARIANT}.sha256"
           cat "tested/tested-${VARIANT}.sha256"
 
@@ -865,7 +865,7 @@ jobs:
           merge-multiple: false
 
       - name: Download tested digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: cmux-${{ needs.preflight.outputs.channel }}-launch-tested-*-${{ needs.preflight.outputs.short_sha }}
           path: tested

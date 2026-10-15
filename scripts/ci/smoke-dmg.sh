@@ -5,8 +5,19 @@
 # notarization or publishing credential exists.
 #
 # Usage: smoke-dmg.sh <dmg> <channel> [--expect-sha256 HEX]
-# Prints "tested <sha256> <dmg name>" last, for the job that publishes it.
+# Writes "tested <sha256> <dmg name>" to fd 3 (or stdout), for the job that
+# publishes it; everything else goes to stderr so the job log keeps it.
+# A smoke that skips (an x86_64 app on a runner without Rosetta) is reported
+# as a warning, as the in-job smokes did before.
 set -euo pipefail
+# Logs go to stderr. Only the final "tested" line goes to fd 3 when the caller
+# opened it (smoke-dmg.sh ... 3>file), else to stdout.
+if { true >&3; } 2>/dev/null; then
+  exec 4>&3
+else
+  exec 4>&1
+fi
+exec 1>&2
 
 if [ "$#" -lt 2 ]; then
   echo "usage: $0 <dmg> <channel> [--expect-sha256 HEX]" >&2
@@ -18,7 +29,9 @@ shift 2
 EXPECTED=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --expect-sha256) EXPECTED="${2:-}"; shift 2 ;;
+    --expect-sha256)
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then echo "--expect-sha256 needs a value" >&2; exit 2; fi
+      EXPECTED="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -54,8 +67,15 @@ trap detach EXIT
 APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 [ -n "$APP" ] || { echo "No app found in $DMG" >&2; exit 1; }
 "$SPCTL_TOOL" -a -vv --type execute "$APP"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP"
+SMOKE_LOG="$(mktemp)"
+CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 2>&1 | tee "$SMOKE_LOG"
+CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 2>&1 | tee -a "$SMOKE_LOG"
+if grep -q '^SKIP: cannot smoke-launch' "$SMOKE_LOG"; then
+  # The same policy the in-job smokes had: an x86_64 app on a runner without
+  # Rosetta is an environment gap. The stapler, Gatekeeper, metadata and
+  # license checks still ran on this exact DMG.
+  echo "::warning::the launch smoke skipped $APP on this runner (no Rosetta); the static checks passed"
+fi
 "$VERIFY_METADATA_TOOL" "$APP" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP"
 detach
@@ -64,4 +84,4 @@ trap - EXIT
 # The DMG must be byte-identical after the smoke (it was mounted read-only).
 after="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 [ "$after" = "$actual" ] || { echo "$DMG changed during the smoke" >&2; exit 1; }
-echo "tested $actual $(basename "$DMG")"
+echo "tested $actual $(basename "$DMG")" >&4

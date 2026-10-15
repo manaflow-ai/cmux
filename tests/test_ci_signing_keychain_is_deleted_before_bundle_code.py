@@ -27,8 +27,8 @@ statically, so a reordered step fails in review and not on a release day:
    defers the sidecar handshake while the keychain exists, and every script
    that runs bundle code calls the runtime guard first.
 
-6. A job that holds a secret (a protected environment or any `secrets.`
-   reference) runs no bundle code at all, not only outside the keychain
+6. A job that holds signing, notarization or release-publishing material (or
+   runs in a release environment) runs no bundle code at all, not only outside the keychain
    window: a process that bundle code leaves running survives into the later
    steps of the same job. Bundle code runs in jobs without secrets on literal
    ephemeral runner labels. The notarization scripts run in such jobs only
@@ -63,12 +63,22 @@ BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
     re.compile(r"smoke-signed-app-cli\.sh"),
     re.compile(r"test_cli_version_memory_guard\.py"),
+    re.compile(r"scripts/ci/smoke-dmg\.sh"),
+    re.compile(r"install-cmux-tui-client\.sh"),
     re.compile(r"test_bundled_ghostty_theme_picker_helper\.sh"),
     re.compile(r"verify_remote_daemon_release\.py(?=.*--verify-cli)"),
     re.compile(r"verify-diff-sidecar-artifact\.sh(?!.*--static-only)"),
 ]
 LUT = re.compile(r"set-keychain-settings\s+-lut\s+(\d+)")
 SECRET_OR_TOKEN = re.compile(r"secrets\.|secrets\[|github\.token")
+# Rule 6 covers signing, notarization and release-publishing material, and
+# the protected environments that hold it. Build jobs that hold only a CI cache
+# or symbol-upload credential are out of scope.
+RELEASE_SECRET_REFERENCE = re.compile(
+    r"secrets(\.|\[\s*(format\(\s*)?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_"
+    r"|CONTENT_SIGNING_|CF_R2_|NIGHTLY_NEXT_R2_|HOMEBREW_TAP_TOKEN)"
+)
+RELEASE_ENVIRONMENT = re.compile(r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
 # The CodeRouter release signs one CLI binary with a keychain at an absolute
 # path and runs nothing from it; it keeps its own inline import.
 INLINE_DEVELOPER_ID_KEYCHAINS = {("coderouter-release.yml", "build")}
@@ -78,9 +88,6 @@ STEP_LEVEL_ONLY = {
     # Build, sign, notarize and publish are one job; the split into build,
     # sign, verify and publish jobs is a separate change.
     "release.yml build-sign-notarize",
-    # A one-time repair of a shipped release: its only bundle-code check runs
-    # on the shipped, already released app before the certificate import.
-    "repair-v0-64-25-helper-rpaths.yml repair",
 }
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(
@@ -130,8 +137,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     if created and not cleaned_up:
         failures.append(f"{name}: creates a signing keychain but no `if: always()` step deletes it")
 
-    holds_secrets = bool(job.get("environment")) or "secrets." in json.dumps(job.get("steps") or []) \
-        or "secrets." in json.dumps(job.get("env") or {})
+    holds_secrets = bool(RELEASE_SECRET_REFERENCE.search(json.dumps(job))) or bool(
+        RELEASE_ENVIRONMENT.search(json.dumps(job.get("environment") or "")))
     if holds_secrets and name not in STEP_LEVEL_ONLY:
         for step in steps:
             if not isinstance(step, dict):

@@ -1515,7 +1515,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || 'blacksmith-12vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -1629,11 +1629,6 @@ jobs:
           mkdir -p "$products"
           tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
 
-      # Provide node/npm explicitly. The build/sign/notarize job can land on a
-      # self-hosted macOS runner (the iOS-CI minis match the same label) that has
-      # no npm on PATH, so `npm install --global create-dmg` failed with
-      # "npm: command not found" and turned nightly red. setup-node makes the job
-      # self-sufficient on any runner instead of assuming a preinstalled npm.
       - name: Inject universal Ghostty CLI helper
         run: |
           set -euo pipefail
@@ -1821,9 +1816,6 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # download-artifact reads each blob over one connection. Fetch all three
-      # signing inputs over ranged HTTP concurrently, while retaining the
-      # action downloads as per-artifact fallbacks if a ranged request fails.
       - name: Download prepared app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -1843,6 +1835,11 @@ jobs:
           mkdir -p "$products"
           tar -C "$products" -xzf prepared-app/cmux-prepared-app.tar.gz
 
+      # Provide node/npm explicitly. The build/sign/notarize job can land on a
+      # self-hosted macOS runner (the iOS-CI minis match the same label) that has
+      # no npm on PATH, so `npm install --global create-dmg` failed with
+      # "npm: command not found" and turned nightly red. setup-node makes the job
+      # self-sufficient on any runner instead of assuming a preinstalled npm.
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -2432,7 +2429,7 @@ jobs:
     if: always() && needs.build-sign-notarize-nightly.result != 'skipped' && needs.build-sign-notarize-nightly.result != 'cancelled'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || 'blacksmith-12vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -2454,6 +2451,12 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: false
+
+      # nightly-next's license check reads ghostty-next/build.zig.zon.
+      - name: Initialize cmux-next notices submodule
+        if: github.ref_name == 'nightly-next'
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -2531,13 +2534,18 @@ jobs:
           set -euo pipefail
           mkdir -p tested
           : > "tested/tested-${NIGHTLY_VARIANT}.sha256"
-          found=0
+          release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
+          [ -f "$release" ] || { echo "no final DMG for $NIGHTLY_VARIANT" >&2; exit 1; }
+          ./scripts/ci/smoke-dmg.sh "$release" "$CHANNEL" 3>"$RUNNER_TEMP/tested.line"
+          tested="$(awk '$1 == "tested" {print $2}' "$RUNNER_TEMP/tested.line")"
+          [ -n "$tested" ] || { echo "smoke-dmg.sh reported no tested digest" >&2; exit 1; }
+          # The immutable DMG is a copy of the release DMG: require the same bytes.
           for dmg in final-dmg/"${CHANNEL_DMG_PREFIX}"-*.dmg; do
             [ -f "$dmg" ] || continue
-            found=1
-            ./scripts/ci/smoke-dmg.sh "$dmg" "$CHANNEL" | tail -n 1 | awk '$1 == "tested" {print $2 "  " $3}' >> "tested/tested-${NIGHTLY_VARIANT}.sha256"
+            actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+            [ "$actual" = "$tested" ] || { echo "$(basename "$dmg") differs from the DMG that was launched" >&2; exit 1; }
+            printf '%s  %s\n' "$actual" "$(basename "$dmg")" >> "tested/tested-${NIGHTLY_VARIANT}.sha256"
           done
-          [ "$found" = 1 ] || { echo "no final DMG for $NIGHTLY_VARIANT" >&2; exit 1; }
           cat "tested/tested-${NIGHTLY_VARIANT}.sha256"
 
       - name: Upload tested DMG digests

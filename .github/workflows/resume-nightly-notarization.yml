@@ -220,7 +220,7 @@ jobs:
     needs: resume
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     steps:
       - name: Checkout trusted continuation tools

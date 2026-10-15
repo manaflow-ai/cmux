@@ -16,7 +16,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # No environment and no secrets: the one check that runs bundle code (the
+  # diff sidecar handshake) runs on the shipped app here. Re-signing changes
+  # only the sidecar's signature; sign-cmux-bundle.sh repeats the static
+  # checks on the re-signed copy in the repair job.
+  verify-shipped:
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    env:
+      TARGET_TAG: v0.64.25
+    steps:
+      - name: Checkout repair tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Verify shipped diff sidecar runtime contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/shipped"
+          mkdir -p "$root/mount"
+          gh release download "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" --pattern cmux-macos.dmg --dir "$root" --clobber
+          hdiutil attach "$root/cmux-macos.dmg" -nobrowse -readonly -mountpoint "$root/mount" >/dev/null
+          trap 'hdiutil detach "$root/mount" >/dev/null 2>&1 || hdiutil detach -force "$root/mount" >/dev/null 2>&1 || true' EXIT
+          app="$(find "$root/mount" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          ./scripts/verify-diff-sidecar-artifact.sh \
+            "$app/Contents/Resources/bin/cmux-diff-sidecar" \
+            --archs "$(lipo -archs "$app/Contents/MacOS/cmux")" \
+            --require-signed
+
   repair:
+    needs: verify-shipped
     permissions:
       contents: write
     # Production secrets: GitHub releases them only to protected refs (the
@@ -96,18 +135,6 @@ jobs:
             test -x "$helper"
             echo "$helper: $(lipo -archs "$helper")"
           done
-
-      # The one check that runs bundle code (the diff sidecar handshake) runs
-      # here, on the shipped release app, before any signing secret is used in
-      # this job. Re-signing changes only the sidecar's signature, and
-      # sign-cmux-bundle.sh repeats the static checks on the re-signed copy.
-      - name: Verify shipped diff sidecar runtime contract
-        run: |
-          set -euo pipefail
-          ./scripts/verify-diff-sidecar-artifact.sh \
-            "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
-            --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
-            --require-signed
 
       # No step runs code from the bundle while this keychain exists. The DMG
       # step deletes it after the last signature.

@@ -236,7 +236,7 @@ jobs:
     # No environment and no secrets: this job runs the app's diff sidecar.
     needs: sign
     if: needs.sign.outputs.signed == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 15
     permissions:
       contents: read
