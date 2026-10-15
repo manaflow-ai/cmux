@@ -1882,7 +1882,6 @@ struct BrowserPanelView: View {
                     isVisible: isVisibleInUI && isCurrentPaneOwner,
                     shouldFocus: isFocused && !addressBarFocused,
                     onAttach: { contentView in panel.attachPageOverlays(contentView: contentView) },
-                    onVisibilityChange: { visible in panel.noteEnginePageVisibility(visible) },
                     onPageClicked: {
                         // As a click into a WebKit page: the pane takes focus
                         // and the address bar lets go.
@@ -1890,7 +1889,8 @@ struct BrowserPanelView: View {
                         if addressBarFocused {
                             setAddressBarFocused(false, reason: "chromiumPage.click")
                         }
-                    }
+                    },
+                    onVisibilityChange: { visible in panel.noteEnginePageVisibility(visible) }
                 )
             } else if panel.shouldAttachWebViewInUI {
                 WebViewRepresentable(
