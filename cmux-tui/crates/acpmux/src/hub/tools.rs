@@ -41,7 +41,7 @@ impl Hub {
         let mut cmux = if crate::agent_tools::left_out(remote, &profile.env, args) {
             Vec::new()
         } else {
-            crate::agent_tools::current().tool_rows(claude, claude)
+            crate::agent_tools::current().scoped(&profile.env).tool_rows(claude, claude)
         };
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut cmux {

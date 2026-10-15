@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextHome
 import CmuxNextHomeEngine
 
 /// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions run in
@@ -59,14 +60,18 @@ extension AppActions {
         }
     }
 
-    /// `home.switchView {view?}`: the docked Home shows `view` (the other one when absent), with
-    /// the selection handed over. Classic Home has one view: refused there.
+    /// `home.switchView {view?}`: selects the sidebar's Home entry (`messages`) or Channels entry
+    /// (`channels`, the other one when absent): the docked Home shows that view, with the selection
+    /// handed over. The one path of the sidebar's Channels entry, the palette, the CLI and MCP. Refused
+    /// for Channels while it is off, and in classic Home (one view).
     static func switchHomeView(_ services: AppServices, _ invocation: ActionInvocation) {
-        guard !services.home.dock.isClassic else { return services.registry.refuse(HomeDockStrings.classicHasOneView) }
+        guard !services.home.dock.isClassic else { return services.registry.refuse(HomeDockMode.classicMessage) }
         let named = invocation["view"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let view = named.flatMap(HomeDockView.Mode.init(rawValue:))
-        guard named == nil || view != nil else { return services.registry.refuse(HomeDockStrings.invalidView) }
-        withDock(services) { $0.switchTo(view) }
+        guard named == nil || view != nil else { return services.registry.refuse(HomeDockMode.invalidViewMessage) }
+        let target = view ?? services.home.dockMode.other
+        guard target.isEnabled else { return services.registry.refuse(HomeDockMode.channelsOffMessage) }
+        withDock(services) { $0.switchTo(target) }
     }
 }
 

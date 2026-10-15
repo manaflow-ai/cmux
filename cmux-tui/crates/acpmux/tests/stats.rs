@@ -672,3 +672,50 @@ fn stats_branches_skip_a_turn_a_fork_copied_while_it_ran() {
                 "workingMs": 10 * MIN, "costUsd": 0.25}])
     );
 }
+
+#[test]
+fn stats_totals_count_a_forks_copied_turns_once() {
+    let store = MemoryStore::default();
+    let updated = DAY0 + 12 * HOUR;
+    let mut parent = session(&store, meta("parent", "claude", "ready", updated));
+    let mut fork = session(&store, meta("fork", "claude", "ready", updated));
+    // A fork's log starts with copies of its parent's prompts, tool calls
+    // and turns, at their times, then its `forked` record.
+    for log in [&mut parent, &mut fork] {
+        log.turn(DAY0 + HOUR, DAY0 + HOUR + 30 * MIN, json!({}));
+        log.push(DAY0 + HOUR + MIN, "in", "tool_call", json!({}));
+        log.turn(DAY0 + 2 * HOUR, DAY0 + 2 * HOUR + 20 * MIN, json!({}));
+    }
+    fork.push(DAY0 + 5 * HOUR, "mux", "forked", json!({"parentId": "parent", "forkSeq": 9}));
+    fork.turn(DAY0 + 6 * HOUR, DAY0 + 6 * HOUR + 15 * MIN, json!({}));
+
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    assert_eq!(s.sessions, 2);
+    assert_eq!((s.turns, s.turns_completed), (3, 3));
+    assert_eq!((s.prompts, s.steers, s.tool_calls), (3, 0, 1));
+    assert_eq!(s.working_ms, 65 * MIN);
+    assert_eq!((s.hours[1], s.hours[2], s.hours[6]), (30 * MIN, 20 * MIN, 15 * MIN));
+    assert_eq!(s.days.len(), 1);
+    assert_eq!((s.days[0].turns, s.days[0].working_ms), (3, 65 * MIN));
+    assert_eq!((s.harnesses[0].sessions, s.harnesses[0].turns), (2, 3));
+    assert_eq!(s.harnesses[0].working_ms, 65 * MIN);
+    // The copies overlap the parent's turns in time, but no agent ran them.
+    assert_eq!(s.peak_parallel, 1);
+}
+
+#[test]
+fn stats_a_forks_copies_do_not_count_once_its_parent_is_gone() {
+    let store = MemoryStore::default();
+    // The parent's log was deleted: its turn the day before is gone from the
+    // stats, the fork's copy of it included, so it lengthens no streak.
+    let mut fork = session(&store, meta("fork", "claude", "ready", DAY0 + 12 * HOUR));
+    fork.turn(DAY0 - DAY + HOUR, DAY0 - DAY + 2 * HOUR, json!({}));
+    fork.push(DAY0 + HOUR, "mux", "forked", json!({"parentId": "gone", "forkSeq": 4}));
+    fork.turn(DAY0 + 2 * HOUR, DAY0 + 2 * HOUR + 10 * MIN, json!({}));
+
+    let s = summarize(&store, &options(DAY0 + 12 * HOUR, 7), &live_ids(&[])).unwrap();
+    assert_eq!((s.sessions, s.turns, s.prompts), (1, 1, 1));
+    assert_eq!(s.working_ms, 10 * MIN);
+    assert_eq!(s.days.iter().map(|d| d.day.as_str()).collect::<Vec<_>>(), ["2026-10-12"]);
+    assert_eq!((s.streak.current, s.streak.longest), (1, 1));
+}

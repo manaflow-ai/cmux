@@ -52,9 +52,9 @@ public struct HomeSidebarModel: Hashable, Sendable {
     public var pinned: [HomeSidebarItem]
     public var rows: [HomeSidebarItem]
     public var people: [HomeContact]
-    /// The Cloud rows' state from the owner (`home-inbox` `cloud`): `signed_out` and `unavailable` show a quiet line.
+    /// The Cloud rows' state from the owner (`home-inbox` `cloud`): only `unavailable` shows a quiet line.
     public var cloudState: String?
-    /// The quiet line under the list (Cloud conversations signed out or not reachable), or nil.
+    /// The quiet line under the list (Cloud conversations not reachable), or nil.
     public var note: String? { HomeConversationStrings.cloudNote(cloudState) }
 
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
