@@ -12,18 +12,26 @@ name: CEF Classic integration
 # an owned Mac's warm DerivedData, so a compile break fails here in minutes.
 # The browser UI tests then run once per engine. The Chromium run embeds the
 # CEF engine and fails when a browser opens in a different engine.
+#
+# A candidate branch, cef-classic/cand-<agent>, is an agent's merge into
+# integration that has not been verified yet (the lead's integration procedure).
+# It runs the compile job only. A green compile is the CI evidence that lets
+# the candidate fast-forward integration. A newer push to the same candidate
+# replaces the older run.
 
 on:
   push:
-    branches: [cef-classic/integration]
+    branches:
+      - cef-classic/integration
+      - cef-classic/cand-*
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: cef-classic-integration
-  cancel-in-progress: false
+  group: cef-classic-integration-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/cef-classic/integration' }}
 
 jobs:
   compile:
@@ -57,7 +65,7 @@ jobs:
   browser-e2e:
     name: Browser UI tests (${{ matrix.engine }})
     needs: compile
-    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/cef-classic/integration' }}
     strategy:
       fail-fast: false
       matrix:
