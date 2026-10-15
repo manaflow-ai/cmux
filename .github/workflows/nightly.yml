@@ -3845,6 +3845,15 @@ jobs:
             esac
             rm -rf pending && mkdir -p pending
             if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$meta_id/zip" > pending/meta.zip && unzip -o -q pending/meta.zip -d pending && [ -f pending/pending.json ]; then
+              # An accepted submission's metadata is re-stored by later runs and
+              # names the original bundle run. A meta whose bundle is confirmed
+              # gone (expired or deleted) is skipped; an API error keeps it.
+              bundle_run="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("bundle_run") or sys.argv[2])' pending/pending.json "$meta_run")"
+              if bundles="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$bundle_run/artifacts?name=cmux-nightly-identity-pending-bundle" --jq '[.artifacts[] | select(.expired == false)] | length')" \
+                 && [ "$bundles" = 0 ]; then
+                echo "::warning::skipping pending artifact $meta_id of run $meta_run: the bundle of run $bundle_run is gone"
+                continue
+              fi
               pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
               break
             fi

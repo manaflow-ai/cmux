@@ -1110,7 +1110,8 @@ for expected in \
   "--max-pending-hours 6 --max-same-build-hours 48" \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
   "for candidate in" \
-  "--failure-log failures.txt --max-failures 2"; do
+  "--failure-log failures.txt --max-failures 2" \
+  "the bundle of run \$bundle_run is gone"; do
   if ! grep -Fq -- "$expected" <<<"$target_job"; then
     echo "FAIL: legacy-identity-target must contain: $expected"
     exit 1
@@ -1127,7 +1128,7 @@ fi
 # without it).
 notary_guard="$(awk '
   /^  [a-z0-9-]+:$/ { job=$1; seen_init=0; next }
-  /init-submodule\.sh ghostty-next/ { seen_init=1 }
+  /init-submodule\.sh ghostty-next/ && !/^ *#/ { seen_init=1 }
   /scripts\/ci\/notarize-nightly-dmg\.sh/ && !/^ *#/ { if (!seen_init) print job }
 ' "$WORKFLOW_FILE" | sort -u)"
 if [ -n "$notary_guard" ]; then
