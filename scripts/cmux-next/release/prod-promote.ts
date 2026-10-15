@@ -10,8 +10,8 @@
  *       Picks the staging-proven candidate and runs G1-G7. Exit 0 = promote (writes
  *       candidate=<sha> to FILE); exit 3 = nothing to do or a gate holds (the reason is printed).
  *   bun prod-promote.ts recheck --candidate SHA
- *       Right before the deploy: hold released, spacing, and production's commit a strict ancestor
- *       of SHA (a re-run never downgrades). Exit 0 = deploy; 3 = hold.
+ *       Right before the deploy: hold released, spacing, and production's changes are in SHA
+ *       (strict ancestry or patch-equivalent cherry-picks; a re-run never downgrades). Exit 0 = deploy; 3 = hold.
  *   bun prod-promote.ts stale [--issue]
  *       Exit 1 = stale (no source tag, a staging-proven commit older than STALE_HOURS missing, or
  *       more than STALE_COMMITS backend commits behind); 0 = current, proven by at least one green
@@ -179,9 +179,36 @@ const isAncestor = (a: string, b: string, run: GitRunner = runGit) => {
   }
 }
 
-/** Production must be an ancestor of the staging candidate before a promotion or recheck. */
-export const isPromotableLineage = (productionSha: string, candidateSha: string, run: GitRunner = runGit): boolean =>
-  productionSha === candidateSha || isAncestor(productionSha, candidateSha, run)
+const backendCommitsIn = (sha: string, run: GitRunner, exclude?: string): Array<string> => {
+  const args = ["rev-list", "--no-merges", sha]
+  if (exclude) args.push("--not", exclude)
+  args.push("--", "backend/")
+  return run(args).split("\n").filter(Boolean)
+}
+
+const patchId = (sha: string, run: GitRunner): string | undefined => {
+  const patch = run(["show", "--format=", "--no-ext-diff", sha])
+  if (!patch) return undefined
+  const id = run(["patch-id", "--stable"], patch).split(/\s+/, 1)[0]
+  return id || undefined
+}
+
+/**
+ * Production must be an ancestor of the staging candidate, or every production-only backend
+ * commit must be represented by the same patch in the candidate's history. The latter allows a
+ * deployment assembled from cherry-picks while still holding any candidate with an unmatched
+ * production change.
+ */
+export const isPromotableLineage = (productionSha: string, candidateSha: string, run: GitRunner = runGit): boolean => {
+  if (productionSha === candidateSha || isAncestor(productionSha, candidateSha, run)) return true
+  const productionOnly = backendCommitsIn(productionSha, run, candidateSha)
+  if (!productionOnly.length) return false
+  const candidatePatches = new Set(backendCommitsIn(candidateSha, run).map((sha) => patchId(sha, run)).filter((id): id is string => id !== undefined))
+  return productionOnly.every((sha) => {
+    const id = patchId(sha, run)
+    return id !== undefined && candidatePatches.has(id)
+  })
+}
 
 const backendCommits = (from: string, to: string) => Number(git("rev-list", "--count", `${from}..${to}`, "--", "backend/"))
 
