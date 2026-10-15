@@ -13,6 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
+import { createVmWithRetry } from "./smokeCreate.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -320,19 +321,29 @@ try {
     keepUserForSweep = true;
     stage = "create";
     const createStartedAt = performance.now();
-    const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
-      method: "POST",
-      headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
-      body: JSON.stringify({
-        ...(provider === "default" ? {} : { provider }),
-        ...(image ? { image } : {}),
-      }),
+    const createIdempotencyKey = `smoke-${suffix}`;
+    const created = await createVmWithRetry({
+      idempotencyKey: createIdempotencyKey,
+      send: async (idempotencyKey) => {
+        const response = await fetchWithTimeout(`${targetUrl}/api/vm`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": idempotencyKey },
+          body: JSON.stringify({
+            ...(provider === "default" ? {} : { provider }),
+            ...(image ? { image } : {}),
+          }),
+        });
+        const text = await response.text();
+        let body;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = null;
+        }
+        return { status: response.status, body, text };
+      },
     });
     const createDurationMs = Math.round(performance.now() - createStartedAt);
-    const createText = await create.text();
-    if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
-    const created = JSON.parse(createText);
-    if (!created.id) throw new Error("create response missing id");
     if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }

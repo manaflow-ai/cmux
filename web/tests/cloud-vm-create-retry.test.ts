@@ -42,4 +42,25 @@ describe("Cloud VM smoke create retry", () => {
     })).rejects.toThrow("vm_cloud_service_unavailable");
     expect(sends).toBe(1);
   });
+
+  test("bounds an in-progress wait before issuing another create request", async () => {
+    let now = 0;
+    let sends = 0;
+    const sleeps: number[] = [];
+    await expect(createVmWithRetry({
+      idempotencyKey: "smoke-key",
+      budgetMs: 1_000,
+      send: async () => {
+        sends += 1;
+        return { status: 503, body: { error: "vm_operation_in_progress", phase: "create", retryable: true } };
+      },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      now: () => now,
+    })).rejects.toThrow("remained in progress for 1000 ms");
+    expect(sends).toBe(1);
+    expect(sleeps).toEqual([1_000]);
+  });
 });
