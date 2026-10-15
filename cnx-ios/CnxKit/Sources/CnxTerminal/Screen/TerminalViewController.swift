@@ -163,6 +163,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .interacting: return "interacting"
             }
         }
+        log.blankProvider = { [weak self] in self?.blankWatch.uncoveredSince != nil }
         return log
     }()
 
@@ -515,6 +516,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         frameLog.start()
         #endif
+        startBlankWatch()
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
@@ -751,6 +753,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         frameLog.stop()
         #endif
+        stopBlankWatch()
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
     }
 
@@ -1370,7 +1373,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// both sides, once the visible rows come within half a margin of the
     /// requested viewport's edges. The surface itself moves only when a frame
     /// for the new viewport is presented (`surfacePresented`).
-    private func updateViewport(visibleMinY: CGFloat) {
+    private func updateViewport(visibleMinY: CGFloat, force: Bool = false) {
         guard !model.isTUI, cell.height > 0, surfaceRows > 0 else { return }
         let maxTop = max(0, scrollbar.total - surfaceRows)
         let visibleTop = originRow + Int(floor(max(0, visibleMinY) / cell.height))
@@ -1383,9 +1386,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             || (visibleTop < current + margin / 2 && current > 0)
             || (visibleBottom > current + surfaceRows - margin / 2 && current < maxTop)
             || current > maxTop
-        guard needsNew else { return }
+        guard needsNew || force else { return }
         let top = min(max(0, visibleTop - margin), maxTop)
-        guard top != current else { return }
+        guard top != current || force else { return }
         // Ghostty reports a viewport other than the one last asked for (a
         // cursor probe or a reset moved it): ask again rather than wait for a
         // report that will not come, which left the visible rows blank.
@@ -1498,6 +1501,69 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }, selector: #selector(DisplayLinkProxy.step))
         link.add(to: .main, forMode: .common)
         followFallback = link
+    }
+
+    // MARK: Blank page watch (V6-2, V6-3, V6-4)
+
+    private var blankWatch = TerminalBlankWatch()
+    private var blankToken: FrameClock.Token?
+
+    private func startBlankWatch() {
+        guard blankToken == nil else { return }
+        blankToken = FrameClock.shared.subscribe { [weak self] tick in self?.checkBlankPage(now: tick.timestamp) }
+    }
+
+    private func stopBlankWatch() {
+        if let blankToken { FrameClock.shared.unsubscribe(blankToken) }
+        blankToken = nil
+        blankWatch = TerminalBlankWatch()
+    }
+
+    /// The visible rows (absolute) for the page's offset.
+    private var visibleRowRange: Range<Int> {
+        let minY = max(0, scrollView.contentOffset.y)
+        let top = originRow + Int(floor(minY / cell.height))
+        let bottom = originRow + Int(ceil((minY + scrollView.bounds.height) / cell.height))
+        return top..<max(top, bottom)
+    }
+
+    /// Every display frame: does the frame on screen cover the rows the page
+    /// shows? A held frame (`freezeView`) covers the page by itself.
+    private func checkBlankPage(now: CFTimeInterval) {
+        guard !model.isTUI, cell.height > 0, surfaceRows > 0, let document, surface.surface != nil,
+              view.window != nil, freezeView == nil else {
+            _ = blankWatch.observe(covered: true, now: now)
+            return
+        }
+        let visible = visibleRowRange
+        let covered = TerminalBlankWatch.covers(presentedTop: presentedTop, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
+                                                visibleBottom: visible.upperBound, documentRows: document.originRow..<document.endRow)
+        guard blankWatch.observe(covered: covered, now: now) else { return }
+        recoverBlankPage(visible: visible)
+    }
+
+    /// The page has shown uncovered rows past the deadline: nothing it waits
+    /// for is coming (a frame placed in a stale numbering, a request whose
+    /// frame never arrived). Place the frame by Ghostty's report when that
+    /// covers the rows, forget the frame used for matching (the next one is
+    /// placed by the report), and ask Ghostty for a viewport and a frame.
+    private func recoverBlankPage(visible: Range<Int>) {
+        let reportCovers = TerminalBlankWatch.covers(presentedTop: scrollbar.offset, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
+                                                     visibleBottom: visible.upperBound, documentRows: originRow..<(document?.endRow ?? Int.max))
+        sizingLog.notice("blank page: rows \(visible.lowerBound, privacy: .public)..<\(visible.upperBound, privacy: .public) not in the frame at \(self.presentedTop, privacy: .public) (report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public)) for \(Int((self.blankWatch.uncoveredSince.map { CACurrentMediaTime() - $0 } ?? 0) * 1000), privacy: .public) ms: \(reportCovers ? "placed by the report" : "asked again", privacy: .public) (event \(self.blankWatch.events, privacy: .public))")
+        steadyViewport = nil
+        presentedRows = nil
+        if reportCovers {
+            place(atRow: scrollbar.offset)
+        } else {
+            updateViewport(visibleMinY: scrollView.contentOffset.y, force: true)
+        }
+        if followAwaitsPresent {
+            forceScroll = true
+            applyScroll()
+            forceScroll = false
+        }
+        surface.setNeedsTerminalDraw()
     }
 
     private func place(atRow top: Int) {
