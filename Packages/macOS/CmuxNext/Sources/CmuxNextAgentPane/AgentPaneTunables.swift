@@ -12,5 +12,13 @@ public nonisolated struct AgentPaneTunables {
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor] }
+    /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
+    /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
+    /// menu. It rides the `composer` page event (`plainFooter`, composerSettings.ts); no cmux.json key.
+    public static let composerPlainFooter = Tunable<Bool>.toggle(
+        "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
+        help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
+        default: false, code: "AgentPaneTunables.composerPlainFooter")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, composerPlainFooter.descriptor] }
 }

@@ -3,7 +3,7 @@ public import CmuxNextSettings
 /// `agentPane.showContextUsage` and `agentPane.showDictation` (``AgentPaneComposerSetting``) reach
 /// the page as the `composer` event, read by the page's composerSettings.ts.
 extension AgentPageEvent {
-    /// The composer's settings: `{showContextUsage, showDictation}`.
+    /// The composer's settings: `{showContextUsage, showDictation, plainFooter}`.
     public static func composer(_ setting: AgentPaneComposerSetting) -> AgentPageEvent {
         AgentPageEvent(kind: "composer", value: setting.pageValue)
     }

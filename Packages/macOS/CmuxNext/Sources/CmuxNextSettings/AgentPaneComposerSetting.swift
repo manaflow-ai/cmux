@@ -17,13 +17,18 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public var showContextUsage = true
     public var showDictation = true
+    /// Debug Settings' plain footer look (AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY),
+    /// set by the app; never read from cmux.json.
+    public var plainFooter = false
 
     public init() {}
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation}`.
-    public var pageValue: JSONValue { ["showContextUsage": .bool(showContextUsage), "showDictation": .bool(showDictation)] }
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, plainFooter}`.
+    public var pageValue: JSONValue {
+        ["showContextUsage": .bool(showContextUsage), "showDictation": .bool(showDictation), "plainFooter": .bool(plainFooter)]
+    }
 
     /// Checked against its schema row, so the parser and the Settings window agree.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> AgentPaneComposerSetting {

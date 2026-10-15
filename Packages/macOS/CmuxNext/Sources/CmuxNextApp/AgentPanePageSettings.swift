@@ -17,6 +17,7 @@ final class AgentPanePageSettings {
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
+    private var plainFooterObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
@@ -52,6 +53,16 @@ final class AgentPanePageSettings {
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
                 composer = value
+                composer.plainFooter = AgentPaneTunables.composerPlainFooter.value
+                push()
+            }
+        }
+        // task-owner: lives as long as the tabs; event-driven (Observation): Debug Settings' plain
+        // footer look, which rides the composer's page event.
+        plainFooterObservation = Task { [weak self] in
+            for await on in ObservationStream({ AgentPaneTunables.composerPlainFooter.value }) {
+                guard let self else { return }
+                composer.plainFooter = on
                 push()
             }
         }
