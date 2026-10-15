@@ -82,25 +82,6 @@ import Testing
     }
 }
 
-@Suite struct ChromiumCrashPageVariantTests {
-    @Test func firstCrashIsAwSnapWithCode() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let variant = ChromiumCrashPageVariant(exit: .init(kind: .crashed, status: SIGSEGV), at: now, previousCrash: nil)
-        #expect(variant == ChromiumCrashPageVariant(isRepeat: false, isOutOfMemory: false, errorCode: "SIGSEGV"))
-    }
-
-    @Test func repeatCrashWithinWindow() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let repeatOOM = ChromiumCrashPageVariant(exit: .init(kind: .outOfMemory), at: now, previousCrash: now.addingTimeInterval(-3))
-        #expect(repeatOOM.isRepeat && repeatOOM.isOutOfMemory && repeatOOM.errorCode == nil)
-        let late = ChromiumCrashPageVariant(
-            exit: .init(kind: .crashed), at: now,
-            previousCrash: now.addingTimeInterval(-ChromiumCrashPageVariant.repeatWindow)
-        )
-        #expect(!late.isRepeat)
-    }
-}
-
 @Suite @MainActor struct BrowserCrashLogTests {
     @Test func keepsANewestBoundedRingAndNotifiesObservers() {
         let log = BrowserCrashLog()

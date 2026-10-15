@@ -40,7 +40,8 @@ extension BrowserPageProcessExit {
         Self.codeDescription(status: status)
     }
 
-    static func codeDescription(status: Int32?) -> String? {
+    /// Error code text for a raw `waitpid` status; see ``codeDescription``.
+    public static func codeDescription(status: Int32?) -> String? {
         guard let code = status, code > 0 else { return nil }
         let signal = code & 0x7f
         if signal != 0, signal != 0x7f {
