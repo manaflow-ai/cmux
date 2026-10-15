@@ -12,6 +12,8 @@ use tokio::sync::mpsc;
 
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
 #[path = "hub_integration/lanes.rs"]
