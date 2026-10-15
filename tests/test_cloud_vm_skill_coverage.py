@@ -206,10 +206,15 @@ def cli_docs_drift_failures() -> list[str]:
             failures.append("feed docs use a stale socket path")
         if ".local/state/cmux/cmux.sock" not in workspace or "/tmp/cmux.sock" in workspace:
             failures.append("workspace skill uses a stale socket fallback")
+        if "auto-discovers tagged/debug sockets" not in task_help:
+            failures.append("could not read the CLI's tagged/debug socket discovery guidance")
+        elif "auto-discovers tagged/debug sockets" not in feed or "auto-discovers tagged/debug sockets" not in workspace:
+            failures.append("socket docs omit the CLI's tagged/debug socket discovery guidance")
     return failures
 
 
 def main() -> int:
+    """Run the source-to-reference coverage and documentation drift checks."""
     failures: list[str] = []
     cli_main = CLI_MAIN.read_text(encoding="utf-8")
     cli_tui = CLI_TUI.read_text(encoding="utf-8")
