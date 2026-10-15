@@ -459,10 +459,11 @@ mod agent_message_pump {
         let refused = entry(&reply, "acp:b");
         assert_eq!(refused["outcome"], "failed", "{reply}");
         let acpmux_reason = refused["error"]["acpmux_reason"].as_str().unwrap_or_default();
-        assert_eq!(acpmux_reason.chars().count(), 128, "{reply}");
+        // The catalog's limits count UTF-8 bytes; the cut keeps whole characters.
+        assert!((125..=128).contains(&acpmux_reason.len()), "{reply}");
         assert!(reason.starts_with(acpmux_reason), "{reply}");
         let text = refused["error"]["message"].as_str().unwrap_or_default();
-        assert!(!text.is_empty() && text.chars().count() <= 1024, "{reply}");
+        assert!(!text.is_empty() && text.len() <= 1024, "{reply}");
     }
 
     #[test]
