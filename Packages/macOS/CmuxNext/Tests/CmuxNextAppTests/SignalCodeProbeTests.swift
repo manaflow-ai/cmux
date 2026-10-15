@@ -6,7 +6,7 @@ import Testing
 /// delivers for each way a fault signal can arrive. Not for landing.
 nonisolated(unsafe) private var probeDescriptor: Int32 = -1
 
-private let probeHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
+nonisolated private let probeHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     let code = info?.pointee.si_code ?? -999
     var esr: UInt32 = 0
     var pc: UInt64 = 0
@@ -21,7 +21,7 @@ private let probeHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>
     _exit(0)
 }
 
-enum SignalProbe {
+nonisolated enum SignalProbe {
     static func file(_ name: String, parent: pid_t) -> String {
         FileManager.default.temporaryDirectory.appending(path: "cmux-sigprobe-\(parent)-\(name)").path
     }
