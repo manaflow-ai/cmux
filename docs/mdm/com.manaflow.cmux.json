@@ -1467,6 +1467,12 @@
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
+    "labs.savedEnvironments" : {
+      "default" : false,
+      "description" : "Pick a saved set of folders, machine and settings when you start a chat.",
+      "title" : "Saved Environments",
+      "type" : "boolean"
+    },
     "layout.centerFocusedColumn" : {
       "default" : "never",
       "description" : "layout.centerFocusedColumn",

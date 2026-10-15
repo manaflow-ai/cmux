@@ -366,6 +366,7 @@
     "setting.history.terminalCommands": false,
     "setting.home.attachments.keepLocation": false,
     "setting.labs.previewFeatures": false,
+    "setting.labs.savedEnvironments": false,
     "setting.layout.centerFocusedColumn": "never",
     "setting.layout.closeFocus": "previousNeighbor",
     "setting.layout.columnWidthPresets": [1, 0.6667, 0.5, 0.3333],

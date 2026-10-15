@@ -907,6 +907,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.savedEnvironments",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -22164,6 +22165,55 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.savedEnvironments.help",
+        "text" : "Pick a saved set of folders, machine and settings when you start a chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.savedEnvironments",
+      "keywords" : [
+        "labs",
+        "environment",
+        "environments",
+        "folders",
+        "ssh",
+        "cloud"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "savedEnvironments"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.savedEnvironments",
+        "text" : "Saved Environments"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23562,7 +23612,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f590edffcb3e42e89831d8e96c6ba3eece1917143936341f49819ccb666cb37c",
+  "schema_hash" : "56484b47ec4d16285d4ea288610a1eb036893265d92052fe5a14835d8f3f0703",
   "sections" : [
     {
       "id" : "general",

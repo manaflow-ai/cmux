@@ -5117,6 +5117,12 @@ function AcpmuxPane() {
                     if (cwd) setProjectDraft(cwd);
                     shellRuns.start(command, cwd ? { cwd } : {});
                   },
+                  // A saved environment's worktree the host did not make: the chat says why, and
+                  // the prompt is back in its composer.
+                  worktreeFailed: (reason, text) => {
+                    setWorktreeError(reason);
+                    if (text) setDraft(text);
+                  },
                 }),
               )}
             />
