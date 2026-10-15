@@ -38,13 +38,7 @@ enum AppearanceHandlers {
         }
         SettingChoiceActions.bind(MotionSpeed.allCases, into: registry, id: { "appearance.animationSpeed.\($0.rawValue)" }, path: AnimationSpeedSetting.configPath,
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
-        for kind in MotionKind.allCases {
-            registry.bind(ActionID(rawValue: "appearance.animations.\(kind.rawValue).toggle"), run: { _ in try toggleAnimation(kind, context) })
-        }
-        // `ui.animations.bounce`: none (the default) removes the key.
-        SettingChoiceActions.bind(MotionBounce.allCases, into: registry, id: { "appearance.animations.bounce.\($0.rawValue)" },
-                                  path: AnimationKindsSetting.bouncePath, fileValue: { $0 == AnimationKindsSetting.bounceFallback ? nil : .string($0.rawValue) },
-                                  save: save) { context.design.animationBounce = $0 }
+        AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
@@ -148,15 +142,6 @@ enum AppearanceHandlers {
         // The default removes the key (and an emptied `window` object).
         let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
-    }
-
-    /// `ui.animations.<kind>`: flipped at once, then written (its default removes the key).
-    private static func toggleAnimation(_ kind: MotionKind, _ context: AppActionContext) throws {
-        try requireUnmanaged(AnimationKindsSetting.path(kind), context)
-        let on = !context.design.enabledAnimations.contains(kind)
-        if on { context.design.enabledAnimations.insert(kind) } else { context.design.enabledAnimations.remove(kind) }
-        let value: JSONValue? = on == AnimationKindsSetting.defaultEnabled.contains(kind) ? nil : .bool(on)
-        context.writeSetting("toggle \(kind.rawValue) animations", AnimationKindsSetting.path(kind), value, reloadOnFailure: true)
     }
 
     /// Body size in points: the override, else the density default.

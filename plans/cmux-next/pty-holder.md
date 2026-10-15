@@ -153,6 +153,7 @@ replica). Agent hosts move the same way: new agents start under
   schema, id, mode, install (12-hex hash of bundle id + tag), session, cwd, argv,
   start time, protocol min/max, capability bits, socket path, lease nonce.
   The record has no pid fields: nothing finds or signals a holder by pid.
+- Today (cx-t2sqm.13 landed): host records live in `<state>/terminal-hosts-<session token>/` (one per build, since each build has its own app session). Records may name a socket in the per-install directory `/tmp/cmux-th-<uid>/<session token>/` or the legacy flat one; new hosts still bind flat so a rollback to an older build never strands a terminal, and a later build switches the bind (cx-t2sqm.18). Target for `cmux-holder`:
 - Records and sockets live in a per-install runtime directory (0700):
   `<runtime>/cmux/holders/<install id>/`, where the install id is a short
   hash (12 hex) of BuildIdentity's stable part (bundle id + tag), NOT the
