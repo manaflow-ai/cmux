@@ -1071,6 +1071,115 @@ if [ "$(orphan 0)" != retired ] || ! grep -q 'artifacts/4242' "$legacy_dir/gh.lo
   echo "FAIL: a pending metadata artifact whose bundle is confirmed gone must be retired"
   exit 1
 fi
+# The failure issue is found with GitHub search and an exact title match, not a
+# one-page listing of open issues (it may be past the first 100 open issues
+# and pull requests); a failed search is an error, never "no issue".
+search_gh_dir="$legacy_dir/searchgh"
+mkdir -p "$search_gh_dir"
+cat > "$search_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *search/issues*)
+    [ "$FAKE_SEARCH" = error ] && { echo "HTTP 403: rate limit" >&2; exit 1; }
+    printf '%b' "$FAKE_SEARCH"; exit 0 ;;
+  *"issues?state=open"*) echo "one-page listing used" >&2; exit 3 ;;
+esac
+exit 1
+GH
+chmod +x "$search_gh_dir/gh"
+failure_issue() {  # <search rows> -> number (exit code kept)
+  PATH="$search_gh_dir:$PATH" FAKE_SEARCH="$1" bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-failure-issue.sh" manaflow-ai/cmux
+}
+issue_title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)"
+if [ "$(failure_issue "20001\t$issue_title (old)\n20668\t$issue_title\n")" != 20668 ]; then
+  echo "FAIL: the failure issue must be found by search with an exact title match"
+  exit 1
+fi
+if [ -n "$(failure_issue "20001\tsomething else\n")" ]; then
+  echo "FAIL: no exact title match must give no failure issue"
+  exit 1
+fi
+if failure_issue error >/dev/null 2>&1; then
+  echo "FAIL: a failed issue search must be an error, not 'no failure issue'"
+  exit 1
+fi
+if grep -Fq 'issues?state=open&per_page=100' "$WORKFLOW_FILE" || grep -Fq 'listForRepo({ ...context.repo, state' "$WORKFLOW_FILE"; then
+  echo "FAIL: the cmux NIGHTLY-identity jobs must find the failure issue by search, not a one-page listing"
+  exit 1
+fi
+# A cmux NEXT build is copied only when every commit in
+# NIGHTLY_LEGACY_REQUIRED_COMMITS is in its commit (2026-10-15: builds with
+# 79dbcd0baf025 open a new daemon session; the adopt fix must ship with them).
+# The build's commit is the head of its nightly-next run; any error fails closed.
+req_gh_dir="$legacy_dir/reqgh"
+mkdir -p "$req_gh_dir"
+cat > "$req_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *actions/runs/*)
+    [ "$FAKE_RUN" = error ] && { echo "HTTP 404" >&2; exit 1; }
+    echo "$FAKE_RUN"; exit 0 ;;
+  *compare/*)
+    [ "$FAKE_COMPARE" = error ] && { echo "HTTP 502" >&2; exit 1; }
+    echo "$FAKE_COMPARE"; exit 0 ;;
+esac
+exit 1
+GH
+chmod +x "$req_gh_dir/gh"
+build_sha=692a32616bd6324ca205b90d7b673ee6d32cdce9
+adopt_fix=1111111111111111111111111111111111111111
+requirement() {  # <run answer> <compare answer> [required...] -> "exit:first word"
+  local run="$1" compare="$2"; shift 2
+  local out code
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$run" FAKE_COMPARE="$compare" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$@")"
+  code=$?
+  printf '%s:%s' "$code" "${out%% *}"
+}
+good_run="$build_sha nightly-next .github/workflows/nightly.yml"
+for case in \
+  "0:ok|$good_run|ahead|$adopt_fix|a build that contains the required commit must be allowed" \
+  "0:ok|$good_run|identical|$adopt_fix|a build at the required commit must be allowed" \
+  "3:missing|$good_run|behind|$adopt_fix|a build that lacks the required commit must be refused" \
+  "3:missing|$good_run|diverged|$adopt_fix|a build on another line than the required commit must be refused" \
+  "1:error:|$good_run|error|$adopt_fix|a failed ancestry check must fail closed" \
+  "1:error:|error|ahead|$adopt_fix|an unreadable build run must fail closed" \
+  "1:error:|$build_sha main .github/workflows/nightly.yml|ahead|$adopt_fix|a build from another branch must fail closed" \
+  "0:ok|$good_run|behind||no required commit means no requirement"; do
+  IFS='|' read -r expected run compare required message <<<"$case"
+  # shellcheck disable=SC2086 # an empty required list passes no argument
+  actual="$(requirement "$run" "$compare" $required)"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected '$expected', got '$actual')"
+    exit 1
+  fi
+done
+# The build's commit comes from its signed release notes first (the app can be
+# built at an older commit than its run's head); the run head is the fallback.
+notes_sha=2222222222222222222222222222222222222222
+mkdir -p "$legacy_dir/notes"
+printf '{"build": "3850073942601", "head": "%s"}\n' "$notes_sha" > "$legacy_dir/notes/3850073942601.json"
+notes_out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$good_run" FAKE_COMPARE=ahead NOTES_BASE="file://$legacy_dir/notes" \
+  bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$adopt_fix")"
+if [ "$notes_out" != "ok $notes_sha" ]; then
+  echo "FAIL: the build commit must come from the build's release notes when they exist (got '$notes_out')"
+  exit 1
+fi
+# The macOS job's refusal of an app that lacks a required commit is never
+# counted, and a continued submission of that build is retired.
+legacy_resolve "true false false" "a continued submission refused by the requirement must be retired and not counted" \
+  --action continue --pending false --notarize skipped --published false --apple unknown --requirement-refused true
+legacy_resolve "false false false" "a new attempt refused by the requirement must not be counted" \
+  --action new --pending false --notarize skipped --published false --apple unknown --requirement-refused true
+# A refused build is neither continued nor submitted; a newer build is checked next.
+legacy_feed "$legacy_dir/next.xml" 3865928435701 3850073942601
+legacy_feed "$legacy_dir/old.xml" 3821558930001
+pending_meta 3850073942601 $((now - 3600))
+legacy_expect "new 3865928435701 " "a pending submission of a refused build must not be continued" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38677509707 --now "$now" --refuse-build 3850073942601
+legacy_expect "none  " "refused builds must be neither continued nor submitted" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38677509707 --now "$now" --refuse-build 3850073942601 --refuse-build 3865928435701
+legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
 # Wiring: the macOS job takes its build and mode from legacy-identity-target,
 # not from this run's publish-nightly; a pending submission is stored and
 # continued, never counted as a failure.
@@ -1097,6 +1206,9 @@ for expected in \
   "- name: Store the accepted submission's metadata" \
   '--apple "$apple"' \
   'CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh' \
+  "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
+  "requirement in use: required: " \
+  'compare/$required...$sha' \
   "scripts/ci/nightly-next-legacy-resolve.py" \
   "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
   'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
@@ -1111,7 +1223,12 @@ for expected in \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
   "for candidate in" \
   "--failure-log failures.txt --max-failures 2" \
-  "the bundle of run \$bundle_run is gone"; do
+  "the bundle of run \$bundle_run is gone" \
+  "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
+  "scripts/ci/nightly-next-legacy-requirement.sh" \
+  "requirement in use: required: " \
+  'grep -q "^Build $build skipped" failures.txt' \
+  'NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes"'; do
   if ! grep -Fq -- "$expected" <<<"$target_job"; then
     echo "FAIL: legacy-identity-target must contain: $expected"
     exit 1

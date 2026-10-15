@@ -55,6 +55,32 @@ import Testing
         #expect(rig.exemption(key) == .formInput, "a page with the person's typing hibernated")
     }
 
+    /// The 2026-10-14 audit rerun: `debug.surfaces` listed hibernated Chromium tabs as kept for
+    /// audio. A probe that keeps a page records why; when a later probe lets the page hibernate,
+    /// that reason has to go with it, or the report says a hibernated page was kept.
+    @Test func aPageKeptOnceThenHibernatedIsNoLongerReportedAsKept() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let page = try await rig.page("cleared", body: "<input id='note'>")
+        rig.window.contentView = page.contentView
+        rig.window.makeFirstResponder(page.webView)
+        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page)
+        page.webView.insertText("draft")
+        try await rig.until("the typing reached the page") {
+            (try? await page.evaluate("document.getElementById('note').value", world: .page)) == .string("draft")
+        }
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page was kept") { rig.exemption(key) != nil }
+        try #require(rig.exemption(key) == .formInput)
+
+        // The draft is gone (sent, cleared): the next look lets the page hibernate.
+        _ = try await page.evaluate("document.getElementById('note').value = ''; true", world: .page)
+        rig.hibernation.replan()
+        try await rig.until("the page hibernated") { rig.isHibernated(key) }
+        #expect(rig.exemption(key) == nil, "a hibernated page is still reported as kept")
+    }
+
     /// #20866 review: a person who used the page and then let a widget or the page's script set a
     /// field (a date picker, a Select2 menu, a draft re-rendered through `.value`) still has edits
     /// there, though no trusted input event touched the field.

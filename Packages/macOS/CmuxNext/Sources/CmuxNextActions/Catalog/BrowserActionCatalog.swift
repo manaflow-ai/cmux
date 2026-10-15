@@ -409,6 +409,15 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop"
             ),
+            // Fit as Desktop (1280) (cx-2ftlq): the same toggle with a fixed 1280 CSS px layout
+            // width (browser.tab.emulate {fit: "1280"}); only one fit is on a tab at a time.
+            ActionDescriptor(
+                id: "browserFitDesktop1280",
+                title: String(localized: "action.browserFitDesktop1280", defaultValue: "Fit as Desktop (1280)", bundle: .module),
+                keywords: ["browser", "fit", "1280", "desktop", "scale", "zoom out", "viewport", "emulation", "split", "narrow"],
+                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser fit-desktop-1280"
+            ),
         ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + pinnedPageDescriptors()
     }
 }
