@@ -638,7 +638,15 @@ const ActivityLineRow = memo(
     a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text && a.row.at === b.row.at,
 );
 /// The pane's shortcut labels, and the todo list's Labs card style (cx-ncc.102).
-function PaneContexts({ shortcuts, planCard, children }: { shortcuts: ShortcutLabels; planCard: boolean; children: ReactNode }) {
+function PaneContexts({
+  shortcuts,
+  planCard,
+  children,
+}: {
+  shortcuts: ShortcutLabels;
+  planCard: boolean;
+  children: ReactNode;
+}) {
   return (
     <ShortcutsContext.Provider value={shortcuts}>
       <PlanCardStyle.Provider value={planCard}>{children}</PlanCardStyle.Provider>
