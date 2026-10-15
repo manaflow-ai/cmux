@@ -1062,21 +1062,18 @@
   white-space: nowrap;
 }
 
-/* ---------- Agent runs: a quiet card under a Chief's reply, the run sheet over the timeline ---------- */
+/* ---------- Agent runs: an inline disclosure under a Chief's reply (no frame; its steps on an
+   indented rail), the run sheet over the timeline ---------- */
 .lg-run {
   container: lg-run / inline-size;
-  margin: 4px 0 2px;
+  margin: 2px 0 0;
   max-width: min(100%, 640px);
-  border: 1px solid var(--lg-line);
-  border-radius: 8px;
-  background: var(--lg-fill);
 }
 .lg-run-bar {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   min-height: 28px;
-  padding: 0 8px;
 }
 .lg-run-toggle {
   display: flex;
@@ -1148,16 +1145,18 @@
   }
 }
 .lg-run-title {
-  margin: -4px 8px 6px 24px;
+  margin: -4px 0 4px 16px;
   font-size: var(--text-detail);
   color: var(--page-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The rail: under the status mark's center, the steps indented from it. */
 .lg-run-steps {
-  padding: 0 8px 6px 8px;
-  border-top: 1px solid var(--lg-line);
+  margin-inline-start: 3px;
+  padding: 0 0 4px 12px;
+  border-inline-start: 1px solid var(--lg-line);
 }
 .lg-run-more {
   margin: 6px 0 0 16px;
@@ -1166,8 +1165,7 @@
 }
 .lg-run-error {
   margin: 0;
-  padding: 6px 8px;
-  border-top: 1px solid var(--lg-line);
+  padding: 4px 0 0 16px;
   font-size: var(--text-detail);
   color: var(--hc-danger);
   white-space: pre-wrap;
