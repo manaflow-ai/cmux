@@ -59,6 +59,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "browser.tab.emulate",
         ),
+        (vec!["tab", TAB, "emulate", "--fit", "16:9"], "browser.tab.emulate"),
         // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
         (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
         (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
