@@ -15,7 +15,8 @@
 //!   one a hand-over went out for (`acpmux_unavailable`); nothing
 //!   changes, and the entry carries `error {reason, message}`. One recipient
 //!   failing never undoes the others. A queued delivery to a session acpmux
-//!   no longer runs is `unsent`: no session can take a late hand-over.
+//!   no longer knows (deleted, and no peer runs it) is `unsent`: no session
+//!   can take a late hand-over.
 //!
 //! An acpmux recipient's outcome is acpmux's (`_acpmux/prompt_withdraw`, asked
 //! before the commit). A queued delivery is asked too: a pump hand-over that
@@ -43,8 +44,8 @@ pub(crate) enum Withdrawn {
     TooLate,
     /// The session's log holds no such prompt.
     NotFound,
-    /// acpmux runs no such session (it ended): no session can take the
-    /// prompt late.
+    /// acpmux knows no such session (deleted, and no peer runs it): no
+    /// session can take the prompt late.
     NoSession,
 }
 

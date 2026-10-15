@@ -791,8 +791,9 @@ hand-over may have reached, the outcome is `failed` with `error.reason`
 when acpmux names none). A queued delivery a pump hand-over went out for,
 which acpmux never accepted, is asked too: when acpmux holds no such prompt
 the outcome is `failed` with `error.reason` `acpmux_unavailable` (the
-hand-over may still reach it, so try again), and when acpmux no longer runs
-the session it is `unsent` (no session can take it late). The other
+hand-over may still reach it, so try again), and when acpmux no longer knows
+the session (it was deleted, and no peer daemon runs it) it is `unsent` (no
+session can take it late). The other
 deliveries' outcomes still commit. A retry under the same key replays, and a
 reused key or stale `expected_revision` is refused, before acpmux is asked;
 acpmux's answers then commit even when other state changed while it

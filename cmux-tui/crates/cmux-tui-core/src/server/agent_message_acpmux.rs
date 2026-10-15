@@ -125,7 +125,31 @@ impl crate::mux::Mux {
             json!({"sessionId": session, "msgId": message_id}),
             WITHDRAW_TIMEOUT,
         );
+        let withdrawn = Self::withdraw_answer(answer);
+        // acpmux answers a withdraw on its own daemon only, but forwards a
+        // peer's session's `_acpmux/info` and prompts: a session it still
+        // names may run the prompt, so only one it cannot name is gone.
+        let withdrawn = match withdrawn {
+            Ok(Withdrawn::NoSession) => {
+                let info = link.call("_acpmux/info", json!({"sessionId": session}), INFO_TIMEOUT);
+                match info {
+                    Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
+                        Ok(Withdrawn::NotFound)
+                    }
+                    Ok(_) | Err(LinkError::Rpc(..)) => Ok(Withdrawn::NoSession),
+                    Err(LinkError::Closed | LinkError::Timeout | LinkError::Busy) => {
+                        Err(WithdrawError::Unavailable)
+                    }
+                }
+            }
+            other => other,
+        };
         link.close();
+        withdrawn
+    }
+
+    /// acpmux's answer to `_acpmux/prompt_withdraw`.
+    fn withdraw_answer(answer: Result<Value, LinkError>) -> Result<Withdrawn, WithdrawError> {
         match answer {
             Ok(reply) => match reply.get("outcome").and_then(Value::as_str) {
                 Some("unsent") => Ok(Withdrawn::Unsent),
