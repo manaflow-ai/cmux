@@ -14,15 +14,17 @@ struct BrowserExtensionActionButton: View {
     let isCrashed: Bool
     let isPopupOpen: Bool
     let metrics: BrowserChromeMetrics
+    /// Where this button is, for anchoring its popup.
+    let anchor: BrowserExtensionAnchor
+    /// Runs the action; the frame is the button's, in window coordinates.
     let onRun: (CGRect) -> Void
     let onReload: () -> Void
     let onContextMenu: (CGPoint) -> Void
 
-    @State private var globalFrame: CGRect = .zero
 
     var body: some View {
         Button {
-            if isCrashed { onReload() } else { onRun(globalFrame) }
+            if isCrashed { onReload() } else { onRun(anchor.windowFrame ?? .zero) }
         } label: {
             icon
                 .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
@@ -30,13 +32,7 @@ struct BrowserExtensionActionButton: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle(isActive: isPopupOpen))
         .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { globalFrame = proxy.frame(in: .global) }
-                    .onChange(of: proxy.frame(in: .global)) { _, frame in globalFrame = frame }
-            }
-        }
+        .background(BrowserExtensionAnchorReader(anchor: anchor))
         .contextMenu {
             Button(String(localized: "browser.extensions.siteAccess", defaultValue: "Site Access and More…")) {
                 onContextMenu(NSEvent.mouseLocation)

@@ -655951,6 +655951,65 @@
           }
         }
       }
+    },
+    "cli.browser.extension.error.manifestChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The extension's manifest.json changed while waiting for approval. Nothing was loaded; run the command again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيّر ملف manifest.json للإضافة أثناء انتظار الموافقة. لم يُحمَّل أي شيء؛ شغّل الأمر مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die manifest.json der Erweiterung hat sich während der Freigabe geändert. Es wurde nichts geladen; führe den Befehl erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El manifest.json de la extensión cambió mientras se esperaba la aprobación. No se cargó nada; vuelve a ejecutar el comando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier manifest.json de l’extension a changé pendant l’attente de l’autorisation. Rien n’a été chargé ; relancez la commande."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認を待っている間に拡張機能の manifest.json が変更されました。何も読み込んでいません。コマンドをもう一度実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인을 기다리는 동안 확장 프로그램의 manifest.json이 변경되었습니다. 아무것도 불러오지 않았습니다. 명령을 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待批准期间，扩展程序的 manifest.json 已更改。未加载任何内容；请重新运行命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待核准期間，擴充功能的 manifest.json 已變更。未載入任何內容；請重新執行指令。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

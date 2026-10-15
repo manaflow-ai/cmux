@@ -25,7 +25,7 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
     /// Runs a requested action from the toolbar (anchored to its button, or
     /// to the Extensions button when unpinned). Set by the toolbar; without
     /// it, ``requestExtensionAction(_:)`` anchors at the page's leading edge.
-    @ObservationIgnored public var onActionRequested: (@MainActor (String) -> Void)?
+    @ObservationIgnored public var extensionActionRequestHandler: (@MainActor (String) -> Void)?
 
     @ObservationIgnored private unowned let stores: CEFExtensionStores
     @ObservationIgnored private let browserID: @MainActor () -> Int32?
@@ -54,8 +54,8 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
     var windowID: Int32 { cefBrowserID.map { stores.windowID(browser: $0) } ?? 0 }
 
     public func requestExtensionAction(_ extensionID: String) {
-        if let onActionRequested {
-            onActionRequested(extensionID)
+        if let extensionActionRequestHandler {
+            extensionActionRequestHandler(extensionID)
         } else {
             _ = run(extensionID, anchorX: 0, width: 1)
         }

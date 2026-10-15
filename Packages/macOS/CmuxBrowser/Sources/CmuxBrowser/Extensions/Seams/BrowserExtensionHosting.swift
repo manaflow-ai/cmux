@@ -24,6 +24,9 @@ public protocol BrowserExtensionHosting: AnyObject {
     func hideExtensionPopup()
     /// Re-reads the page's toolbar actions.
     func refreshExtensionActions()
+    /// Runs an action requested by a shortcut or automation, anchored by the
+    /// toolbar (set by the toolbar while it is shown; nil anchors at the page's leading edge).
+    var extensionActionRequestHandler: (@MainActor (String) -> Void)? { get set }
     /// Shows Chromium's own menu for an extension (site access and more) at
     /// a point in AppKit screen coordinates.
     func showExtensionActionMenu(_ id: String, atScreenPoint point: CGPoint)

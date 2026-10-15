@@ -54,23 +54,23 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
         switch prompt.kind {
         case .permissions:
             title = String(localized: "browser.extension.prompt.permissionsTitle",
-                           defaultValue: "\u{201C}\(name)\u{201D} wants more access")
-            acceptTitle = String(localized: "browser.extension.prompt.allow", defaultValue: "Allow")
-            cancelTitle = String(localized: "browser.extension.prompt.deny", defaultValue: "Deny")
+                           defaultValue: "\u{201C}\(name)\u{201D} wants more access", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.prompt.allow", defaultValue: "Allow", bundle: .module)
+            cancelTitle = String(localized: "browser.extension.prompt.deny", defaultValue: "Deny", bundle: .module)
         case .reEnable:
             title = String(localized: "browser.extension.prompt.reEnableTitle",
-                           defaultValue: "Turn on \u{201C}\(name)\u{201D} again?")
-            acceptTitle = String(localized: "browser.extension.prompt.enable", defaultValue: "Enable")
-            cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel")
+                           defaultValue: "Turn on \u{201C}\(name)\u{201D} again?", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.prompt.enable", defaultValue: "Enable", bundle: .module)
+            cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel", bundle: .module)
         case .repair:
             title = String(localized: "browser.extension.prompt.repairTitle",
-                           defaultValue: "Repair \u{201C}\(name)\u{201D}?")
-            acceptTitle = String(localized: "browser.extension.prompt.repair", defaultValue: "Repair")
-            cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel")
+                           defaultValue: "Repair \u{201C}\(name)\u{201D}?", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.prompt.repair", defaultValue: "Repair", bundle: .module)
+            cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel", bundle: .module)
         case .install, .externalInstall, .remoteInstall, .other:
-            title = String(localized: "browser.extension.prompt.addTitle", defaultValue: "Add \u{201C}\(name)\u{201D}?")
-            acceptTitle = String(localized: "browser.extension.prompt.add", defaultValue: "Add extension")
-            cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel")
+            title = String(localized: "browser.extension.prompt.addTitle", defaultValue: "Add \u{201C}\(name)\u{201D}?", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.prompt.add", defaultValue: "Add extension", bundle: .module)
+            cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel", bundle: .module)
         }
     }
 
@@ -88,32 +88,32 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
         target = name
         self.permissions = permissions
         permissionsHeading = Self.heading(hasPermissions: !permissions.isEmpty)
-        cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel")
+        cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel", bundle: .module)
         note = String(localized: "browser.extension.consent.note",
-                      defaultValue: "Allow this only if you started the command.")
+                      defaultValue: "Allow this only if you started the command.", bundle: .module)
         switch operation {
         case .loadUnpacked:
-            title = String(localized: "browser.extension.consent.loadTitle", defaultValue: "Load an unpacked extension?")
+            title = String(localized: "browser.extension.consent.loadTitle", defaultValue: "Load an unpacked extension?", bundle: .module)
             requester = String(localized: "browser.extension.consent.loadRequester",
-                               defaultValue: "A cmux CLI command wants to load an unpacked extension into this browser profile.")
-            acceptTitle = String(localized: "browser.extension.consent.load", defaultValue: "Load")
+                               defaultValue: "A cmux CLI command wants to load an unpacked extension into this browser profile.", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.consent.load", defaultValue: "Load", bundle: .module)
         case .enable, .reload:
-            title = String(localized: "browser.extension.consent.enableTitle", defaultValue: "Turn on \u{201C}\(name)\u{201D}?")
+            title = String(localized: "browser.extension.consent.enableTitle", defaultValue: "Turn on \u{201C}\(name)\u{201D}?", bundle: .module)
             requester = String(localized: "browser.extension.consent.enableRequester",
-                               defaultValue: "A cmux CLI command wants to turn on this extension.")
-            acceptTitle = String(localized: "browser.extension.prompt.enable", defaultValue: "Enable")
+                               defaultValue: "A cmux CLI command wants to turn on this extension.", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.prompt.enable", defaultValue: "Enable", bundle: .module)
         default:
             title = String(localized: "browser.extension.consent.runTitle",
-                           defaultValue: "Run \u{201C}\(name)\u{201D} on this page?")
+                           defaultValue: "Run \u{201C}\(name)\u{201D} on this page?", bundle: .module)
             requester = String(localized: "browser.extension.consent.runRequester",
-                               defaultValue: "A cmux CLI command wants to run this extension, which gives it access to the current page.")
-            acceptTitle = String(localized: "browser.extension.consent.run", defaultValue: "Run")
+                               defaultValue: "A cmux CLI command wants to run this extension, which gives it access to the current page.", bundle: .module)
+            acceptTitle = String(localized: "browser.extension.consent.run", defaultValue: "Run", bundle: .module)
         }
     }
 
     static func heading(hasPermissions: Bool) -> String {
         hasPermissions
-            ? String(localized: "browser.extension.prompt.canHeading", defaultValue: "It can:")
-            : String(localized: "browser.extension.prompt.noPermissions", defaultValue: "It needs no special access.")
+            ? String(localized: "browser.extension.prompt.canHeading", defaultValue: "It can:", bundle: .module)
+            : String(localized: "browser.extension.prompt.noPermissions", defaultValue: "It needs no special access.", bundle: .module)
     }
 }

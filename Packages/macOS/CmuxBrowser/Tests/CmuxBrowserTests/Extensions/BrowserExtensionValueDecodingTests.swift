@@ -90,6 +90,8 @@ struct BrowserExtensionValueDecodingTests {
         #expect(toggle.isGlobal && !toggle.isExecuteAction)
         #expect(toggle.key == "f2")
         #expect(toggle.matches(macKeyCode: 120, characters: "\u{F705}", modifierFlags: [.control]))
+        let digit = BrowserExtensionCommand(extensionID: "e", name: "one", keyCode: 0x31, modifiers: 4 | 2)
+        #expect(digit.matches(macKeyCode: 18, characters: "!", modifierFlags: [.control, .shift]), "Shift does not change the key")
     }
 
     @Test

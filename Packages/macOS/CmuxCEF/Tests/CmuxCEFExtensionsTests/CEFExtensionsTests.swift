@@ -121,10 +121,10 @@ struct CEFExtensionsTests {
         let stores = CEFExtensionStores(calls: calls)
         let page = CEFExtensionPageSupport(profileID: profile, stores: stores) { 2 }
         let requested = Box<[String]>([])
-        page.onActionRequested = { requested.value.append($0) }
+        page.extensionActionRequestHandler = { requested.value.append($0) }
         page.requestExtensionAction("z")
         #expect(requested.value == ["z"])
-        page.onActionRequested = nil
+        page.extensionActionRequestHandler = nil
         page.requestExtensionAction("z")
         #expect(calls.log.contains("run 2 z 0 1"))
     }

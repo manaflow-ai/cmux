@@ -22,10 +22,10 @@ public struct BrowserExtensionManifestSummary: Equatable, Sendable {
         let hosts = Array(Set(BrowserExtensionAgentAccess.patterns(manifest))).sorted()
         if hosts.contains("<all_urls>") || hosts.contains(where: { $0.hasPrefix("*://*/") || $0.contains("://*/") }) {
             lines.append(.init(message: String(localized: "browser.extension.manifest.allSites",
-                                               defaultValue: "Read and change all your data on all websites")))
+                                               defaultValue: "Read and change all your data on all websites", bundle: .module)))
         } else if !hosts.isEmpty {
             lines.append(.init(message: String(localized: "browser.extension.manifest.someSites",
-                                               defaultValue: "Read and change your data on these sites:"),
+                                               defaultValue: "Read and change your data on these sites:", bundle: .module),
                                details: hosts.joined(separator: "\n")))
         }
         let api = ((manifest["permissions"] as? [Any] ?? []) + (manifest["optional_permissions"] as? [Any] ?? []))
@@ -33,7 +33,7 @@ public struct BrowserExtensionManifestSummary: Equatable, Sendable {
             .filter { $0 != "<all_urls>" && !$0.contains("://") }
         if !api.isEmpty {
             lines.append(.init(message: String(localized: "browser.extension.manifest.api",
-                                               defaultValue: "Use these browser features:"),
+                                               defaultValue: "Use these browser features:", bundle: .module),
                                details: Array(Set(api)).sorted().joined(separator: ", ")))
         }
         permissions = lines

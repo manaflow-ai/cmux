@@ -41,16 +41,20 @@ public struct BrowserExtensionAutomationPolicy: Equatable, Sendable {
 
     /// The decision for `operation` on a known extension.
     ///
-    /// Reloading a crashed or running extension only restores what the
-    /// person already allowed; reloading one the person turned off would turn
-    /// it back on, so it needs consent like ``BrowserExtensionOperation/enable``.
+    /// Reloading a crashed or running extension from the Web Store only
+    /// restores what the person already allowed. Reloading one the person
+    /// turned off would turn it back on, and reloading an unpacked extension
+    /// re-reads its folder (whose manifest may have gained permissions since
+    /// the person agreed), so both need consent like ``BrowserExtensionOperation/enable``.
     ///
     /// - Parameters:
     ///   - operation: The requested operation.
     ///   - target: The extension it acts on.
     /// - Returns: Allow, consent first, or deny.
     public func decision(for operation: BrowserExtensionOperation, target: BrowserExtensionInfo) -> Decision {
-        if operation == .reload, !target.isEnabled, !target.isTerminated { return .requiresConsent }
+        if operation == .reload, (!target.isEnabled && !target.isTerminated) || target.location == .unpacked {
+            return .requiresConsent
+        }
         return decision(for: operation)
     }
 }

@@ -10,7 +10,8 @@ extension CMUXCLI {
     /// Runs `cmux browser <surface> extension ...` (alias `extensions`):
     /// Chrome extension management for a Chromium surface's profile. Verbs
     /// that widen an extension's reach wait for the person to approve a sheet
-    /// in the cmux window, so their response timeout covers that wait.
+    /// in the cmux window, so their response timeout covers that wait
+    /// (``BrowserExtensionControlRequest``).
     func runBrowserExtensionCommand(
         surfaceRaw: String?,
         subArgs: [String],
@@ -25,12 +26,10 @@ extension CMUXCLI {
                 defaultValue: "browser extension requires a surface handle (use: browser <surface> extension ...)"
             ))
         }
-        let verb = (subArgs.first ?? "list").lowercased()
-        let rest = Array(subArgs.dropFirst())
-        let request = try browserExtensionRequest(verb: verb, arguments: rest)
-        var params = request.params
+        let request = try browserExtensionRequest(verb: subArgs.first ?? "", arguments: Array(subArgs.dropFirst()))
+        var params: [String: Any] = request.params
         params["surface_id"] = surfaceID
-        let payload = try client.sendV2(method: request.method, params: params, responseTimeout: request.timeout)
+        let payload = try client.sendV2(method: request.method, params: params, responseTimeout: request.responseTimeout)
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else if request.method == "browser.extension.list" {
@@ -40,73 +39,26 @@ extension CMUXCLI {
         }
     }
 
-    /// One parsed `browser extension` invocation.
-    struct BrowserExtensionRequest: Equatable {
-        var method: String
-        var params: [String: String]
-        var timeout: TimeInterval
-    }
-
-    /// Maps a verb and its arguments to a socket method and params.
-    func browserExtensionRequest(verb: String, arguments: [String]) throws -> BrowserExtensionRequest {
-        // Consent-gated verbs: the app's sheet waits up to 120 s for the person.
-        let consentTimeout: TimeInterval = 130
-        let quickTimeout: TimeInterval = 20
-        func needs(_ count: Int) throws {
-            guard arguments.count == count else {
-                throw CLIError(message: String(
-                    localized: "cli.browser.extension.error.arguments",
-                    defaultValue: "Wrong number of arguments for browser extension. Usage:"
-                ) + " cmux browser <surface> " + Self.browserExtensionUsage)
-            }
-        }
-        switch verb {
-        case "list", "ls":
-            try needs(0)
-            return BrowserExtensionRequest(method: "browser.extension.list", params: [:], timeout: quickTimeout)
-        case "load", "load-unpacked":
-            try needs(1)
-            let path = URL(fileURLWithPath: (arguments[0] as NSString).expandingTildeInPath,
-                           relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true))
-                .standardizedFileURL.path
-            if path.lowercased().hasSuffix(".crx") {
-                return BrowserExtensionRequest(method: "browser.extension.install_crx", params: ["path": path],
-                                               timeout: quickTimeout)
-            }
-            return BrowserExtensionRequest(method: "browser.extension.load", params: ["path": path],
-                                           timeout: consentTimeout)
-        case "enable", "run", "reload":
-            try needs(1)
-            return BrowserExtensionRequest(method: "browser.extension.\(verb)", params: ["extension": arguments[0]],
-                                           timeout: consentTimeout)
-        case "disable", "remove", "pin", "unpin", "options":
-            try needs(1)
-            return BrowserExtensionRequest(method: "browser.extension.\(verb)", params: ["extension": arguments[0]],
-                                           timeout: quickTimeout)
-        case "move":
-            try needs(2)
-            guard let index = Int(arguments[1]), index >= 0 else {
-                throw CLIError(message: String(
-                    localized: "cli.browser.extension.error.index",
-                    defaultValue: "browser extension move needs a pinned position (0 or more)"
-                ))
-            }
-            return BrowserExtensionRequest(method: "browser.extension.move",
-                                           params: ["extension": arguments[0], "index": String(index)],
-                                           timeout: quickTimeout)
-        case "command":
-            try needs(2)
-            return BrowserExtensionRequest(method: "browser.extension.command",
-                                           params: ["extension": arguments[0], "command": arguments[1]],
-                                           timeout: consentTimeout)
-        case "webstore", "manage":
-            try needs(0)
-            return BrowserExtensionRequest(method: "browser.extension.open_page", params: ["page": verb],
-                                           timeout: quickTimeout)
-        default:
+    /// Maps a verb and its arguments to a socket request, with localized errors.
+    func browserExtensionRequest(verb: String, arguments: [String]) throws -> BrowserExtensionControlRequest {
+        do {
+            return try BrowserExtensionControlRequest(
+                verb: verb, arguments: arguments, currentDirectory: FileManager.default.currentDirectoryPath
+            )
+        } catch BrowserExtensionControlRequest.ParseError.wrongArgumentCount {
+            throw CLIError(message: String(
+                localized: "cli.browser.extension.error.arguments",
+                defaultValue: "Wrong number of arguments for browser extension. Usage:"
+            ) + " cmux browser <surface> " + Self.browserExtensionUsage)
+        } catch BrowserExtensionControlRequest.ParseError.invalidIndex {
+            throw CLIError(message: String(
+                localized: "cli.browser.extension.error.index",
+                defaultValue: "browser extension move needs a pinned position (0 or more)"
+            ))
+        } catch BrowserExtensionControlRequest.ParseError.unknownVerb(let unknown) {
             throw CLIError(message: String(
                 localized: "cli.browser.extension.error.unknownVerb",
-                defaultValue: "Unknown browser extension subcommand '\(verb)'. Usage:"
+                defaultValue: "Unknown browser extension subcommand '\(unknown)'. Usage:"
             ) + " cmux browser <surface> " + Self.browserExtensionUsage)
         }
     }

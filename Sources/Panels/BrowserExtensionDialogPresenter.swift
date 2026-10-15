@@ -25,7 +25,14 @@ struct BrowserExtensionDialogPresenter {
                     continuation.resume(returning: false)
                     return
                 }
+                // A sheet whose window closes is declined, so Chromium or the caller never waits forever.
+                let closeObserver = NotificationCenter.default.addObserver(
+                    forName: NSWindow.willCloseNotification, object: window, queue: .main
+                ) { _ in
+                    MainActor.assumeIsolated { sheet.answer(false) }
+                }
                 sheet.onAnswer = { accepted in
+                    NotificationCenter.default.removeObserver(closeObserver)
                     if let parent = sheet.sheetParent { parent.endSheet(sheet) }
                     continuation.resume(returning: accepted)
                 }

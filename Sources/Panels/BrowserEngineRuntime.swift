@@ -70,7 +70,7 @@ final class BrowserEngineRuntime {
             runtime: .shared,
             window: { browserID in
                 // The asking tab's window, else a visible cmux window; none aborts the prompt.
-                CEFRuntime.shared.browser(id: browserID)?.hostView.window
+                CEFRuntime.shared.browser(id: browserID)?.hostView.window.flatMap { $0.isVisible ? $0 : nil }
                     ?? NSApp.windows.first { $0.isVisible && $0.isMainWindow }
                     ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.parent == nil && !($0 is NSPanel) }
             },
