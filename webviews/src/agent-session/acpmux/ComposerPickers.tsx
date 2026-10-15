@@ -164,7 +164,7 @@ export function ComposerPickers({
 }: Props) {
   const t = useT();
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
-  // the reasoning menu draws a slider when the person opted in (agentPane.reasoningSlider).
+  // the reasoning menu draws a slider when the person opted in (the Debug Settings toggle agent.reasoningSlider).
   const { showContextUsage, reasoningSlider } = useComposerSettings();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not

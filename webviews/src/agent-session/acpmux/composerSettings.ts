@@ -1,11 +1,12 @@
-// `agentPane.showContextUsage`, `agentPane.showDictation` and `agentPane.reasoningSlider` in
-// cmux.json (Swift CmuxNextSettings AgentPaneComposerSetting), pushed by the host as the `composer`
-// event: whether every composer (the chat's and the New Tab page's) shows its context usage ring and
-// its dictation mic, and whether the reasoning menu offers a slider instead of the list of levels
-// (opt-in, off by default; only Settings changes it). The first two each
+// `agentPane.showContextUsage` and `agentPane.showDictation` in cmux.json (Swift CmuxNextSettings
+// AgentPaneComposerSetting), pushed by the host as the `composer` event: whether every composer
+// (the chat's and the New Tab page's) shows its context usage ring and its dictation mic. Each
 // hides the macOS way (composerChrome.tsx): its right-click offers Hide, and a right-click on the
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
+// The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
+// (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
+// slider instead of its list of levels. Only Debug Settings changes it.
 import { useSyncExternalStore } from "react";
 
 export type ComposerSettings = { showContextUsage: boolean; showDictation: boolean; reasoningSlider: boolean };

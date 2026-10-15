@@ -15,7 +15,7 @@ const speedChoices = [
   { id: "on", name: "On" },
 ];
 
-/// `slider`: the opt-in `agentPane.reasoningSlider`; `speed`: a Fast Mode section under it.
+/// `slider`: the Debug Settings opt-in `agent.reasoningSlider`; `speed`: a Fast Mode section under it.
 type Props = { slider?: boolean; speed?: boolean };
 
 const open: Play = async (ctx) => {
@@ -114,7 +114,7 @@ export default componentEntry<Props>({
     },
     "list-open": { note: "The default reasoning menu: one checked row per level.", props: {}, play: open },
     "slider-open": {
-      note: "agentPane.reasoningSlider on: the Reasoning section is the stepped slider.",
+      note: "Debug Settings agent.reasoningSlider on: the Reasoning section is the stepped slider.",
       props: { slider: true },
       play: open,
     },

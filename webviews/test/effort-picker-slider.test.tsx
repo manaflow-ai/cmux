@@ -1,5 +1,5 @@
 // l10n-allow-file: test labels only.
-// The reasoning menu's opt-in slider (agentPane.reasoningSlider): the list of levels stays the
+// The reasoning menu's opt-in slider (Debug Settings agent.reasoningSlider): the list of levels stays the
 // default; with the setting on, the Reasoning section is the stepped slider (EffortTrack), unless
 // the model offers a single level. A chat on the agent's own default rests the thumb on the
 // recommended level. The slider keeps its stepping keys from the menu, and Escape closes the menu.

@@ -24,7 +24,7 @@
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-effort-item .ui-menu-check { order: 2; color: var(--agent-text); }
-/* The opt-in slider (agentPane.reasoningSlider): wide enough for Faster, Smarter and the
+/* The opt-in slider (Debug Settings agent.reasoningSlider): wide enough for Faster, Smarter and the
    recommended line; the title row names the level the thumb sits on. */
 .acpmux-effort-menu:has(.acpmux-effort-slider) {
   width: min(232px, calc(100vw - 24px));
