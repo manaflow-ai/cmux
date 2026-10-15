@@ -125,10 +125,11 @@ impl Check {
         self
     }
 
-    /// `~/...` for every path under `home` in the detail and the fix.
-    fn redacted(mut self, home: Option<&Path>) -> Self {
-        self.detail = redact_home(&self.detail, home);
-        self.fix = self.fix.map(|fix| redact_home(&fix, home));
+    /// The detail and the fix with every path under a `redactions`
+    /// directory written by its name (`~/...`, `$CODEX_HOME/...`).
+    fn redacted(mut self, redactions: &[(String, &'static str)]) -> Self {
+        self.detail = redact_paths(&self.detail, redactions);
+        self.fix = self.fix.map(|fix| redact_paths(&fix, redactions));
         self
     }
 
@@ -181,6 +182,31 @@ struct Environment {
 }
 
 impl Environment {
+    /// The directories printed by name: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`
+    /// and HOME (`~`), each as set and as resolved (the working directory
+    /// is the resolved path, so a symlinked HOME reads both ways), longest
+    /// first.
+    fn redactions(&self) -> Vec<(String, &'static str)> {
+        let mut redactions = Vec::new();
+        for (dir, name) in [
+            (&self.claude_config_dir, "$CLAUDE_CONFIG_DIR"),
+            (&self.codex_home, "$CODEX_HOME"),
+            (&self.home, "~"),
+        ] {
+            let Some(dir) = dir else { continue };
+            for dir in [Some(dir.clone()), std::fs::canonicalize(dir).ok()].into_iter().flatten() {
+                if let Some(dir) = dir.to_str().map(|dir| dir.trim_end_matches('/'))
+                    && !dir.is_empty()
+                    && !redactions.iter().any(|(seen, _): &(String, _)| seen == dir)
+                {
+                    redactions.push((dir.to_owned(), name));
+                }
+            }
+        }
+        redactions.sort_by_key(|(dir, _)| std::cmp::Reverse(dir.len()));
+        redactions
+    }
+
     fn current() -> Self {
         let dir =
             |key: &str| std::env::var_os(key).filter(|value| !value.is_empty()).map(PathBuf::from);
@@ -264,13 +290,14 @@ fn collect(
 ) -> Vec<Check> {
     let wants = |id: &str| wanted.is_none_or(|wanted| wanted.iter().any(|w| w == id));
     let mut checks = checks_without_grants(environment, messages);
+    let redactions = environment.redactions();
     if GRANT_ROWS.into_iter().any(wants) {
         checks.extend(grant_checks(app_status, messages));
     }
     checks
         .into_iter()
         .filter(|check| wants(check.id))
-        .map(|check| check.redacted(environment.home.as_deref()))
+        .map(|check| check.redacted(&redactions))
         .collect()
 }
 
@@ -345,18 +372,18 @@ pub(super) fn mcp_findings(
     }))
 }
 
-/// `text` with `home` (and every path under it) written as `~`.
-fn redact_home(text: &str, home: Option<&Path>) -> String {
-    let Some(home) = home.and_then(Path::to_str).map(|home| home.trim_end_matches('/')) else {
-        return text.to_owned();
-    };
-    if home.is_empty() {
-        return text.to_owned();
+/// `text` with each redaction directory, and every path under it, written
+/// by its name. `redactions` is longest first, so `$CODEX_HOME` inside HOME
+/// keeps its name.
+fn redact_paths(text: &str, redactions: &[(String, &'static str)]) -> String {
+    let mut text = text.to_owned();
+    for (dir, name) in redactions {
+        if text == *dir {
+            return (*name).to_owned();
+        }
+        text = text.replace(&format!("{dir}/"), &format!("{name}/"));
     }
-    if text == home {
-        return "~".to_owned();
-    }
-    text.replace(&format!("{home}/"), "~/")
+    text
 }
 
 fn checks_without_grants(environment: &Environment, messages: &AgentsDoctorMessages) -> Vec<Check> {
