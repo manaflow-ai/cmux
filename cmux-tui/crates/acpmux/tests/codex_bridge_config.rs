@@ -224,7 +224,7 @@ async fn discovered_harnesses(d: &Path) -> Value {
     std::fs::create_dir_all(&acp_home).unwrap();
     let socket = acp_home.join("s.sock");
     // The daemon runs the stand-in codex in `d/bin`, first on the bare PATH.
-    let mut child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
+    let mut child = daemon_env::command(&d, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("PATH", format!("{}:{}", d.join("bin").display(), daemon_env::bare_path(&[])))
         .env("ACPMUX_HOME", &acp_home)

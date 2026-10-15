@@ -11,7 +11,10 @@
 //! - `PATH`: a private directory with links to the named host tools
 //!   (`python3` always, for the stand-in agents and fake shells), then the
 //!   system directories. No real agent CLI can be found on it;
-//! - `HOME`: the directory the test passes (a scratch directory);
+//! - `HOME`: `<scratch>/home` (not made here), under the scratch directory
+//!   the test passes. Never the scratch directory itself: tests use that as
+//!   the daemon's home or a chat's folder, and the daemon refuses to start an
+//!   agent in the user's home folder unless a person picks it;
 //! - `TMPDIR`: the test process's temp directory (macOS: the per-user one);
 //! - `ACPMUX_AGENT_LAUNCH=deny`: the daemon starts no agent at all
 //!   (cx-9ettq). A test that drives a stand-in agent (fake_agent.py,
@@ -42,48 +45,53 @@ pub enum Agents {
 }
 
 /// `acpmux` with the hermetic environment, agent launches denied.
-pub fn acpmux(home: &Path) -> Command {
-    command(home, Agents::Deny, &[])
+pub fn acpmux(scratch: &Path) -> Command {
+    command(scratch, Agents::Deny, &[])
 }
 
 /// `acpmux` with the hermetic environment, for a test whose daemon starts a
 /// stand-in agent.
-pub fn acpmux_with_stand_in_agents(home: &Path) -> Command {
-    command(home, Agents::StandIn, &[])
+pub fn acpmux_with_stand_in_agents(scratch: &Path) -> Command {
+    command(scratch, Agents::StandIn, &[])
 }
 
 /// `acpmux` with the hermetic environment; `tools` are host tools (by name,
 /// found on the test's PATH) to put on the daemon's PATH besides `python3`.
-pub fn command(home: &Path, agents: Agents, tools: &[&str]) -> Command {
+pub fn command(scratch: &Path, agents: Agents, tools: &[&str]) -> Command {
     let mut cmd = Command::new(bin());
-    apply(&mut cmd, home, agents, tools);
+    apply(&mut cmd, scratch, agents, tools);
     cmd
 }
 
 /// The same environment for an async command.
-pub fn tokio_command(home: &Path, agents: Agents) -> tokio::process::Command {
+pub fn tokio_command(scratch: &Path, agents: Agents) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(bin());
-    cmd.env_clear().envs(vars(home, agents, &[]));
+    cmd.env_clear().envs(vars(scratch, agents, &[]));
     cmd
 }
 
 /// Clears `cmd`'s environment and sets the hermetic one.
 pub fn apply<'c>(
     cmd: &'c mut Command,
-    home: &Path,
+    scratch: &Path,
     agents: Agents,
     tools: &[&str],
 ) -> &'c mut Command {
-    cmd.env_clear().envs(vars(home, agents, tools))
+    cmd.env_clear().envs(vars(scratch, agents, tools))
 }
 
 /// The hermetic environment as pairs (for an agent host's `SpawnSpec.env`).
-pub fn vars(home: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, String)> {
-    let mut env = platform_vars(home, tools);
+pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, String)> {
+    let mut env = platform_vars(&home(scratch), tools);
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }
     env
+}
+
+/// The `HOME` the hermetic environment gives: `<scratch>/home`.
+pub fn home(scratch: &Path) -> PathBuf {
+    scratch.join("home")
 }
 
 #[cfg(unix)]

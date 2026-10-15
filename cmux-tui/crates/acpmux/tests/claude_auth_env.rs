@@ -119,7 +119,7 @@ async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daem
     std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
     let socket = dir.join("s.sock");
     // The stand-in claude (fake_claude.py) is the only agent.
-    let mut cmd = daemon_env::command(&dir.join("home"), daemon_env::Agents::StandIn, &[]);
+    let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
         .env("SHELL", dir.join("loginsh"))
         .env("ACPMUX_HOME", dir)

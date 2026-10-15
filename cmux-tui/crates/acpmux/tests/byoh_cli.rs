@@ -43,8 +43,7 @@ impl User {
 
     fn cmd(&self) -> Command {
         // The daemon runs the sample agent; `harness add` and `doctor` too.
-        let mut cmd =
-            daemon_env::command(&self.root.join("home"), daemon_env::Agents::StandIn, &[]);
+        let mut cmd = daemon_env::command(&self.root, daemon_env::Agents::StandIn, &[]);
         cmd.current_dir(self.root.join("work"))
             .env("XDG_CONFIG_HOME", self.root.join("xdg"))
             .env("ACPMUX_HOME", self.root.join("amx"))
