@@ -513,3 +513,45 @@ extension MacScreenHostingView: MacScreenThemedHost {
     var resolvedColors: MacScreenColors { themeAppearance.colors }
     var hostView: NSView { self }
 }
+
+/// Every connect the pane starts (showing the tab, Connect on the card, the toolbar's Connect and
+/// Try Again) uses the session's reconnect policy (retries with backoff): a single attempt failed
+/// at once on a relay that needs a few tries, showing the failed card in half a second.
+@MainActor
+struct MacScreenPaneConnectTests {
+    private func pane(confirmed: Bool) -> (MacScreenPane, () -> Int) {
+        let pane = MacScreenPane(name: "Connect Test", pairing: VNCPairing.generate(name: "Connect Test", kind: "stream"),
+                                 preferences: ScreenPreferences(), confirmed: confirmed)
+        var starts = 0
+        pane.connectSession = { _ in starts += 1 }
+        return (pane, { starts })
+    }
+
+    @Test func showingTheTabConnectsThroughTheReconnectPolicy() {
+        let (pane, starts) = pane(confirmed: true)
+        pane.resume()
+        #expect(starts() == 1)
+        pane.close()
+    }
+
+    @Test func connectOnTheCardAndTheToolbarUseIt() {
+        let (pane, starts) = pane(confirmed: false)
+        pane.resume()
+        #expect(starts() == 0)
+        pane.view.chrome.actions.confirm()
+        #expect(starts() == 1)
+        pane.view.chrome.actions.connect()
+        #expect(starts() == 2)
+        pane.close()
+    }
+
+    @Test func aTabThePersonStoppedStaysStopped() {
+        let (pane, starts) = pane(confirmed: true)
+        pane.resume()
+        pane.view.chrome.actions.disconnect()
+        pane.pause()
+        pane.resume()
+        #expect(starts() == 1)
+        pane.close()
+    }
+}
