@@ -661,6 +661,8 @@
 		97CEF52570A6C3AFB83E1A7C /* ClaudeStopFailureStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAB02E73CAA231F5E266CF7 /* ClaudeStopFailureStatusTests.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		3064F30D440A86FA4F6007B1 /* ClaudeTranscriptlessRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */; };
+		13B142FAC731D28C5102783C /* ClaudeTranscriptTailReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471284496D5A6B98547B121C /* ClaudeTranscriptTailReader.swift */; };
+		7A041CFB6592A814934D4057 /* ClaudeTranscriptTailReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BEF040D71ABE93A85B4A24 /* ClaudeTranscriptTailReaderTests.swift */; };
 		C1175700000000000000003A /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */; };
 		A0DD6EEA0656443ED94D975D /* CLIAgentHibernationTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */; };
 		AE55A6E50000000000000005 /* CLIAgentMessageCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */; };
@@ -5402,6 +5404,8 @@
 		DEAB02E73CAA231F5E266CF7 /* ClaudeStopFailureStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeStopFailureStatusTests.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeTranscriptlessRestoreTests.swift"; sourceTree = "<group>"; };
+		471284496D5A6B98547B121C /* ClaudeTranscriptTailReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTranscriptTailReader.swift; sourceTree = "<group>"; };
+		64BEF040D71ABE93A85B4A24 /* ClaudeTranscriptTailReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeTranscriptTailReaderTests.swift"; sourceTree = "<group>"; };
 		C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperResumeEnvironmentTests.swift; sourceTree = "<group>"; };
 		A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIAgentHibernationTargetTests.swift"; sourceTree = "<group>"; };
 		AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAgentMessageCommandTests.swift; sourceTree = "<group>"; };
@@ -9663,6 +9667,7 @@
 				77A3A91F04C89CC8645EFD68 /* AgentChatSessionRegistry+SidebarSessions.swift */,
 				6EA71A9B02477E3543FAD117 /* AgentChatTranscriptService+SidebarSessions.swift */,
 				B32AD479A9246C6EC4E7C981 /* AgentSessionSidebarDidChangeEvent.swift */,
+				471284496D5A6B98547B121C /* ClaudeTranscriptTailReader.swift */,
 			);
 			name = AgentChat;
 			path = AgentChat;
@@ -13966,6 +13971,7 @@
 				E56331531F9B6D0BEE613347 /* SidebarAppKitRowCellAgentSessionsTests.swift */,
 				95109E516AF0087093FEB8F0 /* SidebarRowAgentSessionPresenterTests.swift */,
 				BFF02E7F34AC9051FD2AF43B /* SidebarWorkspaceSnapshotAgentSessionsTests.swift */,
+				64BEF040D71ABE93A85B4A24 /* ClaudeTranscriptTailReaderTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15195,6 +15201,7 @@
 				D78129DCAE6C4D919AE20FF9 /* ChecklistPopoverPointerTracking.swift in Sources */,
 				ED226C59A21547BB962DB2A5 /* ChecklistSummaryPopoverModifier.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
+				13B142FAC731D28C5102783C /* ClaudeTranscriptTailReader.swift in Sources */,
 				64FC98B1AF19A7558C109173 /* ClickByHintPreview.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C51A73000000000000000101 /* ClosedItemHistory+PanelTitle.swift in Sources */,
@@ -18082,6 +18089,7 @@
 				A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */,
 				97CEF52570A6C3AFB83E1A7C /* ClaudeStopFailureStatusTests.swift in Sources */,
 				3064F30D440A86FA4F6007B1 /* ClaudeTranscriptlessRestoreTests.swift in Sources */,
+				7A041CFB6592A814934D4057 /* ClaudeTranscriptTailReaderTests.swift in Sources */,
 				A0DD6EEA0656443ED94D975D /* CLIAgentHibernationTargetTests.swift in Sources */,
 				9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
