@@ -52,7 +52,10 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
     );
     // A page that reads runs but did not ask for live frames.
     let mut plain = Ws::open(&ws_addr(&server));
-    plain.request("set-client-info", json!({"name": "old", "capabilities": ["conversation-runs-v1"]}));
+    plain.request(
+        "set-client-info",
+        json!({"name": "old", "capabilities": ["conversation-runs-v1"]}),
+    );
     plain.request("subscribe", json!({}));
     let channel = page.create_channel("live-channel", "release");
     let mut home = Unix::open(&server.socket);
@@ -60,8 +63,14 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
 
     // No run yet: nothing live, and a frame for an unknown run is refused.
     let empty = page.request("conversation-live", json!({"conversation": channel}));
-    assert_eq!(empty, json!({"type": "run.live", "conversation": channel, "runs": []}));
-    refused(&chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 0, "x")), "unknown_run");
+    assert_eq!(
+        empty,
+        json!({"type": "run.live", "t": "run.live", "conversation": channel, "runs": []})
+    );
+    refused(
+        &chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 0, "x")),
+        "unknown_run",
+    );
 
     chief.request(
         "conversation-run-append",
@@ -70,13 +79,17 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
 
     // The reply streams in two frames, the page hears both as sent.
     chief.request("conversation-live-publish", delta(&channel, "talk:0", "talk", 0, "Checking "));
-    chief.request("conversation-live-publish", delta(&channel, "talk:0", "talk", 1, "the 0.43 release."));
+    chief.request(
+        "conversation-live-publish",
+        delta(&channel, "talk:0", "talk", 1, "the 0.43 release."),
+    );
     let first = live_event(&mut page);
     assert_eq!(first["conversation"], channel.as_str(), "{first}");
     assert_eq!(
         first["frame"],
-        json!({"type": "step.delta", "conversation": channel, "run": TURN, "step": "talk:0",
-               "kind": "talk", "seq": 0, "text": "Checking "}),
+        json!({"type": "step.delta", "t": "step.delta", "conversation": channel, "run": TURN,
+               "author": "agent_mux",
+               "step": "talk:0", "kind": "talk", "seq": 0, "text": "Checking "}),
     );
     let second = live_event(&mut page);
     assert_eq!(second["frame"]["seq"], 1, "{second}");
@@ -91,7 +104,10 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
         );
         assert_eq!(live_event(&mut page)["frame"]["line"], line);
     }
-    chief.request("conversation-live-publish", delta(&channel, "thought:0", "thought", 0, "The tag list is short."));
+    chief.request(
+        "conversation-live-publish",
+        delta(&channel, "thought:0", "thought", 0, "The tag list is short."),
+    );
     assert_eq!(live_event(&mut page)["frame"]["kind"], "thought");
 
     // A page that joins now reads the text so far and the newest line.
@@ -99,8 +115,9 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
     let snapshot = late.request("conversation-live", json!({"conversation": channel}));
     assert_eq!(
         snapshot,
-        json!({"type": "run.live", "conversation": channel, "runs": [{
+        json!({"type": "run.live", "t": "run.live", "conversation": channel, "runs": [{
             "run": TURN,
+            "author": "agent_mux",
             "steps": [
                 {"step": "talk:0", "kind": "talk", "seq": 1, "text": "Checking the 0.43 release."},
                 {"step": "thought:0", "kind": "thought", "seq": 0, "text": "The tag list is short."}
@@ -111,10 +128,19 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
     );
 
     // The producer never skips a frame; a gap, a bad frame, a person, another agent are refused.
-    refused(&chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 3, "x")), "seq_gap");
-    refused(&chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 2, "")), "invalid_live");
     refused(
-        &chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 2, &"x".repeat(4097))),
+        &chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 3, "x")),
+        "seq_gap",
+    );
+    refused(
+        &chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 2, "")),
+        "invalid_live",
+    );
+    refused(
+        &chief.reply(
+            "conversation-live-publish",
+            delta(&channel, "talk:0", "talk", 2, &"x".repeat(4097)),
+        ),
         "invalid_live",
     );
     refused(
@@ -125,10 +151,19 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
         ),
         "invalid_live",
     );
-    refused(&chief.reply("conversation-live-publish", delta(&channel, "tool:1", "tool", 0, "x")), "bad request");
-    refused(&page.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 2, "x")), "not_agent");
+    refused(
+        &chief.reply("conversation-live-publish", delta(&channel, "tool:1", "tool", 0, "x")),
+        "bad request",
+    );
+    refused(
+        &page.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 2, "x")),
+        "not_agent",
+    );
     let mut builder = bound(&server, &mut home, "agent_builder");
-    refused(&builder.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 2, "x")), "not_run_author");
+    refused(
+        &builder.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 2, "x")),
+        "not_run_author",
+    );
 
     // The last frame of a step: no frame after it.
     chief.request(
@@ -137,12 +172,56 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
                "run": TURN, "step": "talk:0", "kind": "talk", "seq": 2, "text": " Done.", "final": true}}),
     );
     assert_eq!(live_event(&mut page)["frame"]["final"], true);
-    refused(&chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 3, "x")), "step_final");
+    refused(
+        &chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 3, "x")),
+        "step_final",
+    );
+    // Its row is written: the step's live text goes, and no late frame reopens it.
+    chief.request(
+        "conversation-run-append",
+        append(
+            &channel,
+            json!({"id": TURN}),
+            json!([{"id": "talk:0", "kind": "talk", "text": "Checking the 0.43 release. Done."}]),
+        ),
+    );
+    refused(
+        &chief.reply("conversation-live-publish", delta(&channel, "talk:0", "talk", 0, "again")),
+        "step_final",
+    );
+    let freed = late.request("conversation-live", json!({"conversation": channel}));
+    assert!(
+        freed["runs"][0]["steps"].as_array().unwrap().iter().all(|s| s["step"] != "talk:0"),
+        "{freed}"
+    );
+
+    // A producer that retries starts the step again at seq 0: its text is
+    // replaced and the pages get the conversation's run.live.
+    chief.request("conversation-live-publish", delta(&channel, "talk:2", "talk", 0, "First try"));
+    chief.request("conversation-live-publish", delta(&channel, "talk:2", "talk", 1, " goes on"));
+    chief.request("conversation-live-publish", delta(&channel, "talk:2", "talk", 0, "Second try"));
+    let reset = loop {
+        let event = live_event(&mut page);
+        if event["frame"]["type"] == "run.live" {
+            break event;
+        }
+    };
+    let retried = reset["frame"]["runs"][0]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["step"] == "talk:2")
+        .cloned()
+        .unwrap();
+    assert_eq!(retried, json!({"step": "talk:2", "kind": "talk", "seq": 0, "text": "Second try"}));
 
     // The buffer keeps at most 64 KiB of a step: the tail, with the seq of the last frame.
     for seq in 0..17u64 {
         let letter = char::from(b'a' + seq as u8).to_string();
-        chief.request("conversation-live-publish", delta(&channel, "talk:1", "talk", seq, &letter.repeat(4096)));
+        chief.request(
+            "conversation-live-publish",
+            delta(&channel, "talk:1", "talk", seq, &letter.repeat(4096)),
+        );
     }
     let capped = late.request("conversation-live", json!({"conversation": channel}));
     let long = capped["runs"][0]["steps"]
@@ -158,13 +237,21 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
     assert!(text.starts_with('b') && text.ends_with(&"q".repeat(4096)), "the tail is kept");
 
     // The run ends: nothing is live, and the frames were never stored.
-    chief.request("conversation-run-append", append(&channel, json!({"id": TURN, "status": "done"}), json!([])));
+    chief.request(
+        "conversation-run-append",
+        append(&channel, json!({"id": TURN, "status": "done"}), json!([])),
+    );
     let ended = late.request("conversation-live", json!({"conversation": channel}));
     assert_eq!(ended["runs"], json!([]), "{ended}");
-    refused(&chief.reply("conversation-live-publish", delta(&channel, "talk:2", "talk", 0, "x")), "run_not_running");
+    refused(
+        &chief.reply("conversation-live-publish", delta(&channel, "talk:3", "talk", 0, "x")),
+        "run_not_running",
+    );
+    // Only the row the Chief wrote is stored, never the frames.
     let run = page.request("conversation-run", json!({"conversation": channel, "run": TURN}));
-    assert_eq!(run["steps"], json!([]), "{run}");
-    let snapshot = page.request("conversation-snapshot", json!({"conversation": channel}));
+    assert_eq!(run["steps"].as_array().unwrap().len(), 1, "{run}");
+    let snapshot =
+        page.request("conversation-snapshot", json!({"conversation": channel, "tail": 50}));
     assert!(!snapshot.to_string().contains("Checking the 0.43"), "{snapshot}");
 
     // The page that did not ask heard no live frame: the run's end is the
@@ -180,5 +267,5 @@ fn a_chief_streams_its_run_live_and_a_late_page_reads_the_text_so_far() {
             }
         }
     }
-    assert_eq!(runs_seen, 2);
+    assert_eq!(runs_seen, 3);
 }

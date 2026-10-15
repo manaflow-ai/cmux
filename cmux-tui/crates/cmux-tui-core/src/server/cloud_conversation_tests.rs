@@ -512,7 +512,7 @@ fn a_cloud_chiefs_live_frames_pass_through_and_a_subscriber_asks_for_the_snapsho
     wire.push_text(
         json!({"type":"step.delta","conversation":"conv_ZZZZZZZZZZZZZZZZZZZZZZZZZZ","run":"run_1",
                "step":"talk:0","kind":"talk","seq":0,"text":"not here"})
-            .to_string(),
+        .to_string(),
     );
     let snapshot = json!({"type":"run.live","conversation":CONV,"runs":[{"run":"run_7",
         "steps":[{"step":"talk:0","kind":"talk","seq":0,"text":"Checking the release"}],
@@ -534,11 +534,15 @@ fn a_cloud_chiefs_live_frames_pass_through_and_a_subscriber_asks_for_the_snapsho
         seen.iter().filter(|event| event["event"] == "cloud-conversation-live").collect();
     assert_eq!(live.len(), 3, "{seen:?}");
     assert!(live.iter().all(|event| event["conversation"] == CONV), "{live:?}");
-    assert_eq!(live[0]["frame"], delta);
+    let mut expected = delta;
+    expected["t"] = json!("step.delta");
+    assert_eq!(live[0]["frame"], expected);
     assert_eq!(live[1]["frame"]["type"], "run.activity", "{:?}", live[1]);
-    assert!(live[1]["frame"].get("t").is_none(), "{:?}", live[1]);
+    assert_eq!(live[1]["frame"]["t"], "run.activity", "{:?}", live[1]);
     assert_eq!(live[1]["frame"]["line"], "Editing src/app.ts in sb-3");
-    assert_eq!(live[2]["frame"], snapshot);
+    let mut expected = snapshot;
+    expected["t"] = json!("run.live");
+    assert_eq!(live[2]["frame"], expected);
 
     // The subscriber asks again (a page that joined late, or saw a gap).
     let asked =
