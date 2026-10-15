@@ -191,6 +191,8 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         public_id: restore_workspace_id(1),
         key: "first".into(),
         name: "Duplicate".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "test".into(),
     };
     let empty_workspace = RegistryWorkspace {
@@ -198,6 +200,8 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         public_id: restore_workspace_id(2),
         key: "empty".into(),
         name: "Duplicate".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "test".into(),
     };
     let first_screen = restore_screen_id(1);

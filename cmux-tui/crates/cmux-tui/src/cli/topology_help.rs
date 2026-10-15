@@ -9,6 +9,7 @@ USAGE
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
   cmux workspace <selector> rename <name>|--name <name>
+  cmux workspace <selector> rename --release-to-auto
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
     [--icon <value>|--clear-icon]
@@ -175,10 +176,17 @@ SELECTORS
 /// `cmux <scope> rename --help` for the scopes whose resources have names.
 pub(super) fn rename_help(topic: &str) -> String {
     let scope = topic.split(' ').next().unwrap_or(topic);
+    let release = if scope == "workspace" {
+        "\n  cmux workspace [<selector>] rename --release-to-auto\n\n\
+         Keeps the current name and lets cmux name the workspace automatically\n\
+         again. A rename pins the name until it is released.\n"
+    } else {
+        ""
+    };
     format!(
         "USAGE\n  cmux {scope} [<selector>] rename <name>\n  cmux {scope} [<selector>] rename --name <name>\n\n\
          Renames the {scope}. Without a selector, renames the current one. Put a\n\
-         name that starts with a dash after --name.\n{SELECTORS}"
+         name that starts with a dash after --name.\n{release}{SELECTORS}"
     )
 }
 
