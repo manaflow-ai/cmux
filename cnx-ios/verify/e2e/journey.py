@@ -1989,6 +1989,7 @@ w("\r\x1b[2KSTREAMDONE\n")
                          f"paths {[r['path'] for r in rows]}; terminal input reached the Mac after each", "kills": rows}
 
     def s_transport_wireguard(self):
+        self.back_to_list()
         a = self.settings_transport("WireGuard")
         self.term_roundtrip()
         return {"notes": f"WireGuard Connected in {a:.1f} s; terminal input works"}
