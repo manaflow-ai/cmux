@@ -907,6 +907,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -22164,6 +22165,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.classicHome.help",
+        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.classicHome",
+      "keywords" : [
+        "home",
+        "chief",
+        "classic",
+        "dock",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "classicHome"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.classicHome",
+        "text" : "Classic Home"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23562,7 +23611,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f590edffcb3e42e89831d8e96c6ba3eece1917143936341f49819ccb666cb37c",
+  "schema_hash" : "587efecfb08f75a4172a225a35e7a8b95af869702c61cefb7d5541329024bd80",
   "sections" : [
     {
       "id" : "general",
