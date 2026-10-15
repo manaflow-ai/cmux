@@ -5073,6 +5073,17 @@ function AcpmuxPane() {
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
   // A side view (replay, the Inspector, diff review) or the Harnesses screen takes the card's place.
   const summaryCovered = Boolean(replaying) || inspectorOpen || Boolean(diffFiles) || harnessesOpen;
+  // Sources' Use tools (cx-thur3): only where acpmux can change the chat's tools. A browser over
+  // the web relay (`remote`) cannot: acpmux refuses it there (`tools.remote`).
+  const chatTools =
+    snapshot.summary?.toolsMutable && snapshot.summary.tools && snapshot.origin !== "remote"
+      ? {
+          rows: snapshot.summary.tools,
+          set: (id: string, enabled: boolean) =>
+            // l10n-allow: never shown; the row says summary.tools.failed.
+            directClient.current?.setTool(id, enabled) ?? Promise.reject(new Error("no connection")),
+        }
+      : undefined;
   const summaryPanel = (
     <SummaryCard
       // Another chat closes this one's gallery, as it does the image viewer.
@@ -5089,6 +5100,7 @@ function AcpmuxPane() {
         browser: newBrowser,
         ...(remoteChat ? {} : { attach: () => void attachLinks().catch(() => undefined) }),
       }}
+      tools={chatTools}
     />
   );
   return (

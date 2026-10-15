@@ -6,6 +6,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
 import type { SessionSummary, SummaryBackgroundTask } from "./sessionSummary";
+import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
 
@@ -44,6 +45,7 @@ export function SummaryBody({
   onOpenGallery,
   onFollow,
   onAttach,
+  tools,
   subagents,
 }: {
   summary: SessionSummary;
@@ -56,6 +58,8 @@ export function SummaryBody({
   onFollow?: () => void;
   /// Sources' +: files or folders on this computer for the next prompt (a local chat's).
   onAttach?: () => void;
+  /// Sources' + also offers Use tools: the chat's tools, when acpmux can change them and it has some.
+  tools?: ChatToolsControl;
   /// The Subagents section, when acpmux reports the chat's subagents.
   subagents?: ReactNode;
 }) {
@@ -120,16 +124,20 @@ export function SummaryBody({
         fixed
         items={summary.sources}
         action={
-          onAttach && (
-            <button
-              type="button"
-              className="acpmux-summary-add"
-              aria-label={t("summary.sources.attach")}
-              title={t("summary.sources.attach")}
-              onClick={onAttach}
-            >
-              <Icon name="action.add" size={ROW_ICON} />
-            </button>
+          tools && tools.rows.length > 0 ? (
+            <SourcesAddMenu attach={onAttach} tools={tools} />
+          ) : (
+            onAttach && (
+              <button
+                type="button"
+                className="acpmux-summary-add"
+                aria-label={t("summary.sources.attach")}
+                title={t("summary.sources.attach")}
+                onClick={onAttach}
+              >
+                <Icon name="action.add" size={ROW_ICON} />
+              </button>
+            )
           )
         }
         row={(source) => (

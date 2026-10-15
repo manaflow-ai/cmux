@@ -115,3 +115,9 @@
 .acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* Sources' Use tools (SourcesAddMenu.tsx): a check row per tool, its name then its source muted; a change's note (when it applies, or why not) takes the source's place, the warning colour for a refusal. */
+.acpmux-tools-row>.ui-menu-check{flex:none}
+.acpmux-tools-name{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-tools-source,.acpmux-tools-note{flex:0 1 auto;min-width:0;margin-inline-start:auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-tools-note[data-kind=error]{color:var(--acpmux-warning)}
+.acpmux-tools-empty{padding:4px var(--ui-row-padding-inline);color:var(--agent-muted)}

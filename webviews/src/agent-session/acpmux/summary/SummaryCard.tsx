@@ -10,6 +10,7 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
+import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
 
 /// What the chat has produced so far: a card pinned under the header's summary button (cardState.ts
@@ -27,6 +28,7 @@ export function SummaryCard({
   onOpenChanges,
   subagents,
   actions,
+  tools,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -50,6 +52,8 @@ export function SummaryCard({
   /// New terminal and New browser beside the chat (none where the pane opens no split), and
   /// `attach`, Sources' + (Attach files or folders), for a chat on this computer.
   actions?: { terminal?: () => void; browser?: () => void; attach?: () => void };
+  /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
+  tools?: ChatToolsControl;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -148,6 +152,7 @@ export function SummaryCard({
               subagents={agents.length > 0 ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={actions?.attach}
+              tools={tools}
             />
           </div>
         )}
