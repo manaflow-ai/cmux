@@ -504,6 +504,69 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   behind `auth` wait for it, one `auth` per link, a refusal silences new keys
   from that device id, and nothing is asked before the app's list arrives).
 
+## Parity round 2: Codex, model proxies, Restart Shell, the Mac's last pick (`feat-cnx-ios-parity2`)
+
+### `acpmux`: Codex from a phone, always asking
+
+- **What changed.** acpmux bridges Codex through `codex app-server`
+  (`codex_app_server.rs`) and already let an authenticated remote (Web)
+  connection pick any bridge mode (`any_mode_for_web`, Lawrence 2026-10-13). A
+  session such a connection *starts* now begins in the bridge's `ask` mode
+  (`web_modes::BRIDGE_ASKING_MODES`; cmux-codex-acp c30e6489: approval policy
+  `untrusted`, workspace-write sandbox), also as a new handoff target. The
+  codex-acp adapter and opencode stay refused.
+- **The phone's narrowing.** cnx-hostd's `acpmux` service refuses any
+  `session/set_mode` or `session/set_config_option {configId: "mode"}` whose
+  mode is not `default`, `plan` or `ask` (`acpmux_policy.rs`), answering the
+  phone with a JSON-RPC error. So a phone keeps every agent it drives in a mode
+  that asks; each tool approval reaches the person and an Allow needs the phone's
+  Face ID signature. Tests: acpmux `a_remote_device_starts_the_codex_bridge_in_its_asking_mode`,
+  hostd `acpmux_policy::tests`.
+- **Rule 2.** No new method. It narrows what a phone could already send, and the
+  start mode moves from one that does not ask to one that asks.
+
+### `acpmux`: a remote chain reaches its own model proxy (and nothing else)
+
+- The remote-chain Seatbelt profile opened the port of the `ANTHROPIC_BASE_URL`
+  in the profile's env, but Claude Code applies its user settings `env` over its
+  process env, so it used another endpoint (EPERM or a hang). Now the endpoint is
+  the one Claude uses (profile or route, else the user settings env, else the
+  login env); only its port opens (loopback only when the endpoint is loopback);
+  the inline `--settings` pins it (no project file can move it); and a profile's
+  own route skips the user settings source (`--setting-sources project,local`),
+  whose env would replace the route's key. No new hole: one port, as before.
+- `sr claude proxy` (`claude-sr`) would start a loopback listener, which the
+  sandbox forbids; a remote chain runs Claude Code itself to the subrouter server
+  (`SUBROUTER_URL` or sr's default server), with the same placeholder token the
+  launcher fallback uses (the server ignores it). Refused when no server is set
+  or the profile carries other `sr` options.
+- Tests: `endpoint_tests` (order, pin, setting sources, one loopback port, sr)
+  and, on macOS, `a_remote_chain_reaches_its_own_loopback_model_proxy_and_nothing_else`.
+
+### `daemon`: Restart Shell Here (`restart-tab`)
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | It starts the dead terminal tab's own recorded launch again (the person's shell, or the program the Mac started there), on this Mac, under the same terminal id. The phone names only the tab (`surface`); `tab` (the alias), `command`, `argv`, `cwd`, `env` and every other field are refused (`creation_fields`). The daemon refuses a live tab (`tab-not-dead`) and a non-terminal (`tab-not-terminal`). |
+| Mutates or destroys objects the session does not own? | Only the person's own tab, as the Mac's button does. |
+| Reads local state the remote should not see? | No. |
+
+- **Rule 4 (live verification).** On the rig Mac (`cnx-p2-26459378`): see
+  `verify/parity-mac.md` Round 2 for the run in which a phone-made terminal whose
+  shell ended was restarted from the phone, and the Mac listed a new shell process
+  under the same tab.
+- Tests: hostd `restart_shell_takes_only_the_tab`, Swift `DaemonLanePolicyRestartTests`.
+
+### `acpmux`: the Mac's last New Tab pick (`_acpmux/new_chat_picks_set`)
+
+- Set only by the person's app on its proven person connection (memory only),
+  while iPhone connections are allowed for a signed-in account; shown in
+  `_acpmux/harnesses` as `lastPicks`. Short identifiers and absolute folders only.
+- Rule 2: it runs nothing and changes no session; a phone reads agent and model
+  ids and the folders the person picked them in (folders it can already see as
+  workspace folders). Tests: acpmux `the_apps_last_new_chat_picks_reach_a_remote_device`,
+  CmuxNext `NewChatPicksTests`.
+
 ## Test-only pairing seed (DEBUG builds)
 
 A hidden rig app cannot press the person-only "Allow … to connect?" prompt.
