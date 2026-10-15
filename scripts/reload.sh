@@ -1381,6 +1381,13 @@ if [[ -z "${CMUX_NEXT_CNX_HOSTD_BIN:-}" && -x "$PWD/scripts/cmux-next/build-cnx-
     export CMUX_NEXT_REQUIRE_CNX_HOSTD=1
   fi
 fi
+# A Release app always carries it (bundle-cnx-hostd.sh enforces it and the
+# same-source key); stop here, before the long compile, when there is none.
+if [[ "$BUILD_CONFIGURATION" == "Release" && -z "${CMUX_NEXT_CNX_HOSTD_BIN:-}" && "${CMUX_NEXT_CNX_HOSTD_OPTIONAL:-}" != 1 \
+      && -x "$PWD/scripts/cmux-next/build-cnx-hostd.sh" ]]; then
+  echo "error: a Release cmux-next build must bundle cnx-hostd, and none is cached for this source on a machine that never runs Cargo; build through the fleet, CI or nx-remote, or set CMUX_NEXT_CNX_HOSTD_OPTIONAL=1" >&2
+  exit 1
+fi
 [[ -n "${CMUX_NEXT_CNX_HOSTD_BIN:-}" ]] && echo "==> cmux-next: bundling cnx-hostd from $CMUX_NEXT_CNX_HOSTD_BIN"
 
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews

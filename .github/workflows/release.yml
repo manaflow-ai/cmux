@@ -284,6 +284,18 @@ jobs:
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
+      # A Release cmux-next app must bundle the cnx iPhone host built from this
+      # source (scripts/cmux-next/bundle-cnx-hostd.sh refuses one without it).
+      - name: Build the cnx iPhone host for the app bundle
+        if: steps.guard_release_assets.outputs.skip_all != 'true' && hashFiles('scripts/cmux-next/build-cnx-hostd.sh') != ''
+        env:
+          CMUX_NEXT_CNX_HOSTD_ARCHS: arm64,x86_64
+        run: |
+          set -euo pipefail
+          hostd_bin="$RUNNER_TEMP/cmux-next-cnx-hostd/cnx-hostd"
+          scripts/cmux-next/build-cnx-hostd.sh --output "$hostd_bin"
+          echo "CMUX_NEXT_CNX_HOSTD_BIN=$hostd_bin" >> "$GITHUB_ENV"
+
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |

@@ -1012,6 +1012,7 @@ jobs:
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
           bash scripts/cmux-next/tests/cef-build-flags.test.sh
           bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
+          bash scripts/cmux-next/tests/bundle-cnx-hostd-release.test.sh
           bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
           # The herdr-derived agent plugin's vendored manifests match their pin.
@@ -2463,6 +2464,9 @@ jobs:
         if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && inputs.dev_daily_sha == github.sha && (needs.push-head-preflight.outputs.current == 'true' || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
+          # This compile does not build the cnx iPhone host; the Bundle
+          # cnx-hostd phase otherwise refuses a Release app without it.
+          CMUX_NEXT_CNX_HOSTD_OPTIONAL: "1"
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
           CMUX_NEXT_BUNDLE_ID: com.cmuxterm.app.debug.next
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
