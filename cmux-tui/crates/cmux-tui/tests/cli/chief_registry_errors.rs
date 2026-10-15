@@ -52,6 +52,25 @@ fn chief_list_shows_the_daemons_words_for_an_internal_failure() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("chief registry has an unknown schema version"), "{stderr}");
     assert!(!stderr.contains("internal: internal"), "{stderr}");
+    // A Request ID the person can quote; the daemon's log names the same id
+    // with the cause.
+    let request_id = stderr
+        .split("Request ID ")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').next())
+        .filter(|id| id.starts_with("req_"))
+        .unwrap_or_else(|| panic!("no Request ID in {stderr}"))
+        .to_owned();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let log = server.stderr_tail();
+        let cause = "chief registry has an unknown schema version";
+        if log.contains(&request_id) && log.contains(cause) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the daemon log has no {request_id}: {log}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
 
     let daemon = i32::try_from(server.child.id()).unwrap();
     // SAFETY: the test's own daemon child.
