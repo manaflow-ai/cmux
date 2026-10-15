@@ -1741,7 +1741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
         if !isRunningUnderXCTest {
             startSudoApprovalCoordinator()
-            CloudSecretsService.activateForApp()
+            CloudSecretsService.activateForApp(bridge: .shared, presenter: .shared)
         }
         // Prewarm the restorable-agent index (see closedPanelHistoryEntry) and the agent
         // message journal off the main thread, so the first close or command palette open

@@ -11,8 +11,8 @@ extension CloudSecretsService {
     /// imports either one. The first read is the vault's single Keychain item; an
     /// absent item reads as an empty vault without prompting.
     static func activateForApp(
-        bridge: CloudGettingStartedSecretsBridge = .shared,
-        presenter: CloudSecretsSheetPresenter = .shared
+        bridge: CloudGettingStartedSecretsBridge,
+        presenter: CloudSecretsSheetPresenter
     ) {
         let service = shared
         presenter.installGettingStartedBridge(bridge)

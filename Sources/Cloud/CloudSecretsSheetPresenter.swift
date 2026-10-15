@@ -70,7 +70,7 @@ final class CloudSecretsSheetPresenter {
     }
 
     /// Lets the Cloud "Get started" card open this sheet.
-    func installGettingStartedBridge(_ bridge: CloudGettingStartedSecretsBridge = .shared) {
+    func installGettingStartedBridge(_ bridge: CloudGettingStartedSecretsBridge) {
         bridge.openSecrets = { [weak self] in
             self?.present(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
         }
