@@ -27,7 +27,11 @@ fn handoff_hub(dir: Option<&std::path::Path>) -> (Arc<Hub>, Config) {
     agents.insert("mirror".to_owned(), fake_profile());
     let mut slow = fake_profile();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    slow.argv = vec!["sh".into(), "-c".into(), format!("sleep 5; exec python3 {fake}")];
+    slow.argv = vec![
+        "sh".into(),
+        "-c".into(),
+        format!("sleep 5; exec python3 {}", crate::daemon_env::sh_quote(fake)),
+    ];
     agents.insert("slowpoke".to_owned(), slow);
     let mut cfg =
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
