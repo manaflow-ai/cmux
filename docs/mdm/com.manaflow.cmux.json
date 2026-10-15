@@ -1461,6 +1461,19 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
+    "labs.newTabStyle" : {
+      "default" : "round",
+      "description" : "How the New Tab page shows its styles.",
+      "enum" : [
+        "round",
+        "hint",
+        "dots",
+        "strip",
+        "names"
+      ],
+      "title" : "New Tab Style Switch",
+      "type" : "string"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",

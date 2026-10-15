@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.newTabStyle`: How the New Tab page shows its style switch (Leo 2026-10-14: every look he compared ships as an opt-in). The page draws round for an unknown value; webviews newtab/templates.ts STYLE_SWITCHES has the same values.
+    public nonisolated static let newTabStylePath = ["labs", "newTabStyle"]
+    public nonisolated static let newTabStyleDefault: NewTabStyleSwitch = .round
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -22,6 +25,22 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.newTabStylePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.newTabStyle", "New Tab Style Switch"),
+                help: SettingsText.keyed("settings.labs.newTabStyle.help", "How the New Tab page shows its styles."),
+                kind: .choice([
+                    SettingChoice(NewTabStyleSwitch.round.rawValue, SettingsText.keyed("settings.choice.newTabStyleRound", "Round Dots")),
+                    SettingChoice(NewTabStyleSwitch.hint.rawValue, SettingsText.keyed("settings.choice.newTabStyleHint", "Dots That Name a Pick")),
+                    SettingChoice(NewTabStyleSwitch.dots.rawValue, SettingsText.keyed("settings.choice.newTabStyleDots", "Chip Dots")),
+                    SettingChoice(NewTabStyleSwitch.strip.rawValue, SettingsText.keyed("settings.choice.newTabStyleStrip", "Layout Sketches")),
+                    SettingChoice(NewTabStyleSwitch.names.rawValue, SettingsText.keyed("settings.choice.newTabStyleNames", "Style Names")),
+                ]),
+                default: .string(CmuxConfigSnapshot.newTabStyleDefault.rawValue),
+                keywords: ["labs", "new tab", "style", "template", "dots", "switch"]
             ),
         ]
     }

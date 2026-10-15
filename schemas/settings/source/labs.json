@@ -30,6 +30,70 @@
             "beta",
             "prototype"
           ]
+        },
+        {
+          "key": "labs.newTabStyle",
+          "note": "How the New Tab page shows its style switch (Leo 2026-10-14: every look he compared ships as an opt-in). The page draws round for an unknown value; webviews newtab/templates.ts STYLE_SWITCHES has the same values.",
+          "title": {
+            "key": "settings.labs.newTabStyle",
+            "text": "New Tab Style Switch"
+          },
+          "help": {
+            "key": "settings.labs.newTabStyle.help",
+            "text": "How the New Tab page shows its styles."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "round",
+              "title": {
+                "key": "settings.choice.newTabStyleRound",
+                "text": "Round Dots"
+              },
+              "note": "Round dots that name the one pointed at (#20473)."
+            },
+            {
+              "value": "hint",
+              "title": {
+                "key": "settings.choice.newTabStyleHint",
+                "text": "Dots That Name a Pick"
+              },
+              "note": "Chip dots that name a pick for a moment."
+            },
+            {
+              "value": "dots",
+              "title": {
+                "key": "settings.choice.newTabStyleDots",
+                "text": "Chip Dots"
+              },
+              "note": "The dots as they were before #20127, named by tooltip."
+            },
+            {
+              "value": "strip",
+              "title": {
+                "key": "settings.choice.newTabStyleStrip",
+                "text": "Layout Sketches"
+              },
+              "note": "A small sketch of each style's layout."
+            },
+            {
+              "value": "names",
+              "title": {
+                "key": "settings.choice.newTabStyleNames",
+                "text": "Style Names"
+              },
+              "note": "The style names (#20336)."
+            }
+          ],
+          "default": "round",
+          "keywords": [
+            "labs",
+            "new tab",
+            "style",
+            "template",
+            "dots",
+            "switch"
+          ]
         }
       ]
     }
