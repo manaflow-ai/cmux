@@ -165,7 +165,7 @@ extension ChiefConversationOwner {
     /// Maps a provisioning call onto the turn's one provisioning row: the
     /// first call posts it, later ones (`vm wait` after `vm new`, a retry)
     /// set it running again.
-    private func startProvisioning(_ id: String, phase: ChiefCloudProvisioning.Phase, command: String,
+    private func startProvisioning(_ id: String, phase: ChiefCloudProvisioning, command: String,
                                    turn: inout ChiefRunningTurn, in conversation: ConversationID) {
         let machine = phase == .wait ? ChiefCloudProvisioning.machine(inCommand: command) : nil
         turn.provisioningCalls[id] = phase
@@ -188,7 +188,7 @@ extension ChiefConversationOwner {
 
     /// A provisioning call ended: `vm new` leaves the row creating (the wait
     /// follows) and records the machine; `vm wait` makes it ready; a failure fails it.
-    private func finishProvisioning(_ row: MessageID, phase: ChiefCloudProvisioning.Phase, ok: Bool, output: String?,
+    private func finishProvisioning(_ row: MessageID, phase: ChiefCloudProvisioning, ok: Bool, output: String?,
                                     turn: inout ChiefRunningTurn, in conversation: ConversationID) {
         let status: WorkRef.Status = !ok ? .failed : phase == .wait ? .done : .running
         turn.provisioningStatus = status

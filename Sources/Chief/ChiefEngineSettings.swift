@@ -19,7 +19,7 @@ struct ChiefEngineSettings: Equatable, Sendable {
     var resolvedHarness: CmuxChief.ChiefHarness { CmuxChief.ChiefHarness(rawValue: harness.lowercased()) ?? .claude }
 
     /// The model that runs.
-    var resolvedModel: String { model.isEmpty ? ChiefModelCatalog.defaultModel(for: resolvedHarness) : model }
+    var resolvedModel: String { model.isEmpty ? resolvedHarness.defaultModel : model }
 
     /// Values trimmed; an unknown harness becomes the default.
     var normalized: ChiefEngineSettings {

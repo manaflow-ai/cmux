@@ -40,7 +40,7 @@ struct ChiefRunningTurn {
     /// The turn's one Cloud provisioning row (``ChiefCloudProvisioning``), once a provisioning call started.
     var provisioning: MessageID?
     /// The provisioning step of each running provisioning call, by tool call id.
-    var provisioningCalls: [String: ChiefCloudProvisioning.Phase] = [:]
+    var provisioningCalls: [String: ChiefCloudProvisioning] = [:]
     /// The provisioning row's status so far.
     var provisioningStatus: WorkRef.Status = .running
     /// When the turn started, for its ``ChiefTurnStats``.

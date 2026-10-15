@@ -180,12 +180,12 @@ import Testing
     }
 
     @Test func catalogDefaultsAndFactory() {
-        #expect(ChiefModelCatalog.defaultModel(for: .claude) == "claude-opus-5-5")
-        #expect(ChiefModelCatalog.defaultModel(for: .codex) == "gpt-6.1-sol")
-        #expect(ChiefModelCatalog.models(for: .claude).map(\.id).contains("claude-fable-5-1"))
-        #expect(ChiefModelCatalog.efforts(for: "claude-opus-5-5", harness: .claude).map(\.id) == ["low", "medium", "high", "xhigh", "max"])
-        #expect(ChiefBrainFactory.make(harness: "codex", model: nil, effort: nil) is CodexAppServerBrain)
-        #expect(ChiefBrainFactory.make(harness: "claude", model: "", effort: "default") is ClaudeCodeBrain)
-        #expect(ChiefBrainFactory.make(harness: "unknown", model: nil, effort: nil) is ClaudeCodeBrain)
+        #expect(ChiefHarness.claude.defaultModel == "claude-opus-5-5")
+        #expect(ChiefHarness.codex.defaultModel == "gpt-6.1-sol")
+        #expect(ChiefHarness.claude.models.map(\.id).contains("claude-fable-5-1"))
+        #expect(ChiefHarness.claude.efforts(for: "claude-opus-5-5").map(\.id) == ["low", "medium", "high", "xhigh", "max"])
+        #expect(ChiefHarness(lenient: "codex").makeBrain(model: nil, effort: nil) is CodexAppServerBrain)
+        #expect(ChiefHarness(lenient: "claude").makeBrain(model: "", effort: "default") is ClaudeCodeBrain)
+        #expect(ChiefHarness(lenient: "unknown").makeBrain(model: nil, effort: nil) is ClaudeCodeBrain)
     }
 }

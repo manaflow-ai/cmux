@@ -76,18 +76,30 @@ public struct ChiefPromptContext: Sendable, Equatable {
 ///
 /// Model-facing text: not localized. Every command and flag below was
 /// checked against the CLI's own `--help` output.
-public enum ChiefSystemPrompt {
+///
+/// ```swift
+/// let prompt = ChiefSystemPrompt(context: context).build()
+/// ```
+public struct ChiefSystemPrompt: Sendable, Equatable {
+    /// What the prompt says about this session.
+    public var context: ChiefPromptContext
+
+    /// Creates the prompt for a session.
+    public init(context: ChiefPromptContext) {
+        self.context = context
+    }
+
     /// Builds the whole prompt.
-    public static func build(context: ChiefPromptContext) -> String {
+    public func build() -> String {
         let name = context.userDisplayName.map(ChiefMemory.normalize).flatMap { $0.isEmpty ? nil : $0 }
         var sections = [
-            identity(userName: name),
-            tools,
-            codingAgents,
-            cloud,
-            settings,
-            memoryRules,
-            environment(context),
+            Self.identity(userName: name),
+            Self.tools,
+            Self.codingAgents,
+            Self.cloud,
+            Self.settings,
+            Self.memoryRules,
+            Self.environment(context),
         ]
         if let summary = context.workspacesSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
             sections.append("""

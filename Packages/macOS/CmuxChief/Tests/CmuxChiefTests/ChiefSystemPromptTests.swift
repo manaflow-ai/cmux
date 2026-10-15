@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func userFilesComeLastAndVerbatim() {
-        let prompt = ChiefSystemPrompt.build(context: context())
+        let prompt = ChiefSystemPrompt(context: context()).build()
         #expect(prompt.hasPrefix("You are Chief, Ada's chief of staff inside cmux"))
         #expect(prompt.hasSuffix("Ada runs the backend team.\n\n- Likes terse replies.\n"))
         let order = ["# Voice", "# Your tools", "# Coding agents", "# Cloud machines", "# Settings", "# Memory",
@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func environmentCarriesSessionFacts() {
-        let prompt = ChiefSystemPrompt.build(context: context())
+        let prompt = ChiefSystemPrompt(context: context()).build()
         #expect(prompt.contains("- Now: Wednesday 2026-10-14 17:46 GMT"))
         #expect(prompt.contains("- cmux: 0.66.0"))
         #expect(prompt.contains("- Socket: /tmp/cmux-test.sock"))
@@ -48,8 +48,8 @@ import Testing
     }
 
     @Test func emptyContextOmitsOptionalSections() {
-        let prompt = ChiefSystemPrompt.build(context: ChiefPromptContext(date: Date(timeIntervalSince1970: 0),
-                                                                        timeZone: TimeZone(identifier: "UTC") ?? .current))
+        let prompt = ChiefSystemPrompt(context: ChiefPromptContext(date: Date(timeIntervalSince1970: 0),
+                                                                        timeZone: TimeZone(identifier: "UTC") ?? .current)).build()
         #expect(prompt.hasPrefix("You are Chief, the user's chief of staff inside cmux"))
         #expect(prompt.contains("(nothing saved yet)"))
         #expect(!prompt.contains("# Workspaces when this conversation started"))
@@ -62,14 +62,14 @@ import Testing
         var other = context()
         other.date = Date(timeIntervalSince1970: 1_800_000_000)
         other.memory = "- something else"
-        let a = ChiefSystemPrompt.build(context: context())
-        let b = ChiefSystemPrompt.build(context: other)
+        let a = ChiefSystemPrompt(context: context()).build()
+        let b = ChiefSystemPrompt(context: other).build()
         let prefix = { (text: String) in String(text[..<(text.range(of: "# Environment")?.lowerBound ?? text.endIndex)]) }
         #expect(prefix(a) == prefix(b))
     }
 
     @Test func teachesTheVerifiedCommands() {
-        let prompt = ChiefSystemPrompt.build(context: context())
+        let prompt = ChiefSystemPrompt(context: context()).build()
         for command in [
             "cmux workspace create --name", "cmux workspace list --json", "cmux workspace rename workspace:N --title",
             "cmux workspace close workspace:N", "cmux read-screen --workspace workspace:N", "cmux send-key",
@@ -90,7 +90,7 @@ import Testing
     }
 
     @Test func teachesQuietBatchedJSONReadsAndShortReplies() {
-        let prompt = ChiefSystemPrompt.build(context: context())
+        let prompt = ChiefSystemPrompt(context: context()).build()
         for rule in [
             "one to three short, plain sentences", "No Markdown headers or tables", "Don't narrate tool use",
             "Prefer plain `cmux` commands with `--json`", "cmux tree --all --json", "Batch what you need",
@@ -109,7 +109,7 @@ import Testing
         try memory.add("Uses pnpm", source: "cli")
         var context = ChiefPromptContext(date: Date(timeIntervalSince1970: 0))
         context.apply(memory.snapshot())
-        let prompt = ChiefSystemPrompt.build(context: context)
+        let prompt = ChiefSystemPrompt(context: context).build()
         #expect(prompt.contains("- Uses pnpm ("))
         #expect(prompt.contains("Act without asking for safe operations"))
         #expect(!prompt.contains("<!--"))

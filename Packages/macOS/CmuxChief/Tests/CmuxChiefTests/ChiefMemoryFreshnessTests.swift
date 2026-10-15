@@ -134,7 +134,7 @@ import Testing
             ChiefWorkspacesSummary.Line(windowRef: "window:2", ref: "workspace:3", title: "", directory: "/Users/me",
                                         agentState: "needs input", isSelected: true),
         ]
-        let text = try #require(ChiefWorkspacesSummary.render(lines, homeDirectory: "/Users/me"))
+        let text = try #require(ChiefWorkspacesSummary(lines: lines, homeDirectory: "/Users/me").render())
         #expect(text == """
         - "cmux" (workspace:1, window:1, ~/src/cmux, agent: working, selected)
         - "notes" (workspace:2, window:1, /tmp)
@@ -144,12 +144,12 @@ import Testing
     }
 
     @Test func theWorkspaceSummaryOmitsOneWindowAndCapsAtThirty() throws {
-        #expect(ChiefWorkspacesSummary.render([]) == nil)
+        #expect(ChiefWorkspacesSummary(lines: []).render() == nil)
         let lines = (1...32).map {
             ChiefWorkspacesSummary.Line(windowRef: "window:1", ref: "workspace:\($0)", title: "w\($0)", directory: nil,
                                         agentState: nil, isSelected: false)
         }
-        let text = try #require(ChiefWorkspacesSummary.render(lines, homeDirectory: "/Users/me"))
+        let text = try #require(ChiefWorkspacesSummary(lines: lines, homeDirectory: "/Users/me").render())
         let rows = text.split(separator: "\n")
         #expect(rows.count == 32)
         #expect(rows[0] == "- \"w1\" (workspace:1)")

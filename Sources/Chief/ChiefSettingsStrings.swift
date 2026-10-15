@@ -121,7 +121,7 @@ enum ChiefSettingsStrings {
     /// prefix ("Opus 5.5", "GPT-6.1 Sol"); an unlisted id as is.
     static func modelName(_ id: String, harness: String) -> String {
         let resolved = CmuxChief.ChiefHarness(rawValue: harness) ?? .claude
-        guard let option = ChiefModelCatalog.model(id, for: resolved) else { return id }
+        guard let option = resolved.model(id) else { return id }
         let prefix = "Claude "
         return option.displayName.hasPrefix(prefix) ? String(option.displayName.dropFirst(prefix.count)) : option.displayName
     }

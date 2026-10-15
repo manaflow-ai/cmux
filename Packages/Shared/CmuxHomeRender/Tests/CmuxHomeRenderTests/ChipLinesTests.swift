@@ -16,7 +16,7 @@ import Testing
     @Test(arguments: [700.0, 900.0, 1200.0])
     func oneCenteredRowWhenTheyFit(pane: Double) {
         let available = Self.available(pane: CGFloat(pane))
-        let lines = ChipLines.layout(widths: Self.widths, available: available, gap: Self.gap)
+        let lines = ChipLines(gap: Self.gap).layout(widths: Self.widths, available: available)
         #expect(lines.count == 1)
         let row = lines[0]
         #expect(row.map(\.index) == [0, 1, 2])
@@ -30,7 +30,7 @@ import Testing
 
     @Test func wrapsTwoPlusOneWithTheThirdCentered() {
         let available = Self.available(pane: 500)
-        let lines = ChipLines.layout(widths: Self.widths, available: available, gap: Self.gap)
+        let lines = ChipLines(gap: Self.gap).layout(widths: Self.widths, available: available)
         #expect(lines.map { $0.map(\.index) } == [[0, 1], [2]])
         let pair: CGFloat = 205 + Self.gap + 190
         #expect(lines[0][0].x == floor((available - pair) / 2))
@@ -40,19 +40,19 @@ import Testing
     }
 
     @Test func oneChipPerLineWhenOnlyOneFits() {
-        let lines = ChipLines.layout(widths: Self.widths, available: 300, gap: Self.gap)
+        let lines = ChipLines(gap: Self.gap).layout(widths: Self.widths, available: 300)
         #expect(lines.map { $0.map(\.index) } == [[0], [1], [2]])
         #expect(lines[1][0].x == floor((300 - 190) / 2))
     }
 
     @Test func aChipWiderThanThePaneTakesTheFullWidth() {
-        let lines = ChipLines.layout(widths: [400, 100], available: 250, gap: Self.gap)
+        let lines = ChipLines(gap: Self.gap).layout(widths: [400, 100], available: 250)
         #expect(lines.count == 2)
         #expect(lines[0][0] == ChipLines.Placement(index: 0, x: 0, width: 250))
         #expect(lines[1][0].width == 100)
     }
 
     @Test func noChips() {
-        #expect(ChipLines.layout(widths: [], available: 600, gap: Self.gap).isEmpty)
+        #expect(ChipLines(gap: Self.gap).layout(widths: [], available: 600).isEmpty)
     }
 }

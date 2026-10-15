@@ -5,7 +5,11 @@ public import Foundation
 /// so a first question rarely needs a `cmux tree` round trip.
 ///
 /// Model-facing text: not localized.
-public enum ChiefWorkspacesSummary {
+///
+/// ```swift
+/// let text = ChiefWorkspacesSummary(lines: lines).render()
+/// ```
+public struct ChiefWorkspacesSummary: Sendable, Equatable {
     /// One workspace as the summary lists it.
     public struct Line: Sendable, Equatable {
         /// The window's ref (`window:N`), nil when unknown.
@@ -36,19 +40,31 @@ public enum ChiefWorkspacesSummary {
     /// The most workspaces listed.
     public static let limit = 30
 
-    /// The section's body, nil when there are no workspaces.
+    /// Every workspace, windows in order, sidebar order within each.
+    public var lines: [Line]
+    /// Abbreviated to `~` in directories.
+    public var homeDirectory: String
+
+    /// Creates a summary.
     ///
     /// - Parameters:
     ///   - lines: Every workspace, windows in order, sidebar order within each.
     ///   - homeDirectory: Abbreviated to `~` in directories.
-    public static func render(_ lines: [Line], homeDirectory: String = NSHomeDirectory()) -> String? {
+    public init(lines: [Line], homeDirectory: String = NSHomeDirectory()) {
+        self.lines = lines
+        self.homeDirectory = homeDirectory
+    }
+
+    /// The section's body, nil when there are no workspaces.
+    public func render() -> String? {
+        let limit = Self.limit
         guard !lines.isEmpty else { return nil }
         let multipleWindows = Set(lines.compactMap(\.windowRef)).count > 1
         var out = lines.prefix(limit).map { line -> String in
             var fields = [line.ref]
             if multipleWindows, let window = line.windowRef { fields.append(window) }
             if let directory = line.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
-                fields.append(abbreviate(directory, home: homeDirectory))
+                fields.append(Self.abbreviate(directory, home: homeDirectory))
             }
             if let state = line.agentState { fields.append("agent: \(state)") }
             if line.isSelected { fields.append("selected") }

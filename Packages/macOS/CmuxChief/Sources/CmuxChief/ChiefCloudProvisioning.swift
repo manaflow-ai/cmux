@@ -11,14 +11,13 @@ import Foundation
 /// `toolStarted`). Clients recognize the row by its session prefix
 /// (``sessionPrefix``) and draw elapsed time from the message's `createdAt`;
 /// `host` is the machine id once `vm new` printed it.
-public enum ChiefCloudProvisioning {
-    /// A provisioning step.
-    public enum Phase: Sendable, Equatable {
-        /// `cmux vm new` (or `vm route --provision`): the machine is being created.
-        case create
-        /// `cmux vm wait <machine>`: waiting for it to become ready.
-        case wait
-    }
+///
+/// A value is one provisioning step (``phase(ofCommand:)``).
+public enum ChiefCloudProvisioning: Sendable, Equatable {
+    /// `cmux vm new` (or `vm route --provision`): the machine is being created.
+    case create
+    /// `cmux vm wait <machine>`: waiting for it to become ready.
+    case wait
 
     /// The row's `WorkRef.session` prefix; clients key their rendering on it.
     public static let sessionPrefix = "chief.provision:"
@@ -34,7 +33,7 @@ public enum ChiefCloudProvisioning {
     /// `cmux vm|cloud route … --provision` as a pipeline stage, so
     /// `cmux vm new --detach --json` and `cd x && cmux vm wait m` both count;
     /// `cmux vm new --help` does not.
-    public static func phase(ofCommand command: String) -> Phase? {
+    public static func phase(ofCommand command: String) -> ChiefCloudProvisioning? {
         let words = command.split(whereSeparator: { $0.isWhitespace }).map(String.init)
         var index = 0
         while index < words.count {

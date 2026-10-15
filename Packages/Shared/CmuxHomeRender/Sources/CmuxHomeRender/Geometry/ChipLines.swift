@@ -8,7 +8,11 @@ import CoreGraphics
 ///
 /// Chips keep their natural width (a starter's text is never cut); a chip
 /// wider than the whole width takes a line of its own at the full width.
-public enum ChipLines {
+///
+/// ```swift
+/// let lines = ChipLines(gap: 8).layout(widths: [120, 140, 90], available: 300)
+/// ```
+public struct ChipLines: Equatable, Sendable {
     /// One placed chip: its index in the input and its frame's x and width
     /// (left to right; the caller mirrors for right-to-left).
     public struct Placement: Equatable, Sendable {
@@ -23,12 +27,19 @@ public enum ChipLines {
         }
     }
 
+    /// The space between chips on a line.
+    public var gap: CGFloat
+
+    /// Creates a layout with `gap` between chips on a line.
+    public init(gap: CGFloat) {
+        self.gap = gap
+    }
+
     /// The lines, top to bottom.
     /// - Parameters:
     ///   - widths: Each chip's natural width, in order.
     ///   - available: The width the lines are centered in.
-    ///   - gap: The space between chips on a line.
-    public static func layout(widths: [CGFloat], available: CGFloat, gap: CGFloat) -> [[Placement]] {
+    public func layout(widths: [CGFloat], available: CGFloat) -> [[Placement]] {
         let available = max(0, available)
         var lines: [[(index: Int, width: CGFloat)]] = []
         var lineWidth: CGFloat = 0

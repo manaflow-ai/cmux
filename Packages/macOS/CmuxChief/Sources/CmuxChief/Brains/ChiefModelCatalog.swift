@@ -62,14 +62,14 @@ public struct ChiefEffortOption: Sendable, Equatable, Identifiable, Hashable {
 /// trimmed to current releases. Defaults: Claude Opus 5.5 and GPT-6.1 Sol.
 ///
 /// ```swift
-/// let models = ChiefModelCatalog.models(for: .claude)
-/// let model = ChiefModelCatalog.defaultModel(for: .codex) // "gpt-6.1-sol"
+/// let models = ChiefHarness.claude.models
+/// let model = ChiefHarness.codex.defaultModel // "gpt-6.1-sol"
 /// ```
-public enum ChiefModelCatalog {
+extension ChiefHarness {
     private static let allEfforts: [ChiefEffortOption] = [.low, .medium, .high, .xhigh, .max]
 
     /// Claude Code models, default first.
-    public static let claudeModels: [ChiefModelOption] = [
+    private static let claudeModels: [ChiefModelOption] = [
         ChiefModelOption(id: "claude-opus-5-5", displayName: "Claude Opus 5.5", efforts: allEfforts),
         ChiefModelOption(id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5", efforts: allEfforts),
         ChiefModelOption(id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", efforts: allEfforts),
@@ -77,7 +77,7 @@ public enum ChiefModelCatalog {
     ]
 
     /// Codex models, default first.
-    public static let codexModels: [ChiefModelOption] = [
+    private static let codexModels: [ChiefModelOption] = [
         ChiefModelOption(id: "gpt-6.1-sol", displayName: "GPT-6.1 Sol", efforts: allEfforts),
         ChiefModelOption(id: "gpt-6-sol", displayName: "GPT-6 Sol", efforts: allEfforts),
         ChiefModelOption(id: "gpt-6-astra", displayName: "GPT-6 Astra", efforts: allEfforts),
@@ -86,62 +86,56 @@ public enum ChiefModelCatalog {
         ChiefModelOption(id: "gpt-5.5", displayName: "GPT-5.5", efforts: [.low, .medium, .high, .xhigh]),
     ]
 
-    /// The models offered for `harness`, default first.
-    public static func models(for harness: ChiefHarness) -> [ChiefModelOption] {
-        switch harness {
-        case .claude: return claudeModels
-        case .codex: return codexModels
+    /// The harness a settings value names (`"claude"` or `"codex"`, any
+    /// case); an unknown value falls back to Claude Code.
+    public init(lenient name: String) {
+        self = ChiefHarness(rawValue: name.lowercased()) ?? .claude
+    }
+
+    /// The models offered for this harness, default first.
+    public var models: [ChiefModelOption] {
+        switch self {
+        case .claude: return Self.claudeModels
+        case .codex: return Self.codexModels
         }
     }
 
-    /// The default model id for `harness`.
-    public static func defaultModel(for harness: ChiefHarness) -> String {
-        models(for: harness)[0].id
+    /// The default model id for this harness.
+    public var defaultModel: String {
+        models[0].id
     }
 
-    /// The model `id` of `harness`, nil for an id the catalog does not list
-    /// (a custom id still runs; the CLI decides).
-    public static func model(_ id: String, for harness: ChiefHarness) -> ChiefModelOption? {
-        models(for: harness).first { $0.id == id }
+    /// The model `id` of this harness, nil for an id the catalog does not
+    /// list (a custom id still runs; the CLI decides).
+    public func model(_ id: String) -> ChiefModelOption? {
+        models.first { $0.id == id }
     }
 
-    /// The effort levels offered for `model` of `harness`; every level for an
-    /// unlisted model.
-    public static func efforts(for model: String, harness: ChiefHarness) -> [ChiefEffortOption] {
-        self.model(model, for: harness)?.efforts ?? allEfforts
+    /// The effort levels offered for `model` of this harness; every level
+    /// for an unlisted model.
+    public func efforts(for model: String) -> [ChiefEffortOption] {
+        self.model(model)?.efforts ?? Self.allEfforts
     }
-}
 
-/// Builds the ``ChiefBrain`` for a harness, model and effort.
-///
-/// ```swift
-/// let brain = ChiefBrainFactory.make(harness: "claude", model: nil, effort: "high")
-/// ```
-public enum ChiefBrainFactory {
-    /// A brain for `harness`.
+    /// Builds the ``ChiefBrain`` for this harness, a model and an effort.
+    ///
+    /// ```swift
+    /// let brain = ChiefHarness(lenient: "claude").makeBrain(model: nil, effort: "high")
+    /// ```
     ///
     /// - Parameters:
-    ///   - harness: The harness; an unknown value falls back to Claude Code.
     ///   - model: The model id; nil or empty uses the harness default.
     ///   - effort: The effort level; nil or empty uses the model default.
     ///   - executableOverride: An explicit CLI path; nil looks it up on `PATH`.
     /// - Returns: A brain that starts its processes lazily.
-    public static func make(harness: ChiefHarness, model: String?, effort: String?,
-                            executableOverride: URL? = nil) -> any ChiefBrain {
-        let model = model.flatMap { $0.isEmpty ? nil : $0 } ?? ChiefModelCatalog.defaultModel(for: harness)
+    public func makeBrain(model: String?, effort: String?, executableOverride: URL? = nil) -> any ChiefBrain {
+        let model = model.flatMap { $0.isEmpty ? nil : $0 } ?? defaultModel
         let effort = effort.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }
-        switch harness {
+        switch self {
         case .claude:
             return ClaudeCodeBrain(configuration: .init(model: model, effort: effort, executableOverride: executableOverride))
         case .codex:
             return CodexAppServerBrain(configuration: .init(model: model, effort: effort, executableOverride: executableOverride))
         }
-    }
-
-    /// A brain for a harness name (`"claude"` or `"codex"`).
-    public static func make(harness: String, model: String?, effort: String?,
-                            executableOverride: URL? = nil) -> any ChiefBrain {
-        make(harness: ChiefHarness(rawValue: harness.lowercased()) ?? .claude, model: model, effort: effort,
-             executableOverride: executableOverride)
     }
 }

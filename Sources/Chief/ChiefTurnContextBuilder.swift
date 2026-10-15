@@ -32,7 +32,7 @@ struct ChiefTurnContextBuilder: Sendable {
         prompt.apply(memory.snapshot())
         let preamble = await freshness.preamble(for: input.conversation, freshSession: input.resumeSession == nil,
                                                 current: ChiefMemoryState(memory: memory))
-        return ChiefTurnContext(systemPrompt: ChiefSystemPrompt.build(context: prompt),
+        return ChiefTurnContext(systemPrompt: ChiefSystemPrompt(context: prompt).build(),
                                 workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
                                 environment: Self.environment(socketPath: socketPath, home: input.home),
                                 engine: ChiefTurnEngine(harness: settings.resolvedHarness.rawValue, model: settings.resolvedModel,
@@ -64,7 +64,7 @@ struct ChiefTurnContextBuilder: Sendable {
                     isSelected: tabManager.selectedTabId == workspace.id))
             }
         }
-        return ChiefWorkspacesSummary.render(lines)
+        return ChiefWorkspacesSummary(lines: lines).render()
     }
 
     /// The summary's word for an agent status (model-facing, not localized).

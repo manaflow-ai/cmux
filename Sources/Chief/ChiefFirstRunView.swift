@@ -355,7 +355,7 @@ final class ChiefFirstRunView: NSView {
         // Chips: centered lines just above the field.
         let chipsWidth = max(0, min(Self.chipsMaxWidth, bounds.width - 32))
         let chipGap: CGFloat = 8, chipBottom: CGFloat = 12
-        let lines = ChipLines.layout(widths: starterRows.map(\.chipWidth), available: chipsWidth, gap: chipGap)
+        let lines = ChipLines(gap: chipGap).layout(widths: starterRows.map(\.chipWidth), available: chipsWidth)
         let chipHeight = ChiefFirstRunRow.chipHeight
         let minimumColumn: CGFloat = 2 * ChiefFirstRunRow.height + 6
         // Lines that would leave no room for the action rows go, last first.

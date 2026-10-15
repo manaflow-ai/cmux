@@ -266,13 +266,13 @@ final class ChiefSettingsPanel: NSView {
         fill(harness, CmuxChief.ChiefHarness.allCases.map { ($0.rawValue, $0.displayName) },
              current: settings.harness.isEmpty ? nil : settings.harness,
              defaultTitle: ChiefSettingsStrings.defaultItem(CmuxChief.ChiefHarness.claude.displayName))
-        let defaultModel = ChiefModelCatalog.defaultModel(for: harnessValue)
-        fill(model, ChiefModelCatalog.models(for: harnessValue)
+        let defaultModel = harnessValue.defaultModel
+        fill(model, harnessValue.models
                 .map { ($0.id, ChiefSettingsStrings.modelName($0.id, harness: harnessValue.rawValue)) },
              current: settings.model.isEmpty ? nil : settings.model,
              defaultTitle: ChiefSettingsStrings.defaultItem(ChiefSettingsStrings.modelName(defaultModel,
                                                                                            harness: harnessValue.rawValue)))
-        fill(effort, ChiefModelCatalog.efforts(for: settings.resolvedModel, harness: harnessValue)
+        fill(effort, harnessValue.efforts(for: settings.resolvedModel)
                 .map { ($0.id, ChiefStrings.effortName($0.id)) },
              current: settings.effort.isEmpty ? nil : settings.effort, defaultTitle: ChiefStrings.settingsDefault)
         effortNote.stringValue = ChiefSettingsStrings.effortDescription(settings.effort)
@@ -350,7 +350,7 @@ final class ChiefSettingsPanel: NSView {
             settings.effort = value
         }
         // An effort the new model lacks goes back to the default.
-        let offered = ChiefModelCatalog.efforts(for: settings.resolvedModel, harness: settings.resolvedHarness)
+        let offered = settings.resolvedHarness.efforts(for: settings.resolvedModel)
         if !settings.effort.isEmpty, !offered.contains(where: { $0.id == settings.effort }) { settings.effort = "" }
         ChiefService.shared.setEngineSettings(settings)
         refresh()
