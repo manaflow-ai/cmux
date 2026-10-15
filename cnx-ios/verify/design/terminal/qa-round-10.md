@@ -10,7 +10,12 @@ belongs to a fresh verifier: not touched. Laptop load 20-30 at the start: no tim
 | G-14 TUI selection (vim, htop): a long press always selects | **implemented**: test `29260240` (red: type missing), fix `fd2e3c3a` (green: 15 of 15 with the selection and autoscroll suites, mini-cmux11s); iOS build green (`1769b3bf`, tag tq10). **Not run on the simulator yet** | below |
 | Hidden laptop rig (real Codex) | **up**: Mac app hidden (0 on-screen windows, the front app unchanged, no Keychain or other prompt), rig set up with real onboarding, link `Online · Connected · WebRTC direct`; real `codex --yolo` (v0.162.1, the laptop's login) starts from the phone | Rig |
 | G-17 T-REG-1337 with real Codex | **not reproducible with real Codex** (one valid run each): 2e1369f0, 224d15e9 and new are all green, 0 spontaneous moves, 0 flashes, 0 black, 0 Jump-to-bottom toggles over ~12 s at the bottom and ~12 s near it, Codex idle ("Worked for 2m 22s" on screen) | G-17 |
-| G-17 1259, 1350-b with real Codex | not run yet | |
+| G-17 T-REG-1350-a with real Codex | **red on 2e1369f0** (`reg/1350/2e1369f0-1015-040530.json`: the card shows rows 368-399, no prompt) and **red on 224d15e9** (`224d15e9-1015-041356.json`); **green on new by eye** (`artifacts/shots/reg-1350-new-040656-grid.jpg`: the card shows "Worked for 1m 3s" and Codex's prompt; the runner's OCR lost the "A" under the cursor and wrote red, detector fixed in `ca3a66f7`, **re-run 1350 on new**) | G-17 |
+| G-17 T-REG-1350-b | **not decided**: this build's grid (+) "New" starts an agent chat at once and the Mac refused it ("…doesn't allow agent chats in this folder from your iPhone yet."), so the runner found no Claude item; `ca3a66f7` treats the refusal as the trigger and samples the cards after it. Re-run `both 1350 2e1369f0 --agent codex` | |
+| G-17 T-REG-1259 with real Codex | **not run** (runner ready: 1500-row answer, `agent_still_streaming_at_end` in 1259-e) | Next |
+| **T-LIFE-09/15** (coordinator 1, disruptive) | **fixed in code, not on the rig**: test `86a4d8f8` red (row 900 for 600), fix `60dc5462` green (ReadingMark 11 of 11, ScreenRows 5 of 5, mini-cmux11s). Cause: the anchor's rows and the old end were past the readable rows near the new end, so `locate` fell back to the same distance from the end and the rows that arrived during the drop pushed the reader down by their count. Now: the restore reads every row once (`surface.screenRows()`, unclamped), the search is centred on the reader's own row, and the last fallback is that row; the total-row delta is never applied | Next |
+| Selection visibility (coordinator 6) | **changed, not sampled**: highlight and handles use `systemBlue` (`42873ae3`); the app's tint is its label colour, which drew a grey dim and black handles. T-SEL's 10 samples not run | Next |
+| Coordinator 2-5, 7, 8 | **not started** | Next |
 | CmuxTabsKit re-sync (coordinator) | **done** `87175151`: byte-identical to `506c1239` (includes `b962c111`); `check-tabskit-sync.sh` ok; CmuxTabsKit `swift test` 53 of 53 on mini-cmux11s; feat-cnx-ios `aa685b82` merged (`76c8bace`). Grid card and zoom re-check: after the rebuild | |
 | G-14 autoscroll / full-scrollback copy on the simulator | not run yet | |
 | D6 onboarding Continue | **not reproduced**: 10 of 10 fresh installs advanced on the first tap made the moment Continue is in the tree (7 at the page's push, 3 at the rig Mac's launch); the Not now→Continue swap could not be produced (the shared dev account always has an online Mac) | D6 |
@@ -94,6 +99,39 @@ v0.162.1, GPT-6-Astra max (the laptop's login and its default model).
 rows), keyboard history, the device. Recorded as not reproducible with real Codex; T-SCROLL-03 and
 T-FOLLOW-05 keep covering the behaviour.
 
-## Next
+## Next (in order; context ran out here)
 
-(updated as the round goes)
+The coordinator's list (from VERIFY-round8.md on `origin/feat-cnx-ios-termverify8` `e0789e41`) comes first.
+The shared rig is free for the implementer now (see the coordinator's state notes: cnx-termqa-1 runs the
+verifier's build with -CnxFrameLog, app_path points at termverify8, e2e-t2 runs a GEN loop: ^C it,
+the simulator may need a shutdown and boot).
+
+1. T-LIFE-09/15 on the rig: drop while output arrives (both transports, 3 runs, plus a single drop with no
+   prune); the page must come back on the same rows. The build with `60dc5462` is
+   `~/cnx-ios-builds/<date>-60dc5462df-tq10` (built this round; check its `==> done`).
+2. One-frame black (5-22 ms) at the history cap jumps and prunes: keep the last good frame until the new
+   one is placed.
+3. V5-5 / T-TABS-08: closing a tab on the phone must end the Mac session promptly.
+4. T-TABS-01 inactive card: refresh inactive cards from the Mac when the grid opens.
+5. The ~15.1 s hitch (150-214 ms, saved-frame render on the main thread): off the main thread or cheap,
+   counted in the frame log's work time.
+6. T-SEL: 10 samples with the blue selection (`42873ae3`), plus `g14.py scroll` and `g14.py tui` (TUI
+   selection `fd2e3c3a`, never run on a simulator).
+7. Frame-log `blank` over-reports (752 frames, no black in the video).
+8. Polish: the saved relaunch frame hides the letter under the cursor; the status label says "WireGuard
+   TURN" while hostd reports direct. Also verify the `clear` cases (zsh `clear` wipes scrollback like the
+   Mac; the clear-that-keeps-history fix).
+9. G-17: re-run `both 1350 2e1369f0 --agent codex` (fixed detectors) and `both 1259 2e1369f0 --agent
+   codex` plus `run 1259 224d15e9 --agent codex`; check each real-Codex verdict's frames for Codex's state.
+10. Grid card and zoom transitions after the CmuxTabsKit re-sync: the 1350 grid shot on the merged build
+    (`reg-1350-new-040656-grid.jpg`) shows both cards normal; zoom in/out not recorded yet.
+11. V6-5 / D10 (`v65.py setup`, `v65.py run 35`), V2-6, the 60-minute sessions per transport, D7.
+
+## Laptop rig: how to bring it back
+
+It was shut down at the end (Mac app quit, simulator deleted). To recreate: `xcrun simctl create cnx-tq10
+com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-26-5`, boot it
+headless, write `~/cnx-ios-e2e/tq10-state.json` (`udid`, `app_path` of the unzipped tq10 build), then with
+the env above: `python3 -c 'import tq; m=tq.LocalMac(); m.prepare(); m.seed_pairing(names=["cnx-tq10"]);
+m.launch()'` and `python3 rigsetup.py`. The Mac app in `~/cnx-ios-e2e/tq10/mac` is the fleet build as
+built. Check `~/cnx-ios-e2e/tq10/bin/onscreen <pid>` reports 0 windows after launch.
