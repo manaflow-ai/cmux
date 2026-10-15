@@ -8,6 +8,9 @@
 //! its unix socket.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -109,7 +112,8 @@ impl Daemon {
         )
         .unwrap();
         let socket = dir.join("s.sock");
-        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        // Stand-in agents (fclaude, fcodex) only; PATH stays the bare GUI one below.
+        let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
             .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &dir)
             .env("ACPMUX_SOCKET", &socket)
@@ -119,11 +123,6 @@ impl Daemon {
             .env("CMUX_CHIEF_OWNER_SOCKET", "/tmp/brain-owner.sock")
             .env("PATH", "/usr/bin:/bin")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("CMUX_BUNDLED_CLI_PATH")
-            .env_remove("CMUX_SOCKET_PATH")
-            .env_remove("CMUX_APP_DAEMON_SOCKET")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("CLAUDECODE")
             .envs(extra.iter().map(|(k, v)| (*k, dir.join(v))))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -237,7 +236,7 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     // Testbox's warm target disk) and keeps it on macOS.
     let path = env["PATH"].as_str().unwrap();
     let (first, rest) = path.split_once(':').unwrap();
-    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_acpmux")).unwrap();
+    let exe = std::fs::canonicalize(daemon_env::bin()).unwrap();
     assert_eq!(std::fs::canonicalize(first).unwrap(), exe.parent().unwrap(), "{env}");
     assert_eq!(rest, "/usr/bin:/bin", "{env}");
 }

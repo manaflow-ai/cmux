@@ -3,8 +3,8 @@
 //! client stream for the orphan grace (`CMUX_TUI_HOST_ORPHAN_GRACE_SECS`,
 //! 10 min in those builds) it ends its terminal and exits with an
 //! owner-gone exit record, which the next owner
-//! reads as a host loss (the tab stays); a plain `SIGTERM` ends an orphaned
-//! host at once. A host its daemon serves outlives the grace, and a
+//! reads as a host loss (the tab stays); in those builds a plain `SIGTERM`
+//! ends an orphaned host at once (a normal install's host survives it). A host its daemon serves outlives the grace, and a
 //! daemon restart inside the grace adopts the same host.
 
 use super::*;
@@ -83,7 +83,7 @@ fn a_normal_install_host_has_no_orphan_grace_and_a_dev_host_keeps_it() {
         command.env("CMUX_BUNDLE_ID", bundle).env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
         harness.child = Some(command.spawn().unwrap());
         wait_for_socket(&harness.socket);
-        let (terminal_id, _, _, host_pid) = run_cat(&harness, &format!("{name}-before"));
+        let (terminal_id, _, record_path, host_pid) = run_cat(&harness, &format!("{name}-before"));
         let record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
         assert_eq!(record.orphan_grace_secs, expected, "{bundle}: the host's orphan grace");
         if expected.is_some() {
@@ -91,6 +91,37 @@ fn a_normal_install_host_has_no_orphan_grace_and_a_dev_host_keeps_it() {
         }
         kill_daemon(&mut harness);
         assert!(running(host_pid), "{bundle}: the host ended with its daemon");
+        // cx-t2sqm.17: a stray SIGTERM (a cleanup script, `pkill`) to the
+        // orphaned host of a normal install is recorded and survived, also
+        // past the 2 s reconnect gap after which a DEV host honors it. The
+        // window is long so a host that sees its daemon's stream close late
+        // on a loaded box still gets SIGTERMs well past that gap.
+        let until = Instant::now() + test_timeout(Duration::from_secs(8));
+        while Instant::now() < until {
+            if !running(host_pid) {
+                break;
+            }
+            // SAFETY: signalling the host this test started (its pid is in
+            // the host record of the test's own state directory) while it
+            // still runs.
+            unsafe { libc::kill(host_pid as libc::pid_t, libc::SIGTERM) };
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(running(host_pid), "{bundle}: a stray SIGTERM ended an orphaned host");
+        assert!(
+            load_terminal_host_exit_records(&harness.host_root()).unwrap().is_empty(),
+            "{bundle}: a stray SIGTERM left an exit record"
+        );
+        let signals = fs::read_to_string(record_path.with_extension("signals")).unwrap_or_default();
+        assert!(
+            signals.lines().any(|line| line.contains("\"action\":\"ignored\"")),
+            "{bundle}: the breadcrumbs do not record the survived SIGTERMs: {signals}"
+        );
+        assert!(
+            !signals.lines().any(|line| line.contains("\"action\":\"ended\"")),
+            "{bundle}: a breadcrumb says a stray SIGTERM ended the host: {signals}"
+        );
         harness.child = Some({
             let mut command = harness.daemon_command();
             command.env("CMUX_BUNDLE_ID", bundle).env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
