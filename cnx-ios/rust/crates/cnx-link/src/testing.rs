@@ -150,6 +150,17 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
         })));
     }
     while let Some(Ok(message)) = source.next().await {
+        // A replaced socket is closing: the backend ignores what it still
+        // sends (team-hub.ts `replaced`).
+        let current = state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .devices
+            .get(&device)
+            .is_some_and(|d| d.out.same_channel(&out_tx));
+        if !current {
+            continue;
+        }
         match message {
             Message::Text(text) => {
                 let Ok(mut value) = serde_json::from_str::<Value>(&text) else { continue };

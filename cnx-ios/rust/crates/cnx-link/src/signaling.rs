@@ -376,6 +376,9 @@ impl SignalingClient {
                     _ => {}
                 }
             };
+            // The writer waits on the queue, not on the socket: stop it, so
+            // it releases the socket's write half.
+            pinger.close();
             *shared.closed.lock().unwrap_or_else(PoisonError::into_inner) = Some(reason.clone());
             let sessions: Vec<_> = shared
                 .sessions

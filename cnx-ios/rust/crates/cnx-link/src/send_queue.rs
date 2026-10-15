@@ -50,6 +50,8 @@ struct Class {
 }
 
 impl Class {
+    /// Queue `frame`, then drop the oldest frames while the class is past
+    /// `limit` (a single frame larger than `limit` is still kept).
     fn push(&mut self, frame: Vec<u8>, limit: usize) {
         self.bytes += frame.len();
         self.frames.push_back(frame);
