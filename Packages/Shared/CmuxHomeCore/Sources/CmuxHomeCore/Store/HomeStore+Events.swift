@@ -136,6 +136,8 @@ extension HomeStore {
             rebuildRows()
         case .draft(let update):
             if draftBook.apply(update) { drafts = draftBook.live }
+        case .live(let event):
+            applyLive(event)
         default:
             // A new post ends its author's typing: the owner sends no typing-off after a post (home-inbox-v1).
             // An update of a known message (edit, retraction, reaction, answer) keeps it.
@@ -165,6 +167,7 @@ extension HomeStore {
             case .message(let message, _):
                 // The posted reply ends its draft in the same change.
                 if draftBook.posted(message) { drafts = draftBook.live }
+                if liveBook.posted(message) { live = liveBook.shown }
                 bumpTranscript(message.conversation)
             case .conversationPage(let page):
                 bumpTranscript(page.conversation.id)
