@@ -158,8 +158,8 @@ import Testing
     @Test func frameMatchingPrefersTheExpectedShift() {
         let previous: [UInt64] = [0, 1, 2, 3, 4, 5, 6, 7, 0, 0]
         let moved: [UInt64] = [3, 4, 5, 6, 7, 0, 0, 0, 0, 0]
-        #expect(TerminalViewController.matchScore(previous, moved, shift: 3) == 1)
-        #expect(TerminalViewController.matchScore(previous, moved, shift: 0) == 0)
+        #expect(TerminalPresentMatch.score(previous, moved, shift: 3) == 1)
+        #expect(TerminalPresentMatch.score(previous, moved, shift: 0) == 0)
     }
 }
 #endif
@@ -214,5 +214,34 @@ import Testing
         #expect(run([osc]) == "\u{1B}]7;file://host/Users/x[1;1H\u{07}\u{1B}]2;t\u{1B}\\\u{1B}[110;1H")
         #expect(run(["\u{1B}[1;1H"], offset: 0) == "\u{1B}[1;1H")
         #expect(run(["\u{1B}(B\u{1B}[?25l"]) == "\u{1B}(B\u{1B}[?25l")
+    }
+}
+
+/// termqa V2-2/D7: while following a stream, about 9 times a minute the page
+/// showed one frame one row low with the newest row gone, then moved back up
+/// (VERIFY-round2 frames 16.483/16.522/16.550 s). Shape: the frame on screen
+/// is at viewport T (the newest row visible); Ghostty then presents a frame it
+/// rendered for viewport T-1 (before the last row arrived). Ghostty follows
+/// the output on its own, so no request names T-1 and it was not a candidate:
+/// nothing matched, and the fallback placed the old picture at T, one row low.
+/// The frame must be placed at T-1, where its rows belong (no visible move).
+@Suite struct TerminalPresentMatchTests {
+    /// Signatures of a viewport `top` of `count` rows of numbered stream rows.
+    func rows(top: Int, count: Int = 120) -> [UInt64] { (top..<(top + count)).map { UInt64(1000 + $0) } }
+
+    @Test func aStaleFrameOneRowOlderStaysWhereItsRowsBelong() {
+        let t = 900
+        let match = TerminalPresentMatch(presentedTop: t, reportedTop: t, requestedTop: 780, recentRequests: [700, 740],
+                                         activeTop: t)
+        #expect(match.top(previous: rows(top: t), current: rows(top: t - 1)) == t - 1)
+        #expect(match.top(previous: rows(top: t), current: rows(top: t - 2)) == t - 2)
+    }
+
+    @Test func theNewerFrameStillMovesUp() {
+        let t = 900
+        let match = TerminalPresentMatch(presentedTop: t, reportedTop: t + 1, requestedTop: 780, recentRequests: [], activeTop: t + 1)
+        #expect(match.top(previous: rows(top: t), current: rows(top: t + 1)) == t + 1)
+        // The same picture again: no move.
+        #expect(match.top(previous: rows(top: t), current: rows(top: t)) == t)
     }
 }

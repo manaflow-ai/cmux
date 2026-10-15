@@ -82,7 +82,7 @@ struct TerminalDemoDriver {
     }
 
     func run(phases: [String]?) async {
-        let all = ["scroll", "keyboard", "tui", "vim", "attachments", "artifacts"]
+        let all = ["scroll", "keyboard", "tui", "vim", "attachments", "artifacts", "follow"]
         let selected = phases ?? all
         mark("start")
         for _ in 0..<10 {
@@ -98,6 +98,7 @@ struct TerminalDemoDriver {
             case "vim": await vim()
             case "attachments": await attachments()
             case "artifacts": await artifacts()
+            case "follow": await follow()
             default: break
             }
             await wait(1)
@@ -108,6 +109,13 @@ struct TerminalDemoDriver {
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             try? log.joined(separator: "\n").write(to: documents.appendingPathComponent("present-log.txt"), atomically: true, encoding: .utf8)
         }
+    }
+
+    /// Follows a 30 s numbered stream with no touch (termqa D7: one-frame jumps).
+    private func follow() async {
+        model.composerText = "stream 3000 8"
+        model.send()
+        await wait(32)
     }
 
     private func scroll() async {

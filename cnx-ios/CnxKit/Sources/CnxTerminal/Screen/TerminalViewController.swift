@@ -141,6 +141,53 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
     private var scrollMeter = ScrollMeter()
+    /// G-04: in-app frame intervals (`-CnxFrameLog`).
+    private lazy var frameLog: TerminalFrameLog = {
+        let log = TerminalFrameLog(surfaceName: model.title, frameDuration: 1.0 / Double(max(60, UIScreen.main.maximumFramesPerSecond)))
+        log.phaseProvider = { [weak self] in
+            guard let self else { return "gone" }
+            switch self.scroll.state {
+            case .following: return "following"
+            case .reading: return "reading"
+            case .interacting: return "interacting"
+            }
+        }
+        return log
+    }()
+
+    /// `-CnxFrameLog`: the last row's bottom edge against the composer card's
+    /// top (page points) whenever it changes while following.
+    private var lastPinLog = ""
+    private func logPin() {
+        guard TerminalFrameLog.isEnabled, following, let document, cell.height > 0 else { return }
+        let lastRowBottom = document.contentY(ofRow: document.endRow, cellHeight: cell.height) - scrollView.contentOffset.y
+        let composerTop = bottomStack.frame.minY
+        let line = String(format: "pin: last row bottom %.1f, composer top %.1f, gap %.1f pt (keyboard %@, composer %.0f pt, rows %d)",
+                          lastRowBottom, composerTop, composerTop - lastRowBottom, model.keyboardVisible ? "up" : "down",
+                          composerHost?.view.bounds.height ?? 0, document.rowCount)
+        guard line != lastPinLog else { return }
+        lastPinLog = line
+        sizingLog.notice("\(line, privacy: .public)")
+    }
+
+    /// Times `body` as the screen's main-thread work in this frame and marks
+    /// it with a signpost (G-04). DEBUG only; release builds call `body`.
+    private func measured<T>(_ name: StaticString, _ body: () -> T) -> T {
+        guard TerminalFrameLog.isEnabled else { return body() }
+        let state = TerminalFrameLog.signposter.beginInterval(name)
+        let start = CACurrentMediaTime()
+        measureDepth += 1
+        defer {
+            measureDepth -= 1
+            // Nested work is already inside the outer interval's time.
+            frameLog.work("\(name)", CACurrentMediaTime() - start, outermost: measureDepth == 0)
+            TerminalFrameLog.signposter.endInterval(name, state)
+        }
+        return body()
+    }
+    private var measureDepth = 0
+    #else
+    private func measured<T>(_ name: StaticString, _ body: () -> T) -> T { body() }
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -422,7 +469,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
         surface.onUserInput = { [weak self] in self?.revealCursorForInput() }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
-        surface.onPresent = { [weak self] in self?.surfacePresented() }
+        surface.onPresent = { [weak self] in
+            guard let self else { return }
+            self.measured("present") { self.surfacePresented() }
+        }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
             self.model.surfaceFocused = focused
@@ -450,6 +500,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         registerEdgeEffectScrollView()
+        #if DEBUG
+        frameLog.start()
+        #endif
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
@@ -499,6 +552,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         updateBottomFade()
+        #if DEBUG
+        logPin()
+        #endif
         setScrollButton(visible: scrollButtonVisibility.update(
             offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top, maxOffsetY: maxOffsetY))
     }
@@ -637,6 +693,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        #if DEBUG
+        frameLog.stop()
+        #endif
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
     }
 
@@ -693,20 +752,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let isReset = data == Self.mirrorReset
             if isReset {
                 sizingLog.notice("mirror reset cause=session-reset (the session's replay follows)")
-                freezeLastFrame()
                 // The rows being read are rebuilt from the replay: a reader
                 // goes back to their rows once it is in (V2-3,
                 // TerminalReadingMark); otherwise to the prompt.
-                if case .reading(let anchor) = scroll.state, !model.isTUI, readingMark == nil {
-                    let surface = surface
-                    readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { surface.rowText($0) }
-                    sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
-                }
+                markReadingPosition()
+                freezeLastFrame()
                 // A second reset (D4) waits for its own replay.
                 readingMarkAwaitsReport = false
                 scroll.reset()
+                armReplayDeadline()
             }
-            replayGate.received(data.count, isReset: isReset)
+            replayGate.received(data.count, isReset: isReset, at: CACurrentMediaTime())
+            #if DEBUG
+            if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
+            #endif
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
             model.ingest(event)
@@ -751,7 +810,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// `TerminalOutputQueue.frameBudget` bytes) when the previous one is
     /// parsed, applying alternate screen switches in order on the way.
     private func pumpOutput() {
-        while !feedInFlight, let step = output.next() {
+        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
@@ -769,7 +828,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     transform = nil
                 }
                 let raw = data.count
-                surface.feed(data, transform: transform) { [weak self] in self?.outputProcessed(raw) }
+                surface.feed(data, transform: transform) { [weak self] in
+                    guard let self else { return }
+                    self.measured("output-batch") { self.outputProcessed(raw) }
+                }
             }
         }
         if outputPaused, output.isUnderLowWater {
@@ -800,6 +862,71 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard let anchor = mark.locate(totalRows: total, rowText: { surface.rowText($0) }) else { return }
         sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
+        restoredMark = (mark, anchor)
+    }
+
+    /// The last mark restored and where it put the reader; reused when another
+    /// reset comes before the reader moves (V3-1: a second reset read the
+    /// rows at a misplaced restore, found them blank, and left a black page).
+    private var restoredMark: (mark: TerminalReadingMark, anchor: TerminalScrollModel.Anchor)?
+
+    /// At a reset: where the reader is, from the rows on screen, whatever the
+    /// scroll state. Mid-fling or mid-drag counts too (V3-3: a drop during a
+    /// fling lost the place, since only a settled reader was marked); a fling
+    /// stops so the restore can land. Near the bottom, nothing: follow.
+    private func markReadingPosition() {
+        guard !model.isTUI, readingMark == nil, cell.height > 0 else { return }
+        let anchor: TerminalScrollModel.Anchor?
+        switch scroll.state {
+        case .following:
+            anchor = nil
+        case .reading(let reading):
+            anchor = reading
+        case .interacting:
+            if let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height {
+                anchor = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
+            } else {
+                anchor = nil
+            }
+        }
+        guard let anchor else {
+            restoredMark = nil
+            return
+        }
+        if scrollView.isDecelerating || fling != nil {
+            fling?.stop()
+            fling = nil
+            settingOffset = true
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+            settingOffset = false
+        }
+        if let restored = restoredMark, restored.anchor == anchor {
+            // Nothing moved since the last restore: the same rows, not the
+            // ones a misplaced restore put on screen.
+            readingMark = restored.mark
+        } else {
+            let surface = surface
+            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { surface.rowText($0) }
+        }
+        restoredMark = nil
+        sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
+    }
+
+    /// The replay gate's own deadline (V3-2): the document is never left
+    /// ungrown past it, held frame or not.
+    private func armReplayDeadline() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + TerminalReplayGate.deadline) { [weak self] in
+            guard let self, self.replayGate.expireIfOverdue(at: CACurrentMediaTime()) else { return }
+            sizingLog.notice("replay gate expired at its deadline")
+            self.outputSinceProbe = true
+            self.updateDocument()
+            if self.readingMark != nil {
+                self.restoreReadingMark()
+                self.updateDocument()
+            }
+            self.applyScroll()
+            if self.freezeView != nil, self.readingMark == nil { self.unfreeze() }
+        }
     }
 
     /// Ghostty parsed a batch (`raw` session bytes).
@@ -847,26 +974,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func surfaceEvent(_ event: TerminalSurfaceEvent) {
         switch event {
         case .scrollbar(let total, let offset, let visible):
-            scrollbar = (total, offset, visible)
-            let restoring = readingMarkAwaitsReport
-            if restoring { restoreReadingMark() }
-            updateDocument()
-            if restoring { applyScroll() }
-            #if DEBUG
-            if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm scrollbar %@", debugState) }
-            #endif
-            if placesFromReport, !model.isTUI { place(atRow: offset) }
-            // Whatever moved Ghostty's viewport (a request, a cursor probe
-            // restoring an older row), it must cover the visible rows; a
-            // report that leaves them uncovered asks again. Without this, a
-            // reattach replay left the probe's restore at row 0 while the
-            // screen showed the bottom: a blank page.
-            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            measured("scrollbar") { scrollbarReported(total: total, offset: offset, visible: visible) }
         case .cellSize:
             view.setNeedsLayout()
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
+    }
+
+    private func scrollbarReported(total: Int, offset: Int, visible: Int) {
+        scrollbar = (total, offset, visible)
+        let restoring = readingMarkAwaitsReport
+        if restoring { restoreReadingMark() }
+        updateDocument()
+        if restoring { applyScroll() }
+        #if DEBUG
+        if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm scrollbar %@", debugState) }
+        #endif
+        if placesFromReport, !model.isTUI { place(atRow: offset) }
+        // Whatever moved Ghostty's viewport (a request, a cursor probe
+        // restoring an older row), it must cover the visible rows; a
+        // report that leaves them uncovered asks again. Without this, a
+        // reattach replay left the probe's restore at row 0 while the
+        // screen showed the bottom: a blank page.
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
     }
 
     // MARK: Held frame (R2-3)
@@ -936,6 +1067,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let under = !model.isTUI && !following && scrollView.contentOffset.y < maxOffsetY - 1
         let alpha: CGFloat = under ? 1 : 0
         if bottomFade.alpha != alpha { bottomFade.alpha = alpha }
+        // The soft scroll edge blurs what is under the composer. At the
+        // bottom the last row rests on the card and nothing is under it: no
+        // edge effect over the last row (user report 2026-10-14).
+        if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
     }
 
     // MARK: Layout
@@ -990,7 +1125,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Insets: content starts under the toolbar and ends above the composer.
         let top = chromeTop
         // The last row rests 8 pt above the composer card (SPEC M3).
-        let bottom = max(0, bounds.height - bottomStack.frame.minY) + Self.composerGap
+        let bottom = TerminalDocumentLayout.bottomInset(pageHeight: bounds.height, composerTop: bottomStack.frame.minY)
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if scrollView.contentInset != insets {
             let previousOffset = scrollView.contentOffset.y
@@ -1021,6 +1156,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // cursor moves Ghostty's viewport for a moment, so it is not repeated
         // for reports that only moved the viewport (scrolling).
         guard scrollbar.total != documentTotal || document == nil || outputSinceProbe else { return }
+        // A finger or a deceleration owns the page: grow the end by the new
+        // rows and read nothing under Ghostty's lock (user report
+        // 2026-10-14: a drag stuttered while an agent streamed). The page is
+        // measured again when the gesture ends (settleScroll).
+        if scroll.isInteracting, !Self.legacyInteraction, let current = document, scrollbar.total >= documentTotal, !placesFromReport {
+            let next = current.grown(fromTotal: documentTotal, toTotal: scrollbar.total)
+            documentTotal = scrollbar.total
+            measureAfterGesture = true
+            if next != current {
+                document = next
+                scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+            }
+            return
+        }
         // The scrollback shrank (`clear`, ESC [3J): the rows the user was
         // reading are gone. Follow the prompt again, like Terminal.
         if scrollbar.total < documentTotal, scrollbar.total <= max(surface.grid.rows, 1) { scroll.reset() }
@@ -1095,8 +1244,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// the first and last columns clear the display's corner radius. The
     /// background still fills the page edge to edge.
     static let sidePadding: CGFloat = 6
-    /// Space between the document's last row and the composer card.
-    static let composerGap: CGFloat = 8
 
     /// Asks Ghostty for a viewport that covers the visible rows with margin on
     /// both sides, once the visible rows come within half a margin of the
@@ -1131,7 +1278,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm request %d (current %d visibleTop %d)", top, current, visibleTop) }
         #endif
-        surface.scroll(toRow: top)
+        measured("viewport-request") { surface.scroll(toRow: top) }
     }
 
     /// A frame was presented: put the surface where its rows belong, in the
@@ -1156,28 +1303,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         if let rows = surface.presentedRowSignatures(rowHeight: rowPixels) {
             if let previous = presentedRows {
-                // Shifts to every viewport a frame in flight may still show.
-                // In order of likelihood; periodic output (a build log) can
-                // match several shifts equally, and ties go to the earlier one.
-                var candidates: [Int] = []
-                let activeTop = max(0, scrollbar.total - surfaceRows)
-                for top in [scrollbar.offset, viewportTop, presentedTop] + recentTops.reversed() + [activeTop]
-                    where !candidates.contains(top - presentedTop) {
-                    candidates.append(top - presentedTop)
+                let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
+                                                 recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
+                top = match.top(previous: previous, current: rows)
+                #if DEBUG
+                if CommandLine.arguments.contains("-CnxPresentLog") {
+                    presentDebug = match.candidateShifts.map { String(format: " %d:%.2f", $0, TerminalPresentMatch.score(previous, rows, shift: $0)) }.joined()
                 }
-                var best: (shift: Int, score: Double)?
-                for shift in candidates {
-                    let score = Self.matchScore(previous, rows, shift: shift)
-                    if score > (best?.score ?? -1) + 0.02 { best = (shift, score) }
-                    #if DEBUG
-                    presentDebug += String(format: " %d:%.2f", shift, score)
-                    #endif
-                }
-                if let best, best.score >= 0.9 {
-                    top = presentedTop + best.shift
-                } else if recentTops.contains(scrollbar.offset) == false {
-                    top = scrollbar.offset
-                }
+                #endif
             }
             presentedRows = rows
         }
@@ -1219,25 +1352,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
-    /// Fraction of the new frame's non-blank rows equal to the previous
-    /// frame's rows `shift` further down (1 = the same picture moved by `shift`).
-    static func matchScore(_ previous: [UInt64], _ current: [UInt64], shift: Int) -> Double {
-        let blank = current.isEmpty ? 0 : mostCommon(current)
-        var compared = 0, equal = 0
-        for index in current.indices {
-            let other = index + shift
-            guard other >= 0, other < previous.count, current[index] != blank else { continue }
-            compared += 1
-            if previous[other] == current[index] { equal += 1 }
-        }
-        return compared < 4 ? -1 : Double(equal) / Double(compared)
-    }
-
-    private static func mostCommon(_ values: [UInt64]) -> UInt64 {
-        var counts: [UInt64: Int] = [:]
-        for value in values { counts[value, default: 0] += 1 }
-        return counts.max { $0.value < $1.value }?.key ?? 0
-    }
 
     private func applyMode(tui: Bool) {
         presentedRows = nil
@@ -1285,6 +1399,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        measured("did-scroll") { didScroll(scrollView) }
+    }
+
+    private func didScroll(_ scrollView: UIScrollView) {
         #if DEBUG
         let stepStart = CACurrentMediaTime()
         defer { scrollMeter.step(start: stepStart, end: CACurrentMediaTime(), active: scroll.isInteracting) }
@@ -1340,6 +1458,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
         // A finger owns the offset until it lifts (or the deceleration ends).
         scroll.began()
+        restoredMark = nil
         placesFromReport = false
         fling?.stop()
         fling = nil
@@ -1363,6 +1482,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The finger lifted (or the deceleration ended): follow within two rows
     /// of the bottom, else read here, anchored to the top row.
+    /// DEBUG A/B (`-CnxLegacyInteraction`): full batches and measures during a
+    /// gesture, as before the 2026-10-14 smoothness fix.
+    #if DEBUG
+    static let legacyInteraction = CommandLine.arguments.contains("-CnxLegacyInteraction")
+    #else
+    static let legacyInteraction = false
+    #endif
+
+    /// The document grew without a measure during a gesture (updateDocument).
+    private var measureAfterGesture = false
+
     private func settleScroll() {
         #if DEBUG
         if scrollMeter.frames > 0 {
@@ -1372,6 +1502,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         guard !model.isTUI, cell.height > 0 else { return }
         scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
+        if measureAfterGesture {
+            measureAfterGesture = false
+            outputSinceProbe = true
+            updateDocument()
+        }
         #if DEBUG
         sizingLog.notice("scroll: settled -> \(String(describing: self.scroll.state), privacy: .public) (offset \(Int(self.scrollView.contentOffset.y), privacy: .public), bottom \(Int(self.maxOffsetY), privacy: .public))")
         #endif
@@ -1390,10 +1525,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The composer shows its Jump to bottom row (`TerminalComposer`).
     }
 
+    /// Jump to bottom: one tap lands at the live bottom and follows, whatever
+    /// the page is doing (user report 2026-10-14: mid-fling the tap did
+    /// nothing, since UIKit's deceleration kept the offset). The deceleration
+    /// stops and a drag in progress is cancelled, so nothing else owns the page.
     func scrollToBottom(animated: Bool) {
         fling?.stop()
+        fling = nil
         scroll.jumpToBottom()
+        if scrollView.isTracking || scrollView.isDragging {
+            let pan = scrollView.panGestureRecognizer
+            pan.isEnabled = false
+            pan.isEnabled = true
+        }
+        if scrollView.isDecelerating {
+            settingOffset = true
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+            settingOffset = false
+        }
         applyScroll()
+        #if DEBUG
+        sizingLog.notice("scroll: jump to bottom (decelerating \(self.scrollView.isDecelerating, privacy: .public), tracking \(self.scrollView.isTracking, privacy: .public)) -> offset \(Int(self.scrollView.contentOffset.y), privacy: .public) of \(Int(self.maxOffsetY), privacy: .public)")
+        #endif
     }
 
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven

@@ -47,6 +47,15 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
         return TerminalDocumentLayout(originRow: origin, endRow: end)
     }
 
+    /// The document while a finger or a deceleration owns the page: the new
+    /// rows (`totalRows` grew from `previousTotal`) are added at the end and
+    /// nothing is read from the screen (a read takes Ghostty's terminal lock,
+    /// which a parse holds). The page is measured again when the gesture ends.
+    public func grown(fromTotal previousTotal: Int, toTotal totalRows: Int) -> TerminalDocumentLayout {
+        let added = max(0, totalRows - previousTotal)
+        return TerminalDocumentLayout(originRow: originRow, endRow: min(max(totalRows, endRow), endRow + added))
+    }
+
     /// Content y of absolute `row`'s top edge.
     public func contentY(ofRow row: Int, cellHeight: CGFloat) -> CGFloat {
         CGFloat(row - originRow) * cellHeight
@@ -70,6 +79,18 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
     public static func bottomOffset(contentHeight: CGFloat, viewportHeight: CGFloat, topInset: CGFloat,
                                     bottomInset: CGFloat) -> CGFloat {
         max(-topInset, contentHeight + bottomInset - viewportHeight)
+    }
+
+    /// Space between the document's last row and the composer card's top:
+    /// none. The last row rests on the card (user report 2026-10-14: with
+    /// 8 pt the bottom read as pinned to the row above the composer).
+    public static let composerGap: CGFloat = 0
+
+    /// The scroll view's bottom inset for a page `pageHeight` tall whose
+    /// composer card starts at `composerTop` (page coordinates): at the
+    /// bottom offset, the last row's bottom edge is the card's top.
+    public static func bottomInset(pageHeight: CGFloat, composerTop: CGFloat) -> CGFloat {
+        max(0, pageHeight - composerTop) + composerGap
     }
 
     /// Whether the blank rows at the top must be read again: the origin is

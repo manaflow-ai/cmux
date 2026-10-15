@@ -156,6 +156,7 @@ final class ShellModel {
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
             terminalTabs.uploaderProvider = { [weak live] tab in live?.terminalUploader(tabID: tab.id) }
+            terminalTabs.screenTextProvider = { [weak live] tab in await live?.terminalScreenText(tabID: tab.id) }
             let backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
             // New Browser Tab only for a Mac that streams browser tabs (`browser-stream-v1`).
             backend.capabilities = { [weak store] mac in store?.macCapabilities[mac] }
@@ -167,6 +168,7 @@ final class ShellModel {
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
+            terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
         }
     }
