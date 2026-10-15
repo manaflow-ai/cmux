@@ -112,6 +112,10 @@ public final class CEFBrowserPage: BrowserPage {
     public func load(_ request: URLRequest) {
         guard let url = request.url else { return }
         browser.load(url)
+        // A page loaded in a pane that has never been shown (a background
+        // workspace, `--focus false`) starts now, as a hidden WebKit page
+        // does, instead of waiting for its view to enter a window.
+        browser.createNow()
     }
 
     /// Loads an HTML document as a `data:` URL.
@@ -122,6 +126,7 @@ public final class CEFBrowserPage: BrowserPage {
         let encoded = Data(html.utf8).base64EncodedString()
         guard let url = URL(string: "data:text/html;charset=utf-8;base64,\(encoded)") else { return }
         browser.load(url)
+        browser.createNow()
     }
 
     /// Goes back.
