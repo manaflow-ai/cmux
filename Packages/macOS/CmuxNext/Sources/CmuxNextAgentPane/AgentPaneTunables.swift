@@ -18,5 +18,29 @@ public nonisolated struct AgentPaneTunables {
         help: "A header button opens a rail beside the chat with its environment, context use and changed files.",
         default: false, code: "AgentPaneTunables.sessionRail")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, sessionRail.descriptor] }
+    /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
+    /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
+    /// full (Leo 2026-10-13, #20330) until Leo picks the default. New agent tabs read it.
+    public static let foldLongThoughts = Tunable<Bool>.toggle(
+        "agentPane.debug.foldLongThoughts", PageTunables.section, "Fold long thoughts in the agent pane",
+        help: "A finished thought taller than the transcript folds to one line that opens to its text. New agent tabs.",
+        default: false, code: "AgentPaneTunables.foldLongThoughts")
+
+    /// The page's `<html>` `data-*` attributes from these tunables.
+    static var documentAttributes: [String: String] {
+        foldLongThoughts.value ? ["fold-long-thoughts": "on"] : [:]
+    }
+
+    /// `documentAttributes` as a script run at document start, for the pane's own web view. Names
+    /// and values are the fixed lowercase strings above, so they need no escaping.
+    static var documentScript: String? {
+        guard !documentAttributes.isEmpty else { return nil }
+        let sets = documentAttributes.keys.sorted().map { name in
+            "document.documentElement.setAttribute('data-\(name)', '\(documentAttributes[name] ?? "")');"
+        }.joined(separator: " ")
+        // At document start the parser may not have made <html> yet; the page's scripts run later.
+        return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
+    }
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, sessionRail.descriptor, foldLongThoughts.descriptor] }
 }

@@ -51,8 +51,9 @@ export function WorkedFor({
   );
 }
 
-/// One entry of a run: a group, a message card, a lone call or a thought.
-function groupNode(group: ToolGroup, index: number): ReactNode {
+/// One entry of a run: a group, a message card, a lone call or a thought. `live`: the entry is the
+/// last of the live turn's latest row, so a thought there may still stream.
+function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean): ReactNode {
   switch (group.type) {
     case "group":
       return <ToolGroupRow key={group.items[0]!.tool!.id || index} kind={group.kind} items={group.items} />;
@@ -62,7 +63,7 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} item={group.item} />
+        <ThoughtRow key={index} id={`${rowId}:${index}`} item={group.item} streaming={live} />
       );
   }
 }
@@ -73,7 +74,9 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const nodes = groups.map(groupNode);
+  const nodes = groups.map((group, index) =>
+    groupNode(group, index, row.id, row.live === true && index === groups.length - 1),
+  );
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   return (
