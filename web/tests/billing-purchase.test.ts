@@ -610,6 +610,40 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  test("a revoke that lands after the write commits stops the Pro grant and enrollment", async () => {
+    const update = mock(async () => undefined);
+    const enroll = mock(async () => undefined);
+    const user = {
+      id: "founder_late",
+      primaryEmail: "founder@example.com",
+      primaryEmailVerified: true,
+      primaryEmailAuthEnabled: true,
+      isAnonymous: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    selectResults = [[{ stackUserId: "founder_late", stackTeamId: null }], ...Array.from({ length: 20 }, () => [])];
+    // Clear before and right after the upsert; revoked by the time the
+    // post-commit metadata sync runs.
+    adminRevocationSelectResults = [[], [], [{
+      id: "sub_late",
+      adminRevocation: { byUserId: "admin-1", byEmail: null, at: "2026-10-14T12:00:00.000Z" },
+    }]];
+
+    await recordFoundersCheckoutCompletion(founderReplayInput("sub_late"), {
+      db: fakeDb() as never,
+      stackApp: {
+        getUser: async () => user,
+        listUsers: async () => [user],
+        sendMagicLinkEmail: async () => undefined,
+      } as never,
+      testflight: { enrollTester: enroll },
+    });
+
+    expect(update).not.toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxPlan: "pro" } });
+    expect(enroll).not.toHaveBeenCalled();
+  });
+
   test("the subscription upsert refuses to overwrite a revoked row", async () => {
     const user = {
       id: "founder_ok",

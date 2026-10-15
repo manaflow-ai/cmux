@@ -248,6 +248,16 @@ describe("revokeFounderPurchaseAccess", () => {
     expect(rows[0]?.status).toBe(FOUNDER_REVOKED_STATUS);
   });
 
+  test("a retry after a half-failed revoke still reconciles the stale mirror", async () => {
+    // The first call revoked the row but failed before reconciling, leaving
+    // cmuxPlan "pro" behind; the retry finds nothing to revoke.
+    const rows = [{ ...founderRow(), status: "canceled" }];
+    const { target, common } = setup(rows, { cmuxPlan: "pro" });
+    const result = await revokeFounderPurchaseAccess(common);
+    expect(result.revokedFounderPurchaseIds).toEqual([]);
+    expect(target.clientReadOnlyMetadata).toEqual({});
+  });
+
   test("without an active Founder row nothing changes", async () => {
     const rows = [{ ...founderRow(), status: "canceled" }];
     const { target, common } = setup(rows, { cmuxVmPlan: "pro", cmuxPlan: "pro" });
