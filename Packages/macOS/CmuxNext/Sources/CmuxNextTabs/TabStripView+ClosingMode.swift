@@ -30,7 +30,24 @@ extension TabStripView {
                 }
             }
         }
+        installClosingModeTracking()
         closingModePointerMoved(to: pointerInStrip)
+    }
+
+    /// A tracking area on the extended rect: leaving it starts the exit delay even when the pointer
+    /// goes into a view that does not track movement (no mouseMoved reaches the monitor there).
+    func installClosingModeTracking() {
+        if let closingTrackingArea { removeTrackingArea(closingTrackingArea) }
+        let area = NSTrackingArea(rect: closingModeArea, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        closingTrackingArea = area
+    }
+
+    /// Handles an enter or exit of the extended rect; false for any other tracking area's event.
+    func closingModeTrackingEvent(_ event: NSEvent, entered: Bool) -> Bool {
+        guard let closingTrackingArea, event.trackingArea === closingTrackingArea else { return false }
+        if entered { closingExit.cancel() } else { closingModePointerMoved(to: nil) }
+        return true
     }
 
     /// The pointer now, in strip coordinates, wherever it is on screen.
@@ -78,5 +95,7 @@ extension TabStripView {
         if let closingExitGlobalMonitor { NSEvent.removeMonitor(closingExitGlobalMonitor) }
         closingExitMonitor = nil
         closingExitGlobalMonitor = nil
+        if let closingTrackingArea { removeTrackingArea(closingTrackingArea) }
+        closingTrackingArea = nil
     }
 }

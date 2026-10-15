@@ -71,6 +71,11 @@ public final class TabStripView: NSView {
     var groups = TabStripGroupState()
     var motion: [TabID: TabMotion] = [:]
     var dying: Set<TabID> = []
+    /// A closing tab's left neighbour when it closed (nil entry: it was the first tab); `pinClosingTabs`
+    /// pins the closing tab to that tab's slot, so a tab opened meanwhile cannot move it a slot.
+    var closingAnchors: [TabID: TabID?] = [:]
+    /// The extended closing-mode area while the pointer is outside the strip (`TabStripView+ClosingMode`).
+    var closingTrackingArea: NSTrackingArea?
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
@@ -250,6 +255,8 @@ public final class TabStripView: NSView {
             groups.holdTask?.cancel()
             removeEscapeMonitor()
             endClosingModeWatch()
+            // Closing mode belongs to this window's pointer; the strip in another window lays out fully.
+            closingModeWidth = nil
             endMenuTracking()
             buttonReveal.pointerInStrip = false
         }
@@ -371,6 +378,7 @@ public final class TabStripView: NSView {
         )
         addTrackingArea(area)
         trackingArea = area
+        if closingTrackingArea != nil { installClosingModeTracking() }
     }
 
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
