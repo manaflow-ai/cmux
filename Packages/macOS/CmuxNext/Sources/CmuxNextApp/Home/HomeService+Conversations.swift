@@ -8,7 +8,7 @@ import Foundation
 extension HomeService {
     var composer: HomeComposer {
         let store = homeStore
-        return HomeComposer { op in try await store.perform(op) }
+        return HomeComposer(perform: { op in try await store.perform(op) }, describe: { RefusalStrings.describe($0) })
     }
 
     /// The people New Message offers: team members, then people of the
