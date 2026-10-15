@@ -53,13 +53,10 @@ extension IPhoneHostService {
         let state = DaemonLauncher.applicationSupportDirectory()
             .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
-        #if DEBUG
-        // The phone's browser tabs stream from this build's own remote browser host.
+        // The phone's browser tabs stream from this build's own remote browser host
+        // (Contents/Helpers, every configuration on arm64).
         let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
-        #else
-        let browserHosts: (any CnxBrowserHosting)? = nil
-        #endif
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
         defer { followWorkspaceFolders() }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
@@ -103,7 +100,8 @@ extension IPhoneHostService {
             agentTabHost: agentTabHost,
             computerName: computerName,
             acpmuxEnvironment: acpmuxEnvironment,
-            browserHosts: browserHosts
+            browserHosts: browserHosts,
+            pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment)
         )
     }
 

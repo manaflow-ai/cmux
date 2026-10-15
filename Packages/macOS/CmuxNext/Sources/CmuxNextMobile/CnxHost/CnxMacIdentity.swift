@@ -1,5 +1,7 @@
 import CryptoKit
 public import Foundation
+import LocalAuthentication
+import os
 import Security
 
 /// This Mac's long-lived identity key for iPhone links (cnx-ios PROTOCOL.md
@@ -47,13 +49,24 @@ public struct CnxMacIdentityStore: Sendable {
     /// Off in tests: only the file is used.
     let useKeychain: Bool
 
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.identity")
+
+    /// A context that fails instead of showing Keychain UI.
+    private static func noPrompt() -> LAContext {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return context
+    }
+
     public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true) {
         service = bundleID + ".iphone-host.identity"
         fallbackFile = stateDirectory.appendingPathComponent("mac-identity", isDirectory: false)
         self.useKeychain = useKeychain
     }
 
-    /// The stored key, or a new one saved now.
+    /// The stored key, or a new one saved now. Blocking I/O: call it off the main actor.
+    /// It never shows Keychain UI: an item this build may not read without asking (a
+    /// re-signed app) is skipped, with a log line, for the file store.
     public func loadOrCreate() throws -> CnxMacIdentity {
         if useKeychain, let stored = keychainRead().flatMap(CnxMacIdentity.restore) { return stored }
         if let data = try? Data(contentsOf: fallbackFile), let stored = CnxMacIdentity.restore(data) {
@@ -73,13 +86,21 @@ public struct CnxMacIdentityStore: Sendable {
 
     private func keychainRead() -> Data? {
         var item: CFTypeRef?
-        let search = query.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) { $1 }
-        guard SecItemCopyMatching(search as CFDictionary, &item) == errSecSuccess else { return nil }
+        let search = query.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
+                                    kSecUseAuthenticationContext as String: Self.noPrompt()]) { $1 }
+        let status = SecItemCopyMatching(search as CFDictionary, &item)
+        guard status == errSecSuccess else {
+            if status != errSecItemNotFound {
+                Self.logger.error("iPhone host identity: Keychain read refused (\(status, privacy: .public)); using the file store")
+            }
+            return nil
+        }
         return item as? Data
     }
 
     private func keychainAdd(_ privateKey: Data) -> Bool {
         let add = query.merging([kSecValueData as String: privateKey,
+                                 kSecUseAuthenticationContext as String: Self.noPrompt(),
                                  kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                                  kSecAttrLabel as String: "cmux iPhone host identity"]) { $1 }
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess

@@ -59,6 +59,8 @@ public final class IPhoneHostService {
         var acpmuxEnvironment: AcpmuxEnvironment?
         /// The app's browser hosts for the phone's streamed browser tabs; nil when this build has none.
         var browserHosts: (any CnxBrowserHosting)? = nil
+        /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
+        var pairingSeed: IPhonePairingSeed? = nil
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
@@ -311,9 +313,13 @@ public final class IPhoneHostService {
             do {
                 let socket = try await dependencies.daemonSocket()
                 let deviceID = try CnxDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
-                // The key phones pin for this Mac (Keychain; created on first use).
-                let identity = try CnxMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
-                                                       stateDirectory: dependencies.stateDirectory).loadOrCreate()
+                // The key phones pin for this Mac (Keychain; created on first use), read off the
+                // main actor: a Keychain call must never hold launch (a re-signed rig app's access
+                // prompt did, and the watchdog killed it).
+                let store = CnxMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                                                stateDirectory: dependencies.stateDirectory)
+                // task-owner: one Keychain read per hostd start; awaited here
+                let identity = try await Task.detached { try store.loadOrCreate() }.value
                 let name = await dependencies.computerName()
                 guard !Task.isCancelled, self?.running == key else { return }
                 var launch = CnxHostLaunch(
