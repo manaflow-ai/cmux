@@ -142,6 +142,8 @@ public struct TerminalEndHold: Equatable, Sendable {
     /// seen since the screen was last cleared.
     public private(set) var gapRows: Int?
     private var total = 0
+    /// The cursor's last distance from the scrollback's end.
+    private var cursorGap: Int?
 
     public init() {}
 
@@ -150,8 +152,18 @@ public struct TerminalEndHold: Equatable, Sendable {
     /// absolute row `screenTopRow`.
     public mutating func hold(_ layout: TerminalDocumentLayout, totalRows: Int, cursorRow: Int?,
                               screenTopRow: Int) -> TerminalDocumentLayout {
-        defer { total = totalRows }
-        if totalRows < total || (cursorRow.map { $0 <= screenTopRow } ?? false) {
+        let newCursorGap = cursorRow.map { totalRows - $0 }
+        defer {
+            total = totalRows
+            if let newCursorGap { cursorGap = newCursorGap }
+        }
+        // The screen was cleared or redrawn from its top: the cursor is on
+        // its first row, or it jumped up by more than half the screen (a
+        // prompt with a blank line above it lands on the third row; round 8).
+        // An inline TUI's cursor moves a few rows inside its live area.
+        let screenRows = max(1, totalRows - screenTopRow)
+        let jumpedUp = newCursorGap.map { new in cursorGap.map { new - $0 > screenRows / 2 } ?? false } ?? false
+        if totalRows < total || (cursorRow.map { $0 <= screenTopRow } ?? false) || jumpedUp {
             gapRows = nil
         }
         let gap = max(0, totalRows - layout.endRow)
@@ -167,6 +179,7 @@ public struct TerminalEndHold: Equatable, Sendable {
     public mutating func reset() {
         gapRows = nil
         total = 0
+        cursorGap = nil
     }
 }
 

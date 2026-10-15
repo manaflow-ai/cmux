@@ -177,7 +177,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let session = AgentSessionDirectory.shared.existingStore(id: tab.id)?.displayTitle ?? tab.subtitle ?? tab.title
             return TabsKitTab(
                 id: tab.id, kind: TabsKitTabKind("agent"), title: session, subtitle: "\(tab.title) · \(workspace.title)",
-                systemImage: "sparkle",
+                systemImage: tab.isPinned ? "pin.fill" : "sparkle",
                 address: .title(session, subtitle: "\(tab.title) · \(workspace.title)"),
                 // Back leaves the workspace: the tab has no history of its own.
                 navigation: TabsKitNavigationState(canGoBack: true),
@@ -189,7 +189,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let status = terminal.statusSubtitle(for: tab)
             return TabsKitTab(
                 id: tab.id, kind: .terminal, title: tab.title, subtitle: directory,
-                systemImage: "apple.terminal",
+                systemImage: tab.isPinned ? "pin.fill" : "apple.terminal",
                 address: .title(tab.title, subtitle: status ?? directory, monospaced: status == nil),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
@@ -197,11 +197,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
             )
         case .browser:
             let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url) ?? browsers[tab.id]
-            let url = model?.url ?? tab.url
-            let host = model?.host ?? url?.host() ?? tab.subtitle ?? ""
+            // A new tab's about:blank is no address: the field reads "Search or enter website",
+            // never "about:blank" (VoiceOver read it after a navigation, parity finding 4).
+            let url = (model?.url ?? tab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+            let host = url.map { _ in model?.host ?? url?.host() ?? tab.subtitle ?? "" } ?? ""
             return TabsKitTab(
                 id: tab.id, kind: .web, title: (model?.title).flatMap { $0.isEmpty ? nil : $0 } ?? tab.title,
-                subtitle: host, systemImage: "globe",
+                subtitle: host, systemImage: tab.isPinned ? "pin.fill" : "globe",
                 address: url == nil ? .placeholder("Search or enter website") : .url(display: host, editingText: url?.absoluteString ?? ""),
                 // Back walks the page history first, then leaves the workspace.
                 navigation: TabsKitNavigationState(canGoBack: true, canGoForward: model?.canGoForward ?? false,
@@ -482,6 +484,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
+    public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
+        guard let tab = workspaceTab(id), tab.kind == .terminal else { return false }
+        return terminal.showsStaticCard(for: tab)
+    }
+
     // MARK: Toolbar actions
 
     public func goBack(_ id: TabsKitTab.ID) {
@@ -507,7 +514,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     // MARK: Tab edits (the Mac's Rename Tab…, Duplicate Tab, drag to reorder)
 
-    private var canEditTabs: Bool {
+    var canEditTabs: Bool {
         guard let workspace, let creator else { return false }
         return creator.backend.canEditTabs(on: workspace.macID)
     }
@@ -556,6 +563,21 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    /// The Mac's wording (`terminal.restart.button`, `action.tab.restart`).
+    public static let restartShellTitle = "Restart Shell Here"
+
+    /// Restart Shell Here: the Mac starts the tab's shell again; the tab turns live when
+    /// the Mac's tree says so.
+    public func restartShell(_ id: TabsKitTab.ID) async {
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.hasEndedShell else { return }
+        do {
+            try await creator.backend.restartShell(tab, in: workspace)
+        } catch {
+            show(TabNotice(action: .other(verb: "restart", title: tab.title), macName: macName, reason: Self.message(error)))
+            CnxTheme.standard.haptics.error()
+        }
+    }
+
     public var supportsReordering: Bool { canEditTabs }
 
     /// Drag in the grid: here at once, then on the Mac (`move-tab` to the place of the
@@ -581,26 +603,252 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    // MARK: Move to another workspace, pins, groups, chat menu (verify/parity-mac.md)
+
+    /// The tab whose destination the person is picking (Move Tab to Workspace…).
+    public var movingTab: WorkspaceTab?
+    /// The tab whose group the person is picking (Add Tab to Group…).
+    public var addingToGroupTab: WorkspaceTab?
+    /// The tab whose group's actions are open (the Mac's group chip menu).
+    public var groupActionsTab: WorkspaceTab?
+    /// The tab whose group the person is renaming (Rename Tab Group…).
+    public var renamingGroupTab: WorkspaceTab?
+
+    /// The other workspaces on this workspace's Mac, in list order (Move Tab to Workspace…).
+    public var otherWorkspaces: [Workspace] {
+        guard let workspace else { return [] }
+        return store.workspaces.filter { $0.macID == workspace.macID && $0.id != workspace.id && !store.isPending($0.id) }
+    }
+
+    /// The groups of this workspace other than `tab`'s own, once each, in tab order.
+    public func groups(besides tab: WorkspaceTab) -> [WorkspaceTab.TabGroupRef] {
+        var seen = Set<String>()
+        return (workspace?.tabs ?? []).compactMap(\.group).filter { $0.id != tab.group?.id && seen.insert($0.id).inserted }
+    }
+
+    /// Move Tab to Workspace… (`destinationID`) or Move Tab to New Workspace (nil). The tab
+    /// leaves this workspace once the Mac moved it; this screen stays (the Mac's view is its own),
+    /// and leaves when it was the last tab.
+    public func move(_ id: TabsKitTab.ID, to destinationID: String?) async {
+        movingTab = nil
+        guard let workspace, let creator, let tab = workspaceTab(id) else { return }
+        if workspace.isHome, destinationID == nil { return show("Home's tabs stay in Home.") }
+        let destination = destinationID.flatMap { store.workspace(id: $0) }
+        if destinationID != nil, destination == nil { return show("That workspace is no longer on \(macName).") }
+        do {
+            let landed = try await creator.backend.moveTab(tab, from: workspace, toWorkspace: destination)
+            if landed?.id == workspaceID { return }
+            let next = store.removeTab(id, from: workspaceID)
+            // The mock keeps tabs in its own store; a live Mac's list already moved it.
+            if let landed, store.workspace(id: landed.id)?.tabs.contains(where: { $0.id == id }) == false {
+                store.appendTab(tab, to: landed.id)
+            }
+            surfaces[id] = nil
+            if selectedTabID == id { selectedTabID = next?.id }
+            show("Moved \(tab.title) to \(landed?.title ?? destination?.title ?? "a new workspace").")
+            CnxTheme.standard.haptics.success()
+            if self.workspace?.tabs.isEmpty ?? true { exit() }
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            show(named(error.message))
+            CnxTheme.standard.haptics.error()
+        } catch {
+            show(TabNotice(action: .move(title: tab.title), macName: macName, reason: Self.message(error)))
+            CnxTheme.standard.haptics.error()
+        }
+    }
+
+    /// Pin Tab / Unpin Tab: here at once, then on the Mac; a refusal puts it back.
+    public func setPinned(_ id: TabsKitTab.ID, _ pinned: Bool) async {
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.isPinned != pinned else { return }
+        store.updateTab(id, in: workspaceID) { $0.pinned = pinned }
+        do {
+            try await creator.backend.setTabPinned(tab, in: workspace, pinned: pinned)
+        } catch {
+            store.updateTab(id, in: workspaceID) { $0.pinned = tab.pinned }
+            show(error, doing: pinned ? "pin" : "unpin", tab.title)
+        }
+    }
+
+    /// A tab group change from the tab's menu. Membership and names change here at once (the
+    /// Mac's list confirms them); Close Tab Group waits for the Mac, as closing a tab does.
+    public func editGroup(_ edit: TabGroupEdit, _ id: TabsKitTab.ID) async {
+        groupActionsTab = nil
+        addingToGroupTab = nil
+        renamingGroupTab = nil
+        guard let workspace, let creator, let tab = workspaceTab(id) else { return }
+        if case .rename(let name) = edit, name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+        let before = workspace.tabs
+        apply(edit, to: tab)
+        do {
+            try await creator.backend.editTabGroup(edit, tab: tab, in: workspace)
+            if edit == .close, let group = tab.group {
+                for member in before where member.group?.id == group.id {
+                    _ = store.removeTab(member.id, from: workspaceID)
+                    surfaces[member.id] = nil
+                }
+                if workspaceTab(selectedTabID ?? "") == nil { selectedTabID = self.workspace?.tabs.first?.id }
+                if self.workspace?.tabs.isEmpty ?? true { exit() }
+            }
+        } catch {
+            for old in before { store.updateTab(old.id, in: workspaceID) { $0.group = old.group } }
+            if let error = error as? WorkspaceCreationError, error.isForPerson {
+                show(named(error.message))
+            } else {
+                show(TabNotice(action: .group(edit.title), macName: macName, reason: Self.message(error)))
+            }
+            CnxTheme.standard.haptics.error()
+        }
+    }
+
+    /// What an edit does to this phone's copy before the Mac lists it.
+    private func apply(_ edit: TabGroupEdit, to tab: WorkspaceTab) {
+        let group = tab.group
+        func members(_ change: (inout WorkspaceTab) -> Void) {
+            guard let group else { return }
+            for member in workspace?.tabs ?? [] where member.group?.id == group.id { store.updateTab(member.id, in: workspaceID, change) }
+        }
+        switch edit {
+        case .create:
+            let used = Set((workspace?.tabs ?? []).compactMap { $0.group?.color })
+            store.updateTab(tab.id, in: workspaceID) { $0.group = WorkspaceTab.TabGroupRef(id: "pending-\(tab.id)", color: WorkspaceTab.TabGroupRef.nextColor(used: used)) }
+        case .add(let id):
+            let target = groups(besides: tab).first { $0.id == id } ?? WorkspaceTab.TabGroupRef(id: id)
+            store.updateTab(tab.id, in: workspaceID) { $0.group = target }
+        case .remove:
+            store.updateTab(tab.id, in: workspaceID) { $0.group = nil }
+        case .rename(let name):
+            members { $0.group?.name = name }
+        case .ungroup:
+            members { $0.group = nil }
+        case .save:
+            members { $0.group?.isSaved = true }
+        case .unsave:
+            members { $0.group?.isSaved = false }
+        case .close:
+            break
+        }
+    }
+
+    /// The chat menu's Fork and Archive (the Mac's agent pane labels).
+    private func chatItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
+        guard canEditTabs else { return [] }
+        return [
+            TabsKitMenuItem(title: "Fork", systemImage: "arrow.triangle.branch") { [weak self] in Task { await self?.fork(tab.id) } },
+            TabsKitMenuItem(title: "Archive", systemImage: "archivebox") { [weak self] in Task { await self?.archive(tab.id) } },
+        ]
+    }
+
+    /// Fork: a copy of the chat opens in a new tab and comes to the front, as on the Mac.
+    /// acpmux's refusal (a Claude chat the Mac started) shows in its own words.
+    public func fork(_ id: TabsKitTab.ID) async {
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent, pendingTabTitle == nil else { return }
+        pendingTabTitle = "Fork"
+        defer { pendingTabTitle = nil }
+        do {
+            let copy = try await creator.backend.forkAgentChat(tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == copy.id }) != true {
+                store.appendTab(copy, to: workspaceID)
+            }
+            activate(copy.id)
+            openedTab = copy.id
+        } catch {
+            show(error, doing: "fork", tab.title)
+        }
+    }
+
+    /// Archive: the chat is archived on the Mac (its sidebar's Archived list) and its tab closes.
+    public func archive(_ id: TabsKitTab.ID) async {
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent else { return }
+        do {
+            try await creator.backend.archiveAgentChat(tab, in: workspace)
+        } catch {
+            return show(error, doing: "archive", tab.title)
+        }
+        let next = store.removeTab(id, from: workspaceID)
+        surfaces[id] = nil
+        if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil { selectedTabID = next?.id }
+        if self.workspace?.tabs.isEmpty ?? true { exit() }
+    }
+
+    /// A refusal: the phone's or the Mac's own sentence when it is written for the person,
+    /// else one short line ("Couldn't fork Claude.").
+    private func show(_ error: any Error, doing verb: String, _ title: String) {
+        if let error = error as? WorkspaceCreationError, error.isForPerson {
+            show(named(error.message))
+        } else {
+            show(TabNotice(action: .other(verb: verb, title: title), macName: macName, reason: Self.message(error)))
+        }
+        CnxTheme.standard.haptics.error()
+    }
+
+    /// The Mac's tab menu, top rows: Rename Tab…, Pin Tab or Unpin Tab, Duplicate Tab.
     private func editItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
         guard canEditTabs else { return [] }
-        var items = [TabsKitMenuItem(title: "Rename Tab…", systemImage: "pencil") { [weak self] in self?.startRename(tab.id) }]
-        if tab.kind != .agent {
-            items.append(TabsKitMenuItem(title: "Duplicate Tab", systemImage: "plus.square.on.square") { [weak self] in
+        return [
+            TabsKitMenuItem(title: "Rename Tab…", systemImage: "pencil") { [weak self] in self?.startRename(tab.id) },
+            TabsKitMenuItem(title: tab.isPinned ? "Unpin Tab" : "Pin Tab", systemImage: tab.isPinned ? "pin.slash" : "pin") { [weak self] in
+                Task { await self?.setPinned(tab.id, !tab.isPinned) }
+            },
+            TabsKitMenuItem(title: "Duplicate Tab", systemImage: "plus.square.on.square") { [weak self] in
                 Task { await self?.duplicate(tab.id) }
+            },
+        ]
+    }
+
+    /// The Mac's group section (New Tab Group, Add Tab to Group…, Remove Tab from Group),
+    /// then the tab's group itself, whose actions the Mac puts on the group's chip.
+    private func groupItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
+        guard canEditTabs else { return [] }
+        var items: [TabsKitMenuItem] = []
+        if let group = tab.group {
+            items.append(TabsKitMenuItem(title: TabGroupEdit.remove.title, systemImage: "rectangle.badge.minus") { [weak self] in
+                Task { await self?.editGroup(.remove, tab.id) }
             })
+            items.append(TabsKitMenuItem(id: "tab-group-actions", title: "Tab Group: \(group.displayName)…", systemImage: "folder") { [weak self] in
+                self?.groupActionsTab = tab
+            })
+        } else if !tab.isPinned {
+            items.append(TabsKitMenuItem(title: TabGroupEdit.create.title, systemImage: "rectangle.badge.plus") { [weak self] in
+                Task { await self?.editGroup(.create, tab.id) }
+            })
+            if !groups(besides: tab).isEmpty {
+                items.append(TabsKitMenuItem(title: TabGroupEdit.add(group: "").title, systemImage: "rectangle.stack.badge.plus") { [weak self] in
+                    self?.addingToGroupTab = tab
+                })
+            }
         }
         return items
     }
 
+    /// Move Tab to Workspace… (another workspace on this Mac) and Move Tab to New Workspace.
+    /// Home's tabs stay in Home: as the Mac (`TabPromotion`), a Home tab's menu leaves out the
+    /// promotion Move Tab to New Workspace, and keeps Move Tab to Workspace….
+    private func moveItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
+        guard canEditTabs else { return [] }
+        var items: [TabsKitMenuItem] = []
+        if !otherWorkspaces.isEmpty {
+            items.append(TabsKitMenuItem(title: "Move Tab to Workspace…", systemImage: "arrow.right.square") { [weak self] in
+                self?.movingTab = tab
+            })
+        }
+        if workspace?.isHome == true { return items }
+        items.append(TabsKitMenuItem(title: "Move Tab to New Workspace", systemImage: "rectangle.portrait.and.arrow.right") { [weak self] in
+            Task { await self?.move(tab.id, to: nil) }
+        })
+        return items
+    }
+
+    /// The card's long-press menu: the Mac's top tab rows and its group rows. TabsKit adds
+    /// Close Tab and Close Other Tabs itself; the moves (the Mac's More) are in the page menu,
+    /// which has room for them.
     public func cardMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let tab = workspaceTab(kit.id) else { return [] }
-        let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
-        return [editItems(tab), [close]].filter { !$0.isEmpty }
+        return [editItems(tab), groupItems(tab)].filter { !$0.isEmpty }
     }
 
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
-        let edit = editItems(tab)
+        let edit = editItems(tab) + groupItems(tab) + moveItems(tab)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
@@ -621,7 +869,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     ? [TabsKitMenuItem(title: "Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints }]
                     : []) + [
                     TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
-                ],
+                ] + chatItems(tab),
                 edit,
                 [leave],
                 [
@@ -635,9 +883,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
                                 isDestructive: action.isDestructive) { action.perform() }
             }
             let copy = TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }
+            // The Mac shows Restart Shell Here only on a tab whose shell ended.
+            let restart = tab.hasEndedShell && canEditTabs
+                ? [TabsKitMenuItem(title: Self.restartShellTitle, systemImage: "arrow.counterclockwise") { [weak self] in
+                    Task { await self?.restartShell(tab.id) }
+                }] : []
             // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [own, [copy], edit, [close]].filter { !$0.isEmpty }
+            return [restart, own, [copy], edit, [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -689,6 +942,21 @@ struct WorkspaceTabPage: View {
             }
         case .terminal:
             source.terminal.page(for: tab, in: workspace, context: terminalContext)
+                .overlay {
+                    // The Mac's dead-tab overlay: the shell ended; its button restarts it.
+                    if tab.hasEndedShell {
+                        VStack(spacing: 12) {
+                            Text("The shell ended.").font(.headline)
+                            Button(WorkspaceTabsSource.restartShellTitle, systemImage: "arrow.counterclockwise") {
+                                Task { await source.restartShell(tab.id) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!source.canEditTabs)
+                        }
+                        .padding(20)
+                        .background(.regularMaterial, in: .rect(cornerRadius: 16))
+                    }
+                }
         case .browser:
             if let model = source.browser(tab) as? StreamedBrowserModel {
                 StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
@@ -773,6 +1041,19 @@ struct WorkspaceTabCard: View {
 
     var body: some View {
         if let workspace = source.workspace, let tab = workspace.tabs.first(where: { $0.id == tabID }) {
+            preview(tab, workspace)
+                // The card shows the top of the page, scaled down: the chip sits there, sized
+                // in page points so it reads like the card's title.
+                .overlay(alignment: .topLeading) {
+                    if let group = tab.group { TabGroupChip(group: group).padding(.leading, 16).padding(.top, 14) }
+                }
+        } else {
+            Color.cnxBackground
+        }
+    }
+
+    @ViewBuilder
+    private func preview(_ tab: WorkspaceTab, _ workspace: Workspace) -> some View {
             switch tab.kind {
             case .agent:
                 let surface = source.surface(tab.id)
@@ -787,8 +1068,40 @@ struct WorkspaceTabCard: View {
                     BrowserCard(model: source.localBrowser(tab), insets: insets)
                 }
             }
-        } else {
-            Color.cnxBackground
+    }
+}
+
+/// A tab group's name on its member's card, in the group's color (the Mac's group chip).
+struct TabGroupChip: View {
+    let group: WorkspaceTab.TabGroupRef
+
+    var body: some View {
+        Text(group.displayName)
+            .font(.system(size: 26, weight: .semibold))
+            .lineLimit(1)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(Self.color(group.color), in: .capsule)
+            .accessibilityLabel("In tab group \(group.displayName)")
+    }
+
+    /// The nine Mac group colors, or a custom `#RRGGBB`.
+    static func color(_ token: String) -> Color {
+        switch token {
+        case "blue": return Color.blue
+        case "red": return Color.red
+        case "yellow": return Color.yellow
+        case "green": return Color.green
+        case "pink": return Color.pink
+        case "purple": return Color.purple
+        case "cyan": return Color.cyan
+        case "orange": return Color.orange
+        default:
+            if token.hasPrefix("#"), token.count == 7, let value = UInt32(token.dropFirst(), radix: 16) {
+                return Color(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+            }
+            return Color.gray
         }
     }
 }

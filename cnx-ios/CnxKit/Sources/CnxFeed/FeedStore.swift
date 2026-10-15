@@ -3,6 +3,11 @@ import CnxAgentChat
 import CnxModel
 import Foundation
 import Observation
+import OSLog
+
+#if DEBUG
+private let feedChurnLog = Logger(subsystem: "dev.cmux.cnx", category: "feed-churn")
+#endif
 
 /// One Feed event: something an agent did or needs, from any workspace and tab.
 public struct FeedItem: Identifiable, Hashable, Sendable {
@@ -155,8 +160,29 @@ public final class FeedStore {
                 return
             }
             recordReadMarks()
+            refreshDerived()
+            #if DEBUG
+            if FeedStressRig.shared.config.isActive { FeedStore.logChange(from: oldValue, to: items) }
+            #endif
             onItemsChange?(items)
         }
+    }
+
+    /// Writes `next` only when it differs. The Mac re-reports the same
+    /// history on every tree change (several a second while an agent works),
+    /// and an in-place write (`items[i] = x`, `mutate`) notifies observers even
+    /// when nothing changed: the Feed re-rendered and re-saved for nothing.
+    private func setItems(_ next: [FeedItem]) {
+        if next != items { items = next }
+    }
+
+    /// The filtered list and the count, kept with the items instead of
+    /// recomputed by every body that reads them.
+    private func refreshDerived() {
+        let visible = items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
+        if visible != visibleItems { visibleItems = visible }
+        let count = items.count(where: { $0.needsYou && !$0.isDone })
+        if count != needsYouCount { needsYouCount = count }
     }
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
     @ObservationIgnored private var readMarks: FeedReadMarks?
@@ -174,13 +200,17 @@ public final class FeedStore {
     }
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
-    public var filter: FeedFilter = .all
+    public var filter: FeedFilter = .all {
+        didSet { if filter != oldValue { refreshDerived() } }
+    }
     /// Whether the Mac's events have been read on the current link. Until
     /// then an empty Feed is unknown, not empty (live mode starts at
     /// `.connecting`; mock mode is always `.live`).
     public var syncState: SyncState = .live
     public enum SyncState: Hashable, Sendable { case connecting, live }
-    public var mutedWorkspaces: Set<String> = []
+    public var mutedWorkspaces: Set<String> = [] {
+        didSet { if mutedWorkspaces != oldValue { refreshDerived() } }
+    }
     /// Events that arrived while the person was scrolled away from the top.
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
@@ -196,6 +226,7 @@ public final class FeedStore {
             return item
         }
         self.answersLocally = answersLocally
+        refreshDerived()
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -221,11 +252,10 @@ public final class FeedStore {
         mutate(id) { $0.error = Self.notConnectedMessage }
     }
 
-    public var visibleItems: [FeedItem] {
-        items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
-    }
+    /// What the Feed lists: not done, matching the filter, not muted (newest first).
+    public private(set) var visibleItems: [FeedItem] = []
 
-    public var needsYouCount: Int { items.count(where: { $0.needsYou && !$0.isDone }) }
+    public private(set) var needsYouCount = 0
 
     public func count(_ filter: FeedFilter) -> Int { items.count(where: filter.matches) }
 
@@ -234,7 +264,9 @@ public final class FeedStore {
         if !atTop { unseenNewIDs.append(item.id) }
     }
 
-    public func clearUnseen() { unseenNewIDs = [] }
+    public func clearUnseen() {
+        if !unseenNewIDs.isEmpty { unseenNewIDs = [] }
+    }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
     public func markUnread(_ id: String) {
@@ -281,8 +313,8 @@ public final class FeedStore {
     }
 
     public func replaceAll(_ next: [FeedItem]) {
-        items = next.sorted { $0.createdAt > $1.createdAt }
-        unseenNewIDs = []
+        setItems(next.sorted { $0.createdAt > $1.createdAt })
+        clearUnseen()
     }
 
     /// Inserts or replaces an item by id (live events are idempotent).
@@ -293,7 +325,7 @@ public final class FeedStore {
             next.isDone = items[index].isDone
             next.resolution = items[index].resolution ?? item.resolution
             next.replies = items[index].replies
-            items[index] = next
+            if items[index] != next { items[index] = next }
         } else {
             insert(item, atTop: atTop)
         }
@@ -317,15 +349,15 @@ public final class FeedStore {
                 next.append(item)
             }
         }
-        items = next.sorted { $0.createdAt > $1.createdAt }
+        setItems(next.sorted { $0.createdAt > $1.createdAt })
     }
 
     public func item(id: String) -> FeedItem? { items.first { $0.id == id } }
 
     /// Drops an item the source withdrew (a duplicate of another event).
     public func remove(_ id: String) {
-        items.removeAll { $0.id == id }
-        unseenNewIDs.removeAll { $0 == id }
+        if items.contains(where: { $0.id == id }) { items.removeAll { $0.id == id } }
+        if unseenNewIDs.contains(id) { unseenNewIDs.removeAll { $0 == id } }
     }
 
     /// Marks an open ask resolved elsewhere (another device or the Mac).
@@ -469,10 +501,30 @@ public final class FeedStore {
 
     private func mutate(_ id: String, _ body: (inout FeedItem) -> Void) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        body(&items[index])
+        var item = items[index]
+        body(&item)
+        // An unchanged item is not written (no re-render, no save).
+        if item != items[index] { items[index] = item }
     }
 
     #if DEBUG
+    /// The rig's change log: what each write changed (ids and fields), to find churn.
+    static func logChange(from old: [FeedItem], to new: [FeedItem]) {
+        let before = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var fields: [String: Int] = [:]
+        var added = 0
+        for item in new {
+            guard let prior = before[item.id] else { added += 1; continue }
+            guard prior != item else { continue }
+            let a = Mirror(reflecting: prior).children, b = Mirror(reflecting: item).children
+            for (x, y) in zip(a, b) where String(describing: x.value) != String(describing: y.value) {
+                fields[x.label ?? "?", default: 0] += 1
+            }
+        }
+        let summary = fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+        feedChurnLog.notice("FEEDCHURN added=\(added, privacy: .public) removed=\(max(0, old.count + added - new.count), privacy: .public) changed=\(summary, privacy: .public)")
+    }
+
     /// Adds the next scripted live event (mock arrivals; demo driver uses it).
     public func injectLiveEvent(atTop: Bool) {
         let samples = FeedStore.liveSamples(now: Date())

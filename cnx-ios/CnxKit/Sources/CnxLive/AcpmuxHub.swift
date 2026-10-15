@@ -343,6 +343,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     _ = try await hub.request("session/set_config_option", .object(["sessionId": session, "configId": .string(id), "value": .string(value)]))
                 case .removeQueued(let promptID):
                     _ = try await hub.request("_acpmux/queue_remove", .object(["sessionId": session, "promptId": .string(promptID)]))
+                case .editQueued(let promptID, let text):
+                    _ = try await hub.request("_acpmux/queue_edit", .object([
+                        "sessionId": session, "promptId": .string(promptID), "op": .string("update"), "text": .string(text),
+                    ]))
+                case .sendQueuedNow(let promptID):
+                    _ = try await hub.request("_acpmux/queue_edit", .object([
+                        "sessionId": session, "promptId": .string(promptID), "op": .string("send_now"),
+                    ]))
+                case .moveQueued(let promptID, let index):
+                    _ = try await hub.request("_acpmux/queue_edit", .object([
+                        "sessionId": session, "promptId": .string(promptID), "op": .string("move"), "index": .number(Double(index)),
+                    ]))
                 }
             } catch {
                 self.emit(.clientError(AcpmuxSessionSource.message(error)))

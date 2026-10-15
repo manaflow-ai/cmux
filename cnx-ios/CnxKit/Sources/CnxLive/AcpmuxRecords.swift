@@ -47,6 +47,12 @@ struct AcpmuxRecords {
         case "dequeued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
             return [.dequeued(promptId: promptID)]
+        case "queue_updated":
+            guard let promptID = msg["promptId"]?.stringValue else { return [] }
+            return [.queueUpdated(promptId: promptID, text: msg["text"]?.stringValue ?? "")]
+        case "queue_order":
+            guard case .array(let ids)? = msg["order"] else { return [] }
+            return [.queueOrder(ids.compactMap(\.stringValue))]
         case "turn_started":
             guard let turnID = msg["turnId"]?.stringValue else { return [] }
             return [.turnStarted(turnId: turnID, at: at)]

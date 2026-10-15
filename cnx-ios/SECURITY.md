@@ -291,7 +291,7 @@ the Mac.
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | It creates one tab that shows an acpmux session of this Mac. The tab itself runs nothing. The session behind it is created over the phone's `acpmux` lane with `session/new`, under acpmux's remote guard: an existing folder, an asking policy, no MCP servers, and folder trust held for the person to answer. Codex and opencode are refused families there. The phone may set only `pane`, `workspace`, `cols`, `rows`, `origin`, `mutation_id`, `transaction` and `agent_session {harness, session, host_name}`. `harness` and `session` must be short identifiers (`[A-Za-z0-9._:-]`, at most 64 and 128 bytes). `host_name` is a display name of at most 256 bytes with no control characters. `conversation`/`owner` (another conversation owner), `page`/`route` (the app's own pages) and any other field are refused. |
+| Executes commands or opens content on local objects? | It creates one tab that shows an acpmux session of this Mac. The tab itself runs nothing. The session behind it is created over the phone's `acpmux` lane with `session/new`, under acpmux's remote guard: an existing folder, an asking policy, no MCP servers, and folder trust held for the person to answer. opencode and the codex-acp adapter are refused families there; Codex on the `codex app-server` bridge starts in its asking mode (round 2, below). The phone may set only `pane`, `workspace`, `cols`, `rows`, `origin`, `mutation_id`, `transaction` and `agent_session {harness, session, host_name}`. `harness` and `session` must be short identifiers (`[A-Za-z0-9._:-]`, at most 64 and 128 bytes). `host_name` is a display name of at most 256 bytes with no control characters. `conversation`/`owner` (another conversation owner), `page`/`route` (the app's own pages) and any other field are refused. |
 | Mutates or destroys objects the session does not own? | `agent_session.host` is never the phone's choice. hostd sets it to this Mac's own `install:<id>` (`CNX_AGENT_TAB_HOST`, supplied by the app's `AgentTabStore.localHost`). A phone that names any other host, such as a `registry:` host or another Mac's install, is refused. The tab therefore always belongs to this Mac's acpmux and shows in the Mac app as its own chat. Without `CNX_AGENT_TAB_HOST` (an older app), every `new-conversation-tab` is refused with `unavailable`. The Swift mirror refuses it always, because the irx lane has no such host. |
 | Reads local state the remote should not see? | No new read. A session id the phone names is one it can already attach to over `acpmux`. |
 
@@ -366,8 +366,9 @@ same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
   (`CnxApproverSync.rootsClearPending`); the list is memory only and goes with
   acpmux.
 - **What stays refused:** the phone still sends no `cwd` to the daemon, no
-  command, argv, env, mode or permission policy other than `ask`; Codex and
-  opencode stay refused families (`web_modes.rs`); MCP servers stay empty. The
+  command, argv, env, mode or permission policy other than `ask`; opencode and the
+  codex-acp adapter stay refused families (`web_modes.rs`; Codex on the app-server
+  bridge starts in its asking mode, round 2); MCP servers stay empty. The
   phone's own guard says why before it asks: a workspace whose folder is the
   home folder (or above) gets "Agent chats start in a project folder" instead of
   acpmux's refusal (`LiveWorkspaceCreationBackend.isHomeOrAbove`).
@@ -390,6 +391,61 @@ Tests: CnxKit `WorkspaceTabsSourceTests` (`agentChatsAreOneModelAgnosticEntry`,
 `newAgentChatWithOpensTheChooser`, `aKindTheMacCantOpenStaysWithItsReason`,
 `renameDuplicateAndMoveTabs`), `AgentCatalogTests`, `WorkspaceFolderTests`,
 `TabNoticeTests`; hostd `policy::tests` (unchanged allowlist, `mirrors_the_swift_allowlist`).
+
+## Workspace pins, order and Clear All Notifications (`feat-cnx-ios-parity2`)
+
+Parity round 2 added the Mac's workspace pin, color, order, bulk close, read
+marks and Clear All Notifications to the phone. Color, the legacy pin flag,
+read marks and closing use commands that were already allowed
+(`set-workspace-metadata {color | pinned | marked_unread}`,
+`ack-tab-notifications`, `close-workspace`, `move-workspace`). Four entries are
+new, in both `policy.rs` and `DaemonLanePolicy.swift` (deny by default; the
+mirror test checks the commands, the resource operations and their params):
+
+| New entry | What the phone sends | Why |
+| --- | --- | --- |
+| `list-personal` (command, read) | `{"cmd":"list-personal"}` | The person's own sidebar order, so the phone lists workspaces in the Mac's order. |
+| `set-personal-workspace` (command) | `{session_id, workspace_key, index}` only, and hostd forwards it only when the Mac's own `list-workspaces` (read on a separate connection) has that `registry_id` and that workspace `key` | Move Workspace Up / Down on a Mac with personal order (the Mac's `movePersonalWorkspace`). |
+| `notification.clear` (resource op) | `params {machine: current, session: current}`, an idempotency key | Clear All Notifications (the Mac's `clearAllNotifications`). |
+| `sidebar_layout.get` (resource op, read) | `params {machine: current, session: current}` | Which workspaces the person pinned (tiles in the Mac's pinned section). |
+| `sidebar_layout.update` (resource op) | `params.op = {"kind":"item.remove","id":"itm_<16 base32>"}`, an idempotency key, and hostd forwards it only when a fresh `sidebar_layout.get` it reads itself has that item in `sec_pinned` with a `workspace` ref | Unpin Workspace: removes the pinned tile, as the Mac's `unpinOp`. |
+
+A `cmux.protocol/2` line was refused outright before (no `cmd`). Now hostd
+checks it member by member and sends on the object it checked, serialized
+again (`Verdict::Rewrite`), so a duplicate key cannot mean one thing to the
+filter and another to the daemon. Envelope members other than `protocol`,
+`type`, `id`, `operation`, `params` and `idempotency_key` are refused, so a
+phone never sends an `origin` claim or a launch `credential`. A refusal is a
+v2 failure response (`origin.forbidden`, reason `phone_policy`).
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. None of the five carries a program, a path, a URL, an environment or text that is run. `set-personal-workspace` refuses every field but the three above (never `group`, `browser_profile_id`, `theme`, or `remote_localhost`, which would open the Mac's loopback to a remote workspace's browser). |
+| Mutates or destroys objects the session does not own? | Only the person's own state, and only objects the Mac itself confirms (`services::owned_check`, on a separate daemon connection, before the line is sent; a Mac that cannot answer refuses): `set-personal-workspace` only for a live workspace of this session, so a phone cannot create personal rows for made-up sessions or keys; `item.remove` only of a pinned workspace tile, never a custom section's item or an app or link tile. Personal order and the sidebar layout are the signed-in person's own (`profiles-v1`, `sidebar-layout-v1`, home session). `notification.clear` takes no `terminal_id` and only `machine`/`session` = `current`, so it clears this session's ledger exactly as the Mac's Clear All Notifications does; it deletes no terminal, tab or file. `sidebar_layout.update` is limited to removing an item whose id the Mac app minted (`itm_` + 16 characters of `a-z2-7`), so the built-in items (`itm_home`, `itm_account`) and sections can never be removed, and no item, section or reset can be added. A removed pin is the same as Unpin on the Mac and can be pinned again. |
+| Reads local state the remote should not see? | `list-personal` and `sidebar_layout.get` return the person's own sidebar organization (order, groups, pins, room names, per-workspace themes). The phone already reads every workspace, group and tab name through `list-workspaces` and `list-workspace-groups`; no secret, path outside the workspaces, or credential is in them. |
+| Origin | The daemon gives the phone's lane origin `agent` (it cannot prove the install key). None of these operations is user-only (`USER_ONLY_OPERATIONS`), and a phone's line can carry no origin claim. |
+
+- **Swift lane:** `DaemonLanePolicy` has no ownership check, so it refuses
+  `set-personal-workspace` and `sidebar_layout.update` (its allowlist text
+  still mirrors hostd's). Its `index` must be a non-negative integer, as
+  Rust's `is_u64` (never 3.0, a Bool, or past `Int.max`).
+- **Rule 6 (tests):** hostd `policy::tests::ownership_is_checked_against_the_macs_state`
+  (another session's row, an unknown key, another section's item, a link
+  tile, an unknown item refused), `duplicate_keys_are_sent_as_checked`,
+  `allows_the_workspace_resource_ops`,
+  `refuses_other_resource_ops_and_params` (other operations, another
+  machine or session, `terminal_id`, no idempotency key, a reset, a built-in
+  item, an extra op member, an add, an origin claim, a credential,
+  protocol/1), `personal_order_is_a_place_only` (allowed with an owned
+  workspace; `remote_localhost`, `group`, `theme`, browser profile, a
+  negative index, a missing session refused), `mirrors_the_swift_allowlist`;
+  Swift `DaemonLanePolicyResourceTests` (`ownershipLinesAreRefusedOnThisLane`,
+  `duplicateKeysAreSentAsChecked`, `indexIsAnIntegerPlace`).
+- **Pin from the phone** sends the legacy flag (`set-workspace-metadata
+  {pinned: true}`), already allowed. A Mac whose sidebar has pinned tiles
+  turns a flagged workspace into its tile and clears the flag
+  (`SidebarLayoutService.migrateLegacyPins`), so the phone never adds layout
+  items itself.
 
 ## `acpmux`: messages larger than one link frame
 
@@ -456,6 +512,76 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   reaches the app, a refused key is closed `denied`, channels opened
   behind `auth` wait for it, one `auth` per link, a refusal silences new keys
   from that device id, and nothing is asked before the app's list arrives).
+
+## Parity round 2: Codex, model proxies, Restart Shell, the Mac's last pick (`feat-cnx-ios-parity2`)
+
+### `acpmux`: Codex from a phone, always asking
+
+- **What changed.** acpmux bridges Codex through `codex app-server`
+  (`codex_app_server.rs`) and already let an authenticated remote (Web)
+  connection pick any bridge mode (`any_mode_for_web`, Lawrence 2026-10-13). A
+  session such a connection *starts* now begins in the bridge's `ask` mode
+  (`web_modes::BRIDGE_ASKING_MODES`; cmux-codex-acp c30e6489: approval policy
+  `untrusted`, workspace-write sandbox), also as a new handoff target. The
+  codex-acp adapter and opencode stay refused.
+- **The phone's narrowing.** cnx-hostd's `acpmux` service refuses any
+  `session/set_mode` or `session/set_config_option {configId: "mode"}` whose
+  mode is not `default`, `plan` or `ask` (`acpmux_policy.rs`), answering the
+  phone with a JSON-RPC error. So a phone keeps every agent it drives in a mode
+  that asks; each tool approval reaches the person and an Allow needs the phone's
+  Face ID signature. Tests: acpmux `a_remote_device_starts_the_codex_bridge_in_its_asking_mode`,
+  hostd `acpmux_policy::tests`.
+- **Rule 2.** No new method. It narrows what a phone could already send, and the
+  start mode moves from one that does not ask to one that asks.
+
+### `acpmux`: a remote chain reaches its own model proxy (and nothing else)
+
+- The remote-chain Seatbelt profile opened the port of the `ANTHROPIC_BASE_URL`
+  in the profile's env, but Claude Code applies its user settings `env` over its
+  process env, so it used another endpoint (EPERM or a hang). Now the endpoint is
+  the one Claude uses (profile or route, else the user settings env, else the
+  login env); only its port opens (loopback only when the endpoint is loopback);
+  the inline `--settings` pins it (no project file can move it); and a profile's
+  own route skips the user settings source (`--setting-sources project,local`),
+  whose env would replace the route's key. No new hole: one port, as before.
+- `sr claude proxy` (`claude-sr`) would start a loopback listener, which the
+  sandbox forbids; a remote chain runs Claude Code itself to the subrouter server
+  (`SUBROUTER_URL` or sr's default server), with the same placeholder token the
+  launcher fallback uses (the server ignores it). Refused when no server is set
+  or the profile carries other `sr` options.
+- Tests: `endpoint_tests` (order, pin, setting sources, one loopback port, sr)
+  and, on macOS, `a_remote_chain_reaches_its_own_loopback_model_proxy_and_nothing_else`.
+
+### `daemon`: Restart Shell Here (`restart-tab`)
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | It starts the dead terminal tab's own recorded launch again (the person's shell, or the program the Mac started there), on this Mac, under the same terminal id. The phone names only the tab (`surface`); `tab` (the alias), `command`, `argv`, `cwd`, `env` and every other field are refused (`creation_fields`). The daemon refuses a live tab (`tab-not-dead`) and a non-terminal (`tab-not-terminal`). |
+| Mutates or destroys objects the session does not own? | Only the person's own tab, as the Mac's button does. |
+| Reads local state the remote should not see? | No. |
+
+- **Rule 4 (live verification), 2026-10-15.** Rig Mac `cnx-p2-1585ab34` (a real
+  build of this branch on mini-cmux11s). The tab's terminal host was killed until
+  the Mac stopped respawning it (the tab dead, `restart_exhausted`); the phone's
+  Restart Shell Here sent `restart-tab {surface}`; the Mac listed the same tab live
+  with a new shell, pid 55788, whose parent was the rig app's own
+  `cmux-tui __terminal-host --owner com.cmuxterm.app.debug.cnx.p2.1585ab34`, i.e. it ran
+  on the Mac under the person's daemon, and a command typed from the phone ran
+  there (`verify/parity-mac.md` Round 2, `restart-shell.mp4`). The phone cannot pick
+  what runs: only the tab's own recorded launch restarts.
+- Tests: hostd `restart_shell_takes_only_the_tab`, Swift `DaemonLanePolicyRestartTests`.
+
+### `acpmux`: the Mac's last New Tab pick (`_acpmux/new_chat_picks_set`)
+
+- Set only by the person's app on its proven person connection (memory only),
+  while iPhone connections are allowed for a signed-in account; shown in
+  `_acpmux/harnesses` as `lastPicks`. Short identifiers and absolute folders only.
+- Cleared (an empty set, sent once) when iPhone connections turn off, the account
+  signs out, or nothing is picked.
+- Rule 2: it runs nothing and changes no session; a phone reads agent and model
+  ids and the folders the person picked them in on this Mac (up to 50, any folder
+  a New Tab chat was started in, not only open workspace folders). Tests: acpmux `the_apps_last_new_chat_picks_reach_a_remote_device`,
+  CmuxNext `NewChatPicksTests`.
 
 ## Test-only pairing seed (DEBUG builds)
 

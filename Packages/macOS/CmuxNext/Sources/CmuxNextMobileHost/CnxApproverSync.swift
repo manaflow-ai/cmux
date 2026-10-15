@@ -29,7 +29,14 @@ final class CnxApproverSync {
     /// acpmux may still hold folders this sync sent: an empty list must reach it once,
     /// even with no approvers and no folders left (iPhone connections turned off).
     private var rootsClearPending = false
-    private var needed: Bool { hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending }
+    /// The agent and model this Mac picked last for a new chat (`_acpmux/new_chat_picks_set`);
+    /// nil until the first update.
+    private var newChatPicks: [String: Any]?
+    /// acpmux may still hold picks this sync sent: an empty set must reach it once.
+    private var picksClearPending = false
+    private var needed: Bool {
+        hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending || newChatPicks != nil || picksClearPending
+    }
     private var nextID = 10
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.approvers")
 
@@ -61,6 +68,21 @@ final class CnxApproverSync {
         workspaceRoots = roots
         if proven {
             sendRoots()
+        } else if connection == nil, reconnect == nil, needed {
+            connect()
+        }
+    }
+
+    /// The agent and model this Mac's New Tab page picked last (``NewChatPicks/params``);
+    /// nil (iPhone connections off, signed out, nothing picked) clears what acpmux holds.
+    func updateNewChatPicks(_ params: [String: Any]?) {
+        if params == nil {
+            guard newChatPicks != nil || picksClearPending else { return }
+            picksClearPending = true
+        }
+        newChatPicks = params
+        if proven {
+            sendPicks()
         } else if connection == nil, reconnect == nil, needed {
             connect()
         }
@@ -132,6 +154,7 @@ final class CnxApproverSync {
 
     private func send() {
         sendRoots()
+        sendPicks()
         guard let connection, proven, let params else { return }
         nextID += 1
         connection.send(Self.frame(id: nextID, method: "_acpmux/approvers_set", params: params))
@@ -142,6 +165,13 @@ final class CnxApproverSync {
         nextID += 1
         connection.send(Self.frame(id: nextID, method: "_acpmux/workspace_roots_set", params: ["roots": workspaceRoots]))
         if workspaceRoots.isEmpty { rootsClearPending = false }
+    }
+
+    private func sendPicks() {
+        guard let connection, proven, newChatPicks != nil || picksClearPending else { return }
+        nextID += 1
+        connection.send(Self.frame(id: nextID, method: "_acpmux/new_chat_picks_set", params: newChatPicks ?? [:]))
+        if newChatPicks == nil { picksClearPending = false }
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {

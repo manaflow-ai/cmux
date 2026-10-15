@@ -118,10 +118,10 @@ import SwiftUI
 
     #if DEBUG
     /// F6: Chief's unseen question shows on the pin and counts as Needs You.
-    @Test func unseenQuestionIsNeedsYou() async {
+    @Test func unseenQuestionIsNeedsYou() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
         let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: ChiefOutbox(file: file))
-        while session.lastMessage == nil { await Task.yield() }
+        try await waitUntil("Chief's first message") { session.lastMessage != nil }
         #expect(session.isWaitingOnYou)
         #expect(session.needsYou)
         session.markSeen()
@@ -184,11 +184,10 @@ import SwiftUI
     /// F2: no Swift error dumps on the page.
     @Test func errorsAreSentences() {
         struct Weird: Error {}
-        #expect(ChiefSettingsView.errorText(Weird(), doing: .load) == "Chief on your Mac didn't answer. Try again.")
         #expect(ChiefSettingsView.errorText(Weird(), doing: .change) == "Chief on your Mac didn't take the change. Try again.")
         #expect(ChiefSettingsView.errorText(Weird(), doing: .stop) == "Chief on your Mac didn't stop. Try again.")
         let refused = ChiefControlError(code: "operation.failed", reason: "not_configured", message: "x")
-        #expect(ChiefSettingsView.errorText(refused, doing: .load) == refused.description)
+        #expect(ChiefSettingsView.errorText(refused, doing: .change) == refused.description)
         let avatar = ChiefControlError(code: "invalid_avatar", reason: nil, message: "avatar too long: 17")
         #expect(ChiefSettingsView.errorText(avatar, doing: .change) == "Use an emoji or one or two letters.")
     }

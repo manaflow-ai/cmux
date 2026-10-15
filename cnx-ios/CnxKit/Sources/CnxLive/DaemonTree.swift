@@ -11,7 +11,13 @@ public struct DaemonTree: Sendable {
         public var host: String?
     }
 
+    /// The workspaces the phone lists (Workspaces rows, search, counts).
     public var workspaces: [Workspace]
+    /// The Mac's home workspace (`kind` "home"), never listed: the Mac shows it
+    /// as its sidebar's Home item, not a workspace row. Its tabs stay in the
+    /// tree (surfaces, agent bindings, markers) so an agent working there still
+    /// reaches the Feed (`places`).
+    public var homeWorkspaces: [Workspace] = []
     /// Agent tabs by app tab id.
     public var agentTabs: [String: AgentBinding]
     /// The daemon surface id behind each app tab id (`s<surface>`).
@@ -23,7 +29,16 @@ public struct DaemonTree: Sendable {
     public var panes: [String: Int] = [:]
     /// Each tab's pane and position in it (`move-tab`, a duplicate next to it).
     public var tabPlaces: [String: TabPlace] = [:]
+    /// Each workspace's numeric daemon id by app workspace id (`move-tab-to-workspace`).
+    public var workspaceNumbers: [String: Int] = [:]
+    /// Each tab group's pane (`tab_groups`), by group id.
+    public var groupPanes: [String: Int] = [:]
     public var revision: Int?
+    /// This session's registry id (`registry_id`): the session of the Mac's
+    /// personal rows and layout refs.
+    public var registryID: String?
+    /// Workspaces the daemon flags pinned (the legacy `pinned` flag).
+    public var legacyPinned: Set<String> = []
 
     public struct TabPlace: Hashable, Sendable {
         public var pane: Int
@@ -38,8 +53,17 @@ public struct DaemonTree: Sendable {
         public var unread: Bool
     }
 
+    /// The workspace kind of the Mac's home workspace (`workspace-kind-v1`).
+    static let homeKind = "home"
+
     /// The app tab id for a daemon surface.
     public static func tabID(surface: Int) -> String { "s\(surface)" }
+
+    /// Pins and sidebar places from the Mac's arrangement (nil: the daemon's
+    /// order and pin flags).
+    public mutating func apply(_ arrangement: SidebarArrangement?) {
+        (arrangement ?? SidebarArrangement()).apply(to: &workspaces, registryID: registryID, legacyPinned: legacyPinned)
+    }
 
     /// Parses a `list-workspaces` reply (`{"ok":true,"data":{...}}` or the bare data object).
     /// `previous` keeps activity times for workspaces it already knew.
@@ -57,16 +81,28 @@ public struct DaemonTree: Sendable {
         }
         let data = object["data"] as? [String: Any] ?? object
         revision = data["workspace_revision"] as? Int
+        registryID = data["registry_id"] as? String
+        var legacyPinned: Set<String> = []
         var agentTabs: [String: AgentBinding] = [:]
         var surfaces: [String: Int] = [:]
         var directories: [String: String] = [:]
         var panes: [String: Int] = [:]
         var places: [String: TabPlace] = [:]
         var markers: [Int: NotificationMarker] = [:]
+        var numbers: [String: Int] = [:]
+        var groupPanes: [String: Int] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
+        var home: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
+            // The Mac's home workspace (`kind` "home", `workspace-kind-v1`) is what
+            // its sidebar's Home item shows, not a workspace row (`SidebarMapping`
+            // filters it the same way). The phone has its own Home tab, so it is
+            // never a Workspaces row (`homeWorkspaces`). Matched by kind, never by
+            // name: a renamed home stays out, a workspace named "Home" stays in.
+            let isHome = ws["kind"] as? String == Self.homeKind
             let key = (ws["key"] as? String) ?? (ws["id"] as? Int).map { "w\($0)" } ?? UUID().uuidString
+            if let number = ws["id"] as? Int { numbers[key] = number }
             var tabs: [WorkspaceTab] = []
             var activeTab: [String: Any]?
             var working = false
@@ -80,8 +116,13 @@ public struct DaemonTree: Sendable {
                     focusOrder = max(focusOrder, pane["focused_at"] as? Int ?? 0)
                     if panes[key] == nil, let id = pane["id"] as? Int { panes[key] = id }
                     let paneTabs = pane["tabs"] as? [[String: Any]] ?? []
+                    let groups = Self.groups(pane["tab_groups"])
+                    if let paneID = pane["id"] as? Int { for id in groups.keys { groupPanes[id] = paneID } }
                     for (index, tab) in paneTabs.enumerated() {
-                        guard let surface = tab["surface"] as? Int, tab["dead"] as? Bool != true else { continue }
+                        // A dead tab is listed only when it is a terminal the Mac keeps (Restart
+                        // Shell Here); other dead tabs are gone for the person.
+                        guard let surface = tab["surface"] as? Int,
+                              tab["dead"] as? Bool != true || tab["kind"] as? String == "pty" else { continue }
                         if screen["active"] as? Bool == true, pane["id"] as? Int == activePane, pane["active_tab"] as? Int == index {
                             activeTab = tab
                         }
@@ -92,20 +133,25 @@ public struct DaemonTree: Sendable {
                             markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
                         }
                         if let cwd = tab["cwd"] as? String, cwd.hasPrefix("/") { directories[id] = cwd }
-                        let state = agents[surface]
+                        // An ended shell runs no agent: a stale report must not mark the
+                        // workspace working or waiting.
+                        let state = tab["dead"] as? Bool == true ? nil : agents[surface]
                         if state?.state == "working" { working = true }
                         if state?.state == "blocked" { blocked = true }
                         // Activity: the Mac's last agent report, else what the phone saw (titles).
                         for seen in [activity[surface], state?.updatedAt].compactMap(\.self) { observed = max(observed ?? seen, seen) }
-                        guard let mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
+                        guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
+                        if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
+                        if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
                     }
                 }
             }
             let source = activeTab ?? (ws["screens"] as? [[String: Any]])?.first.flatMap { ($0["panes"] as? [[String: Any]])?.first?["tabs"] as? [[String: Any]] }?.first
             let title = (ws["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (ws["name"] as? String) ?? "Workspace"
-            let color = (ws["color"] as? String).flatMap { $0.hasPrefix("#") ? String($0.prefix(7)) : nil }
+            // `#RRGGBB[AA]` or a palette name (`blue`), as the Mac stores it.
+            let color = (ws["color"] as? String).flatMap { $0.hasPrefix("#") ? String($0.prefix(7)) : WorkspaceColor(stored: $0)?.rawValue }
             let unread = (ws["unread_count"] as? Int ?? 0) > 0 || ws["marked_unread"] as? Bool == true
             let old = previousByID[key]
             let pendingAgents = tabs.contains { tab in agentTabs[tab.id]?.session.flatMap { agents.pending[$0] } ?? false }
@@ -114,7 +160,8 @@ public struct DaemonTree: Sendable {
             let activeTabID = (activeTab?["surface"] as? Int).map(Self.tabID(surface:)).flatMap { id in
                 tabs.contains { $0.id == id } ? id : nil
             }
-            result.append(Workspace(
+            if ws["pinned"] as? Bool == true { legacyPinned.insert(key) }
+            var workspace = Workspace(
                 id: key,
                 macID: macID,
                 title: title,
@@ -130,15 +177,35 @@ public struct DaemonTree: Sendable {
                 hasActivityTime: activityAt != nil,
                 focusOrder: focusOrder,
                 activeTabID: activeTabID
-            ))
+            )
+            workspace.resourceID = ws["resource_id"] as? String
+            workspace.isHome = isHome
+            workspace.hasCustomTitle = (ws["title"] as? String).map { !$0.isEmpty && $0 != ws["name"] as? String } ?? false
+            workspace.isPinned = legacyPinned.contains(key)
+            if isHome { home.append(workspace) } else { result.append(workspace) }
         }
+        self.legacyPinned = legacyPinned
         workspaces = result
+        homeWorkspaces = home
         self.agentTabs = agentTabs
         self.surfaces = surfaces
         self.directories = directories
         self.panes = panes
         self.tabPlaces = places
+        workspaceNumbers = numbers
+        self.groupPanes = groupPanes
         notificationMarkers = markers
+    }
+
+    /// A pane's `tab_groups` (`tab-groups-v1`) by group id.
+    static func groups(_ value: Any?) -> [String: WorkspaceTab.TabGroupRef] {
+        var out: [String: WorkspaceTab.TabGroupRef] = [:]
+        for case let group as [String: Any] in value as? [Any] ?? [] {
+            guard let id = group["id"] as? String else { continue }
+            out[id] = WorkspaceTab.TabGroupRef(id: id, name: group["name"] as? String ?? "", color: group["color"] as? String ?? "grey",
+                                               isSaved: group["saved_id"] is String)
+        }
+        return out
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).
@@ -158,8 +225,11 @@ public struct DaemonTree: Sendable {
         switch tab["kind"] as? String {
         case "pty", "remote-terminal":
             let subtitle = Self.abbreviated(tab["cwd"] as? String)
-            return WorkspaceTab(id: id, kind: .terminal, title: title.isEmpty ? "Terminal" : title, subtitle: subtitle,
-                                harness: agent?.agent, agentStatus: status)
+            var terminal = WorkspaceTab(id: id, kind: .terminal, title: title.isEmpty ? "Terminal" : title, subtitle: subtitle,
+                                        harness: agent?.agent, agentStatus: status)
+            // Only the Mac's own terminals restart (`restart-tab`: kind pty).
+            if tab["kind"] as? String == "pty", tab["dead"] as? Bool == true { terminal.shellEnded = true }
+            return terminal
         case "browser":
             let url = (tab["url"] as? String).flatMap(URL.init(string:))
             return WorkspaceTab(id: id, kind: .browser, title: title.isEmpty ? (url?.host() ?? "Browser") : title, url: url)
@@ -254,7 +324,8 @@ public struct DaemonReplyError: Error, Equatable, Sendable {
 
 /// What a daemon event line means for the phone's copy of the tree.
 public enum DaemonEvent: Equatable, Sendable {
-    /// Re-list the tree (any topology/metadata delta, `tree-changed`, focus).
+    /// Re-list the tree (any topology/metadata delta, `tree-changed`, focus,
+    /// the person's sidebar order `personal-changed`).
     case treeChanged
     /// The subscription ended (`overflow`): subscribe again, then re-list.
     case resubscribe
@@ -280,7 +351,7 @@ public enum DaemonEvent: Equatable, Sendable {
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
         case "notification":
             return .notification
-        case "tree-changed", "layout-changed", "surface-exited":
+        case "tree-changed", "layout-changed", "surface-exited", "personal-changed":
             return .treeChanged
         default:
             let prefixes = ["workspace-", "screen-", "pane-", "tab-"]

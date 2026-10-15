@@ -122,6 +122,8 @@ public final class AgentChatStore {
     public private(set) var models: [ACPModelInfo] = []
     public private(set) var currentModelID: String?
     public private(set) var modes: [ACPMode] = []
+    /// Every mode the agent offers; ``modes`` is what a phone may pick (``ACPMode/phoneChoices(_:current:)``).
+    private var offeredModes: [ACPMode] = []
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
     /// The title the agent gave the session (`session_info_update`).
@@ -252,6 +254,19 @@ public final class AgentChatStore {
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+    /// Edit queued prompt (the agent pane's wording): the new text keeps its place.
+    public func editQueued(_ id: String, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, queue.contains(where: { $0.id == id && $0.text != text }) else { return }
+        source.send(.editQueued(promptId: id, text: text))
+    }
+    /// Send now: the waiting prompt goes now (steered into the running turn, or next).
+    public func sendQueuedNow(_ id: String) { source.send(.sendQueuedNow(promptId: id)) }
+    /// Move up (-1) / Move down (+1) in the queue.
+    public func moveQueued(_ id: String, by offset: Int) {
+        guard let from = queue.firstIndex(where: { $0.id == id }), queue.indices.contains(from + offset) else { return }
+        source.send(.moveQueued(promptId: id, index: from + offset))
+    }
 
     // MARK: Reducer
 
@@ -267,6 +282,11 @@ public final class AgentChatStore {
             queue.append(QueuedPrompt(id: promptId, text: text))
         case .dequeued(let promptId):
             queue.removeAll { $0.id == promptId }
+        case .queueUpdated(let promptId, let text):
+            if let index = queue.firstIndex(where: { $0.id == promptId }) { queue[index].text = text }
+        case .queueOrder(let order):
+            let place = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            queue.sort { (place[$0.id] ?? .max) < (place[$1.id] ?? .max) }
         case .turnStarted(let turnId, let at):
             mutateTurn(turnId) {
                 $0.startedAt = at
@@ -334,7 +354,8 @@ public final class AgentChatStore {
             self.models = models
             currentModelID = current
         case .modesAvailable(let modes, let current):
-            self.modes = modes
+            offeredModes = modes
+            self.modes = ACPMode.phoneChoices(modes, current: current)
             currentModeID = current
         case .status(let status):
             summary.status = status
@@ -445,6 +466,7 @@ public final class AgentChatStore {
             availableCommands = commands
         case .currentMode(let mode):
             currentModeID = mode
+            modes = ACPMode.phoneChoices(offeredModes, current: mode)
         case .configOptions(let options):
             configOptions = options
         case .usage(let used, let size):

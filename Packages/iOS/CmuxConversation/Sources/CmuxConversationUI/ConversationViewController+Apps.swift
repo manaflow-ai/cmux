@@ -101,7 +101,7 @@ final class AppsMenuOverlay: UIView {
         let lightWhite = G.labelWhite(iOS27: SendMenuIcons.isIOS27)
         // Dark: ChatKit draws 70% white composited plus-lighter, which reads
         // 209 on the 30 gray panel (MobileSMS 26.5); a plain blend needs 80%.
-        label.textColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: lightWhite, alpha: 1) }
+        label.textColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: lightWhite, alpha: 1) }
         // Messages truncates a long title ("Apple C..." at AX3).
         label.lineBreakMode = .byTruncatingTail
         row.addSubview(label)

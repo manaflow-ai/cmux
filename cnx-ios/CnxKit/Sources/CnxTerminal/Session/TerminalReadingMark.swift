@@ -27,6 +27,11 @@ struct TerminalReadingMark: Equatable {
     /// The anchor's row as it was, and its pixel remainder.
     let row: Int
     let delta: CGFloat
+    /// The document's last `tailLength` rows when marked (oldest first), and
+    /// the total then: rows the replay still has near its end, readable
+    /// when the anchor's rows are not (round 8, V2-3 residual).
+    let tail: [String]
+    let totalRows: Int
 
     /// Rows of the exact match at the anchor.
     static let length = 6
@@ -37,6 +42,8 @@ struct TerminalReadingMark: Equatable {
     static let searchRows = 2000
     /// A text that repeats more than this in the window does not vote.
     static let maxRepeats = 3
+    /// Rows kept from the document's end.
+    static let tailLength = 40
 
     /// Nil when the rows read are all blank (nothing to find them by) or
     /// cannot be read.
@@ -54,6 +61,9 @@ struct TerminalReadingMark: Equatable {
         self.rowsFromEnd = totalRows - anchor.row
         self.row = anchor.row
         self.delta = anchor.delta
+        self.totalRows = totalRows
+        let tailStart = max(0, totalRows - Self.tailLength)
+        self.tail = (tailStart..<totalRows).map { rowText($0).map(Self.normalized) ?? "" }
     }
 
     /// The anchor in a rebuilt scrollback of `totalRows` rows.
@@ -107,9 +117,34 @@ struct TerminalReadingMark: Equatable {
                 return .init(row: anchor, delta: delta)
             }
         }
-        // 3. The same distance from the end.
+        // 3. The rows that were at the end: where they are now gives the shift
+        // of every row above them (output during the drop moved the end).
+        if let shift = tailShift(totalRows: totalRows, text: text) {
+            let anchor = min(max(0, row + shift), totalRows - 1)
+            return .init(row: anchor, delta: delta)
+        }
+        // 4. The same distance from the end.
         let fallback = min(max(0, byEnd), totalRows - 1)
         return .init(row: fallback, delta: delta)
+    }
+
+    /// The shift (new row - old row) most of the distinctive tail rows agree
+    /// on, searching the new end's last `searchRows` rows.
+    private func tailShift(totalRows: Int, text: (Int) -> String?) -> Int? {
+        let tailStart = self.totalRows - tail.count
+        var positions: [String: [Int]] = [:]
+        for (index, value) in tail.enumerated() where !value.isEmpty { positions[value, default: []].append(tailStart + index) }
+        positions = positions.filter { $0.value.count <= Self.maxRepeats }
+        let voters = positions.values.reduce(0) { $0 + $1.count }
+        guard voters >= 3 else { return nil }
+        var votes: [Int: Int] = [:]
+        for newRow in stride(from: totalRows - 1, through: max(0, totalRows - Self.searchRows), by: -1) {
+            guard let value = text(newRow), let olds = positions[value] else { continue }
+            for old in olds { votes[newRow - old, default: 0] += 1 }
+        }
+        let needed = max(3, Int((Double(voters) * 0.4).rounded(.up)))
+        let best = votes.filter { $0.value >= needed }.max { a, b in a.value != b.value ? a.value < b.value : abs(a.key) > abs(b.key) }
+        return best?.key
     }
 
     private static func normalized(_ text: String) -> String {

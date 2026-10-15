@@ -132,7 +132,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     /// alone (0,145,255 dark, 0,136,255 light). The composer's scroll edge
     /// element container adapts other traits for legibility, under which
     /// plain system blue drew 16,138,255 in dark mode.
-    static let sendBlue = UIColor { traits in
+    static let sendBlue = UIColor.resolving { traits in
         UIColor.systemBlue.resolvedColor(with: UITraitCollection(traitsFrom: [
             UITraitCollection(userInterfaceStyle: traits.userInterfaceStyle),
             UITraitCollection(accessibilityContrast: traits.accessibilityContrast),
@@ -179,7 +179,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         // Disabled (New Message before a recipient) Messages draws the plus
         // lighter than UIKit's own dimming (137 on the light glass).
         let disabledInk: UIColor = switch ComposerBarGeometry.disabledPlusInk(iOS27: Self.isIOS27) {
-        case .tertiaryHue(let lightAlpha, let darkAlpha): UIColor { traits in
+        case .tertiaryHue(let lightAlpha, let darkAlpha): UIColor.resolving { traits in
             traits.userInterfaceStyle == .dark
                 ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: darkAlpha)
                 : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: lightAlpha)

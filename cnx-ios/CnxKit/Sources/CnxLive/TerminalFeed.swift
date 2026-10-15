@@ -110,7 +110,7 @@ public final class TerminalFeed {
         }
         self.tree = tree
         var resumed: Set<Int> = []
-        for workspace in tree.workspaces {
+        for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs where tab.kind == .terminal {
                 guard let surface = tree.surfaces[tab.id] else { continue }
                 if let harness = tab.harness { harnesses[surface] = harness }
@@ -172,6 +172,17 @@ public final class TerminalFeed {
                 return
             }
         } while dirty
+    }
+
+    /// The Mac cleared its notifications (Clear All Notifications): their
+    /// terminal events leave the Feed, then the ledger is read again.
+    public func cleared() {
+        for entry in entries {
+            let id = Self.itemID(macID: macID, entry: entry.id)
+            if store.item(id: id) != nil { store.remove(id) }
+        }
+        entries = []
+        Task { await refresh() }
     }
 
     func apply(ledger reply: [String: Any]) {
@@ -285,7 +296,8 @@ public final class TerminalFeed {
 
     static func places(_ tree: DaemonTree) -> [Int: Place] {
         var places: [Int: Place] = [:]
-        for workspace in tree.workspaces {
+        // The Mac's home workspace too: an agent there still reaches the Feed.
+        for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs {
                 if let surface = tree.surfaces[tab.id] { places[surface] = Place(workspace: workspace, tab: tab) }
             }

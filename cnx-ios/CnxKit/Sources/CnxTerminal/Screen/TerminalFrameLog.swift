@@ -1,10 +1,12 @@
 #if os(iOS) && DEBUG
+import CnxDesign
 import Foundation
 import os
 import QuartzCore
 
-/// DEBUG/Demo only (G-04, ACCEPTANCE M-FRAMELOG). Launch with `-CnxFrameLog`:
-/// a display link records every frame's interval (actual timestamp minus the
+/// DEBUG/Demo only (G-04, ACCEPTANCE M-FRAMELOG). Launch with `-CnxFrameLog`
+/// (or `CNX_FRAMELOG=1`; one `FrameLogSwitch` for this and the feed's
+/// `FrameIntervalLog`): the shared `FrameClock` records every frame's interval (actual timestamp minus the
 /// previous one) with the page's phase, whether output streamed in the last
 /// 100 ms, and the main-thread time the screen spent in the frame. Each
 /// gesture (or 5 s of other frames) logs a summary on `dev.cmux.cnx:frames`
@@ -14,11 +16,11 @@ import QuartzCore
 /// `present`) for Instruments.
 @MainActor
 final class TerminalFrameLog {
-    static let isEnabled = CommandLine.arguments.contains("-CnxFrameLog")
+    static var isEnabled: Bool { FrameLogSwitch.isEnabled }
     static let signposter = OSSignposter(subsystem: "dev.cmux.cnx", category: "terminal-frames")
     private static let logger = Logger(subsystem: "dev.cmux.cnx", category: "frames")
 
-    private var link: CADisplayLink?
+    private var token: FrameClock.Token?
     private var last: CFTimeInterval = 0
     private var stats: TerminalFrameStats
     private var phase = "following"
@@ -34,22 +36,21 @@ final class TerminalFrameLog {
     }
 
     func start() {
-        guard Self.isEnabled, link == nil else { return }
-        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in self?.tick() }, selector: #selector(DisplayLinkProxy.step))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        self.link = link
+        guard Self.isEnabled, token == nil else { return }
+        token = FrameClock.shared.subscribe { [weak self] in self?.tick($0) }
         last = 0
     }
 
     func stop() {
-        link?.invalidate()
-        link = nil
+        if let token { FrameClock.shared.unsubscribe(token) }
+        token = nil
         flush(reason: "stop")
     }
 
     /// The page's phase, read every frame (interacting, following, reading).
     var phaseProvider: () -> String = { "following" }
+    /// The page shows rows the frame on screen does not cover (V6-2/3/4).
+    var blankProvider: () -> Bool = { false }
 
     func outputArrived() { lastOutput = CACurrentMediaTime() }
 
@@ -60,9 +61,8 @@ final class TerminalFrameLog {
     }
     private var parts: [String: Double] = [:]
 
-    private func tick() {
-        guard let link else { return }
-        let now = link.timestamp
+    private func tick(_ tick: FrameClock.Tick) {
+        let now = tick.timestamp
         defer { last = now; workMs = 0; parts.removeAll(keepingCapacity: true) }
         guard last > 0 else { windowStart = now; return }
         let current = phaseProvider()
@@ -74,9 +74,9 @@ final class TerminalFrameLog {
         let streaming = now - lastOutput < 0.1
         let key = TerminalFrameStats.Key(phase: phase, streaming: streaming)
         stats.add(key, interval: interval, workMs: workMs)
-        lines.append(String(format: "{\"t\":%.4f,\"dt_ms\":%.2f,\"target_ms\":%.2f,\"phase\":\"%@\",\"streaming\":%@,\"work_ms\":%.2f,\"parts\":{%@},\"surface\":\"%@\"}",
-                            Date().timeIntervalSince1970, interval * 1000, (link.targetTimestamp - now) * 1000, phase,
-                            streaming ? "true" : "false", workMs,
+        lines.append(String(format: "{\"t\":%.4f,\"dt_ms\":%.2f,\"target_ms\":%.2f,\"phase\":\"%@\",\"streaming\":%@,\"blank\":%@,\"work_ms\":%.2f,\"parts\":{%@},\"surface\":\"%@\"}",
+                            Date().timeIntervalSince1970, interval * 1000, (tick.targetTimestamp - now) * 1000, phase,
+                            streaming ? "true" : "false", blankProvider() ? "true" : "false", workMs,
                             parts.map { String(format: "\"%@\":%.3f", $0.key, $0.value) }.joined(separator: ","), surfaceName))
         if phase != "interacting", now - windowStart > 5 { flush(reason: "5 s") }
     }
@@ -90,19 +90,10 @@ final class TerminalFrameLog {
             }
         }
         stats = TerminalFrameStats(frameDuration: stats.frameDuration)
-        guard !lines.isEmpty, let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        guard !lines.isEmpty else { return }
         let data = Data((lines.joined(separator: "\n") + "\n").utf8)
         lines.removeAll(keepingCapacity: true)
-        let url = documents.appendingPathComponent("frame-log.ndjson")
-        DispatchQueue.global(qos: .utility).async {
-            if let handle = try? FileHandle(forWritingTo: url) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                try? handle.close()
-            } else {
-                try? data.write(to: url)
-            }
-        }
+        FrameLogFile.append(data, to: FrameLogFile.url(in: .documentDirectory, "frame-log.ndjson"))
     }
 }
 #endif

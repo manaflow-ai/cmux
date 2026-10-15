@@ -1819,6 +1819,11 @@ w("\r\x1b[2KSTREAMDONE\n")
         f = self.sim.find(ident="workspaces.filter")
         if not f:
             return ""
+        # The Filter button's value carries the chosen Mac's presence and link
+        # line (round 7); the menu-and-OCR read below returned "" on the rig.
+        v = f[0].value or ""
+        if ", " in v and any(k in v for k in ("Online", "Offline", "Last seen", "Connected", "Connecting")):
+            return v.split(", ", 1)[1]
         self.sim.press(*f[0].center, hold=0.1)
         # The rig Mac's row by its device id (names repeat: "Aziz's MacBook Pro (1952)").
         item = self.sim.wait(ident=f"workspaces.filter.{self.device_id}", timeout=4)

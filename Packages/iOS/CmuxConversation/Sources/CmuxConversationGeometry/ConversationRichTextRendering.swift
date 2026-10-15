@@ -240,6 +240,18 @@ public final class ConversationTextEffectLayer: CALayer {
     private var signature: (text: NSAttributedString, size: CGSize, origin: CGPoint, scale: CGFloat, animated: Bool)?
     /// Above this many characters in one run, words move instead of letters.
     public var maximumGlyphUnits = 80
+    /// Glyphs not yet in the shared cache render away from the main thread
+    /// and show when ready, instead of in the update that asks for them.
+    /// Each glyph draws the whole string with only itself inked, so a long
+    /// effect run costs one typesetting pass per letter: a row scrolled on
+    /// screen before the transcript's prefetch had rendered it stopped the
+    /// main thread for 597 ms on the phone (75-213 ms in the simulator).
+    /// The glyphs are the same pixels from either thread (the prefetch
+    /// shares the cache); only when they show differs.
+    public var rendersOffMainThread = false
+    /// Bumps on every update and clear, so a render that finishes after the
+    /// layer moved on to other text is dropped.
+    private var updateGeneration = 0
 
     public override init() {
         super.init()
@@ -281,11 +293,16 @@ public final class ConversationTextEffectLayer: CALayer {
             return
         }
         signature = (NSAttributedString(attributedString: text), textSize, textOrigin, scale, animated)
+        updateGeneration &+= 1
         orientTopLeft()
         sublayers?.forEach { $0.removeFromSuperlayer() }
         guard ConversationRichTextStyler.hasEffects(text), textSize.width > 0 else { return }
         let rendering: Rendering
         if let cacheToken, maximumGlyphUnits == Self.defaultMaximumGlyphUnits {
+            if rendersOffMainThread, Self.cachedRendering(text: text, textSize: textSize, scale: scale, cacheToken: cacheToken) == nil {
+                renderAhead(text: text, textSize: textSize, textOrigin: textOrigin, scale: scale, animated: animated, seed: seed, cacheToken: cacheToken)
+                return
+            }
             guard let prepared = Self.prepare(text: text, textSize: textSize, scale: scale, cacheToken: cacheToken) else { return }
             rendering = prepared
         } else {
@@ -301,6 +318,32 @@ public final class ConversationTextEffectLayer: CALayer {
             }
             rendering = Rendering(glyphs: glyphs)
         }
+        install(rendering, textOrigin: textOrigin, scale: scale, animated: animated, seed: seed)
+    }
+
+    /// The cached rendering of `text`, if one is ready (nothing renders).
+    static func cachedRendering(text: NSAttributedString, textSize: CGSize, scale: CGFloat, cacheToken: String) -> Rendering? {
+        renderings.object(forKey: RenderingKey(text: NSAttributedString(attributedString: text), size: textSize, scale: scale, token: cacheToken))
+    }
+
+    /// Renders the glyphs on a background task and shows them when they are
+    /// ready, unless the layer was updated or cleared meanwhile.
+    private func renderAhead(text: NSAttributedString, textSize: CGSize, textOrigin: CGPoint, scale: CGFloat, animated: Bool, seed: UInt64, cacheToken: String) {
+        let job = EffectRenderJob(text: NSAttributedString(attributedString: text), layer: self)
+        let generation = updateGeneration
+        Task.detached(priority: .userInitiated) {
+            let rendering = ConversationTextEffectLayer.prepare(
+                text: job.text, textSize: textSize, scale: scale, cacheToken: cacheToken, warmingSeed: animated ? seed : nil
+            )
+            await MainActor.run {
+                guard let rendering, let layer = job.layer, layer.updateGeneration == generation else { return }
+                layer.install(rendering, textOrigin: textOrigin, scale: scale, animated: animated, seed: seed)
+            }
+        }
+    }
+
+    /// Adds a sublayer per glyph and starts the loops.
+    private func install(_ rendering: Rendering, textOrigin: CGPoint, scale: CGFloat, animated: Bool, seed: UInt64) {
         let begin = CACurrentMediaTime()
         let loops = animated ? rendering.animations(seed: seed) : []
         for (index, item) in rendering.glyphs.enumerated() {
@@ -319,6 +362,7 @@ public final class ConversationTextEffectLayer: CALayer {
 
     public func clear() {
         signature = nil
+        updateGeneration &+= 1
         sublayers?.forEach { $0.removeFromSuperlayer() }
     }
 
@@ -454,5 +498,18 @@ public final class ConversationTextEffectLayer: CALayer {
         group.beginTime = begin
         group.isRemovedOnCompletion = false
         return group
+    }
+}
+
+/// A background effect render's input and the layer waiting for it. The
+/// string is a private copy nothing mutates; the layer is only touched back
+/// on the main actor.
+private final class EffectRenderJob: @unchecked Sendable {
+    let text: NSAttributedString
+    weak var layer: ConversationTextEffectLayer?
+
+    init(text: NSAttributedString, layer: ConversationTextEffectLayer) {
+        self.text = text
+        self.layer = layer
     }
 }

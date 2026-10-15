@@ -17,15 +17,15 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action (wording) | Mac sends | Phone | State | Notes |
 | --- | --- | --- | --- | --- |
-| New Agent Chat (⌘I) | acpmux `session/new` (harness from the last pick, else acpmux `defaultHarness`), daemon `new-conversation-tab` | + > **New Agent Chat** | works (this branch) | One model-agnostic entry: the Mac's acpmux `defaultHarness` when a phone may start it, else the first that may (Claude). Was one "New Claude Chat" per harness. The Mac's last-pick memory (`newTab.lastPicks`, Mac UserDefaults) does not reach the phone; the phone uses acpmux's default. |
-| Harness and model picker (chip: "Harness", "Model"; "Unavailable" + reason) | `session/new` then `session/set_model` | + > **New Agent Chat With…** (sheet "New Agent Chat": Harness, Model, Start Chat) | works (this branch) | Unavailable agents keep the Mac's reason. Codex and opencode: "Not available from here: this agent has no mode that asks before each change" (the Mac's own remote wording, acpmux `REFUSED_FAMILIES`). |
+| New Agent Chat (⌘I) | acpmux `session/new` (harness from the last pick, else acpmux `defaultHarness`), daemon `new-conversation-tab` | + > **New Agent Chat** | works (round 2) | One model-agnostic entry. Round 2: it starts where the Mac's would: the Mac's last pick in the workspace folder, then its last pick anywhere, then the agent it picked last, then acpmux's `defaultHarness` (a pick the phone can't start is skipped). The Mac app hands its `newTab.lastPicks` to acpmux over its person connection (`_acpmux/new_chat_picks_set`, memory only) and `_acpmux/harnesses` shows them (`lastPicks`). Unit-tested on both sides; not driven live (the rig app is hidden, so nobody picks on its New Tab page). |
+| Harness and model picker (chip: "Harness", "Model"; "Unavailable" + reason) | `session/new` then `session/set_model` | + > **New Agent Chat With…** (sheet "New Agent Chat": Harness, Model, Start Chat) | works (round 2) | acpmux now says per agent what a phone may start (`remote: {startable, modes}` or the reason). **Codex** (the `codex app-server` bridge, the Mac's `codex` profile) is startable: a phone-started Codex chat begins in the bridge's **Ask** mode (approval policy `untrusted`: Codex asks before every command that is not a known-safe read and before every file change), with acpmux policy `ask`, so each approval reaches the phone and Allow needs Face ID. The codex-acp adapter and **opencode** stay "Not available from here: this agent has no mode that asks before each change" (opencode starts every agent from allow-all and merges the user's rules last). A Mac without the `remote` row keeps Codex refused. |
 | Agent chat in a workspace folder | `session/new {cwd}` (the pane's folder) | same | works (this branch) | Needed `feat-cnx-ios-agentcwd` (acpmux `_acpmux/workspace_roots_set`), merged here. A workspace still at home gets "Agent chats start in a project folder…". A folder Claude has never been trusted in waits on the Mac's trust question (see Gaps). |
 | New Terminal Tab (⌃`) | `new-tab {cwd}` | + > **New Terminal** | works | hostd picks the pane's folder (`with_pane_folder`); the phone never sends `cwd`. |
 | New Browser Tab (⇧⌘L) | `new-frontend-browser-tab` | + > **New Browser Tab** | works on a Mac that streams (`browser-stream-v1`) | An older Mac now keeps the entry; a tap says "Update cmux on <Mac> to open browser tabs from your phone." (was: silently missing). |
 | New Workspace (⌘N) | `create-workspace`, `create-terminal {cwd}` | **New Workspace** (tap) | works | Mac default folder (home). |
-| New Workspace in a folder / Open Folder… (⌘O) / New Workspace Like This | `create-workspace` + `create-terminal {cwd}` | New Workspace (hold) > **Recent Directories** | partial (this branch) | The folders of the Mac's workspaces and the ones used on this phone. The new terminal types `cd '<folder>' && clear`, since the phone sends no `cwd`. No free folder picker: a phone browses no Mac folders. |
+| New Workspace in a folder / Open Folder… (⌘O) / New Workspace Like This | `create-workspace` + `create-terminal {cwd}` | New Workspace (hold) > **Recent Directories**, **Open Folder…** (parity2) | partial | Recent Directories: the folders of the Mac's workspaces and the ones used on this phone. Open Folder… takes a typed full path (`/…`, `~`, `~/…`); a relative path is refused with "Type the folder's full path on <Mac>, starting with / or ~/.". The new terminal types `cd '<folder>' && clear`, since the phone sends no `cwd`; a folder with a control or format character, a backslash or `!` is never typed ("Open it in cmux on <Mac>"). A folder that does not exist shows the shell's own `cd` error in the new terminal. Not possible from a phone: browsing the Mac's folders (no file picker over the link). |
 | New Browser Workspace (⌥⌘N) | `new-frontend-browser-tab` | New Workspace (hold) > **New Browser Workspace** | works | |
-| New Agent Chat over Home (a workspace whose only tab is the chat) | `create-workspace`, `new-conversation-tab` | — | missing | Two steps on the phone: New Workspace in a folder, then New Agent Chat. |
+| New Agent Chat over Home (a workspace whose only tab is the chat) | `create-workspace`, `new-conversation-tab` | New Workspace (hold) > **New Agent Chat** > a folder (parity2) | works (parity2, live: `agent_chat_workspace` pass) | acpmux `session/new` in that folder first (a folder not trusted yet leaves no empty workspace), then `create-workspace` and `new-conversation-tab {workspace}` (the daemon makes its first pane). The Mac's default agent. Folders: the Mac's workspace folders (Recent Directories) only, since acpmux's remote guard starts a phone's chat only there; any other folder says to open a workspace there first (New Workspace › Open Folder…). No new allowlist entry. |
 
 ## Tabs
 
@@ -33,14 +33,17 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- | --- |
 | Close Tab (⌘W) | `close-surface` | grid ×, page menu Close Tab | works | Asks first when a program runs. |
 | Rename Tab… (⌘R) | `rename-surface` | page and card menu **Rename Tab…** | works (this branch) | Rolls back on refusal. |
-| Duplicate Tab | `new-tab` / browser duplicate | page and card menu **Duplicate Tab** | partial (this branch) | Terminal: a new terminal in the tab's pane (hostd's folder choice). Browser: the same http(s) page. Agent chat: none; use Continue in…. |
-| Move Tab Left / Right, drag | `move-tab` | drag in the grid | partial (this branch) | Within the tab's pane (insertion index as the daemon reads it); a drag onto another pane's tab says to move it on the Mac. Unit-tested, not driven live. |
-| Move Tab to Pane / New Workspace / another workspace | `move-tab-to-split`, `move-tab-to-new-workspace`, `move-tab-to-workspace` | — | missing | Allowlisted; no phone UI yet (the phone shows a workspace's tabs as one list, no panes). |
-| Pin / Unpin Tab | `set-tab-pinned` | — | missing | Allowlisted; no UI. |
+| Duplicate Tab | `new-tab` / browser duplicate / a second tab of the chat | page and card menu **Duplicate Tab** | works (parity2 tabs) | Terminal: a new terminal in the tab's pane (hostd's folder choice). Browser: the same http(s) page. Agent chat: a second tab of the same chat (`new-conversation-tab` with the tab's session), as the Mac's `duplicateAgentTab`; never a copy of the conversation (that is Fork). |
+| Move Tab Left / Right, drag | `move-tab` | drag in the grid | works (parity2 tabs; live) | Within the tab's pane (insertion index as the daemon reads it); a drag onto another pane's tab says to move it on the Mac. A real long press and drag is proven by an XCUITest (`CnxAppUITests/TabReorderUITests`: first card to the third slot, iOS 26.5 simulator, mock data); `pq_tabs.reorder` runs it against the rig Mac. |
+| Move Tab to Workspace… / Move Tab to New Workspace | `move-tab-to-workspace {surface, workspace}`, `move-tab-to-new-workspace {surface, name}` | page menu **Move Tab to Workspace…** (a picker of this Mac's other workspaces), **Move Tab to New Workspace** | works (parity2 tabs; live) | The Mac's More rows, so on the phone they are in the page menu (the card menu has no room). The new workspace is named by the Mac's rule (`NewWorkspaceName`: a last tab keeps its workspace's name; else the tab's name, page title or host, terminal title unless a bare shell, then its folder). The tab keeps its terminal, page or chat; the phone stays in the source workspace (the Mac's own view is its own) and says "Moved <tab> to <workspace>."; leaving it when that was the last tab. A tab in Home has no Move Tab to New Workspace ("Home's tabs stay in Home."), as on the Mac. |
+| Move Tab to New Split / Column, Move Tab to Pane Left / Right / Above / Below, Previous / Next Pane | `move-tab-to-split`, `move-tab-to-column`, `move-tab` across panes | — | not applicable (decision) | The phone shows a workspace's tabs as one list and has no panes to aim at; a pane move would change the Mac's layout with nothing on the phone to show it. Left off the phone on purpose; the commands stay allowlisted for a future pane view. |
+| Pin Tab / Unpin Tab | `set-tab-pinned` | page and card menu **Pin Tab** / **Unpin Tab** | works (parity2 tabs; live) | Here at once, rolled back on refusal. A pinned tab's card icon is a pin; the Mac sorts pinned tabs first in their pane. |
 | Split Right / Down, New Column / Row, Zoom Pane | `split`, `new-pane-right`, `new-row`, `zoom-pane` | — | not applicable | The phone shows one tab at a time; panes are a Mac layout. |
 | Reopen Last Closed Tab (⇧⌘T) | resource `closed.reopen` | — | not from a phone (yet) | The resource API is not on the phone's lane. |
-| Restart Shell Here | `restart-tab` | — | not from a phone | Respawns a program; the remote relay rules need live verification on the Mac first (CLAUDE.md "Remote CLI relay"). |
-| Tab groups (create, rename, close, save, reopen) | `*-tab-group*` | — | missing | Allowlisted; no UI. |
+| Restart Shell Here | `restart-tab` | dead terminal: overlay "The shell ended." + **Restart Shell Here**, page menu row | works (round 2) | Allowlisted with the surface only (no command, folder, env or alias), after live verification on the rig Mac that the new shell runs on the Mac under the same tab (SECURITY.md "Restart Shell"). The phone now lists a dead terminal the Mac keeps (it hid every dead tab). |
+| New Tab Group, Add Tab to Group…, Remove Tab from Group | `create-tab-group {surfaces, color}`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group` | page and card menu, the Mac's group rows | works (parity2 tabs; live) | New Tab Group takes the Mac's next color (`GroupColor.automatic`, never blue or grey) and no name. A pinned tab offers no group rows ("Pinned tabs cannot be grouped." on the Mac). A member's card carries the group's chip (name, else "<Color> group"). |
+| The group's chip menu: Rename Tab Group…, Pin Group / Unpin Group, Ungroup Tabs, Close Tab Group | `update-tab-group {name}`, `save-tab-group`, `unsave-tab-group`, `ungroup-tab-group`, `close-tab-group` | a member's menu > **Tab Group: <name>…** (the group's actions) | works (parity2 tabs; live) | The phone has no group chip to hold, so a member's row opens the same actions. Close Tab Group waits for the Mac, then removes every member. Collapse / Expand, color and icon, Move Tab Group … and New Tab in Group: not on the phone (the phone has no strip to collapse or arrange; a new tab in a group starts a terminal by another path). |
+| Reopen Saved Tab Group…, Delete Saved Tab Group… | `reopen-saved-tab-group`, `delete-saved-tab-group` | — | not from a phone (yet) | Reopening recreates terminals from the saved record (a respawn path); the remote rules need live verification of it on the Mac first (orchestrator decision 2026-10-15). Pin Group on the phone saves the group; it is reopened on the Mac. |
 
 ## Workspaces
 
@@ -48,12 +51,16 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- | --- |
 | Rename Workspace… (⇧⌘R) | `rename-workspace` | row swipe / menu Rename | works | |
 | Close Workspace (⇧⌘W) | `close-workspace` | row swipe / menu Close Workspace | works | |
-| Close Other / Above / Below / All | `close-workspace` × n | — | missing | |
-| Move Workspace Up / Down, drag | `move-workspace` | — | missing | The phone list is ordered by activity. |
-| Pin, Color, Icon, Description, Clear Name | `set-workspace-metadata` | — | missing | Allowlisted. |
-| Mark as Read / Unread | `ack-tab-notifications` | open marks read | partial | |
-| Duplicate Workspace | composed app-side | — | missing | |
-| Workspace groups | `*-workspace-group*` | — | missing | Allowlisted; no UI. |
+| Close Other Workspaces / Close Workspaces Below / Above | `close-workspace` × n | row menu > **Close** > the Mac's three titles | works (parity2) | Over the Mac's sidebar order of that Mac's workspaces (pinned first). The Mac closes at once; the phone asks first ("Close 3 workspaces?", naming them), since a long press is easy to misplace. The Mac has no "Close All Workspaces". |
+| Move Workspace Up / Down | `set-personal-workspace {index}` (personal order), else `move-workspace {index}` | row menu > **Move** > **Move Workspace Up / Down** | works (parity2) for unpinned workspaces | The same index the Mac's `movePersonalWorkspace` computes. Pinned workspaces have no Move on the phone: the Mac orders its pinned tiles with a layout `item.move`, which is not on the phone's lane. No drag: a long press opens the row menu, and the list is not a reorderable List. |
+| Pin Workspace / Unpin Workspace | layout tile in `sec_pinned` (`sidebar_layout.update`), legacy `set-workspace-metadata {pinned}` | row menu > **Pin Workspace / Unpin Workspace** | works (parity2) | Pin sends the legacy flag, which the Mac turns into its pinned tile (`migrateLegacyPins`); Unpin removes the tile (`item.remove`). The phone reads the tiles (`sidebar_layout.get`). |
+| Set Workspace Color… / Reset Workspace Color | `set-workspace-metadata {color}` | row menu > **Appearance** > the Mac's nine colors (Grey…Orange), **Reset Workspace Color** | works (parity2) | The row shows the color as a bar in its gutter (idle rows). |
+| Set Icon… / Remove Icon | `set-workspace-metadata {icon}` | row menu > **Appearance** > **Set Icon…** (16 SF Symbols both apps draw, or **Emoji…** for one emoji), **Remove Icon** | works (parity2, live: `icon_clear_name` pass) | The Mac's picker has every SF Symbol and uploaded images; the phone offers a short list and emoji. The row shows the icon before the name. |
+| Clear Workspace Name | `set-workspace-metadata {title: null}` | row menu > **Options** > **Clear Workspace Name** (only when a display name is set) | works (parity2, live: same flow) | The workspace's own name shows again. |
+| Edit Workspace Description… | — | — | not on the Mac either | The Mac reports it needs a daemon capability (`workspace-description-v1`) the daemon does not have. |
+| Mark Workspace as Read / Unread | `ack-tab-notifications` on unread tabs + `set-workspace-metadata {marked_unread}` | row menu > **Options** > **Mark Workspace as Read / Unread**; opening marks read | works (parity2) | |
+| Duplicate Workspace | composed app-side (new workspace, then each tab) | — | missing | The Mac composes it in the app (its tabs' programs and folders); a phone would have to start programs in folders it may not choose (`cwd`). Use New Workspace in the same folder. |
+| Workspace groups | personal groups (`set-personal-workspace {group}`, `workspace_group.*`) | — | missing | On a Mac with personal order, groups are personal resource ops not on the phone's lane; the phone shows grouped workspaces in the Mac's order, without the group headers. |
 | Move to Window / New Window, Show in Finder, Copy Path | app-local | Copy Directory (terminal page) | not applicable | Mac windows and Finder. |
 
 ## Terminal
@@ -64,13 +71,14 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Run a command | type it | works | The phone never starts a program by argv (`run` refused). |
 | Clear Screen (⇧⌘K) | page menu Clear | works | `clear-history`. |
 | Find, Copy | Files and Links, selection | partial | |
-| Restart Shell, Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`restart-tab`, `set-terminal-keep` not allowlisted). |
+| Restart Shell Here | overlay and page menu on a dead terminal | works (round 2) | See Tabs. |
+| Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`set-terminal-keep` not allowlisted). |
 
 ## Browser
 
 | Mac action | Phone | State | Notes |
 | --- | --- | --- | --- |
-| Address bar, Back (⌘[), Forward (⌘]), Reload (⌘R) | TabsKit address bar and toolbar | works on a streaming Mac | `browser-navigate` (http/https only), `browser-back`, `browser-forward`, `browser-reload`. |
+| Address bar, Back (⌘[), Forward (⌘]), Reload (⌘R) | TabsKit address bar and toolbar | works on a streaming Mac | `browser-navigate` (http/https only), `browser-back`, `browser-forward`, `browser-reload`. Forward right after Back is one tap (finding 5, fixed in parity2 tabs). The address reads the page's host, and a new tab's about:blank reads "Search or enter website" (finding 4). |
 | Open Link in New Tab | — | missing | The streamed page sends no link targets to the phone. |
 | Hard Reload, Open in Default Browser, Incognito | — | not applicable | |
 
@@ -80,12 +88,14 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- |
 | Stop | page menu Stop Agent, composer stop | works | `session/cancel`. |
 | Retry / Send this prompt again | Retry on a failed turn | works | |
-| Switch Model… (⌃⌘M), Mode | composer model and mode menus | works for phone-started chats | A Mac-started Claude session keeps its model and mode from a phone (acpmux D13). |
+| Switch Model… (⌃⌘M), Mode | composer model and mode menus | works for phone-started chats | A Mac-started Claude session keeps its model and mode from a phone (acpmux D13). Round 2: the mode menus list only modes that ask (Claude's Default and Plan, Codex's Ask) plus the current one, and cnx-hostd refuses any other mode a phone sends (`acpmux_policy.rs`), because acpmux lets an authenticated remote connection pick any Codex bridge mode. |
 | Continue in… (handoff) | page menu Continue in… | works | `_acpmux/handoff_*`. |
 | Allow Once / Allow for This Chat / Deny | permission cards | works | Allow needs the phone's Face ID signature (pairing). |
-| Queue: Edit / Remove / Send now | queue remove | partial | |
-| Fork Conversation, Archive Chat, Checkpoints, Commit, Push | Checkpoints shown as unavailable | missing | The link carries no checkpoints; fork and archive have no phone UI. |
-| Trust this folder ("Trust / Don't trust") | the toast says how; `claude` in the terminal works | partial | acpmux refuses `acp.trust.set` from a remote connection (finding 2). |
+| Queue: Edit queued prompt / Send now / Move up / Move down / Remove queued prompt | hold a queued prompt (the agent pane's wording) | partial (parity2: unit-tested; not shown live) | acpmux `_acpmux/queue_edit {op: update | send_now | move}`, `_acpmux/queue_remove`; the phone follows `queue_updated` and `queue_order`. hostd lets `_acpmux/queue_edit` through only when the session's current mode asks before each change. Resume (after an error) is not on the phone. Live on the rig (2026-10-15), a prompt sent while Claude was writing a long reply was taken into the running turn and answered at once, never queued, so the queue row and its menu never appeared; Edit / Send now are verified by unit tests only. |
+| Fork (chat menu "Fork"; palette Fork Conversation to New Tab) | page menu **Fork** | works (parity2 tabs; live) | acpmux `session/fork` (the whole chat), then `new-conversation-tab` of the copy in the chat's pane; the copy comes to the front, as the Mac opens a fork in a tab of its own. A Claude chat the Mac started is refused for a remote connection (acpmux D13, `remote_guard.rs`); the phone shows acpmux's own reason: "This chat runs with <Mac>'s Claude permissions. Start a new chat from this device to control it remotely." Fork from an earlier turn (Fork from here) is not on the phone. |
+| Archive (chat menu "Archive", Archive Chat ⌃⌘A) | page menu **Archive** | works (parity2 tabs; live) | acpmux `_acpmux/archive {archived: true}`, then `close-surface`, as the Mac's pane asks its app to close the tab. Unarchive is on the Mac (its archived list). |
+| Checkpoints, Commit, Push | Checkpoints shown as unavailable | missing | The link carries no checkpoints. |
+| Trust this folder ("Trust / Don't trust") | the toast says how, step by step; `claude` in the terminal works | partial | acpmux refuses `acp.trust.set` from a remote connection (finding 2). The phone now says: "Claude hasn't been trusted in <folder> yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. Or 2. Here, open this workspace's terminal, type claude, press Return, choose "Yes, I trust this folder", then type /exit. Then start the chat again." Whether a Face ID answer from the phone may count is the person's decision (#13742). |
 
 ## Chief and the Feed
 
@@ -95,7 +105,37 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Stop the Chief, Chief settings | Chief settings | works | `chief.stop`, `chief.engine.*`. |
 | New Chief…, Archive Chief, Memory Inspector | — | missing | |
 | Show Feed, Jump to Latest Unread, Mark read | Feed tab, swipe | works | |
-| Clear All Notifications, Mute workspace | — | missing | Resource op `notification.clear` is not on the lane. |
+| Clear All Notifications | Feed > Filter menu > **Clear All Notifications** | works (parity2) | `notification.clear` on the Mac's current session (new on the lane, see SECURITY.md); the Feed's terminal events go with it. No confirmation, as on the Mac. |
+| Mute workspace | Feed > Filter > Workspaces toggles | partial | The phone's mute is the phone's own (the Mac's mute is not on the lane). |
+
+## Workspace list order (parity2 decision)
+
+The phone's Workspaces list follows the Mac's sidebar: **Needs You** first (the
+phone's own attention section; those rows are also in the Mac's list), then
+**Pinned** in the Mac's tile order, then the rest titled **Workspaces** in the
+Mac's order: the person's personal order (`list-personal`) on a Mac that has
+one, else the daemon's workspace order. Rows of a Mac whose order the phone
+does not know yet (cached, mock) keep the old newest-activity order under
+**Recent**. Move Up / Down moves within the row's section on its Mac.
+
+## Live run, workspace lane (parity2, 2026-10-15)
+
+Rig Mac `cnx-p2-26459378` on mini-cmux11s, the phone in one headless simulator
+(`cnx-p2-ws`), driver `verify/parity/pq_ws.py`; the Mac side read from its own
+daemon (list-workspaces, list-personal, sidebar_layout.get, list-notifications).
+Videos: `~/cnx-ios-e2e/p2ws-raw/ws-<flow>.mp4` (not committed).
+
+| Flow | Result |
+| --- | --- |
+| `pin_color_order`: Pin, Set Workspace Color… Green, Reset, Unpin, Move Up, Move Down | Pass: pinned tile on the Mac, color `green` then cleared, unpinned; Move Up changed the Mac's personal order `[c, b, a]` to `[b, c, a]` and the phone list matched; Move Down restored it |
+| `mark_unread`: Options › Mark Workspace as Unread, then as Read | Pass: `marked_unread` true, then false |
+| `bulk_close`: Close › Close Workspaces Below (after "Close 2 workspaces?") | Pass: exactly the two named workspaces closed, the chosen one stayed |
+| `open_folder`: New Workspace › Open Folder… `~/cnx-ios-e2e/p2ws-folder` | Pass: the workspace on the Mac in 0.7 s, its terminal in that folder |
+| `feed_clear_all`: Feed › Filter › Clear All Notifications | Pass: the Mac's notification ledger empty |
+| `trust_steps`: New Agent Chat in a folder Claude was never trusted in | Pass: the step-by-step message in 1.6 s |
+| `icon_clear_name` (rig `cnx-p2-d1a70bd6`): Appearance › Set Icon… hammer, Remove Icon, Options › Clear Workspace Name | Pass: `icon` hammer then cleared on the Mac, the row showed the icon; the display name cleared and the own name came back |
+| `agent_chat_workspace`: New Workspace › New Agent Chat › p2ws-proj | Pass: a new workspace on the Mac whose only tab is the chat (`conversation`), in 2.1 s |
+| `queue_edit`: a second prompt while a turn runs, then Edit queued prompt and Send now | Not shown: the second prompt was taken into the running turn (answered at once), so nothing queued; the flow could not reach the queue menu. An earlier attempt hit "API Error: Output blocked by content filtering policy" on a long numbered list |
 
 ## Live run (2026-10-14/15)
 
@@ -146,10 +186,17 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
    and never answered; `claude-sr` closed ("agent process closed"); `claude`
    through a loopback `ANTHROPIC_BASE_URL` failed with "Unable to connect to API
    (EPERM)". Owner: acpmux remote sandbox (`hub/remote_sandbox.rs`).
-4. The streamed browser tab's address control reads "Address, about:blank" to
-   VoiceOver after navigation, while it shows the page's host.
-5. Forward once did nothing on the first tap right after Back (the next tap
-   worked).
+4. Fixed (parity2 tabs): the streamed browser tab's address control read "Address,
+   about:blank" to VoiceOver after navigation. The Mac's browser reports the old page
+   (a new tab's about:blank) while a navigation loads, and that report replaced the
+   address the person typed. The model now keeps the asked-for address until the page
+   reports another one or stops loading, and an about:blank tab reads "Search or enter
+   website". Unit tests `theAddressIsTheOneAskedForWhileItLoads`, `aBlankBrowserTabHasNoAddress`.
+5. Fixed (parity2 tabs): Forward once did nothing on the first tap right after Back.
+   The browser reports the old history (no forward entry) until Back commits, so the
+   button was disabled, or the Mac ignored the step. Back now offers Forward at once,
+   and a step tapped before the previous one commits is sent when it does (bounded at
+   2 s). Unit tests `forwardRightAfterBackNeedsOneTap`, `aCachedStepCommitsOnTheNewAddress`.
 
 ### Review (correctness-first subagent, 2026-10-15)
 
@@ -162,3 +209,97 @@ chunk; a renamed Codex profile showed as startable; a plain New Workspace tap
 typed `cd` to the last folder; the Mac kept the folder list after iPhone
 connections turned off when no approvers were paired. Those fixes have unit
 tests and were not driven live again.
+
+## Parity round 2: tabs lane (2026-10-15)
+
+Branch `feat-cnx-ios-p2tabs`. No daemon allowlist change: every command used was already
+allowed (`move-tab-to-workspace`, `move-tab-to-new-workspace`, `set-tab-pinned`, the
+`*-tab-group*` commands, `new-conversation-tab`, `close-surface`). acpmux's Fork and
+Archive go over the phone's acpmux lane as a remote (Web) connection: `session/fork`
+passes `remote_guard.rs` (folder and policy checks, D13 refusal for a Mac-started
+Claude chat) and `_acpmux/archive` sets one tag.
+
+Phone menus, following the Mac's tab menu (`ContextMenuEssentials`): the card menu has the
+top rows (Rename Tab…, Pin Tab / Unpin Tab, Duplicate Tab) and the group rows; TabsKit adds
+Close Tab and Close Other Tabs. The page menu adds the Mac's More rows that make sense on a
+phone (Move Tab to Workspace…, Move Tab to New Workspace), and on an agent chat the chat
+menu's Fork and Archive.
+
+Live run (2026-10-15, rig Mac `cnx-p2-1585ab34` on mini-cmux11s, the Debug app of this
+branch in one headless simulator `cnx-p2-tabs`): `verify/parity/pq_tabs.py`, each flow
+checked on the Mac's own daemon tree (its socket) and recorded in `~/cnx-ios-e2e/p2tabs-raw/`.
+
+| Flow | Result | Video |
+| --- | --- | --- |
+| Pin Tab, Unpin Tab (card menu) | Pass: pinned on the Mac in 0.2 s and first in its pane; unpinned in 0.2 s | `pin.mp4` |
+| Move Tab to Workspace… (page menu, picker) | Pass: the tab in the other workspace 0.1 s after the pick | `move-to-workspace.mp4` |
+| Move Tab to New Workspace | Pass: a new Mac workspace named `p2tabs-t2` (the tab's name) holds it | `move-to-new-workspace.mp4` |
+| New Tab Group, Add Tab to Group… | Pass: both tabs in one Mac group (red), each step 0.1 s | `tab-groups.mp4` |
+| Rename Tab Group…, Pin Group, Ungroup Tabs | Pass: renamed in 0.8 s (the alert capitalizes the first letter, as iOS text fields do), saved, ungrouped | `tab-groups-2.mp4` |
+| Drag to reorder (XCUITest long press and drag) | Pass: Mac pane order [95, 98, 100] -> [98, 100, 95] | `reorder.mp4` |
+| Browser: address, Back, Forward right after Back | Pass: the address reads "Address, iana.org" (never about:blank); Back then Forward 0.5 s later lands with one tap. The daemon's tab record of a streamed tab keeps about:blank (the page's address comes from the Mac's browser host) | `browser-forward.mp4` |
+| New Agent Chat, then Fork, Duplicate Tab, Archive (page menu) | Pass: a real turn ("PONG"); Fork made a chat tab with its own session in 0.8 s and its transcript; Duplicate Tab a third tab on the same session; Archive closed a tab on the Mac | `chat-fork-duplicate-archive.mp4` |
+
+Not driven live: the D13 refusal of a fork of a Mac-started Claude chat (unit-tested,
+its text is acpmux's). Home: a tab in the Mac's Home workspace (daemon `kind: "home"`) has no Move Tab to New
+Workspace on the phone, and a request is refused with "Home's tabs stay in Home." (the Mac's
+`TabPromotion`); Move Tab to Workspace… stays, as on the Mac. Unit-tested
+(`homeTabsStayInHome`), not driven live.
+
+## Round 2 (2026-10-15, branch `feat-cnx-ios-parity2`)
+
+Rig: real cmux-next builds of this branch (`cnx-p2-bfdcd53e`, then `cnx-p2-26459378`),
+hidden, settings by `open --env` only. Agents through the team subrouter on
+mini-cmux11s (`~/cnx-ios-e2e/p2`); Codex on a hidden rig app on the laptop
+(`~/cnx-ios-e2e/p2l`), with the laptop's own Codex login used in place (quit after).
+Phone: this branch's Demo build in one headless simulator, real link. Videos:
+`~/cnx-ios-e2e/p2main-raw/` (orchestrator), `p2ws-raw/`, `p2tabs-raw/` (lanes).
+
+| Flow | Result | Video |
+| --- | --- | --- |
+| Codex: New Agent Chat With… > Codex > Start Chat, "PONG" | Pass: open 4.7 s, reply 9.7 s; Mac session `codex`, mode `ask`, policy `ask`, model gpt-6.1-sol | `codex-agent.mp4` |
+| Codex tool approval: "echo hi > p2-approval.txt" | Pass: Codex asked first ("Codex wants to run a command"), Allow + Face ID (simulator match) on the phone, the file appeared on the Mac | `codex-approval.mp4` |
+| Codex again on the final build (`cnx-p2-d1a70bd6`, with hostd's current-mode check on every prompt) | Pass: open 4.6 s, "PONG" 13.2 s | `codex-final.mp4` |
+| `claude-sr` (sr claude proxy) | Pass (was "agent process closed"): open 4.5 s, "PONG" 3.9 s | `sr-agent.mp4` |
+| `claude` (user settings route to the subrouter) | Pass: "PONG" 1.9 s | `claude-agent.mp4` |
+| Restart Shell Here (rig `cnx-p2-1585ab34`; the rig killed the tab's terminal host until the Mac stopped respawning it, as "Terminal stopped: its host kept failing") | Pass: the phone showed "The shell ended." with Restart Shell Here; one tap, the Mac listed the tab live in 0.1 s with a new shell (pid 55406 -> 55788), whose parent is the rig app's own `cmux-tui __terminal-host` on the Mac; the page reattached and `echo restarted-$((6*7))` printed `restarted-42` | `restart-shell.mp4` |
+| `cmux` (local relay to the cmux model router) | The request now reaches the relay from the sandbox (was: Working, no reply). The hosted router answered 403 "this team cannot use the model router on this deployment yet" for the test account: an account entitlement, not the phone path. On mini-cmux11s the rig's local router did not answer its admin socket (a Mac-side router problem; a Mac-local session failed the same way). | `cmux-agent.mp4` |
+
+Findings fixed in round 2:
+
+1. **Codex refused from a phone.** acpmux already bridged Codex through `codex
+   app-server` and let an authenticated remote connection use any of its modes,
+   but a remote session stayed in the bridge's default `agent` (no asking) and the
+   phone refused the family by name. Now: a phone-started Codex chat starts in
+   `ask`, the catalog says so, and hostd keeps the phone to asking modes.
+2. **Agents behind a local model proxy never answered.** Claude Code applies its
+   user settings `env` over its process env, so the route the sandbox opened
+   (the profile's) was not the one Claude used (the user's settings pointed at the
+   subrouter, a port the sandbox kept shut: EPERM or a silent hang). The sandbox
+   now opens exactly the endpoint Claude will use, pins it in the inline
+   settings, and skips the user settings source when the profile names its own
+   route (whose key the user settings would replace). `sr claude proxy` cannot
+   listen in the sandbox, so a remote chain runs Claude straight to the
+   subrouter server, as acpmux already does when that launcher cannot run.
+   Tests: unit (Linux) and `remote_sandbox` on macOS (the chain reaches its
+   loopback proxy port and no other loopback port).
+
+
+### Remaining gaps after round 2 (and why)
+
+- **opencode** from a phone: refused. opencode starts every agent from allow-all and
+  merges the user's own rules last, so acpmux cannot prove it asks before each change.
+- **`cmux` harness** (cmux model router): the phone path works through the sandbox now;
+  the test account's team is not entitled to the hosted router (403), and the
+  mini-cmux11s rig's local router did not answer. Needs an entitled account to see a reply.
+- **Folder trust from the phone**: left on the Mac by decision; the phone gives the steps.
+- **Duplicate Workspace**: the Mac composes it from its tabs' programs and folders; a phone
+  may not choose either.
+- **Workspace groups** (personal order): more resource ops on the lane; not reviewed yet.
+- **Reopen Saved Tab Group**: recreates terminals; same live check as Restart Shell needed.
+- **Open Link in New Tab, Checkpoints, Commit, Push, New Chief…, Memory Inspector, Reset
+  Terminal, Keep Running After Close**: not on the link (or Mac-only by design).
+- **The Mac's last pick** reaching the phone: unit-tested on both sides; not driven live
+  (a hidden rig app has no person to pick on its New Tab page).
+- **A Mac-started Codex chat in Agent mode** is refused for phone prompts by cnx-hostd
+  (unit-tested); not driven live.

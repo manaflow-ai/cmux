@@ -19,6 +19,24 @@ import Testing
         mark.locate(totalRows: rows.count) { rows.indices.contains($0) ? rows[$0] : nil }
     }
 
+    /// VERIFY-round6 V2-3 residual (G-D, fl-gd-2 trip 9): `reading mark row
+    /// 15037 of 17633`, `restored row 15037 -> 14266 of 16862`, 116 rows low.
+    /// The replay's rows far from its end cannot be read (Ghostty addresses
+    /// only the viewport, the active area and the first rows; round 8), so the
+    /// search fell back to the same distance from the end, and output during
+    /// the drop (116 rows) moved the end. The rows that were at the end before
+    /// the drop are still readable near the new end: they give the shift.
+    @Test func theOldEndRowsGiveTheShiftWhenTheAnchorCannotBeRead() throws {
+        let before = (0..<17633).map { "GEN-\($0 + 1000)" }
+        let m = try #require(mark(in: before, at: 15037))
+        // The Mac's history starts 771 rows later; 116 rows arrived during the drop.
+        let after = Array(before[771...]) + (0..<116).map { "GEN-\(17633 + 1000 + $0)" }
+        #expect(after.count == 16978)
+        let readable = (after.count - 151)..<after.count
+        let found = m.locate(totalRows: after.count) { readable.contains($0) ? after[$0] : nil }
+        #expect(found?.row == 15037 - 771)
+    }
+
     @Test func theSameHistoryKeepsTheSameRow() throws {
         let rows = history(500)
         let m = try #require(mark(in: rows, at: 200))

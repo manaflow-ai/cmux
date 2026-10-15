@@ -112,7 +112,25 @@ public final class MockAgentSession: AgentSessionSource {
         case .removeQueued(let promptID):
             queued.removeAll { $0.id == promptID }
             emit(.dequeued(promptId: promptID))
+        case .editQueued(let promptID, let text):
+            emit(.queueUpdated(promptId: promptID, text: text))
+        case .moveQueued(let promptID, let index):
+            let order = Self.moved(queued.map(\.id), promptID, to: index)
+            queued.sort { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
+            emit(.queueOrder(order))
+        case .sendQueuedNow(let promptID):
+            queued.removeAll { $0.id == promptID }
+            emit(.dequeued(promptId: promptID))
         }
+    }
+
+    /// `ids` with `id` moved to `index` (acpmux `move_queued`).
+    static func moved(_ ids: [String], _ id: String, to index: Int) -> [String] {
+        var ids = ids
+        guard let from = ids.firstIndex(of: id) else { return ids }
+        ids.remove(at: from)
+        ids.insert(id, at: min(max(index, 0), ids.count))
+        return ids
     }
 
     private func decide(permission id: String, optionID: String?) {

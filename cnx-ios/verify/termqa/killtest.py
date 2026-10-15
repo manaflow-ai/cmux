@@ -10,7 +10,7 @@ for i, gap in enumerate([0] + gaps):
         time.sleep(gap)  # intentional spacing between injected faults, not synchronization
     size = os.path.getsize(L)
     t_kill = time.time()
-    subprocess.run(["pkill", "-9", "-x", "cnx-hostd"])
+    subprocess.run(["pkill", "-9", "-f", "cnx-e2e-604fc689.app/Contents/Resources/bin/cnx-hostd"])  # the rig's hostd only; other agents run their own
     up = None
     deadline = t_kill + 90
     while time.time() < deadline and up is None:

@@ -123,7 +123,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // Closed tabs release their surface.
         let open = Set(workspace.tabs.map(\.id))
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
-            hosts[id] = nil
+            // Its Mac attach goes too: a closed tab's session kept waiting to
+            // reattach after the next drop (V5-5).
+            hosts.removeValue(forKey: id)?.model.session.stop()
             stopWatching(id)
             indicators[id] = nil
             workspaceOwner[id] = nil
@@ -176,8 +178,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return host
     }
 
+    /// Tabs last shown with an ended shell (``page(for:in:context:)``).
+    private var endedShells: Set<String> = []
+
     /// Drops every host (another account or live data stopped).
     func reset() {
+        endedShells = []
         for id in Array(feeds.keys) { stopWatching(id) }
         indicators = [:]
         hosts = [:]
@@ -191,6 +197,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
+        // Restart Shell Here keeps the tab id: its attach to the dead shell ended for good,
+        // so a tab that is live again gets a fresh host (and a fresh attach).
+        if tab.hasEndedShell {
+            endedShells.insert(tab.id)
+        } else if endedShells.remove(tab.id) != nil {
+            cool(tab.id)
+        }
         let host = host(for: tab, in: workspace)
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)
@@ -278,6 +291,18 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     func overviewWillAppear(active tab: WorkspaceTab) {
         hosts[tab.id]?.prepareCard()
+    }
+
+    /// The settled grid shows the active page's snapshot, placed with its
+    /// bottom at the card's bottom edge like every other terminal card, so
+    /// the newest rows and the prompt show (V5-6). The snapshot draws the
+    /// frame Ghostty presented (`TerminalSurfaceView.presentedImage`); the
+    /// render server's copy was black over the rows (round 6).
+    /// `-CnxLiveActiveCard` keeps the live page (the kit's top crop) for A/B.
+    func showsStaticCard(for tab: WorkspaceTab) -> Bool {
+        guard !CommandLine.arguments.contains("-CnxLiveActiveCard"),
+              let model = hosts[tab.id]?.model, model.pageStarted else { return false }
+        return model.snapshot != nil
     }
 
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {

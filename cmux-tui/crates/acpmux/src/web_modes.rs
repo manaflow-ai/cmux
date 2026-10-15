@@ -34,6 +34,46 @@ pub(crate) const ASKING_MODES: &[(&str, &[&str])] = &[
     // Codex and opencode have no row: `REFUSED_FAMILIES`.
 ];
 
+/// The Codex bridge's (`codex app-server` through cmux-codex-acp, profile
+/// `codex`) modes that ask before every change, the start mode first.
+/// cmux-codex-acp c30e6489 `config.rs` `MODES`: "ask" runs Codex with
+/// approval policy `untrusted` and a workspace-write sandbox, so Codex asks
+/// before every command that is not a known-safe read and before every file
+/// change (and MCP tool call), and acpmux's `ask` policy hands each question
+/// to the person. "read-only", "agent" and "agent-full-access" use
+/// `on-request` or `never`, where Codex decides when to ask. A remote (Web)
+/// connection may later pick any bridge mode (`any_mode_for_web`), but a
+/// session it STARTS begins here (`remote_guard::settle_web_session_mode`).
+pub(crate) const BRIDGE_ASKING_MODES: &[&str] = &["ask"];
+
+/// What a remote (Web) connection may start with `profile` (the
+/// `_acpmux/harnesses` row's `remote`): the modes a session it starts runs
+/// in (the start mode first), or why it may not start one. The same rules as
+/// `remote_guard`: the Codex bridge starts in `BRIDGE_ASKING_MODES`; a
+/// refused family never starts; another family starts in its reviewed asking
+/// modes, and one with none is refused.
+pub fn remote_start(
+    table: &WebModeTable,
+    name: &str,
+    profile: &HarnessProfile,
+) -> Result<Vec<String>, String> {
+    if crate::codex_app_server::is_profile_launch(&profile.argv) {
+        return Ok(BRIDGE_ASKING_MODES.iter().map(|m| m.to_string()).collect());
+    }
+    let family = crate::config::derive_family(name, profile);
+    let unnamed = HarnessProfile { family: None, ..profile.clone() };
+    let runs_refused =
+        REFUSED_FAMILIES.contains(&crate::config::derive_family(name, &unnamed).as_str());
+    if table.refused().contains(&family) || runs_refused {
+        return Err("this agent has no mode that asks before each change".into());
+    }
+    let modes = table.modes(&family);
+    if modes.is_empty() {
+        return Err("this agent has no reviewed mode that asks before each change".into());
+    }
+    Ok(modes.to_vec())
+}
+
 /// Modes the reviewed sources name as NOT asking. A config.json
 /// (`webAskingModes`) entry naming one is ignored with a warning, so a local
 /// typo cannot open a permissive mode to the Web.

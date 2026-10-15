@@ -20,11 +20,12 @@ sys.path.insert(0, os.path.join(HERE, "../e2e"))
 from sim import Sim  # noqa: E402
 from journey import Journey  # noqa: E402
 
-STATE = os.path.expanduser("~/cnx-ios-e2e/termqa-state.json")
+# TQ_STATE / TQ_HOST / TQ_RBASE / TQ_RAW select a rig instance (default: the shared rig on mini-2).
+STATE = os.path.expanduser(os.environ.get("TQ_STATE", "~/cnx-ios-e2e/termqa-state.json"))
 ART = os.path.join(HERE, "artifacts")
-RAW = os.path.expanduser("~/cnx-ios-e2e/termqa-raw")
+RAW = os.path.expanduser(os.environ.get("TQ_RAW", "~/cnx-ios-e2e/termqa-raw"))
 HOST = os.environ.get("TQ_HOST", "mini-cmuxs-mac-mini-2")
-RBASE = "~/cnx-ios-e2e/termqa"
+RBASE = os.environ.get("TQ_RBASE", "~/cnx-ios-e2e/termqa")
 BUNDLE = "dev.cmux.cnx"
 
 
