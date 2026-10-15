@@ -425,7 +425,7 @@ impl<B: Backend> Server<B> {
     }
 
     /// Every tool: the daemon operations, the browser host's REPL ops,
-    /// `window_list`, `agents_snapshot`, `render`, and the app's CLI actions
+    /// `window_list`, `agents_snapshot`, `agents_doctor`, `render`, and the app's CLI actions
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
@@ -436,6 +436,7 @@ impl<B: Backend> Server<B> {
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
+        tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(render_tool::descriptor());
         tools.extend(
@@ -548,6 +549,24 @@ impl<B: Backend> Server<B> {
                 return Ok(tool_error(envelope(error, "not_run", None)));
             }
             return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
+        }
+        if name == super::agents_doctor::MCP_TOOL {
+            // Read-only: the CLI's checks, and at most one app read.
+            let app_status = || {
+                self.backend
+                    .app(
+                        super::agents_doctor::STATUS_METHOD,
+                        json!({}),
+                        super::app::READ_TIMEOUT,
+                        None,
+                        false,
+                    )
+                    .map_err(agent_failure_value)
+            };
+            return Ok(match super::agents_doctor::mcp_findings(&arguments, app_status) {
+                Ok(report) => success(report, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
         }
         if let Some(tool) = agent_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
