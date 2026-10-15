@@ -99,6 +99,8 @@ export function readChromeMetrics(file = METRICS_SWIFT): Record<string, { compac
   return out;
 }
 
+const SWIFT_ESCAPES: Record<string, string> = { "\\": "\\", n: "\n", t: "\t", '"': '"', "'": "'", "0": "\0" };
+
 /** WebTheme.bootstrapScript's JavaScript: the Swift multi-line literal, without its indentation. */
 export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
   const swift = fs.readFileSync(file, "utf8");
@@ -109,9 +111,15 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
     .split("\n")
     .map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart()))
     .join("\n");
-  // The gallery runs it as is; a Swift interpolation or escape would make it differ from the app's.
-  if (/\\\(|\\[nt"\\]/.test(script)) throw new Error("gallery: bootstrapScript has Swift escapes; extend the reader");
-  return script;
+  // The literal's escapes are Swift's (`\\` in a regular expression, cx-3rf4z): the gallery runs the
+  // JavaScript the app gets. An interpolation or another escape would differ from the app's.
+  return script.replace(/\\(.)/g, (escape, character: string) => {
+    if (character === "(") throw new Error("gallery: bootstrapScript has a Swift interpolation; extend the reader");
+    const decoded = SWIFT_ESCAPES[character];
+    if (decoded === undefined)
+      throw new Error(`gallery: bootstrapScript has the Swift escape ${escape}; extend the reader`);
+    return decoded;
+  });
 }
 
 /**
