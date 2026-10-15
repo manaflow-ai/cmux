@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// A row's pending items, most urgent first: a failure, then a permission (or sign-in) request,
 /// then a question, then work in progress, then each unread item (done). The corner badge draws
