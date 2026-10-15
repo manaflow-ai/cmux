@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextResources
 @testable import CmuxNextTabs
 import Testing
 
@@ -39,9 +40,14 @@ import Testing
     }
 
     /// Three tabs in an ordered-front window, on a coordinator that hit-tests that window.
-    private static func strip() -> Strip {
+    /// `newTabPage` names a tab that is a New Tab page (it has no card).
+    private static func strip(newTabPage: String? = nil, source: MockResourceSource? = nil) -> Strip {
         _ = NSApplication.shared
-        let tabs = ["a", "b", "c"].map { TabItem(id: TabID($0), title: "Tab \($0)", subtitle: "~/Projects/\($0)") }
+        let tabs = ["a", "b", "c"].map { id in
+            var item = TabItem(id: TabID(id), title: "Tab \(id)", subtitle: "~/Projects/\(id)")
+            item.isNewTabPage = id == newTabPage
+            return item
+        }
         let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: TabID("a")))
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 700, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -57,6 +63,7 @@ import Testing
         strip.frame = NSRect(x: 0, y: 300 - TabStripView.preferredHeight, width: 700, height: TabStripView.preferredHeight)
         content.addSubview(strip)
         strip.hoverCards = coordinator
+        if let source { strip.hoverCard.resources.setSource(source) }
         window.orderFrontRegardless()
         strip.layoutSubtreeIfNeeded()
         return Strip(strip: strip, window: window, coordinator: coordinator, clock: clock)
@@ -119,5 +126,59 @@ import Testing
         try await Self.settle()
         s.move(to: try s.center("c"))
         #expect(!s.showsAny, "past the grace, a new hover showed at once")
+        s.move(to: CGPoint(x: s.strip.bounds.midX, y: s.strip.bounds.minY - 120))
+        try await Self.settle(until: { s.coordinator.machine.phase == .idle })
+        #expect(s.coordinator.machine.phase == .idle, "leaving before the delay left a card pending")
+    }
+
+    /// Chrome: a click or Esc on a tab ends its card until the pointer leaves that tab; a
+    /// small move on the same tab does not bring it back.
+    @Test func aClickKeepsTheCardAwayUntilThePointerLeavesTheTab() async throws {
+        let s = Self.strip()
+        defer { s.tearDown() }
+        try await Self.open("a", s)
+        s.coordinator.dismiss(.click)
+        #expect(!s.showsAny, "the click did not end the card")
+        let a = try s.center("a")
+        s.move(to: CGPoint(x: a.x + 1, y: a.y))
+        s.clock.advance(by: .milliseconds(1000))
+        try await Self.settle()
+        #expect(!s.showsAny, "a 1-px move on the clicked tab brought its card back")
+        // Away from the tab and back: its card waits the delay again.
+        s.move(to: CGPoint(x: s.strip.bounds.midX, y: s.strip.bounds.minY - 120))
+        try await Self.open("a", s)
+    }
+
+    /// The pointer crossing a tab with no card (a New Tab page) or a gap keeps swapping:
+    /// the card stays for the grace and the next tab takes it over, with no hide and reshow.
+    @Test func crossingANewTabPageTabSwapsWithoutHiding() async throws {
+        let s = Self.strip(newTabPage: "b")
+        defer { s.tearDown() }
+        try await Self.open("a", s)
+        s.move(to: try s.center("b"))
+        #expect(s.shows("a"), "the card hid while the pointer crossed a New Tab page tab")
+        s.move(to: try s.center("c"))
+        #expect(s.shows("c"), "the tab past it did not take the card over at once")
+        // Resting on the New Tab page tab past the grace: the card goes.
+        s.move(to: try s.center("b"))
+        try await s.clock.waitForSleeper()
+        s.clock.advance(by: .milliseconds(400))
+        try await Self.settle(until: { !s.showsAny })
+        #expect(!s.showsAny, "the card stayed on a tab that has none")
+    }
+
+    /// Sweeping across tabs before any card shows samples nothing; the shown card samples.
+    @Test func onlyAShownCardSamplesItsTab() async throws {
+        let mock = MockResourceSource(tabs: ["a", "b", "c"].map {
+            TabResourceSources(tabID: $0, title: $0, kind: .terminal, processes: [ProcessKey(pid: 1)])
+        })
+        let s = Self.strip(source: mock)
+        defer { s.tearDown() }
+        for id in ["a", "b", "c"] { s.move(to: try s.center(id)) }
+        #expect(!s.strip.hoverCard.resources.isOpen, "a pending card sampled its tab")
+        try await s.clock.waitForSleeper()
+        s.clock.advance(by: .milliseconds(700))
+        try await Self.settle(until: { s.shows("c") })
+        #expect(s.strip.hoverCard.resources.target == .tab("c"), "the shown card did not sample its tab")
     }
 }
