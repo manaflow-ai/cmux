@@ -5,9 +5,8 @@
 use super::*;
 
 /// `extra.program_status` of the harness's only terminal.
-/// Without `updated_at_ms` and `since_ms`: the host and the daemon each stamp
-/// a report when their own parser reads it, and a restored record starts at
-/// the host's stamp (`ProgramStatusRecord::since_ms`), often 1 ms apart.
+/// Without `updated_at_ms`: the host and the daemon each stamp a report
+/// when their own parser reads it.
 pub(super) fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     let terminals = resource_request(
         &harness.socket,
@@ -20,9 +19,18 @@ pub(super) fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     assert_eq!(terminals.len(), 1, "expected one terminal: {terminals:?}");
     let mut status = terminals[0]["extra"]["program_status"].clone();
     for record in status.as_array_mut().into_iter().flatten() {
-        let record = record.as_object_mut().unwrap();
-        record.remove("updated_at_ms");
-        record.remove("since_ms");
+        record.as_object_mut().unwrap().remove("updated_at_ms");
+    }
+    status
+}
+
+/// `status` without `since_ms`, to compare across a daemon restart: the
+/// terminal-host snapshot does not carry it, so a restored record starts at
+/// the host's own stamp (`ProgramStatusRecord::since_ms`), not the daemon's;
+/// the two parsers read a report a few ms apart (cx-zskkw, macOS).
+pub(super) fn without_since(mut status: serde_json::Value) -> serde_json::Value {
+    for record in status.as_array_mut().into_iter().flatten() {
+        record.as_object_mut().unwrap().remove("since_ms");
     }
     status
 }
@@ -96,7 +104,11 @@ fn program_status_records_survive_a_daemon_restart() {
     // Every field comes back, `updated_seq` too: clients compare it with the
     // last one they saw, so a reset would show old alerts as new.
     let after = wait_for_program_status(&harness, 2);
-    assert_eq!(after, before, "program status changed across the restart");
+    assert_eq!(
+        without_since(after),
+        without_since(before),
+        "program status changed across the restart"
+    );
 
     request(
         &harness.socket,
