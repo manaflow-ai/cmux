@@ -570,9 +570,11 @@ no `auth` before it (`echo` included) is refused at once. The design is in
 - Set only by the person's app on its proven person connection (memory only),
   while iPhone connections are allowed for a signed-in account; shown in
   `_acpmux/harnesses` as `lastPicks`. Short identifiers and absolute folders only.
+- Cleared (an empty set, sent once) when iPhone connections turn off, the account
+  signs out, or nothing is picked.
 - Rule 2: it runs nothing and changes no session; a phone reads agent and model
-  ids and the folders the person picked them in (folders it can already see as
-  workspace folders). Tests: acpmux `the_apps_last_new_chat_picks_reach_a_remote_device`,
+  ids and the folders the person picked them in on this Mac (up to 50, any folder
+  a New Tab chat was started in, not only open workspace folders). Tests: acpmux `the_apps_last_new_chat_picks_reach_a_remote_device`,
   CmuxNext `NewChatPicksTests`.
 
 ## Test-only pairing seed (DEBUG builds)

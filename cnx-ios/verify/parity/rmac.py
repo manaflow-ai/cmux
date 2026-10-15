@@ -28,6 +28,9 @@ rig_mac.REPO = os.path.join(BASE, "repo")
 
 # The team subrouter server over Tailscale, not the mini's loopback proxy: acpmux runs a
 # phone-started Claude in its remote-chain Seatbelt profile, which shuts loopback.
+# PQ_RIG_ENV: extra launch variables for a rig run, as JSON (e.g. {"CMUX_TUI_TEST_DISABLE_RESPAWN": "1"}
+# so a terminal whose host is lost stays dead for the Restart Shell check).
+EXTRA_ENV = json.loads(os.environ.get("PQ_RIG_ENV", "{}"))
 AGENT_ENV = {
     "ANTHROPIC_BASE_URL": os.environ.get("PQ_ANTHROPIC_BASE_URL", "http://100.89.225.106:31415"),
     "ANTHROPIC_API_KEY": "sr-local",
@@ -51,7 +54,7 @@ class EnvMac(Mac):
         res = os.path.join(self.app, "Contents/Resources")
         path = ":".join([os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
                          "/usr/sbin", "/sbin"])
-        return dict(AGENT_ENV, **{
+        return dict(AGENT_ENV, **EXTRA_ENV, **{
             "CMUX_NEXT_CONFIG_FILE": self.config,
             "CMUX_AUTH_CREDENTIALS_FILE": self.creds,
             "CMUX_NEXT_IPHONE_PAIRING_SEED": self.pairing_seed,

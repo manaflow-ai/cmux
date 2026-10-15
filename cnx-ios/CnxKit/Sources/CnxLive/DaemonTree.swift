@@ -117,7 +117,9 @@ public struct DaemonTree: Sendable {
                             markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
                         }
                         if let cwd = tab["cwd"] as? String, cwd.hasPrefix("/") { directories[id] = cwd }
-                        let state = agents[surface]
+                        // An ended shell runs no agent: a stale report must not mark the
+                        // workspace working or waiting.
+                        let state = tab["dead"] as? Bool == true ? nil : agents[surface]
                         if state?.state == "working" { working = true }
                         if state?.state == "blocked" { blocked = true }
                         // Activity: the Mac's last agent report, else what the phone saw (titles).

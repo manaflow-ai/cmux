@@ -176,8 +176,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return host
     }
 
+    /// Tabs last shown with an ended shell (``page(for:in:context:)``).
+    private var endedShells: Set<String> = []
+
     /// Drops every host (another account or live data stopped).
     func reset() {
+        endedShells = []
         for id in Array(feeds.keys) { stopWatching(id) }
         indicators = [:]
         hosts = [:]
@@ -191,6 +195,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
+        // Restart Shell Here keeps the tab id: its attach to the dead shell ended for good,
+        // so a tab that is live again gets a fresh host (and a fresh attach).
+        if tab.hasEndedShell {
+            endedShells.insert(tab.id)
+        } else if endedShells.remove(tab.id) != nil {
+            cool(tab.id)
+        }
         let host = host(for: tab, in: workspace)
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)

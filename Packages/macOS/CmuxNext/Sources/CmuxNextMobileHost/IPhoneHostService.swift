@@ -236,7 +236,12 @@ public final class IPhoneHostService {
                 guard let self, allowed, account != nil else { return nil }
                 return dependencies?.newChatPicks()
             }) {
-                guard let self, let picks, !picks.isEmpty else { continue }
+                guard let self else { return }
+                guard let picks, !picks.isEmpty else {
+                    // Off, signed out or nothing picked: acpmux forgets what it holds.
+                    approverSync?.updateNewChatPicks(nil)
+                    continue
+                }
                 if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
                     approverSync = CnxApproverSync(environment: environment)
                 }
