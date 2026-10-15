@@ -43,6 +43,9 @@ extension BrowserPanel {
         guard resolved.engine != .webkit else {
             return EnginePageSetup(page: nil, notice: noticeIfFirst(resolved.fallback, runtime: runtime))
         }
+        // A restored or background Chromium panel starts Chromium only when shown;
+        // warm it at the next idle moment instead of on that first show.
+        runtime.chromiumLikely(resolved.source == .inherited ? .restoredPage : .browserPage)
         do {
             let page = try runtime.registry.makePage(
                 resolved.engine,

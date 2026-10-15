@@ -15,7 +15,7 @@ import Foundation
 /// ```
 @MainActor
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
-    private let runtime: CEFRuntime
+    let runtime: CEFRuntime
 
     /// Creates the provider.
     /// - Parameter runtime: The process's CEF runtime.
