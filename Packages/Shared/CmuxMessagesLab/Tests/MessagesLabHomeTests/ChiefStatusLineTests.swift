@@ -41,7 +41,7 @@ import Testing
         demo.cmuxNoticeOffAtOnce = false
         controller.dispatch(.setNotice(CmuxStrings.waitingForYou))
         controller.dispatch(.setNotice(nil))
-        #expect(Self.noticeRows(demo).allSatisfy(\.ghost))
+        #expect(Self.noticeRows(demo).allSatisfy { $0.ghost })
         #expect(Self.noticeRows(demo).count == 1)
     }
 

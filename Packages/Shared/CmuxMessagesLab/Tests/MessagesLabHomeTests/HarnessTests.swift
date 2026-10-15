@@ -249,7 +249,13 @@ import Testing
         }
     }
 
-    @Test func theHomePathKeepsItsTypingAndReceiptMotion() throws {
+    /// cmux-classic: the golden is recorded on the harness host's OS (macOS 26, cmux-next's swift test lane); classic's
+    /// package lane runs on macOS 15, whose Core Animation timings differ (CI run 38761831916: the delivered and
+    /// delivered -> read lines begin 6.6 ms later and the receipt shift uses another curve) on unchanged vendored code.
+    /// It runs on macOS 26 and later; the Home-against-MessagesLab comparison above runs everywhere.
+    @Test(.enabled(if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
+                   "Golden/home-motion.ndjson is recorded on macOS 26"))
+    func theHomePathKeepsItsTypingAndReceiptMotion() throws {
         let b = Self.home()
         var lines = Self.motionTransitions.compactMap { name in
             Self.transitions.firstIndex { $0.name == name }.flatMap { b.animations[checked: $0] }

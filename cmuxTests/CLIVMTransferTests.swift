@@ -1100,6 +1100,51 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(state.snapshot().isEmpty, "local validation must not reach the socket: \(state.snapshot())")
     }
 
+    /// A push of more than 500 MB (after excludes) is refused before tar runs or the socket is
+    /// touched, with the size and the clone hint; the excluded `.git` does not count.
+    func testVMPushRefusesALargeTreeBeforePacking() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-push-large")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let tempDir = try vmTransferTempDir("push-large")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        // Sparse files: their logical size counts, nothing is written to disk.
+        func sparse(_ relative: String, bytes: UInt64) throws {
+            let url = tempDir.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.truncate(atOffset: bytes)
+            try handle.close()
+        }
+        try sparse(".git/objects/pack", bytes: 900_000_000)
+        try sparse("src/small.txt", bytes: 1_000)
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                            error: ["code": "unexpected", "message": "The size check must not reach the socket"])
+        }
+        let environment = vmTransferEnvironment(socketPath: socketPath)
+
+        try sparse("build/big.bin", bytes: 600_000_000)
+        let refused = runProcess(executablePath: cliPath, arguments: ["vm", "push", "brave-otter", tempDir.path, "work/app"],
+                                 environment: environment, timeout: 60)
+        XCTAssertNotEqual(refused.status, 0, refused.stdout)
+        XCTAssertTrue(refused.stderr.contains("Nothing was sent to brave-otter"), refused.stderr)
+        XCTAssertTrue(refused.stderr.contains("--allow-large"), refused.stderr)
+        XCTAssertTrue(refused.stderr.contains("git clone --depth 1"), refused.stderr)
+        XCTAssertTrue(state.snapshot().isEmpty, "the size check must not reach the socket: \(state.snapshot())")
+        XCTAssertTrue(CMUXCLI.vmPushInputBytes(root: tempDir, isDirectory: true, excludes: CMUXCLI.vmPushDefaultExcludes)
+                      > CMUXCLI.vmPushLargeInputBytes)
+        // Excluded, the same tree is small: only .git was big, and it never counts.
+        XCTAssertEqual(CMUXCLI.vmPushInputBytes(root: tempDir, isDirectory: true,
+                                                excludes: CMUXCLI.vmPushDefaultExcludes + ["build"]), 1_000)
+    }
+
     func testVMAgentWaitPollsExitAndPagesOutput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-agent-wait")
