@@ -167,14 +167,12 @@ final class NewTabSparePool {
         return size.width > 0 && size.height > 0 ? size : nil
     }
 
-    /// The size a tab Cmd-T opens in `pane` shows at: the pane less the tab bar it has once it holds
-    /// that tab too. A lone New Tab page or chat hides the bar until a second tab brings it; a spare
-    /// waiting at the one-tab size showed 2-3 frames at that size, 4 px low (2026-10-15).
+    /// The size a Cmd-T tab in `pane` shows at: the pane less the tab bar it has with one more tab
+    /// (a lone New Tab page hides it; a spare at that size showed 2-3 frames 4 px low, 2026-10-15).
     static func newTabContentSize(in pane: PaneController) -> NSSize {
-        let bounds = pane.view.bounds.size
-        let strip = pane.hidesTabBar(tabCount: pane.stripModel.tabs.count + 1) || pane.isAppPane
-            ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: pane.view.window?.backingScaleFactor ?? 2)
-        return NSSize(width: bounds.width, height: max(0, bounds.height - strip))
+        let scale = pane.view.window?.backingScaleFactor ?? 2, hidden = pane.hidesTabBar(tabCount: pane.stripModel.tabs.count + 1) || pane.isAppPane
+        let strip = hidden ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
+        return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
     }
 
     /// Sizes the parking view and the spare in it to the target pane now, laid out, so the
@@ -200,8 +198,7 @@ final class NewTabSparePool {
     /// A spare parked in another window is adopted all the same (a reparent).
     /// The caller adopts it at once; the next spare follows when input is quiet.
     /// `refit` is true when the spare waited at another size than `size`, the one it shows at
-    /// (a pane resized or focused less than ``fitSettle`` ago): its adoption resizes it. Nil:
-    /// not known yet (a new workspace's first page).
+    /// (nil: not known yet, Cmd-N): its adoption resizes it.
     func take(for window: NSWindow?, size: NSSize?) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
@@ -218,26 +215,17 @@ final class NewTabSparePool {
         return (view, window !== target, size.map { view.frame.size != $0 } ?? false)
     }
 
-    /// The spare taken last and the size its opening shows it at (nil: not known when taken).
+    /// The spare taken last and the size its opening shows it at, when known.
     private var opening: (view: ObjectIdentifier, size: NSSize?)?
+    func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
 
-    /// The size the opening that took `view` shows it at, when it knew it.
-    func openingSize(of view: AgentPaneView) -> NSSize? {
-        opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil }
-    }
-
-    /// The parked spare's own frame at the size it waits at: its adoption's cover until WebKit
-    /// draws it in its pane (`AgentTabContent.coverMove`), not the last New Tab page shown, drawn
-    /// at another size or moment (Cmd-T showed one 4 px off for 2-3 frames, 2026-10-15).
+    /// The parked spare's own frame at its size: its adoption's cover (`AgentTabContent.coverMove`),
+    /// not the last New Tab page shown, drawn at another size or moment (4 px off, 2026-10-15).
     private func snapshotParked() {
         guard let view = slot.peek, view.superview === parking else { return }
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         view.model.whenPainted { [weak self, weak view] in
-            guard let view, let parking = self?.parking, view.superview === parking else { return }
-            let size = view.frame.size
-            view.redraw.rememberFrame(size: size, appearance: appearance) { [weak view, weak parking] in
-                view.map { $0.superview === parking && $0.frame.size == size } ?? false
-            }
+            if let view, view.superview === self?.parking { view.redraw.rememberFrame(of: view, appearance: appearance) }
         }
     }
 
