@@ -130,7 +130,6 @@
       ],
       "packages": [],
       "reads": [
-        "Packages/",
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
