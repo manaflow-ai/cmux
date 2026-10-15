@@ -1130,6 +1130,77 @@ test "$daemon_pid" = fixture
     }
   });
 
+  test("agent config generator writes CUA to the selected OpenCode config", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-selected-"));
+    const bin = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-bin-"));
+    const driver = path.join(bin, "cua-driver");
+    const selected = path.join(home, ".config/cmux/opencode-team.json");
+    writeFileSync(driver, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    try {
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        OPENCODE_CONFIG: selected,
+        OPENAI_BASE_URL: "",
+        OPENAI_API_KEY: "",
+        CMUX_CODEROUTER_URL: "",
+        ANTHROPIC_BASE_URL: "",
+        ANTHROPIC_API_KEY: "",
+      };
+      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      expect((await runChild("/bin/bash", ["-c", source], { env })).status).toBe(0);
+
+      const config = JSON.parse(readFileSync(selected, "utf8")) as {
+        mcp: Record<string, unknown>;
+      };
+      expect(config.mcp["cua-driver"]).toEqual({
+        type: "local",
+        command: [driver, "mcp"],
+        enabled: true,
+      });
+      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("agent config generator reports per-file write errors without a traceback", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-error-"));
+    const bin = mkdtempSync(path.join(tmpdir(), "cmux-devbox-cua-opencode-error-bin-"));
+    const driver = path.join(bin, "cua-driver");
+    const blocked = path.join(home, "blocked");
+    const selected = path.join(blocked, "opencode.json");
+    writeFileSync(driver, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    writeFileSync(blocked, "not a directory");
+    try {
+      const env = {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        OPENCODE_CONFIG: selected,
+        OPENAI_BASE_URL: "",
+        OPENAI_API_KEY: "",
+        CMUX_CODEROUTER_URL: "",
+        ANTHROPIC_BASE_URL: "",
+        ANTHROPIC_API_KEY: "",
+      };
+      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      const result = await runChild("/bin/bash", ["-c", source], { env });
+      expect(result.status).toBe(0);
+      const stderr = result.stderr.toString();
+      expect(stderr).toBe(
+        "cmux: unable to update OpenCode computer-use configuration; keeping existing settings.\n",
+      );
+      expect(stderr).not.toContain("Traceback");
+      expect(stderr.trim().split("\n")).toHaveLength(1);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
   test("agent config generator materializes the coderouter plane from boot env", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-"));
     try {
