@@ -44,7 +44,10 @@ public struct AccountSignOut {
                 feedArchive: @escaping (String) -> FeedArchive = FeedArchive.forAccount,
                 readMarks: @escaping (String) -> FeedReadMarks = FeedReadMarks.forAccount,
                 preferences: AccountPreferences = .standard,
-                discardChiefOutbox: @escaping @MainActor () -> Void = { ChiefSession.shared.discardOutbox() }) {
+                discardChiefOutbox: @escaping @MainActor () -> Void = {
+                    ChiefSession.shared.discardOutbox()
+                    ChiefSession.cloud.discardOutbox()
+                }) {
         self.snapshots = snapshots
         self.feedStore = feedStore
         self.feedArchive = feedArchive

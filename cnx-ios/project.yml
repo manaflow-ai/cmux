@@ -38,6 +38,13 @@ settings:
     # its /v1/health before archiving; override with CNX_PROD_API_BASE=... when
     # the Worker moves to a custom domain.
     CNX_PROD_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+    # The Cloud service (backend/apps/api, CNXCloudAPIBase) where the user's
+    # Cloud Chief lives. Its Stack project must match the build's sign-in:
+    # production for shipping configs, staging (the development Stack
+    # project) for Debug and Demo, which sign in to the development project.
+    CNX_PROD_CLOUD_API_BASE: https:/$()/cloud-api.cmux.dev
+    CNX_STAGING_CLOUD_API_BASE: https:/$()/cloud-api-staging.cmux.dev
+    CNX_CLOUD_API_BASE: $(CNX_STAGING_CLOUD_API_BASE)
     # User-facing version. Must stay at or above the highest version ever
     # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
     # testflight-build.sh checks this against App Store Connect. The build
@@ -48,6 +55,7 @@ settings:
     Release:
       # Release (the `xcodebuild archive` default) is a production build too.
       CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
     Demo:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
@@ -58,9 +66,11 @@ settings:
       CNX_DISPLAY_NAME: cmux cnx
       # The production Worker (cnx-ios-api-prod; production Stack project only).
       CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
     Release:
       # A non-DEBUG build with no service address signs in to an empty app.
       CNX_API_BASE: $(CNX_PROD_API_BASE)
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
     TestFlight:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION CNX_TESTFLIGHT
       SWIFT_OPTIMIZATION_LEVEL: -O
@@ -68,6 +78,7 @@ settings:
       # The App Store Connect record's name.
       CNX_DISPLAY_NAME: cmux INTERNAL
       CNX_API_BASE: $(CNX_PROD_API_BASE)
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
 packages:
   CnxKit:
     path: CnxKit
@@ -138,6 +149,7 @@ targets:
         LSRequiresIPhoneOS: true
         CNXTag: $(CNX_TAG)
         CNXAPIBase: $(CNX_API_BASE)
+        CNXCloudAPIBase: $(CNX_CLOUD_API_BASE)
         CNXPush: $(CNX_PUSH)
         CNXAppleSignIn: $(CNX_APPLE_SIGN_IN)
         CFBundleShortVersionString: $(MARKETING_VERSION)
