@@ -154,6 +154,20 @@ def rpc(cmd):
 def tree():
     return rpc({"id": 999, "cmd": "list-workspaces"})["data"]["workspaces"]
 
+def sidebar_order():
+    """The sidebar's workspace order, as resource ids. With the sidebar document
+    (sidebar-doc-v1) a row drag is a sidebar.move: it changes this order, not
+    the session order list-workspaces reports."""
+    listing = subprocess.run(
+        [BIN, "--socket", SOCK, "--json", "workspace", "list", "--order", "personal"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert listing.returncode == 0, (listing.returncode, listing.stdout, listing.stderr)
+    return [workspace["id"] for workspace in json.loads(listing.stdout)]
+
 def active_screen(ws):
     return next(s for s in ws["screens"] if s["active"])
 
@@ -947,10 +961,12 @@ print("prefix-W new workspace ok")
 # row 1 blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2
 # (SGR mouse coordinates are 1-based).
 original_ws = ws_id
+original_resource = next(w["resource_id"] for w in tree() if w["id"] == original_ws)
 write_all(fd, b"\x1b[<0;2;3M\x1b[<32;2;7M\x1b[<0;2;7m")
 drain(1.0)
 workspaces = tree()
-assert [w["id"] for w in workspaces] == [w["id"] for w in workspaces if w["id"] != original_ws] + [original_ws], workspaces
+order = sidebar_order()
+assert order == [r for r in order if r != original_resource] + [original_resource], (order, workspaces)
 print("sidebar workspace drag reorder ok")
 
 # Click the moved original workspace's sidebar entry.
@@ -958,7 +974,7 @@ shared_workspace = next(workspace["id"] for workspace in workspaces if workspace
 write_all(fd, b"\x1b[<0;2;6M\x1b[<0;2;6m")
 drain(1.0)
 workspaces = tree()
-assert workspaces[1]["id"] == original_ws, workspaces
+assert sidebar_order()[1] == original_resource, (sidebar_order(), workspaces)
 assert next(workspace["id"] for workspace in workspaces if workspace["active"]) == shared_workspace
 original_workspace = next(workspace for workspace in workspaces if workspace["id"] == original_ws)
 original_surfaces = {
