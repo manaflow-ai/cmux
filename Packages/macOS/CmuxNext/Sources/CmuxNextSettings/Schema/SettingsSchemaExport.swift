@@ -164,6 +164,7 @@ public struct SettingsSchemaExport {
     nonisolated func range(_ number: SettingNumber) -> [String: Any] {
         let unit: String = switch number.unit {
         case .points: "points"
+        case .milliseconds: "milliseconds"
         case .seconds: "seconds"
         case .minutes: "minutes"
         case .days: "days"
