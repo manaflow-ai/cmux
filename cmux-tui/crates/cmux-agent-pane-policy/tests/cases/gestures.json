@@ -276,5 +276,19 @@
    ]
   ],
   "needs": true
+ },
+ {
+  "name": "btw always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "s",
+    "question": "why did it flake?"
+   }
+  },
+  "denies": [],
+  "needs": true
  }
 ]
