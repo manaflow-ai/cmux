@@ -78,6 +78,9 @@ class SidebarRowView: NSView {
         alphaValue = 1
         setTitleHidden(false)
         themedToolTip = nil
+        // A view that kept its content skips configure: it still paints once more, for a theme that
+        // changed while it was out of the window (a lift). Labels redraw only on a changed value.
+        needsDisplay = true
     }
 
     /// Buttons that receive clicks directly.

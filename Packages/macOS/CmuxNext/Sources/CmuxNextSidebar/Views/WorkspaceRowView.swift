@@ -411,7 +411,9 @@ final class WorkspaceRowView: SidebarRowView {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
-        needsDisplay = true
+        // No needsDisplay here: `updateLayer` reads no layout value, and configure, hover, selection,
+        // drop target and appearance changes mark display themselves. Each display costs AppKit a
+        // contents-scale walk to the window (perf round 4: the top display frames while scrolling).
     }
 }
 
