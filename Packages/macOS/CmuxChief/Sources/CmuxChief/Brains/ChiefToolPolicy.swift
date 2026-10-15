@@ -22,7 +22,8 @@ import Foundation
 ///     `cmux workspace create` with only naming and placement flags (no
 ///     `--command`, `--layout` or `--focus true`). Every other `cmux` command
 ///     (sending text or keys, closing, `vm new`, `vm exec`, `browser eval`,
-///     `chief dispatch|send|approve|memory add`, `config set`) asks.
+///     `chief dispatch|send|approve`, `config set`) asks. `chief memory add`
+///     runs at once: the transcript shows each saved fact with Undo.
 ///   - Read-only tools: `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `which`,
 ///     `date`, `jq`, `grep`, `cut`, `tr`, `column`; `rg` without `--pre`;
 ///     `sort` with only listed ordering flags; `uniq` with at most one file;
@@ -139,6 +140,9 @@ enum ChiefToolPolicy {
             ["config", "check"], ["config", "validate"],
             ["chief", "status"], ["chief", "read"], ["chief", "conversations"], ["chief", "home"],
             ["chief", "memory", "list"], ["chief", "memory", "path"],
+            // A saved fact shows in the transcript as "Chief will remember · Undo"
+            // and passes the secret filter and size cap, so it needs no card.
+            ["chief", "memory", "add"],
         ]
         for vm in ["vm", "cloud"] {
             commands += [

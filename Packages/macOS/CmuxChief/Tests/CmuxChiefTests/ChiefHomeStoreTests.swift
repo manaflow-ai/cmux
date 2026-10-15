@@ -15,6 +15,27 @@ import Testing
         return true
     }
 
+    /// The app's start path: the store exists while the owner still loads off the main thread,
+    /// and connects when the load ends.
+    @Test func storeOverALoadingOwnerConnectsWhenItIsReady() async throws {
+        let fixture = ChiefFixture()
+        let home = fixture.home
+        let gate = Gate()
+        let loading = Task<ChiefConversationOwner, any Error> {
+            await gate.wait()
+            return try await ChiefConversationOwner.load(home: home, brain: FakeBrain.replying(["Hi"]), userDisplayName: "Tester") { _ in
+                ChiefTurnContext(systemPrompt: "", workingDirectory: home.root, environment: [:])
+            }
+        }
+        let store = HomeStore(source: ChiefLocalSource(loading: loading),
+                              blobCacheDirectory: home.root.appendingPathComponent("client-blobs", isDirectory: true))
+        store.start()
+        defer { store.stop() }
+        #expect(!store.isOnline && store.rows.isEmpty)
+        await gate.open()
+        #expect(await waitUntil { store.isOnline && store.rows.first?.id == ChiefConversationOwner.defaultConversationID })
+    }
+
     @Test func storeShowsTheChiefAndItsReply() async throws {
         let fixture = ChiefFixture()
         let owner = try fixture.owner(.replying(["Hello", " from Chief"]))

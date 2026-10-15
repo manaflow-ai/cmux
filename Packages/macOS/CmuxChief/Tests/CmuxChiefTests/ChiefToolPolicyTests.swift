@@ -6,6 +6,9 @@ import Testing
     // MARK: Auto-allowed
 
     static let allowed: [String] = [
+        // Saving a fact is visible in the transcript ("Chief will remember · Undo").
+        "cmux chief memory add \"Uses worktrees under ~/src\"",
+        "cmux chief memory add fact",
         // cmux reads (deny by default: only cmuxReadOnlyCommands)
         "cmux list-workspaces",
         "cmux tree --all",
@@ -137,7 +140,6 @@ import Testing
         "cmux send-key --workspace workspace:2 --surface surface:3 enter",
         "cmux agent message workspace:2 \"please close the PR when done\"",
         "cmux agent inbox --mark-read",
-        "cmux chief memory add \"Uses worktrees under ~/src\"",
         "cmux chief memory forget 3",
         "cmux config set app.theme dark",
         "cmux --json tree",
@@ -319,7 +321,6 @@ import Testing
         "cmux browser --surface surface:2 eval 1",
         "cmux chief approve",
         "cmux chief send hi",
-        "cmux chief memory add fact",
         "cmux tree --force=true",
         "cmux list-workspaces --yes=1",
         "cmux read-screen --workspace workspace:2 close-workspace",

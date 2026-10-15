@@ -7,17 +7,23 @@ import QuartzCore
 /// (cmux-next `HomeFirstRunView`). Hidden once the conversation has a
 /// message (``ChiefTranscriptView``), with a short fade and lift.
 ///
-/// A centered column, at most 340 pt wide and 48 pt narrower than the panel:
+/// A centered column, at most 340 pt wide and 48 pt narrower than the panel,
+/// bottom-aligned 24 pt above the chips so the rows, the hint and the chips
+/// sit together over the message box (the composer is the focus:
+/// design references `topics/home-and-empty.md`, Codex's prompt starters):
 /// 1. "Open a terminal" and "Start an agent" (when the app wires them), each
 ///    with its configured shortcut at the trailing edge.
 /// 2. "Your agents": up to five workspaces with an agent, most urgent first,
 ///    each with its status word; a click shows the workspace. With no agent
 ///    anywhere, "Your workspaces": the first five workspaces, "Idle".
-/// 3. A one-line keyboard hint ("⌃1…9 switches workspaces.").
+/// 3. A one-line keyboard hint: "⌃1…9 switches workspaces.", or while Home
+///    hides the workspace list, "⌘⇧C shows your workspaces." (the configured
+///    Open Chief shortcut, which toggles Home).
 ///
 /// Pinned just above the message box, three suggestion chips in the
-/// incoming bubble's colours, like Messages' suggested replies, wrapping onto
-/// a second line in a narrow pane.
+/// incoming bubble's colours, like Messages' suggested replies: one centered
+/// row when they fit, else 2 + 1 with the third centered (``ChipLines``),
+/// never cut.
 ///
 /// Nothing runs under the compose field: chips that do not fit are dropped
 /// from the end, then agent rows (least urgent first) with their heading,
@@ -26,8 +32,11 @@ final class ChiefFirstRunView: NSView {
     static let maxWidth: CGFloat = 340
     /// Wide enough for the three chips in one row (about 620 pt); they wrap below that.
     static let chipsMaxWidth: CGFloat = 680
-    /// Where the column's center sits, as a fraction of the panel's height.
-    static let opticalCenter: CGFloat = 0.4
+    /// Between the column's last line and the chips.
+    static let columnToChips: CGFloat = 24
+
+    /// Whether the host hides the workspace list (Home selected); the hint then names the way back.
+    var hidesWorkspaces = false { didSet { if hidesWorkspaces != oldValue { refreshShortcuts() } } }
 
     private(set) var starterRows: [ChiefFirstRunRow] = []
     private(set) var actionRows: [ChiefFirstRunRow] = []
@@ -165,7 +174,9 @@ final class ChiefFirstRunView: NSView {
             terminal.trailing = keys
             terminal.setAccessibilityHelp(keys)
         }
-        let hintText = ChiefAgentGlanceSource.workspaceNumberKeys().map(ChiefStrings.firstRunWorkspacesHint) ?? ""
+        // While Home hides the workspaces, "⌃1…9 switches workspaces" names rows the user can't see.
+        let hintText = (hidesWorkspaces ? ChiefAgentGlanceSource.toggleHomeKeys().map(ChiefStrings.firstRunShowWorkspacesHint) : nil)
+            ?? ChiefAgentGlanceSource.workspaceNumberKeys().map(ChiefStrings.firstRunWorkspacesHint) ?? ""
         if hint.stringValue != hintText {
             hint.stringValue = hintText
             needsLayout = true
@@ -344,17 +355,7 @@ final class ChiefFirstRunView: NSView {
         // Chips: centered lines just above the field.
         let chipsWidth = max(0, min(Self.chipsMaxWidth, bounds.width - 32))
         let chipGap: CGFloat = 8, chipBottom: CGFloat = 12
-        var lines: [[ChiefFirstRunRow]] = [[]]
-        var lineWidth: CGFloat = 0
-        for chip in starterRows {
-            let width = min(chip.chipWidth, chipsWidth)
-            if !lines[lines.count - 1].isEmpty, lineWidth + chipGap + width > chipsWidth {
-                lines.append([])
-                lineWidth = 0
-            }
-            lineWidth += (lines[lines.count - 1].isEmpty ? 0 : chipGap) + width
-            lines[lines.count - 1].append(chip)
-        }
+        let lines = ChipLines.layout(widths: starterRows.map(\.chipWidth), available: chipsWidth, gap: chipGap)
         let chipHeight = ChiefFirstRunRow.chipHeight
         let minimumColumn: CGFloat = 2 * ChiefFirstRunRow.height + 6
         // Lines that would leave no room for the action rows go, last first.
@@ -362,7 +363,7 @@ final class ChiefFirstRunView: NSView {
         func chipsHeight(_ count: Int) -> CGFloat {
             count == 0 ? 0 : CGFloat(count) * chipHeight + CGFloat(count - 1) * chipGap + chipBottom
         }
-        while shownLines > 0, chipsHeight(shownLines) + (actionRows.isEmpty ? 0 : minimumColumn + 16) > bounds.height {
+        while shownLines > 0, chipsHeight(shownLines) + (actionRows.isEmpty ? 0 : minimumColumn + Self.columnToChips) > bounds.height {
             shownLines -= 1
         }
         let groupHeight = shownLines == 0 ? 0 : chipsHeight(shownLines) - chipBottom
@@ -370,23 +371,20 @@ final class ChiefFirstRunView: NSView {
                                  width: chipsWidth, height: groupHeight)
         setHidden(chipGroup, shownLines == 0)
         for (lineIndex, line) in lines.enumerated() {
-            let widths = line.map { min($0.chipWidth, chipsWidth) }
-            let total = widths.reduce(0, +) + CGFloat(max(0, line.count - 1)) * chipGap
-            var x = floor((chipsWidth - total) / 2)
-            let ordered = rtl ? Array(zip(line, widths).reversed()) : Array(zip(line, widths))
-            for (chip, width) in ordered {
+            for placed in line {
+                let chip = starterRows[placed.index]
+                // Right to left mirrors each centered line.
+                let x = rtl ? chipsWidth - placed.x - placed.width : placed.x
                 setHidden(chip, lineIndex >= shownLines)
-                chip.frame = CGRect(x: x, y: CGFloat(lineIndex) * (chipHeight + chipGap), width: width, height: chipHeight)
-                x += width + chipGap
+                chip.frame = CGRect(x: x, y: CGFloat(lineIndex) * (chipHeight + chipGap), width: placed.width, height: chipHeight)
             }
         }
 
-        // The column: its center at 40% of the panel (the header's bottom to
-        // the field's top), the optical center a little above the middle, so
-        // a tall pane leaves no void above it; never into the chips' room.
-        // cmux-next's HomeNativeTranscriptView sizes the panel the same way
-        // (headerHeight to fieldTop) and HomeFirstRunView centers in it.
-        let room = (shownLines == 0 ? bounds.height : chipGroup.frame.minY - 16)
+        // The column: bottom-aligned 24 pt above the chips (or the field),
+        // so the rows, the hint and the chips read as one group over the
+        // composer instead of islands spread down a tall pane; the header
+        // stays at the top. Blocks that do not fit go, as below.
+        let room = (shownLines == 0 ? bounds.height - chipBottom : chipGroup.frame.minY) - Self.columnToChips
         let width = max(0, min(Self.maxWidth, bounds.width - 48))
         let x = floor((bounds.width - width) / 2)
         let row = ChiefFirstRunRow.height, gap: CGFloat = 6, group: CGFloat = 14
@@ -418,7 +416,7 @@ final class ChiefFirstRunView: NSView {
         if columnHeight() > room { showsActions = false }
 
         let column = columnHeight()
-        var y = max(0, min(floor(bounds.height * Self.opticalCenter - column / 2), floor(room - column)))
+        var y = max(0, floor(room - column))
         var placedBlock = false
         for (index, actionRow) in actionRows.enumerated() {
             setHidden(actionRow, !showsActions)

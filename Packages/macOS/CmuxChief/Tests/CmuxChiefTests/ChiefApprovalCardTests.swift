@@ -42,7 +42,7 @@ import Testing
         guard case .approval(let ref) = card.parts.first, card.parts.count == 1 else { Issue.record("no approval part"); return }
         // The card's id is the brain's id in the turn's namespace; the brain hears its own id.
         #expect(ref.request.hasSuffix(":perm-1") && ref.request != "perm-1")
-        #expect(await owner.pendingApproval(in: conversation) == .init(message: card.id, part: 0, ref: ref))
+        #expect(await owner.pendingApproval(in: conversation) == ChiefConversationOwner.PendingApproval(message: card.id, part: 0, ref: ref))
 
         // No typing dots under a card that waits for the user.
         let events = await recorder.events

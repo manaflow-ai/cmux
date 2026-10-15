@@ -167,7 +167,8 @@ final class ChiefHomeView: NSView {
                 id: row.id.rawValue,
                 title: row.title.isEmpty ? (others.first?.displayName ?? ChiefStrings.chiefName) : row.title,
                 people: others.map { CmuxSidebarEntry.Person(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) },
-                preview: Self.listPreview(row), previewSender: nil, lastAt: row.timestamp,
+                // No message yet: no time (the list draws none for `.distantPast`), as Messages shows a new thread.
+                preview: Self.listPreview(row), previewSender: nil, lastAt: Self.hasNoMessages(row) ? .distantPast : row.timestamp,
                 unreadCount: marked ? max(row.unread, 1) : (visible.contains(row.id) ? 0 : row.unread), pinned: pinnedSet.contains(row.id), typing: row.isTyping,
                 avatar: avatar)
         }
@@ -183,6 +184,12 @@ final class ChiefHomeView: NSView {
                 Task { @MainActor [weak self] in self?.select(ChiefService.shared.defaultConversationID) }
             }
         }
+    }
+
+    /// A conversation with no message and no send in flight.
+    static func hasNoMessages(_ row: InboxRow) -> Bool {
+        !row.isSending && row.summary.lastMessage == nil && row.previewAttachments == nil
+            && row.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// A row's preview line, as Messages draws it in a 1:1: the newest
