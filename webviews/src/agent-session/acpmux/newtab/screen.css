@@ -270,24 +270,55 @@
   width: 24px;
   height: 24px;
 }
-/* The style dots (StyleSwitch.tsx, Leo 2026-10-14): a 24px target per style around a 6px round dot,
-   the rest dim on the text ink and the current one under the accent dot that slides to a pick. A
-   name shows over a dot while pointed at, and over a pick for a moment; it is out of the row's flow,
-   so the row never moves. The radio fills the target, unseen (the pane does not load ui.css). The
-   row sits out of the flow, in the pages' bottom padding, so the pages lay out as without it. */
+/* The style switch (StyleSwitch.tsx): one quiet row under the page, its look `data-look` (Settings >
+   Labs labs.newTabStyle). Out of the flow, in the pages' bottom padding (24px), so the pages lay out
+   (and scroll) as without it. Each radio fills its option's target, unseen (the pane does not load
+   ui.css, and a native dot drew beside every style, cg-design-judge). */
 .nt-style{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);margin:0;padding:0;border:0;min-width:0;font-family:system-ui;-webkit-font-smoothing:antialiased}
-.nt-style-options{position:relative;display:flex}
-.nt-style-option{position:relative;display:flex;align-items:center;justify-content:center;width:24px;height:24px;cursor:default}
-.nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
-.nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}
-.nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
-.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default}
-.nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
-.nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
-.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out)}
+.nt-style:has(.nt-style-options:not([data-look=names],[data-look=round])){bottom:0}
+.nt-style-options{position:relative;display:flex;gap:2px}
+.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:inherit}
+.nt-style-mark{position:absolute;top:0;left:0;height:100%;box-sizing:border-box;border-radius:5px;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent);pointer-events:none}
+.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out),width var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out)}
+.nt-style-option{position:relative;padding:3px 8px;border-radius:5px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default;transition:color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+.nt-style-option:hover,.nt-style-option:has(:checked){color:var(--agent-text)}
+.nt-style-option:has(:focus-visible){outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
+/* Round (the default, #20473, Leo 2026-10-14): a 24px target per style around a 6px round dot, the
+   rest dim on the text ink and the current one under the accent dot that slides to a pick. A name
+   shows over a dot while pointed at, and over a pick for a moment; it is out of the row's flow, so
+   the row never moves. */
+.nt-style-options[data-look=round]{gap:0}
+.nt-style-options[data-look=round] .nt-style-option{display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border-radius:0}
+.nt-style-options[data-look=round] .nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+.nt-style-options[data-look=round] .nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}
+.nt-style-options[data-look=round] .nt-style-option:has(:focus-visible){outline:0}
+.nt-style-options[data-look=round] .nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
+.nt-style-options[data-look=round] .nt-style-mark{display:flex;align-items:center;justify-content:center;border-radius:0;background:none}
+.nt-style-options[data-look=round] .nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
 .nt-style-name{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding-bottom:2px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity var(--agent-motion-out,160ms) var(--agent-ease-out,ease-out)}
 .nt-style-name[data-shown]{opacity:1;transition-duration:var(--agent-motion-hover,80ms)}
-@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option::after{transition:none}}
+/* Hint and dots, drawn as before #20127, like the sidebar's space dots: a 24px slot per style, a
+   20px chip inset 2px under the pointer, the current style's chip in the accent tint, the dot at 70%,
+   90% under the pointer and full for the current one. */
+.nt-style-options:is([data-look=hint],[data-look=dots]){gap:0}
+.nt-style-options:is([data-look=hint],[data-look=dots]) .nt-style-mark{border:2px solid transparent;border-radius:8px;background-clip:padding-box;background-color:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent)}
+.nt-style-options:is([data-look=hint],[data-look=dots]) .nt-style-option{display:grid;place-items:center;width:24px;height:24px;padding:0;border-radius:0;cursor:pointer}
+.nt-style-options:is([data-look=hint],[data-look=dots]) .nt-style-option::before{content:"";position:absolute;inset:2px;border-radius:6px;pointer-events:none;transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+.nt-style-options:is([data-look=hint],[data-look=dots]) .nt-style-option:hover::before{background:var(--agent-control-hover)}
+.nt-style-options:is([data-look=hint],[data-look=dots]) .nt-style-option:has(:focus-visible){outline:0}
+.nt-style-options:is([data-look=hint],[data-look=dots]) .nt-style-option:has(:focus-visible)::before{outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
+.nt-style-dot{width:6px;height:6px;border-radius:50%;background:var(--agent-text);opacity:.7;transition:opacity var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+.nt-style-option:hover .nt-style-dot{opacity:.9}
+.nt-style-option:has(:checked) .nt-style-dot{opacity:1}
+/* Hint: a pick's name over the dots for about a second (StyleSwitch.tsx PICKED_NAME_MS): it fades in,
+   holds and fades out; no movement. */
+.nt-style-flash{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:var(--text-caption--line-height);white-space:nowrap;pointer-events:none;opacity:0;animation:nt-style-flash 1.1s linear forwards}
+@keyframes nt-style-flash{0%{opacity:0}12%{opacity:1}84%{opacity:1}100%{opacity:0}}
+/* Strip: a 14px sketch of each style's layout in a 26x22 segment, named by tooltip. */
+.nt-style-options[data-look=strip] .nt-style-option{display:grid;place-items:center;width:26px;height:22px;padding:0}
+.nt-style-options[data-look=strip] .nt-style-option:hover:not(:has(:checked)){background:var(--agent-control-hover)}
+.nt-style-sketch{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}
+@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option,.nt-style-option::before,.nt-style-option::after,.nt-style-dot{transition:none}}
 
 /* The browser omnibar's pointer and hover (OmnibarPointer, cx-d0d.80): the field row is the
    text area, so the I-beam shows over all of it (a press there focuses the field, focusFromRow);

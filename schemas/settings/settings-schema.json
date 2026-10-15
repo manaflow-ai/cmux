@@ -907,7 +907,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
-              "labs.classicHome",
+              "labs.newTabStyle",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -22162,49 +22162,90 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "round",
+        "hint",
+        "dots",
+        "strip",
+        "names"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleRound",
+            "text" : "Round Dots"
+          },
+          "value" : "round"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleHint",
+            "text" : "Dots That Name a Pick"
+          },
+          "value" : "hint"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleDots",
+            "text" : "Chip Dots"
+          },
+          "value" : "dots"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleStrip",
+            "text" : "Layout Sketches"
+          },
+          "value" : "strip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleNames",
+            "text" : "Style Names"
+          },
+          "value" : "names"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : "round",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.labs",
         "text" : "Labs"
       },
       "help" : {
-        "key" : "settings.labs.classicHome.help",
-        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+        "key" : "settings.labs.newTabStyle.help",
+        "text" : "How the New Tab page shows its styles."
       },
       "kept_on_reset_all" : false,
-      "key" : "labs.classicHome",
+      "key" : "labs.newTabStyle",
       "keywords" : [
-        "home",
-        "chief",
-        "classic",
-        "dock",
-        "page"
+        "labs",
+        "new tab",
+        "style",
+        "template",
+        "dots",
+        "switch"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "labs",
-        "classicHome"
+        "newTabStyle"
       ],
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "advanced",
       "summary" : null,
       "title" : {
-        "key" : "settings.labs.classicHome",
-        "text" : "Classic Home"
+        "key" : "settings.labs.newTabStyle",
+        "text" : "New Tab Style Switch"
       },
       "validation" : "portable"
     },
@@ -23611,7 +23652,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "eee369bec6eaabcf7fa65ef80149fa808e3da7bb6bda49db8f0c72c507d555e2",
+  "schema_hash" : "4258bf4448b60a27419069635bb5f8feec8347fca0fecb914756aab8fd292413",
   "sections" : [
     {
       "id" : "general",
