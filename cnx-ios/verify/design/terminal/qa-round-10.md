@@ -9,7 +9,9 @@ belongs to a fresh verifier: not touched. Laptop load 20-30 at the start: no tim
 | --- | --- | --- |
 | G-14 TUI selection (vim, htop): a long press always selects | **implemented**: test `29260240` (red: type missing), fix `fd2e3c3a` (green: 15 of 15 with the selection and autoscroll suites, mini-cmux11s); iOS build green (`1769b3bf`, tag tq10). **Not run on the simulator yet** | below |
 | Hidden laptop rig (real Codex) | **up**: Mac app hidden (0 on-screen windows, the front app unchanged, no Keychain or other prompt), rig set up with real onboarding, link `Online · Connected · WebRTC direct`; real `codex --yolo` (v0.162.1, the laptop's login) starts from the phone | Rig |
-| G-17 with real Codex (1259, 1337, 1350-b) | not run yet | |
+| G-17 T-REG-1337 with real Codex | **not reproducible with real Codex** (one valid run each): 2e1369f0, 224d15e9 and new are all green, 0 spontaneous moves, 0 flashes, 0 black, 0 Jump-to-bottom toggles over ~12 s at the bottom and ~12 s near it, Codex idle ("Worked for 2m 22s" on screen) | G-17 |
+| G-17 1259, 1350-b with real Codex | not run yet | |
+| CmuxTabsKit re-sync (coordinator) | **done** `87175151`: byte-identical to `506c1239` (includes `b962c111`); `check-tabskit-sync.sh` ok; CmuxTabsKit `swift test` 53 of 53 on mini-cmux11s; feat-cnx-ios `aa685b82` merged (`76c8bace`). Grid card and zoom re-check: after the rebuild | |
 | G-14 autoscroll / full-scrollback copy on the simulator | not run yet | |
 | D6 onboarding Continue | **not reproduced**: 10 of 10 fresh installs advanced on the first tap made the moment Continue is in the tree (7 at the page's push, 3 at the rig Mac's launch); the Not now→Continue swap could not be produced (the shared dev account always has an online Mac) | D6 |
 | V6-5, D10, V2-6, 60-min sessions, D7 | not run yet | |
@@ -70,6 +72,27 @@ v0.162.1, GPT-6-Astra max (the laptop's login and its default model).
 - The first real-Codex 1337 run on the new build (`03:18`) is **invalid** and was discarded
   (`termqa-raw/tq10/INVALID-new-1015-031821.json`): the idle check matched the prompt's own "400" before
   Codex began, so the scenario ran while Codex streamed. Fixed in `2027a77a`.
+- The next run (`03:26`, 2e1369f0) read **red** (1337-a 14 spontaneous reversals, 1337-c) and is
+  **also invalid** (`INVALID-2e1369f0-1015-032610.json`): its contact sheet
+  (`artifacts/sheets/reg-1337-2e1369f0-032406-01.jpg`, 11.9-12.8 s) shows Codex still streaming rows
+  213-254. This Codex (v0.162.1) prints no "Working"/"esc to interrupt" on screen, so the working check
+  never fired. `d3c24e21` reads the state from the answer: streaming = the screen changes with numbered
+  rows on it; idle = "Worked for …" or row 400 present and the screen unchanged across two reads 3 s
+  apart. Lesson for the verifier: a real-Codex T-REG verdict needs a frame check that Codex was idle.
+
+| Run (real Codex, idle) | Build | Load | At bottom (frames / spont. moves / reversals / flashes / black) | Near bottom | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `reg/1337/2e1369f0-1015-034843.json` | 2e1369f0 | 52 | 754 / 0 / 0 / 0 / 0 | 701 / 0 / 0 / 0 / 0 | green |
+| `reg/1337/new-1015-035349.json` | new (`d3c24e21`) | 25 | 704 / 0 / 0 / 0 / 0 | 744 / 0 / 0 / 0 / 0 | green |
+| `reg/1337/224d15e9-1015-035855.json` | 224d15e9 | 27 | 715 / 0 / 0 / 0 / 0 | 742 / 0 / 0 / 0 / 0 | green |
+
+`compare-2e1369f0-new-*.json`: every 1337 row "not reproduced (green on old)". The 1 fps sheet of the
+2e1369f0 run (`artifacts/sheets/reg-1337-2e1369f0-034444-01.jpg`) shows Codex idle at rows 366-400 with
+"Worked for 2m 22s", the page at the bottom, then 3 rows up after the drag, still. With codexlike (round
+9) and with real Codex (here) the 13:37 oscillation does not reproduce on either old SHA on this rig
+(WebRTC direct, simulator). What the video had that this does not: a long session (hundreds of diff
+rows), keyboard history, the device. Recorded as not reproducible with real Codex; T-SCROLL-03 and
+T-FOLLOW-05 keep covering the behaviour.
 
 ## Next
 
