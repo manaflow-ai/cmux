@@ -1,0 +1,252 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/wt-fling1.mp4",
+ "source_frames": 29610,
+ "duration": 533.17,
+ "lit_median": 0.0451,
+ "black_runs": [
+  {
+   "start": 9.785,
+   "end": 9.798,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  },
+  {
+   "start": 14.303,
+   "end": 14.313,
+   "dur_ms": 10.0,
+   "source_frames": 1
+  },
+  {
+   "start": 39.685,
+   "end": 39.698,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  },
+  {
+   "start": 44.067,
+   "end": 44.082,
+   "dur_ms": 15.0,
+   "source_frames": 1
+  },
+  {
+   "start": 49.472,
+   "end": 49.482,
+   "dur_ms": 10.0,
+   "source_frames": 2
+  },
+  {
+   "start": 54.573,
+   "end": 54.583,
+   "dur_ms": 10.0,
+   "source_frames": 1
+  },
+  {
+   "start": 75.022,
+   "end": 75.032,
+   "dur_ms": 10.0,
+   "source_frames": 1
+  },
+  {
+   "start": 78.435,
+   "end": 78.448,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  },
+  {
+   "start": 91.933,
+   "end": 91.948,
+   "dur_ms": 15.0,
+   "source_frames": 1
+  },
+  {
+   "start": 95.703,
+   "end": 95.715,
+   "dur_ms": 11.7,
+   "source_frames": 1
+  },
+  {
+   "start": 107.908,
+   "end": 107.915,
+   "dur_ms": 6.7,
+   "source_frames": 1
+  },
+  {
+   "start": 117.76,
+   "end": 117.765,
+   "dur_ms": 5.0,
+   "source_frames": 1
+  },
+  {
+   "start": 140.588,
+   "end": 140.598,
+   "dur_ms": 10.0,
+   "source_frames": 1
+  },
+  {
+   "start": 144.807,
+   "end": 144.813,
+   "dur_ms": 6.7,
+   "source_frames": 1
+  },
+  {
+   "start": 149.902,
+   "end": 149.915,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  },
+  {
+   "start": 153.933,
+   "end": 153.948,
+   "dur_ms": 15.0,
+   "source_frames": 1
+  },
+  {
+   "start": 163.253,
+   "end": 163.265,
+   "dur_ms": 11.7,
+   "source_frames": 1
+  },
+  {
+   "start": 171.663,
+   "end": 171.682,
+   "dur_ms": 18.3,
+   "source_frames": 2
+  },
+  {
+   "start": 177.135,
+   "end": 177.148,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  },
+  {
+   "start": 187.265,
+   "end": 187.283,
+   "dur_ms": 18.3,
+   "source_frames": 1
+  },
+  {
+   "start": 192.037,
+   "end": 192.048,
+   "dur_ms": 11.7,
+   "source_frames": 1
+  },
+  {
+   "start": 216.433,
+   "end": 216.448,
+   "dur_ms": 15.0,
+   "source_frames": 1
+  },
+  {
+   "start": 222.15,
+   "end": 222.165,
+   "dur_ms": 15.0,
+   "source_frames": 1
+  },
+  {
+   "start": 229.132,
+   "end": 229.148,
+   "dur_ms": 16.7,
+   "source_frames": 1
+  },
+  {
+   "start": 248.633,
+   "end": 248.648,
+   "dur_ms": 15.0,
+   "source_frames": 2
+  },
+  {
+   "start": 250.72,
+   "end": 250.732,
+   "dur_ms": 11.7,
+   "source_frames": 2
+  },
+  {
+   "start": 255.937,
+   "end": 255.948,
+   "dur_ms": 11.7,
+   "source_frames": 1
+  },
+  {
+   "start": 289.715,
+   "end": 289.732,
+   "dur_ms": 16.7,
+   "source_frames": 3
+  },
+  {
+   "start": 296.117,
+   "end": 296.132,
+   "dur_ms": 15.0,
+   "source_frames": 1
+  },
+  {
+   "start": 312.942,
+   "end": 312.95,
+   "dur_ms": 8.3,
+   "source_frames": 1
+  },
+  {
+   "start": 336.39,
+   "end": 336.398,
+   "dur_ms": 8.3,
+   "source_frames": 1
+  },
+  {
+   "start": 368.298,
+   "end": 368.315,
+   "dur_ms": 16.7,
+   "source_frames": 2
+  },
+  {
+   "start": 407.748,
+   "end": 407.765,
+   "dur_ms": 16.7,
+   "source_frames": 1
+  },
+  {
+   "start": 408.525,
+   "end": 408.532,
+   "dur_ms": 6.7,
+   "source_frames": 1
+  },
+  {
+   "start": 427.14,
+   "end": 427.148,
+   "dur_ms": 8.3,
+   "source_frames": 2
+  },
+  {
+   "start": 451.84,
+   "end": 451.848,
+   "dur_ms": 8.3,
+   "source_frames": 1
+  },
+  {
+   "start": 467.767,
+   "end": 467.785,
+   "dur_ms": 18.3,
+   "source_frames": 1
+  }
+ ],
+ "black_runs_over_17ms": [
+  {
+   "start": 171.663,
+   "end": 171.682,
+   "dur_ms": 18.3,
+   "source_frames": 2
+  },
+  {
+   "start": 187.265,
+   "end": 187.283,
+   "dur_ms": 18.3,
+   "source_frames": 1
+  },
+  {
+   "start": 467.767,
+   "end": 467.785,
+   "dur_ms": 18.3,
+   "source_frames": 1
+  }
+ ],
+ "frac_gaps_over_34ms": 0.0224,
+ "max_gap_ms": 601.7
+}

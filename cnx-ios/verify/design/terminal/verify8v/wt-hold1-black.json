@@ -1,0 +1,24 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/wt-hold1.mp4",
+ "source_frames": 7072,
+ "duration": 151.29,
+ "lit_median": 0.0392,
+ "black_runs": [
+  {
+   "start": 91.508,
+   "end": 91.528,
+   "dur_ms": 20.0,
+   "source_frames": 1
+  }
+ ],
+ "black_runs_over_17ms": [
+  {
+   "start": 91.508,
+   "end": 91.528,
+   "dur_ms": 20.0,
+   "source_frames": 1
+  }
+ ],
+ "frac_gaps_over_34ms": 0.0643,
+ "max_gap_ms": 520.0
+}
