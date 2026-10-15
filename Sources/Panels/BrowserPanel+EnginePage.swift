@@ -84,6 +84,27 @@ extension BrowserPanel {
         return reason
     }
 
+    /// The engine a session snapshot records: `nil` for WebKit, so default
+    /// snapshots stay byte-identical.
+    var sessionSnapshotEngine: BrowserEngineKind? {
+        engineKind == .webkit ? nil : engineKind
+    }
+
+    /// The engine a restored panel opens with: the snapshot's engine (WebKit
+    /// when it has none) inherited, so `CMUX_BROWSER_ENGINE` still wins and
+    /// an unavailable Chromium falls back to WebKit with the notice.
+    static func restoredEngineChoice(
+        _ engine: BrowserEngineKind?,
+        runtime: BrowserEngineRuntime? = nil
+    ) -> BrowserEngineChoice {
+        switch (runtime ?? .shared).resolve(requested: nil, inherited: engine ?? .webkit) {
+        case .open(let choice):
+            return choice
+        case .refuse(_, let reason):
+            return BrowserEngineChoice(engine: .webkit, fallback: reason, source: .inherited)
+        }
+    }
+
     /// The panel's page when it is not WebKit; `nil` for WebKit panels.
     /// Automation uses it to take its Chromium paths.
     var automationEnginePage: (any BrowserPage)? {
@@ -116,7 +137,7 @@ extension BrowserPanel {
             historyStore.recordVisit(url: url, title: pageTitle)
         case .closeRequested:
             webViewDidRequestClose?()
-        case .navigationFailed(let url, _, _):
+        case .navigationFailed(let url, _, _, _):
             applyEnginePageNavigationFailure(url: url)
         default:
             break
@@ -148,3 +169,6 @@ extension BrowserPanel {
         enginePage?.close()
     }
 }
+
+/// Web Inspector stays owned by the panel; ``BrowserPanel/page`` forwards to it.
+extension BrowserPanel: WebKitBrowserPageDevToolsControlling {}
