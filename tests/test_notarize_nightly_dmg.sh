@@ -582,7 +582,7 @@ if ! PATH="$CREATE_BIN:$PATH" \
   echo "FAIL: signing-keychain.sh create must exit 0" >&2
   exit 1
 fi
-if ! grep -q '^security import .* -k build.keychain ' "$LOG" || ! grep -q '^security set-keychain-settings -lut 600 build.keychain$' "$LOG"; then
+if ! grep -q '^security import .* -k build.keychain -f pkcs12 ' "$LOG" || ! grep -q '^security set-keychain-settings -lut 600 build.keychain$' "$LOG"; then
   echo "FAIL: create must import into build.keychain with a 600 s idle lock" >&2
   cat "$LOG" >&2
   exit 1

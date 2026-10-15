@@ -106,7 +106,9 @@ create_keychain() {
   printf '%s' "$password" > "$(password_file "$name")"
   "$SECURITY_TOOL" set-keychain-settings -lut "$TIMEOUT_SECONDS" "$name"
   "$SECURITY_TOOL" unlock-keychain -p "$password" "$name"
-  "$SECURITY_TOOL" import "$certificate" -k "$name" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+  # security import picks the format from the file extension; mktemp's name has
+  # none, so name the format or the import fails with "Unknown format in import".
+  "$SECURITY_TOOL" import "$certificate" -k "$name" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
   rm -f "$certificate"
   "$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh" "$name"
   "$SECURITY_TOOL" set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$name" >/dev/null
