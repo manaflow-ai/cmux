@@ -1,6 +1,7 @@
 //! The composer's requests: a chat's unsent draft (`_acpmux/draft_get`, `_acpmux/draft_set`) and
-//! a side question about it (`_acpmux/ask`, `hub/aside.rs`), and its prompt bookmarks
-//! (`_acpmux/bookmark_get`, `_acpmux/bookmark_set`, `hub/bookmarks.rs`).
+//! a side question about it (`_acpmux/ask`, `hub/aside.rs`), a side session about it
+//! (`_acpmux/btw`, `hub/btw.rs`), and its prompt bookmarks (`_acpmux/bookmark_get`,
+//! `_acpmux/bookmark_set`, `hub/bookmarks.rs`).
 
 use super::*;
 
@@ -13,6 +14,7 @@ pub(super) fn handles(m: &str) -> bool {
             | method::MUX_BOOKMARK_GET
             | method::MUX_BOOKMARK_SET
             | method::MUX_ASK
+            | method::MUX_BTW
     )
 }
 
@@ -26,6 +28,23 @@ pub(super) async fn handle(
         return bookmarks(hub, m, params).await;
     }
     let s = hub.resolve(session_key(params)?)?;
+    // A side question and a side session run a turn, under the rules of the connection
+    // that asks. The remote guard refuses a side session to a Web connection or a peer.
+    let opts = || crate::hub::PromptOptions {
+        control: super::super::remote_guard::control_of(conn.origin, conn.auth, params),
+        trust_gate: super::super::trust_gate::gated(conn.origin, params),
+        ..Default::default()
+    };
+    if m == method::MUX_BTW {
+        let question = str_param(params, "question")
+            .ok_or_else(|| RpcError::invalid_params("question is required"))?;
+        let model = match params.get("model") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(m)) => Some(m.as_str()),
+            Some(_) => return Err(RpcError::invalid_params("model must be a string")),
+        };
+        return hub.btw(&s, question, model, &conn.label(), opts()).await;
+    }
     if m == method::MUX_DRAFT_GET {
         return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
     }
@@ -35,13 +54,7 @@ pub(super) async fn handle(
         let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
         return Ok(json!({"sessionId": s.id, "draft": draft}));
     }
-    // A side question runs a turn, under the rules of the connection that asks.
-    let opts = crate::hub::PromptOptions {
-        control: super::super::remote_guard::control_of(conn.origin, conn.auth, params),
-        trust_gate: super::super::trust_gate::gated(conn.origin, params),
-        ..Default::default()
-    };
-    hub.ask_aside(&s, text, &conn.label(), opts).await
+    hub.ask_aside(&s, text, &conn.label(), opts()).await
 }
 
 /// `_acpmux/bookmark_get` and `_acpmux/bookmark_set`: the chat's prompt bookmarks

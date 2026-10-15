@@ -31,14 +31,11 @@ final class TabHoverCardController: HoverCardSource {
     /// Samples CPU and memory of the hovered tab while its card is pending
     /// or shown (first sample at hover start), never otherwise.
     let resources = ResourceCardSampler(source: nil)
-    /// Timing; read fresh on each hover so Debug Settings changes apply at
-    /// once, unless a caller pinned one.
-    var policy: HoverCardPolicy {
-        get { pinnedPolicy ?? HoverCardPolicy() }
-        set { pinnedPolicy = newValue }
-    }
-    private var pinnedPolicy: HoverCardPolicy?
-    var metrics = TabStripMetrics.standard
+    /// Pointer rest before a tab's card opens: Chrome's tab hover card delay
+    /// (`HoverCardTiming.chromeDelay`), or `sidebar.hoverCards.delay`; read on
+    /// each hover so a Settings change applies at once. Every tab waits the
+    /// same, as a sidebar row does (no width scaling, cx-23e1f).
+    var delay: Duration { DesignSettings.shared.hoverCardDelay }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
         didSet {
@@ -114,7 +111,7 @@ final class TabHoverCardController: HoverCardSource {
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: policy.showDelay(tabWidth: target.width, metrics: metrics)),
+                                delay: delay),
             anchor: target.anchor
         )
     }

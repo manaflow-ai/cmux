@@ -8,6 +8,9 @@ use super::*;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
+// Side sessions fork the chat too, and share its Claude helpers.
+#[path = "btw.rs"]
+mod btw;
 // The context window a Claude chat reports, which shares these helpers too.
 #[path = "context_window.rs"]
 mod context_window;
@@ -29,6 +32,10 @@ mod processes;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;
+// Each chat's harness in its own cgroup scope on Linux, which shares these helpers too.
+#[cfg(target_os = "linux")]
+#[path = "session_scope.rs"]
+mod session_scope;
 
 const FORK_OP: &str = "acp.session.fork";
 
