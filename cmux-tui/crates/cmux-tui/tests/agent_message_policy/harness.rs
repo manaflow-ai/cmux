@@ -50,8 +50,8 @@ struct FakeAcpmux {
     /// Session id -> the withdraw outcome it answers (`unsent`,
     /// `retracted`, `too_late`), `refuse:<reason>` for a refusal, or
     /// `hang-up` to close the connection unanswered; a session without one
-    /// answers `withdraw.not_found`, and one the fake does not run answers,
-    /// as acpmux does, `no session matches …`.
+    /// answers `withdraw.not_found`, and one the fake does not run (or a
+    /// peer runs) answers, as acpmux does, `no session matches …`.
     outcomes: Mutex<HashMap<String, String>>,
     /// Sessions whose prompts wait, unanswered, until their gate opens.
     gates: Mutex<std::collections::HashSet<String>>,
@@ -62,6 +62,9 @@ struct FakeAcpmux {
     /// Session id -> how many more prompts it takes without a word (never
     /// accepted, never answered).
     silent: Mutex<HashMap<String, u32>>,
+    /// Sessions a peer daemon runs: `_acpmux/info` and prompts reach them,
+    /// but a withdraw is answered on this daemon only (`no session matches …`).
+    peers: Mutex<std::collections::HashSet<String>>,
     /// Sessions whose withdraws wait, unanswered, until released.
     withdraw_gates: Mutex<std::collections::HashSet<String>>,
     withdraw_gate_opened: Condvar,
@@ -235,9 +238,16 @@ impl Daemon {
         self.fake.looked_up.lock().unwrap().iter().filter(|s| *s == session).count()
     }
 
-    /// The fake acpmux no longer runs `session` (it ended).
-    pub fn end_session(&self, session: &str) {
+    /// The fake acpmux no longer knows `session` (it was deleted).
+    pub fn delete_session(&self, session: &str) {
         self.sessions.lock().unwrap().remove(session);
+    }
+
+    /// `session` runs on a peer daemon in `workspace_key`: acpmux forwards
+    /// its `_acpmux/info` and prompts there, but not a withdraw.
+    pub fn place_peer_session(&self, session: &str, workspace_key: &str) {
+        self.fake.peers.lock().unwrap().insert(session.to_owned());
+        self.place_session(session, workspace_key);
     }
 
     /// The params of every prompt the fake acpmux took, in order.
@@ -650,8 +660,10 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
                 let outcome = fake.outcomes.lock().unwrap().get(session).cloned();
                 match outcome.as_deref() {
                     // acpmux's session lookup (`Hub::resolve`), with no `data`.
-                    _ if workspace.is_none() => json!({"jsonrpc": "2.0", "id": id, "error":
-                        {"code": -32002, "message": format!("no session matches {session:?}")}}),
+                    _ if workspace.is_none() || fake.peers.lock().unwrap().contains(session) => {
+                        json!({"jsonrpc": "2.0", "id": id, "error":
+                        {"code": -32002, "message": format!("no session matches {session:?}")}})
+                    }
                     Some("hang-up") => return,
                     Some(refusal) if refusal.starts_with("refuse:") => {
                         let reason = refusal.trim_start_matches("refuse:");
