@@ -1,6 +1,7 @@
 # Lane: browser
 
 ## Active streams
+- cmux-browser rewrite (lane owner cmuxterm-hq-99; plan in HQ `.cmux-scratch/cmux-browser-parity/rewrite/plan-v2.md`): Wave A adds a base::Value codec backend to bindings/codegen (unit 0e1) and proposes browser verbs `client-attention-v1`, `frontend-tab-close-request-v1`, maybe `keybindings-resolved-v1` (unit 0i). Shapes: plans/cmux-next/cmux-browser-rewrite-a.md and cmux-browser-rewrite-a-verbs.json on branch rewrite/a-base; status proposed until 0g and hq-6d confirm. cmux-browser will use the same verbs as cmux-next and delete put-frontend-projection.
 - Passkeys/WebAuthn in CEF and WebKit panes (plans/cmux-next/passkeys.md proposal, its "Known bugs: do not repeat" table is required reading for every browser parity agent; local test RP and oracle in tests/passkeys): passkeys lead. CEF visibility/occlusion and agent-lease changes that touch WebAuthn coordinate with the browser lead.
 
 ## Landed

@@ -1,0 +1,12 @@
+{
+  "schema": "cmux-tui-spec-allowlist-v1",
+  "commands": [
+    "list-workspaces",
+    "report-focus",
+    "workspace-info"
+  ],
+  "events": [
+    "tab-closed",
+    "workspace-added"
+  ]
+}
