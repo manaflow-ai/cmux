@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+use cmux_agent_pane_policy::build_identity::{BuildIdentity, NIGHTLY_BUNDLE_ID};
 use serde::Deserialize;
 
 use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF};
@@ -166,7 +167,12 @@ pub fn brain_environment(
 ) -> BTreeMap<String, String> {
     let mux_home = brain_home(&config.home, chief);
     let app = &config.app;
-    let user_home = inherited("HOME").unwrap_or_else(|| "/".into());
+    // The account's home, as the app gives the default Chief's host
+    // (`FileManager.homeDirectoryForCurrentUser`), not the HOME the daemon
+    // inherited: an app a job runner started (nx-remote on mac26: HOME is
+    // the job root) passed that on, and the brain then found no Claude
+    // settings env (the person's API route) in it (hq-6d P1 2026-10-14).
+    let user_home = account_home().or_else(|| inherited("HOME")).unwrap_or_else(|| "/".into());
     let mut env = BTreeMap::new();
     let mut put = |key: &str, value: String| {
         env.insert(key.to_owned(), value);
@@ -233,6 +239,38 @@ pub fn brain_environment(
         }
     }
     env
+}
+
+/// The home directory of this process's account in the user database
+/// (getpwuid_r); None where there is none (or off Unix).
+fn account_home() -> Option<String> {
+    #[cfg(unix)]
+    {
+        let mut buffer = vec![0 as libc::c_char; 4096];
+        let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: every pointer is valid for the call and the buffer length
+        // is the buffer's length.
+        let rc = unsafe {
+            libc::getpwuid_r(
+                libc::getuid(),
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if rc != 0 || found.is_null() {
+            return None;
+        }
+        // SAFETY: getpwuid_r succeeded, so pw_dir points into `buffer`.
+        let dir = unsafe { std::ffi::CStr::from_ptr((*found).pw_dir) };
+        dir.to_str().ok().filter(|d| d.starts_with('/')).map(str::to_owned)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }
 
 /// What the supervisor hears.
@@ -692,6 +730,18 @@ impl Supervisor {
         if is_default(&record) {
             return;
         }
+        // cx-tgf4h: no brain while agents are off in this build session (its
+        // turns could not start an agent; it would only hold the message).
+        if crate::agent_launch::disabled() {
+            let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
+            if !std::mem::replace(&mut brain.lock_noted, true) {
+                eprintln!(
+                    "cmux-tui: Chief brain {chief} does not start: {}",
+                    crate::agent_launch::MESSAGE
+                );
+            }
+            return;
+        }
         let mux_home = brain_home(&self.config.home, chief);
         if !sockets_fit(&mux_home) {
             let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
@@ -949,10 +999,16 @@ fn stop_lock_holder(lock: &Path) {
 fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
     // Without HOME the person's default home cannot be ruled out: keep all.
     let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
-    let shared_default =
-        std::fs::canonicalize(PathBuf::from(user).join(".cmux/chief/default")).ok();
+    // NIGHTLY's Chief home, named by the build identity resolver.
+    let nightly = BuildIdentity::new(Some(NIGHTLY_BUNDLE_ID), None);
     let Ok(canonical) = std::fs::canonicalize(home) else { return };
-    if shared_default.as_deref() == Some(canonical.as_path()) {
+    // NIGHTLY's home under the inherited HOME and under the account's home
+    // (a job runner's HOME differs from it).
+    let defaults = [Some(PathBuf::from(user)), account_home().map(PathBuf::from)];
+    if defaults.into_iter().flatten().any(|user| {
+        std::fs::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
+            == Some(canonical.as_path())
+    }) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(home.join("c")) else { return };

@@ -245,6 +245,9 @@ pub mod method {
     /// The harness the pane is about to switch to: a hidden session for it
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
+    /// The permission mode a plain new chat on a harness would start in
+    /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
+    pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
@@ -284,6 +287,13 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// Update Everything (cx-1mbnu; `hub/health_view.rs`): run now the
+    /// no-sudo updater of the named outdated harnesses. The unix socket only.
+    pub const MUX_HARNESS_UPDATE: &str = "_acpmux/harness/update";
+    /// Update Everything: restart the live sessions' harness processes on
+    /// the installed version and resume them (`hub/route_switch.rs`). The
+    /// unix socket only.
+    pub const MUX_SESSIONS_RESTART_HARNESS: &str = "_acpmux/sessions/restart_harness";
     // Routes: how a harness reaches its model provider (ROUTES R1-R3;
     // server/routes.rs). add, edit, remove, restore: the unix socket only;
     // the rest also the local app. Never Web or peer.
@@ -324,6 +334,9 @@ pub mod method {
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.
     pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";
+    /// To local watchers when a new chat's start mode may have changed (a
+    /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
+    pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";

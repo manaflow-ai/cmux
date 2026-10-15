@@ -189,6 +189,13 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if let Some(control) = &args.control {
         return control::run(&global, args.chief_home.as_deref(), control, global.output);
     }
+    // cx-tgf4h: with agents off in this build session no Chief turn can
+    // run; refuse before anything starts or is sent (a send would wait for
+    // a reply that never comes).
+    if cmux_tui_core::agent_launch::disabled() {
+        let refusal = cmux_tui_core::agent_launch::refusal(m.agents_disabled);
+        return super::wire::print_operation_error(&refusal, global.output);
+    }
     let stdin_tty = std::io::stdin().is_terminal();
     let pipe_mode = args.prompt.is_some() || !stdin_tty;
     if !pipe_mode && !std::io::stdout().is_terminal() {

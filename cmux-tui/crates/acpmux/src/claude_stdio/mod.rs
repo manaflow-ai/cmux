@@ -34,7 +34,7 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-const MODES: [(&str, &str); 4] = [
+pub(crate) const MODES: [(&str, &str); 4] = [
     ("default", "Normal"),
     ("plan", "Plan"),
     ("auto", "Auto"),
@@ -98,42 +98,57 @@ static MODELS: std::sync::LazyLock<Vec<(String, String)>> = std::sync::LazyLock:
     models
 });
 
-/// The reasoning choices: Claude Code's effort levels (`--effort` and the
-/// live `apply_flag_settings` `effortLevel`), plus two built on them.
-/// "default" leaves the model's own level. Ultracode is xhigh plus Claude
-/// Code's `ultracode` setting; Ultrathink keeps the level and prefixes each
-/// prompt with `Ultrathink:` (verified on Claude Code 2.1.287). The pane
-/// offers a model only the levels its `list_models` row supports.
-const EFFORTS: [(&str, &str, Option<&str>); 8] = [
-    ("default", "Default", None),
-    ("low", "Low", None),
-    ("medium", "Medium", None),
-    ("high", "High", None),
-    ("xhigh", "Extra High", None),
-    ("max", "Max", None),
-    ("ultracode", "Ultracode", Some("xhigh effort plus multi-agent workflow orchestration")),
-    ("ultrathink", "Ultrathink", Some("Thinks as hard as it can on every prompt")),
+/// The Reasoning choices: Claude Code's effort levels (`--effort` and the
+/// live `apply_flag_settings` `effortLevel`). "default" leaves the model's
+/// own level. The pane offers a model only the levels its `list_models` row
+/// supports.
+const EFFORTS: [(&str, &str); 6] = [
+    ("default", "Default"),
+    ("low", "Low"),
+    ("medium", "Medium"),
+    ("high", "High"),
+    ("xhigh", "Extra High"),
+    ("max", "Max"),
 ];
 
-/// The prefix Claude Code reads as "think as hard as you can" (Ultrathink).
-const ULTRATHINK_PREFIX: &str = "Ultrathink:\n";
+/// The session's effort may also be `ultracode`: Claude Code's workflow
+/// orchestration setting, which runs at xhigh. It is not a level, so it is
+/// its own On/Off option (`ULTRACODE_OPTION`), not a Reasoning choice.
+const ULTRACODE: &str = "ultracode";
+pub const ULTRACODE_OPTION: &str = "ultracode";
 
-/// The `--effort` a session starts with: Ultracode runs at xhigh, Ultrathink
-/// and "default" pass none (the model's own level).
-fn cli_effort(effort: &str) -> Option<&str> {
+/// A stored or sent effort as this translator keeps it. `ultrathink` was a
+/// Reasoning choice that only prefixed each prompt with a keyword; a saved
+/// pick of it now runs the model's own level.
+fn effort_value(effort: &str) -> &str {
     match effort {
-        "default" | "ultrathink" | "" => None,
-        "ultracode" => Some("xhigh"),
-        other => Some(other),
+        "ultrathink" | "" => "default",
+        other => other,
     }
 }
 
-/// The `apply_flag_settings` settings for a reasoning choice. Every choice but
-/// Ultracode clears `ultracode`; Ultrathink leaves the level as it is.
+/// The Reasoning select's value for a session effort: Ultracode runs at xhigh.
+fn shown_level(effort: &str) -> &str {
+    match effort_value(effort) {
+        ULTRACODE => "xhigh",
+        level => level,
+    }
+}
+
+/// The `--effort` a session starts with: Ultracode runs at xhigh, "default"
+/// passes none (the model's own level).
+fn cli_effort(effort: &str) -> Option<&str> {
+    match effort_value(effort) {
+        "default" => None,
+        level => Some(shown_level(level)),
+    }
+}
+
+/// The `apply_flag_settings` settings for a session effort. Every level
+/// clears `ultracode`.
 fn effort_settings(effort: &str) -> Value {
-    match effort {
-        "ultracode" => json!({"effortLevel": "xhigh", "ultracode": true}),
-        "ultrathink" => json!({"ultracode": false}),
+    match effort_value(effort) {
+        ULTRACODE => json!({"effortLevel": "xhigh", "ultracode": true}),
         "default" => json!({"effortLevel": "auto", "ultracode": false}),
         level => json!({"effortLevel": level, "ultracode": false}),
     }
@@ -143,7 +158,7 @@ fn effort_settings(effort: &str) -> Value {
 /// Ultracode and fast mode have no command-line flag of their own.
 fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     let mut settings = serde_json::Map::new();
-    if effort == "ultracode" {
+    if effort_value(effort) == ULTRACODE {
         settings.insert("effortLevel".into(), json!("xhigh"));
         settings.insert("ultracode".into(), json!(true));
     }
@@ -383,7 +398,7 @@ impl Translator {
             acp_session_id,
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model.to_owned()),
-            effort: Mutex::new(effort.to_owned()),
+            effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
@@ -485,16 +500,20 @@ impl Translator {
     }
 
     pub async fn config_options_value(&self) -> Value {
+        let effort = self.effort.lock().await.clone();
         json!([
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
              "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
-            {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": *self.effort.lock().await,
-             "options": EFFORTS.iter().map(|(v, n, d)| match d {
-                 Some(d) => json!({"value": v, "name": n, "description": d}),
-                 None => json!({"value": v, "name": n}),
-             }).collect::<Vec<_>>()},
+            {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": shown_level(&effort),
+             "options": EFFORTS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
+            {"id": ULTRACODE_OPTION, "name": "Ultracode", "type": "select", "category": "model_config",
+             "currentValue": if effort_value(&effort) == ULTRACODE { "on" } else { "off" },
+             "options": [
+                 {"value": "off", "name": "Off"},
+                 {"value": "on", "name": "On", "description": "Extra High effort plus multi-agent workflow orchestration"},
+             ]},
             {"id": "fast-mode", "name": "Fast mode", "type": "select", "category": "model_config",
              "currentValue": if *self.fast.lock().await { "on" } else { "off" },
              "options": [
