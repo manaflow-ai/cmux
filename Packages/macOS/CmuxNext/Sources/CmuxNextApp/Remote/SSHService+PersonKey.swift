@@ -32,21 +32,29 @@ extension SSHService {
                   let instance = status?["personInstance"] as? String else {
                 return .daemonTookNoKey(Self.lastLine(started.stderr))
             }
-            guard let nonce = AcpmuxSecretKey.newNonce() else { return .noRandomness }
             // The answer only a run that holds this key can give; whatever else answers on the
-            // socket path cannot (a `person_prove` reply alone would prove nothing).
-            let frames = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"# + "\n"
-                + #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/person_holds","params":{"nonce":""# + nonce + #""}}"# + "\n"
-            let held = try await SSHProcessRunner.run(commandLine.command(host, "\(binary) acp stdio"),
-                                                      input: .data(Data(frames.utf8)), environment: environment,
-                                                      deadline: .seconds(30), label: "acpmux person_holds \(host.destination)")
-            let answer = held.stdout.split(separator: "\n").lazy
-                .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
-                .first { ($0["id"] as? Int) == 2 }
-            let result = answer?["result"] as? [String: Any]
-            guard let proof = result?["proof"] as? String, result?["instance"] as? String == instance,
-                  key.holds(proof: proof, instance: instance, nonce: nonce) else {
-                return .keyNotHeld
+            // socket path cannot (a `person_prove` reply alone would prove nothing). A dropped ssh
+            // call is asked once more, with a new nonce (cx-hd3rw): else the new run would hold a key
+            // this app never bound.
+            var proved = false
+            for attempt in 1...2 where !proved {
+                guard let nonce = AcpmuxSecretKey.newNonce() else { return .noRandomness }
+                let frames = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"# + "\n"
+                    + #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/person_holds","params":{"nonce":""# + nonce + #""}}"# + "\n"
+                let held = try? await SSHProcessRunner.run(commandLine.command(host, "\(binary) acp stdio"),
+                                                           input: .data(Data(frames.utf8)), environment: environment,
+                                                           deadline: .seconds(30), label: "acpmux person_holds \(host.destination)")
+                let answer = held?.stdout.split(separator: "\n").lazy
+                    .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+                    .first { ($0["id"] as? Int) == 2 }
+                // No answer at all: the call itself failed; ask again once.
+                guard let answer else { if attempt == 2 { return .failed(held.map { Self.lastLine($0.stderr) ?? "" } ?? "ssh failed") }; continue }
+                let result = answer["result"] as? [String: Any]
+                guard let proof = result?["proof"] as? String, result?["instance"] as? String == instance,
+                      key.holds(proof: proof, instance: instance, nonce: nonce) else {
+                    return .keyNotHeld
+                }
+                proved = true
             }
             AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: instance, key: key)
             logger.info("remote approvals on for \(host.destination.description, privacy: .public)")
