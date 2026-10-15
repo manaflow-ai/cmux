@@ -44,7 +44,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       <div className="cv-user__bubble selectable">{text}</div>
-      {text && !row.failed && !row.queued && (copies || branch || through !== undefined) && (
+      {text && !row.failed && !row.queued && (copies || branch || through !== undefined || mark.can) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
             <span className="cv-user__versions">
