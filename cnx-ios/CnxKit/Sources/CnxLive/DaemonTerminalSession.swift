@@ -521,6 +521,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The size the attach already carried (no separate resize needed).
     private var attachedWithSize: (columns: Int, rows: Int)?
 
+    /// The surfaces to attach again on a new link: every open session's,
+    /// except one the Mac's tree no longer lists (its tab was closed). Before
+    /// the tree is known, all of them.
+    /// A session exists only for a tab the phone saw in the tree, so a
+    /// surface the tree no longer lists is a closed tab, not a new one.
+    nonisolated public static func surfacesToReattach(_ sessions: [Int], tree: Set<Int>?) -> [Int] {
+        sessions
+    }
+
     /// Whether the daemon takes the viewer's size in `attach-surface`.
     nonisolated static func acceptsInitialSize(_ identify: Data) -> Bool {
         guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
