@@ -380,6 +380,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .overlay(alignment: .topTrailing) {
             if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, let id = activeID {
                 Button {
+                    if !UIAccessibility.isReduceMotionEnabled { cardSwipes.holdCountForTapClose(max(1, tabs.count)) }
                     Task { _ = await closeFromGrid(id) }
                 } label: {
                     CardCloseGlyph().padding(4).contentShape(.rect)

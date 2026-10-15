@@ -24,6 +24,44 @@ final class CardSwipeState {
     /// (the same card view, so the exit never re-renders it) after their tab
     /// has left the list, until they are off screen.
     private(set) var departing: [DepartingCard] = []
+    /// The count the grid's bar shows while a close is on its way (nil: the
+    /// list's): a ✕ keeps the old count until the reflow's first frame (the
+    /// frame before the cards move, as in Safari); a fling shows the new one
+    /// from the release tick (or from the tick its fling became clear).
+    var countHold: Int?
+    /// The ✕'s reflow cue (`SafariCurveCue`; 0: none).
+    private(set) var reflowCue = 0
+
+    /// A ✕ close is about to remove a tab: hold `count` until the reflow's
+    /// first frame shows (one display-link tick after its cue), or, if no
+    /// card moves at all, 20 ticks.
+    /// Display-link ticks from the reflow's cue (its first move) to the count.
+    static let countLeadTicks = 1
+
+    func holdCountForTapClose(_ count: Int) {
+        countHold = count
+        var cue = 0
+        cue = SafariCurveCue.register { [weak self] in
+            let clock = FrameClock()
+            var ticks = 0
+            clock.start { _ in
+                ticks += 1
+                guard ticks >= Self.countLeadTicks else { return true }
+                self?.countHold = nil
+                if self?.reflowCue == cue { self?.reflowCue = 0 }
+                return false
+            }
+        }
+        reflowCue = cue
+        let fallback = FrameClock()
+        var frames = 0
+        fallback.start { _ in
+            frames += 1
+            guard frames >= 20 else { return true }
+            SafariCurveCue.fire(cue)
+            return false
+        }
+    }
     /// The card whose long-press menu is open: it hides under its lifted
     /// preview (the grid and the layer that draws the active card).
     var menuCard: String?
@@ -51,7 +89,8 @@ final class CardSwipeState {
     /// renders faster and stiffer than its parameters; tabs-parity-reaudit D8).
     private func spring(_ s: ZoomSpring) -> Animation { s.animation() }
 
-    func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
+    func track(_ key: String, translation: CGFloat, reduceMotion: Bool, cardWidth: CGFloat = 0,
+               onFling: @escaping (Bool) -> Void = { _ in }) {
         if !raised.contains(key) { raised.insert(key) }
         // The finger's velocity (smoothed over the pan's events): the card
         // leads a leftward finger by it (`CardSwipe.leadTime`).
@@ -61,6 +100,23 @@ final class CardSwipeState {
             velocities[key] = ((velocities[key] ?? v) + v) / 2
         }
         lastTrack[key] = (now, translation)
+        // A clear fling decides now (the count), as Safari's does.
+        let flinging = cardWidth > 0 && (velocities[key] ?? 0) < -CardSwipe.flingCountSpeed
+            && CardSwipe.commits(offset: CardSwipe.offset(translation: translation), velocity: velocities[key] ?? 0, cardWidth: cardWidth)
+        if flinging, flings[key] == nil {
+            flings[key] = onFling
+            // Shown `flingCountTicks` frames on, if it still reads as a fling.
+            let clock = FrameClock()
+            var ticks = 0
+            clock.start { [weak self] _ in
+                ticks += 1
+                guard ticks >= CardSwipe.flingCountTicks else { return true }
+                if self?.flings[key] != nil { onFling(true) }
+                return false
+            }
+        } else if !flinging, let undo = flings.removeValue(forKey: key) {
+            undo(false)
+        }
         // A slow drag only: a flick's card trails the finger (Safari's holds
         // where the finger lifted), and a lead made the fling 15 % slow.
         let v = velocities[key] ?? 0
@@ -102,6 +158,8 @@ final class CardSwipeState {
     /// The pan's last event and the finger's velocity, per dragged card.
     private var lastTrack: [String: (time: CFTimeInterval, translation: CGFloat)] = [:]
     private var velocities: [String: CGFloat] = [:]
+    /// Cards whose swipe already reads as a fling (and how to take it back).
+    private var flings: [String: (Bool) -> Void] = [:]
     @ObservationIgnored private let followClock = FrameClock()
 
     private func stepFollowers(_ now: CFTimeInterval) -> Bool {
@@ -141,17 +199,21 @@ final class CardSwipeState {
     /// nothing slides after release: the card fades out where it is, or
     /// reappears at its slot with a 0.18 s fade.
     func release(_ key: String, velocity: CGFloat, card: CGRect, reduceMotion: Bool,
-                 departing makeCopy: () -> DepartingCard, close: @escaping () async -> Bool) {
+                 departing makeCopy: () -> DepartingCard, onCommit: () -> Void = {}, close: @escaping () async -> Bool) {
         // The close decision reads the finger (the card may still be gliding
         // onto it, or not out of its onset travel yet).
         let finger = fingers.removeValue(forKey: key) ?? offsets[key] ?? 0
         lastTrack[key] = nil
         velocities[key] = nil
         _ = stopFollowing(key)
+        let fling = flings.removeValue(forKey: key)
         guard CardSwipe.commits(offset: finger, velocity: velocity, cardWidth: card.width) else {
+            fling?(false)
             comeBack(key, velocity: velocity, reduceMotion: reduceMotion)
             return
         }
+        // The release tick decides: the count changes now (Safari +5-12 ms).
+        onCommit()
         departing.removeAll { $0.id == key }
         departing.append(makeCopy())
         let finish: (Bool) -> Void = { [weak self] closed in
@@ -242,6 +304,7 @@ final class CardSwipeState {
         fingers[key] = nil
         lastTrack[key] = nil
         velocities[key] = nil
+        flings.removeValue(forKey: key)?(false)
         comeBack(key, velocity: 0, reduceMotion: reduceMotion)
     }
 
@@ -250,6 +313,8 @@ final class CardSwipeState {
     /// and the settle spring, or (Reduce Motion) a 0.18 s fade in at the
     /// slot with no movement.
     private func comeBack(_ key: String, velocity: CGFloat, reduceMotion: Bool) {
+        // A refused or taken-back fling: the count is the list's again.
+        if reflowCue == 0 { countHold = nil }
         let from = offset(key)
         var t = Transaction()
         t.disablesAnimations = true
