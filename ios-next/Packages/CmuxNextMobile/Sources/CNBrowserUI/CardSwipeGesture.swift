@@ -45,8 +45,23 @@ final class CardSwipeState {
     private func spring(_ s: ZoomSpring) -> Animation { s.animation() }
 
     func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
-        let target = CardSwipe.offset(translation: translation)
         if !raised.contains(key) { raised.insert(key) }
+        // The finger's velocity (smoothed over the pan's events): the card
+        // leads a leftward finger by it (`CardSwipe.leadTime`).
+        let now = CACurrentMediaTime()
+        if let p = lastTrack[key], now > p.time {
+            let v = (translation - p.translation) / CGFloat(now - p.time)
+            velocities[key] = ((velocities[key] ?? v) + v) / 2
+        }
+        lastTrack[key] = (now, translation)
+        // A slow drag only: a flick's card trails the finger (Safari's holds
+        // where the finger lifted), and a lead made the fling 15 % slow.
+        let v = velocities[key] ?? 0
+        let lead = translation < 0 && v > -CardSwipe.leadMaxSpeed ? max(-CardSwipe.leadMax, min(0, v * CardSwipe.leadTime)) : 0
+        let target = CardSwipe.offset(translation: translation + lead)
+        fingers[key] = CardSwipe.offset(translation: translation)
+        // Still in the slot until the finger is out of Safari's onset travel.
+        if !reduceMotion, followers[key] == nil, offsets[key] == nil, abs(translation) < CardSwipe.onsetTravel { return }
         if !reduceMotion, scales[key] == nil {
             withAnimation(spring(CardSwipe.lift)) { scales[key] = CardSwipe.liftScale }
         }
@@ -75,6 +90,11 @@ final class CardSwipeState {
         var last: CFTimeInterval?
     }
     private var followers: [String: Follower] = [:]
+    /// Where the finger is (the card's target), per dragged card.
+    private var fingers: [String: CGFloat] = [:]
+    /// The pan's last event and the finger's velocity, per dragged card.
+    private var lastTrack: [String: (time: CFTimeInterval, translation: CGFloat)] = [:]
+    private var velocities: [String: CGFloat] = [:]
     @ObservationIgnored private let followClock = FrameClock()
 
     private func stepFollowers(_ now: CFTimeInterval) -> Bool {
@@ -115,10 +135,13 @@ final class CardSwipeState {
     /// reappears at its slot with a 0.18 s fade.
     func release(_ key: String, velocity: CGFloat, card: CGRect, reduceMotion: Bool,
                  departing makeCopy: () -> DepartingCard, close: @escaping () async -> Bool) {
-        let fingerOffset = followers[key]?.target
+        // The close decision reads the finger (the card may still be gliding
+        // onto it, or not out of its onset travel yet).
+        let finger = fingers.removeValue(forKey: key) ?? offsets[key] ?? 0
+        lastTrack[key] = nil
+        velocities[key] = nil
         _ = stopFollowing(key)
-        let offset = offsets[key] ?? 0
-        guard CardSwipe.commits(offset: offset, velocity: velocity, cardWidth: card.width) else {
+        guard CardSwipe.commits(offset: finger, velocity: velocity, cardWidth: card.width) else {
             comeBack(key, velocity: velocity, reduceMotion: reduceMotion)
             return
         }
@@ -173,8 +196,11 @@ final class CardSwipeState {
         // update they held the card still for 2-3 frames). The same card view
         // keeps flying after its tab has left.
         let clock = self.clock
+        // With no delay the tab leaves in this turn (a sleep of zero still
+        // waited a frame: the count changed about 50 ms after the finger
+        // lifted, Safari's 5-12 ms; re-audit 4 D10).
         Task {
-            try? await clock.sleep(for: CardSwipe.flyOffRemovalDelay)
+            if CardSwipe.flyOffRemovalDelay > .zero { try? await clock.sleep(for: CardSwipe.flyOffRemovalDelay) }
             finish(await close())
         }
     }
@@ -207,6 +233,9 @@ final class CardSwipeState {
 
     func cancel(_ key: String, reduceMotion: Bool) {
         _ = stopFollowing(key)
+        fingers[key] = nil
+        lastTrack[key] = nil
+        velocities[key] = nil
         comeBack(key, velocity: 0, reduceMotion: reduceMotion)
     }
 
