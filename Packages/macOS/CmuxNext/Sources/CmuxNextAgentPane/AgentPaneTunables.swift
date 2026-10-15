@@ -12,5 +12,13 @@ public nonisolated struct AgentPaneTunables {
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor] }
+    /// The composer's reasoning menu draws a stepped slider from Faster to Smarter instead of its
+    /// list of levels (an opt-in look, off by default). It reaches every agent page as the
+    /// `composer` event's `reasoningSlider` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let reasoningSlider = Tunable<Bool>.toggle(
+        "agent.reasoningSlider", PageTunables.section, "Reasoning slider in the composer",
+        help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
+        default: false, code: "AgentPaneTunables.reasoningSlider")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, reasoningSlider.descriptor] }
 }
