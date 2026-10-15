@@ -1,6 +1,6 @@
 # cmux-next Mac build for the cnx-ios overnight work
 
-Run this Mac build: `~/cnx-ios-builds/20261015-1e5ee66013-mac-prod/cmux NEXT iOS Test.app` (1e5ee6601315)
+Run this Mac build: `~/cnx-ios-builds/20261015-5484863b73-mac-prod/cmux NEXT iOS Test.app` (5484863b7323)
 
 Branch `feat-cnx-ios-macnext` integrates every Mac-side fix for the cmux-next
 iOS work. It is for dogfood builds only; it never merges anywhere. Each build
@@ -47,6 +47,7 @@ cnx-hostd (fleet side fixed in cmuxterm-hq #2091). Now (b20242a0):
 
 | When (UTC) | SHA | Fleet job | Path | Result |
 | --- | --- | --- | --- | --- |
+| 2026-10-15 11:30 | 5484863b | prod d4a8cd12, rig cnx-e2e-5484863b 396fa87f (linux pool) | `~/cnx-ios-builds/20261015-5484863b73-mac-prod/cmux NEXT iOS Test.app` | all checks pass (below) |
 | 2026-10-15 08:20 | 1e5ee660 | prod cbf2ed30 (aws-m4pro-3), rig cnx-e2e-1e5ee660 16077cda (linux pool) | `~/cnx-ios-builds/20261015-1e5ee66013-mac-prod/cmux NEXT iOS Test.app` | all checks pass (below) |
 | 2026-10-15 05:20 | 9063df14 | prod cbd41d5d (aws-m4pro-3), rig cnx-e2e-9063df14 79c6e58c (linux pool) | `~/cnx-ios-builds/20261015-9063df1493-mac-prod/cmux NEXT iOS Test.app` | bundle checks pass; live checks below |
 
@@ -111,3 +112,35 @@ carries `workspace_roots_set`.
 
 No Keychain prompt or SecurityAgent on either Mac; both rigs quit, their daemons stopped and
 their simulators deleted.
+
+## Verification of 5484863b (round 3)
+
+Bundle: `codesign --verify --deep --strict` pass; cnx-hostd universal, key `e5697f409291ea8f`
+= this commit's, built from 5484863b; `browser-stream-v1` present; acpmux and cmux-tui built
+from 5484863b; the daemon has the grid hold and the Codex shim fix; the embedded browser host
+rendered https://example.com (first frame 471 ms, from a copy on mini-cmux10s).
+
+| Check (rig cnx-e2e-5484863b) | Result |
+| --- | --- |
+| Codex from the phone (laptop rig: hidden app, `open --env`, headless simulator, the laptop's codex login as is) | **pass**: + > New Agent Chat With… > Codex > Start Chat opened in 7.0 s; "PONG" in 12.6 s; asked to run `echo hi > macnext-approval.txt` ("Codex wants to run a command": Allow, Always allow, Deny and stop) 61.5 s after the prompt; declined, the file was never written. Screenshots `verify/codex-chat-pong-043347.png`, `verify/codex-chat-ask-043347.png` in the build folder. |
+| Browser tab streams, WebRTC (mini-cmux8s) | pass, but slow: 32.2 s from the grid to the page (the mini's load was ~70 from a CI job); 4.9 s over WireGuard a few minutes later |
+| cnx-hostd kill, WebRTC | pass: link up 1.79, 1.92, 1.95 s (WebRTC direct) |
+| WireGuard on | pass: Connected in 4.4 s |
+| Browser tab streams, WireGuard | pass: 4.9 s |
+| cnx-hostd kill, WireGuard | pass: link up 1.91, 1.83, 1.97 s (WireGuard relay) |
+
+Rig notes for round 3:
+- The phone needed two rig fixes: agent chats start only in a project folder (the rig `cd`s the
+  seed terminals into `~/cnx-ios-e2e/codexchat-proj`), and a new folder needs the person's Trust
+  answer on the Mac (the rig sends `acp.trust.set` on the rig Mac's own acpmux socket, as the
+  Mac's Trust button does; a phone cannot answer it).
+- `workspace_list` now fails on every rig with "missing ['Home']": the phone no longer lists the
+  Mac's Home workspace among workspaces. Expected after the parity changes; the step's
+  expectation is stale, not a Mac regression.
+- On both minis the onboarding step's Continue tap did not advance while the simulator was
+  loaded; a manual tap advanced it, and the remaining steps ran from there. The laptop rig passed it.
+- mini-cmux8s has a SecurityAgent process from 2026-10-14 23:27 (before this rig) and a locked
+  login keychain; the rig app's cnx-hostd started normally and raised no prompt of its own.
+- mini-cmux10s was overloaded (load ~200 from CI) during round 3, so the rig moved to mini-cmux8s.
+
+Both rigs quit, their daemons stopped and their simulators deleted.
