@@ -423,6 +423,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if refusesPageSelfFocus(responder) { return false }
         let accepted = super.makeFirstResponder(responder)
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
         return accepted
