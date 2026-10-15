@@ -30,55 +30,51 @@ def mac():
     return RemoteMac()
 
 
-def daemon(request):
-    """One line to the rig Mac's own daemon (its session socket), read back as JSON.
+_SOCKET_CLIENT = r"""
+import glob, json, os, socket, sys
+sys.path.insert(0, 'e2e'); sys.path.insert(0, '.')
+import rmac
+tag = rmac.mac().tag
+paths = glob.glob(os.path.join(os.environ.get('TMPDIR', '/tmp'), 'cmux-tui-%d' % os.getuid(), 'cmux-app-%s.sock' % tag))
+s = socket.socket(socket.AF_UNIX); s.settimeout(30); s.connect(paths[0])
+line = sys.argv[1]
+want = json.loads(line)['id']
+s.sendall(line.encode() + b'\n')
+buf = b''
+while True:
+    chunk = s.recv(1 << 20)
+    if not chunk: break
+    buf += chunk
+    while b'\n' in buf:
+        one, buf = buf.split(b'\n', 1)
+        try: obj = json.loads(one)
+        except ValueError: continue
+        if obj.get('id') == want:
+            print(json.dumps(obj)); sys.exit(0)
+"""
 
-    `cmux raw command` is the CLI's escape for the control protocol; the rig CLI runs as
-    `cmux-tui` for it (a temp symlink; the app bundle is not changed)."""
+
+def _socket(request):
+    """One line to the rig Mac's own daemon session socket (read only), its reply as JSON."""
     line = json.dumps(request)
-    script = (
-        f"cd {pq.RBASE} && app=$(ls -d rig/mac/*.app | head -1) && mkdir -p /tmp/p2ws-bin && "
-        f"ln -sf \"$PWD/$app/Contents/Resources/bin/cmux\" /tmp/p2ws-bin/cmux-tui && "
-        f"python3 - <<'PY'\n"
-        f"import json, os, subprocess, sys\n"
-        f"sys.path.insert(0, 'e2e'); sys.path.insert(0, '.')\n"
-        f"import rmac\n"
-        f"m = rmac.mac()\n"
-        f"env = {{k: v for k, v in os.environ.items() if not k.startswith('CMUX')}}\n"
-        f"env.update(CMUX_SOCKET_PATH=m.socket, CMUX_TAG=m.tag, CMUX_BUNDLE_ID=m.bundle_id)\n"
-        f"r = subprocess.run(['/tmp/p2ws-bin/cmux-tui', '--app-socket', m.socket, 'raw', 'command', '--request-json', {line!r}],\n"
-        f"                   capture_output=True, text=True, timeout=60, env=env)\n"
-        f"print(r.stdout.strip() or json.dumps({{'ok': False, 'error': r.stderr.strip()[:400]}}))\n"
-        f"PY"
-    )
-    r = rsh(script, timeout=120)
+    r = rsh(f"cd {pq.RBASE} && python3 -c {shlex.quote(_SOCKET_CLIENT)} {shlex.quote(line)}", timeout=120)
     out = (r.stdout or "").strip().splitlines()
     if not out:
-        raise RuntimeError(f"daemon {request.get('cmd')}: {(r.stderr or '').strip()[:400]}")
-    reply = json.loads(out[-1])
-    return reply
+        raise RuntimeError(f"daemon {request.get('cmd') or request.get('operation')}: {(r.stderr or '').strip()[-400:]}")
+    return json.loads(out[-1])
+
+
+def daemon(request):
+    """A control-protocol line to the rig Mac's daemon."""
+    return _socket(request)
 
 
 def operation(name, params=None):
-    """A cmux.protocol/2 operation on the rig Mac's daemon (reads)."""
-    script = (
-        f"cd {pq.RBASE} && app=$(ls -d rig/mac/*.app | head -1) && mkdir -p /tmp/p2ws-bin && "
-        f"ln -sf \"$PWD/$app/Contents/Resources/bin/cmux\" /tmp/p2ws-bin/cmux-tui && "
-        f"python3 - <<'PY'\n"
-        f"import json, os, subprocess, sys\n"
-        f"sys.path.insert(0, 'e2e'); sys.path.insert(0, '.')\n"
-        f"import rmac\n"
-        f"m = rmac.mac()\n"
-        f"env = {{k: v for k, v in os.environ.items() if not k.startswith('CMUX')}}\n"
-        f"env.update(CMUX_SOCKET_PATH=m.socket, CMUX_TAG=m.tag, CMUX_BUNDLE_ID=m.bundle_id)\n"
-        f"r = subprocess.run(['/tmp/p2ws-bin/cmux-tui', '--app-socket', m.socket, '--json', 'raw', 'operation', {name!r},\n"
-        f"                    '--params-json', {json.dumps(params or {})!r}], capture_output=True, text=True, timeout=60, env=env)\n"
-        f"print(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else json.dumps({{'ok': False, 'error': r.stderr.strip()[:400]}}))\n"
-        f"PY"
-    )
-    r = rsh(script, timeout=120)
-    out = (r.stdout or "").strip().splitlines()
-    return json.loads(out[-1]) if out else {"ok": False, "error": (r.stderr or "")[:400]}
+    """A cmux.protocol/2 read on the rig Mac's daemon."""
+    fields = dict(params or {})
+    fields.setdefault("machine", "current")
+    fields.setdefault("session", "current")
+    return _socket({"protocol": "cmux.protocol/2", "type": "request", "id": "p2ws-op", "operation": name, "params": fields})
 
 
 def mac_workspaces():
@@ -238,19 +234,18 @@ def flow_pin_color_order(j):
     row_action(j, names[1], "Unpin Workspace")
     wait_mac(lambda: names[1] not in mac_pinned_titles(), f"{names[1]} unpinned")
     notes.append("unpinned")
-    # Move: c up past b (the Mac's own order)
+    # Move: the middle one of the three up past its neighbour, in the Mac's own order
+    # (new workspaces may go to the top or the bottom there).
     before = [n for n in mac_order() if n in names]
+    mover = before[1]
     t = time.time()
-    row_action(j, names[2], "Move", "Move Workspace Up")
-    want = list(before)
-    i = want.index(names[2])
-    if i > 0:
-        want[i - 1], want[i] = want[i], want[i - 1]
+    row_action(j, mover, "Move", "Move Workspace Up")
+    want = [before[1], before[0], before[2]]
     wait_mac(lambda: [n for n in mac_order() if n in names] == want, f"order {want}")
     notes.append(f"Move Up: Mac order {before} -> {want} in {time.time() - t:.1f} s")
     time.sleep(1.5)
     check(phone_order(j, names) == want, f"phone order {phone_order(j, names)} != Mac {want}")
-    row_action(j, names[2], "Move", "Move Workspace Down")
+    row_action(j, mover, "Move", "Move Workspace Down")
     wait_mac(lambda: [n for n in mac_order() if n in names] == before, f"order back to {before}")
     notes.append("Move Down restores it")
     return "; ".join(notes)
