@@ -62,6 +62,9 @@ enum TerminalText {
     static var endedMessage: String {
         String(localized: "terminal.ended.message", defaultValue: "The Mac no longer has this terminal, for example after its host restarted.")
     }
+    static var endedExitedMessage: String {
+        String(localized: "terminal.ended.exited", defaultValue: "Its shell exited, so the Mac closed this terminal.")
+    }
     static var backToTerminals: String { String(localized: "terminal.ended.back", defaultValue: "Back to Terminals") }
     static var more: String { String(localized: "terminal.menu.more", defaultValue: "More") }
 }

@@ -435,6 +435,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 self.failedGeneration = generation
                 if let rpc = error as? RPCError, rpc.code == .notFound {
                     // The PTY is gone (the Mac's host restarted or it was closed).
+                    self.model.endReason = .gone
                     self.model.status = .ended
                 } else {
                     self.model.status = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))

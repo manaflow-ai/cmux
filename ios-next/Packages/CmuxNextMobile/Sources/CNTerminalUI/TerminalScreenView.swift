@@ -30,6 +30,10 @@ final class TerminalScreenModel {
         case failed(String)
     }
 
+    /// Why a terminal ended: its shell exited, or the Mac no longer has it.
+    enum EndReason: Equatable { case exited, gone }
+    var endReason: EndReason = .gone
+
     var terminal: Terminal?
     var status: Status = .attaching {
         didSet { if status != oldValue { controller?.statusChanged() } }
@@ -205,11 +209,15 @@ public struct TerminalContent: View {
                     case .terminalUpdated(let terminal) where terminal.id == terminalId && model.status != .ended:
                         model.terminal = terminal
                         model.controller?.macGridChanged(terminal)
-                        if !terminal.running { model.status = mirrored ? .ended : .exited }
+                        if !terminal.running {
+                            model.endReason = .exited
+                            model.status = mirrored ? .ended : .exited
+                        }
                     case .terminalExited(let id, _) where id == terminalId:
                         // A Mac-owned terminal whose process ended is gone on the
                         // Mac (its tab closes): say so and offer a way forward.
                         // A phone-owned PTY that exited keeps its last screen.
+                        model.endReason = .exited
                         model.status = mirrored ? .ended : .exited
                     default:
                         break
@@ -233,7 +241,7 @@ public struct TerminalContent: View {
         ContentUnavailableView {
             Label(TerminalText.endedTitle, systemImage: "apple.terminal")
         } description: {
-            Text(TerminalText.endedMessage)
+            Text(handle.model.endReason == .exited ? TerminalText.endedExitedMessage : TerminalText.endedMessage)
         } actions: {
             Button(TerminalText.newTerminal) { handle.startNewTerminal() }
                 .buttonStyle(.glassProminent)
