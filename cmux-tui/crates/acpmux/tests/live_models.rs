@@ -3,6 +3,11 @@
 //! tests/fake_live_claude.py (stream-json control requests) and
 //! tests/fake_codex_app_server.py (`codex app-server` JSON-RPC lines).
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::live_models::{Cache, CacheKey, Cli, LiveModel, probe};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

@@ -5,12 +5,13 @@ public import AppKit
 ///
 /// The Chrome tab keys (`tabSwitching`, Leo 2026-10-12: "chrome/chatgpt/claude has them all
 /// the same") select sidebar items, what Chrome calls tabs, from any focus:
-/// - Cmd-Shift-], Cmd-Opt-Right, Ctrl-PageDown: the next item;
-/// - Cmd-Shift-[, Cmd-Opt-Left, Ctrl-PageUp: the previous item;
+/// - Cmd-Opt-Right, Ctrl-PageDown: the next item;
+/// - Cmd-Opt-Left, Ctrl-PageUp: the previous item;
 /// - Cmd-1 to Cmd-8 the nth item, Cmd-9 the last (`sidebar.cmd9`).
-/// Ctrl-Tab / Ctrl-Shift-Tab cycle the focused pane's tabs instead (`nextSurface` /
-/// `prevSurface`, their catalog keys; Leo 2026-10-12: as a workspace switch they got
-/// inconsistent once more was open). They are here too, so a terminal's Ghostty keybind
+/// Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ cycle the focused pane's tabs instead
+/// (`nextSurface` / `prevSurface`; Leo 2026-10-12: as a workspace switch they got
+/// inconsistent once more was open; Lawrence 2026-10-15: Cmd-Shift-] / [ switching
+/// workspaces is "extremely bad"). They are here too, so a terminal's Ghostty keybind
 /// does not take them either.
 /// They go after the Ghostty config's keybinds and claims, so a terminal, its Ghostty
 /// keybinds (`ctrl+tab=next_tab`, `super+[`), a web page and the agent composer never take
@@ -36,16 +37,16 @@ public nonisolated struct KeyBindingDefaults {
     public static let notTerminal = WhenClause.notEquals(KeyContext.surfaceKind, .string("terminal"))
 
     /// The Chrome tab keys, without the registry's unbinding applied. The
-    /// catalog keys of `nextSidebarTab` / `prevSidebarTab` (Cmd-Shift-] / [)
+    /// catalog keys of `nextSidebarTab` / `prevSidebarTab` (Ctrl-Cmd-] / [)
     /// and `selectWorkspaceByNumber` (Cmd-1…9) are here too, so they also win
-    /// over a Ghostty keybind; Ctrl-Cmd-] / [ stay as before.
+    /// over a Ghostty keybind.
     public static let tabSwitching: [KeyBinding] = {
         func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
             KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, argument: argument)
         }
         return [
             bind("\t", [.control], "nextSurface"), bind("\t", [.control, .shift], "prevSurface"),
-            bind("]", [.command, .shift], "nextSidebarTab"), bind("[", [.command, .shift], "prevSidebarTab"),
+            bind("]", [.command, .shift], "nextSurface"), bind("[", [.command, .shift], "prevSurface"),
             bind(right, [.command, .option], "nextSidebarTab"), bind(left, [.command, .option], "prevSidebarTab"),
             bind(pageDown, [.control], "nextSidebarTab"), bind(pageUp, [.control], "prevSidebarTab"),
             bind("]", [.control, .command], "nextSidebarTab"), bind("[", [.control, .command], "prevSidebarTab"),
