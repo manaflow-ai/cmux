@@ -138,7 +138,7 @@ extension BrowserPanel {
                 historyStore.recordTypedNavigation(url: url)
             }
         }
-        enginePage.load(request)
+        loadEnginePageRecoveringHang(request)
         onNavigationStarted?(nil)
     }
 

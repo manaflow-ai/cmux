@@ -46,7 +46,7 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
-LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,sandbox,renderer,gpu,hang").split(","))
+LEGS = set((os.environ.get("CMUX_CRASH_E2E_LEGS") or "webkit,sandbox,renderer,gpu,hang,hangreload").split(","))
 PAGE_TITLE = "crash-e2e"
 
 
@@ -235,6 +235,20 @@ def leg_gpu(h: Harness, sid: str) -> None:
     print("PASS gpu: GPU process crash contained, page still answers")
 
 
+def leg_hang_reload(h: Harness, sid: str) -> None:
+    h.c._call("browser.eval", {"surface_id": sid, "script": "setTimeout(() => { for (;;) {} }, 0); 'spinning'"})
+    started = time.time()
+    try:
+        h.c._call("browser.reload", {"surface_id": sid}, timeout_s=10)
+    except cmuxError as error:
+        # The command's own navigation wait can end before the recovery does;
+        # what matters is that the page comes back.
+        print(f"note hangreload: browser.reload answered {error}")
+    _wait_for(lambda: h.page_answers(sid), 45, "hangreload: page answers again after Reload")
+    h.app_still_runs("hangreload")
+    print(f"PASS hangreload: a reload of a hung page recovered it in {time.time() - started:.1f}s without input")
+
+
 def leg_hang(h: Harness, sid: str) -> None:
     h.c._call("browser.eval", {"surface_id": sid, "script": "setTimeout(() => { for (;;) {} }, 0); 'spinning'"})
     # Chromium reports a hang when input goes unanswered (its hang monitor). The input goes
@@ -264,7 +278,7 @@ def main() -> int:
         h = Harness(client, app_pid)
         if "webkit" in LEGS:
             leg_webkit(h, url)
-        if LEGS & {"sandbox", "renderer", "gpu", "hang"}:
+        if LEGS & {"sandbox", "renderer", "gpu", "hang", "hangreload"}:
             sid = chromium_tab(h, url)
             if sid:
                 if "sandbox" in LEGS:
@@ -273,6 +287,8 @@ def main() -> int:
                     leg_renderer(h, sid)
                 if "gpu" in LEGS:
                     leg_gpu(h, sid)
+                if "hangreload" in LEGS:
+                    leg_hang_reload(h, sid)
                 if "hang" in LEGS:
                     leg_hang(h, sid)
         h.app_still_runs("end")
