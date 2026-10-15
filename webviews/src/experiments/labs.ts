@@ -43,6 +43,8 @@ export function labsFlag(name: LabsFlagName, root: Element = document.documentEl
 }
 
 function subscribe(change: () => void): () => void {
+  // Outside a browser (tests, server rendering) nothing changes `data-labs`.
+  if (typeof MutationObserver === "undefined") return () => {};
   const observer = new MutationObserver(change);
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-labs", "data-labs-team"] });
   return () => observer.disconnect();

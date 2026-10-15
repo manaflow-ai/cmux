@@ -215,8 +215,8 @@
 .nt-lab-hint{flex:none;padding:0 5px;border-radius:4px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-soft);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .nt-lab-hint[data-lab-hint=expiresSoon]{color:var(--agent-warning,var(--agent-soft))}
 /* The toggle: a small switch drawn on the native checkbox, so Space and the label still work. */
-.nt-lab-switch{appearance:none;flex:none;position:relative;width:26px;height:16px;margin:0;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 16%,transparent);cursor:default}
-.nt-lab-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 .5px 1.5px rgb(0 0 0/.3)}
+.nt-lab-switch{appearance:none;flex:none;position:relative;width:26px;height:16px;margin:0;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 16%,transparent);cursor:default}
+.nt-lab-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:3px;background:#fff;box-shadow:0 .5px 1.5px rgb(0 0 0/.3)}
 .nt-lab-switch:checked{background:var(--agent-accent,var(--agent-text))}
 .nt-lab-switch:checked::after{transform:translateX(10px);background:var(--agent-page-bg,var(--acpmux-base))}
 .nt-lab-switch:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
