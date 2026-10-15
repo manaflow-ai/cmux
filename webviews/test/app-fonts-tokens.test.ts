@@ -26,8 +26,18 @@ afterEach(() => {
 });
 
 /** What `window.cmuxTheme.apply` does with a payload: variables on the root, then `cmux-theme`. */
-function hostSends(variables: Record<string, string>, codeFontFamily: string | null, terminalFamily: string | null = null) {
-  const terminal = { type: "dark", background: "#101018", foreground: "#e8e8f0", palette: {}, fontFamily: terminalFamily };
+function hostSends(
+  variables: Record<string, string>,
+  codeFontFamily: string | null,
+  terminalFamily: string | null = null,
+) {
+  const terminal = {
+    type: "dark",
+    background: "#101018",
+    foreground: "#e8e8f0",
+    palette: {},
+    fontFamily: terminalFamily,
+  };
   const payload = { variables, colorScheme: "dark", scrollers: "overlay", terminal, codeFontFamily };
   for (const [name, value] of Object.entries(variables)) document.documentElement.style.setProperty(name, value);
   (window as ThemeWindow).cmuxTheme = { current: payload };
@@ -77,7 +87,10 @@ describe("app fonts reach the pages", () => {
   test("every surface's face and the chat size read the host's variables, with today's as fallback", () => {
     const reads: [string, RegExp][] = [
       ["agent-session/acpmux/conversation/conversation.css", /--cv-font-size:\s*var\(--cmux-font-chat-size,\s*14px\)/],
-      ["agent-session/acpmux/conversation/conversation.css", /--cv-line-height:\s*calc\(var\(--cv-font-size\)\s*\*\s*1\.625\)/],
+      [
+        "agent-session/acpmux/conversation/conversation.css",
+        /--cv-line-height:\s*calc\(var\(--cv-font-size\)\s*\*\s*1\.625\)/,
+      ],
       ["agent-session/acpmux/conversation/conversation.css", /--cv-font:\s*var\(--cmux-font-ui,\s*system-ui\)/],
       ["agent-session/acpmux/conversation/conversation.css", /--cv-mono:\s*var\(--cmux-font-code,\s*ui-monospace/],
       ["agent-session/acpmux/styles.css", /font:\s*13px var\(--cmux-font-ui,\s*-apple-system/],
@@ -87,7 +100,9 @@ describe("app fonts reach the pages", () => {
       ["pages/markdown/styles.css", /--cmux-md-font-family:\s*var\(--cmux-font-ui,/],
       ["ui/ui.css", /--ui-font:\s*var\(--cmux-font-ui,/],
     ];
-    const missing = reads.filter(([file, pattern]) => !pattern.test(sheet(file))).map(([file, pattern]) => `${file} ${pattern}`);
+    const missing = reads
+      .filter(([file, pattern]) => !pattern.test(sheet(file)))
+      .map(([file, pattern]) => `${file} ${pattern}`);
     expect(missing).toEqual([]);
   });
 });
