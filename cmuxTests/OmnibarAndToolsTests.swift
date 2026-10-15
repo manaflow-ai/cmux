@@ -1147,6 +1147,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
         XCTAssertEqual(withEmpty.first?.completion, "https://example.com")
     }
 
+    @MainActor
     func testWebKitPanelsDropChromiumOnlyHistoryButChromiumPanelsKeepIt() {
         let now = Date()
         let entries = [
