@@ -163,7 +163,7 @@ struct MobilePaywallPlanTabs: View {
                         )
                     }
                 }
-                Text(BillingPriceCopy.price(offer))
+                Text(offer.priceText)
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
                     .minimumScaleFactor(0.8)
@@ -335,7 +335,7 @@ struct MobilePaywallTierSelector: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(BillingPlanCopy(planID: offer.planID).name)
                             .font(.subheadline.weight(.semibold))
-                        Text(BillingPriceCopy.price(offer))
+                        Text(offer.priceText)
                             .font(.headline)
                             .monospacedDigit()
                             .minimumScaleFactor(0.8)
@@ -366,7 +366,7 @@ struct MobilePaywallTrialTimeline: View {
     let showsReminder: Bool
 
     var body: some View {
-        let days = BillingTrialReminder.trialDays(grant.offer)
+        let days = grant.offer.totalDays
         VStack(alignment: .leading, spacing: 0) {
             row(
                 icon: "lock.open.fill",
@@ -374,7 +374,7 @@ struct MobilePaywallTrialTimeline: View {
                 detail: todayDetail,
                 isLast: false
             )
-            if showsReminder, let reminderDay = BillingTrialReminder.reminderDay(trialDays: days) {
+            if showsReminder, let reminderDay = grant.offer.reminderDay {
                 row(
                     icon: "bell.fill",
                     title: String(
@@ -399,7 +399,7 @@ struct MobilePaywallTrialTimeline: View {
                         "mobile.billing.timeline.charge",
                         defaultValue: "%@ starts. Cancel anytime before then."
                     ),
-                    BillingPriceCopy.price(grant.billingOffer)
+                    grant.billingOffer.priceText
                 ),
                 isLast: true
             )
@@ -410,7 +410,7 @@ struct MobilePaywallTrialTimeline: View {
     }
 
     private var todayDetail: String {
-        if let limits = BillingPriceCopy.trialLimits(grant.limits) {
+        if let limits = grant.limits?.summaryText {
             return String(
                 format: L10n.string("mobile.billing.timeline.todayLimits", defaultValue: "Your %1$@ trial starts: %2$@."),
                 BillingPlanCopy(planID: grant.planID).name,
@@ -454,6 +454,9 @@ struct MobilePaywallSpecList: View {
     struct Row: Identifiable {
         let offer: BillingOffer
         let facts: BillingPlanFacts?
+        /// The server's spec lines; preferred over lines formatted from
+        /// ``facts``.
+        let specLines: [String]
         let isCurrent: Bool
         let trial: BillingTrialGrant?
         let period: Binding<BillingPeriod>?
@@ -484,10 +487,19 @@ struct MobilePaywallSpecList: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title(name: name, facts: row.facts))
+                    Text(row.specLines.isEmpty ? title(name: name, facts: row.facts) : name)
                         .font(.headline)
                         .fixedSize(horizontal: false, vertical: true)
-                    if let detail = detail(row.facts) {
+                    ForEach(row.specLines, id: \.self) { line in
+                        Label {
+                            Text(verbatim: line)
+                        } icon: {
+                            Image(systemName: "cpu")
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                    if row.specLines.isEmpty, let detail = detail(row.facts) {
                         Label {
                             Text(detail)
                         } icon: {
@@ -499,7 +511,7 @@ struct MobilePaywallSpecList: View {
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(BillingPriceCopy.price(row.offer))
+                    Text(row.offer.priceText)
                         .font(.headline)
                         .monospacedDigit()
                     if let monthly = row.offer.product.monthlyEquivalentDisplayPrice {
@@ -574,14 +586,11 @@ struct MobilePaywallSpecList: View {
 /// The local reminder before a free trial ends. The timeline promises it
 /// only while notifications are allowed or not asked yet; the app asks
 /// when the user starts the trial, and drops the promise if they decline.
-@MainActor
-enum BillingTrialReminder {
-    static let identifier = "dev.cmux.billing.trial-reminder"
-
+extension StoreIntroductoryOffer {
     /// The trial length in days.
-    static func trialDays(_ offer: StoreIntroductoryOffer) -> Int {
-        let total = offer.periodValue * max(offer.periodCount, 1)
-        switch offer.periodUnit {
+    var totalDays: Int {
+        let total = periodValue * max(periodCount, 1)
+        switch periodUnit {
         case .day: return total
         case .week: return total * 7
         case .month: return total * 30
@@ -591,13 +600,19 @@ enum BillingTrialReminder {
 
     /// The reminder day: two days before the end; nil for trials too short
     /// to remind.
-    static func reminderDay(trialDays: Int) -> Int? {
-        trialDays >= 4 ? trialDays - 2 : nil
+    var reminderDay: Int? {
+        totalDays >= 4 ? totalDays - 2 : nil
     }
+}
+
+/// Schedules the reminder; the timeline above promises it.
+@MainActor
+struct BillingTrialReminder {
+    private let identifier = "dev.cmux.billing.trial-reminder"
 
     /// Whether the reminder can still be sent: notifications allowed, or
     /// not asked yet.
-    static func canRemind() async -> Bool {
+    func canRemind() async -> Bool {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         switch settings.authorizationStatus {
         case .denied: return false
@@ -607,7 +622,7 @@ enum BillingTrialReminder {
 
     /// Asks for notification permission when it was never asked.
     /// - Returns: Whether reminders can be delivered.
-    static func requestIfNeeded() async -> Bool {
+    func requestIfNeeded() async -> Bool {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         switch settings.authorizationStatus {
@@ -620,9 +635,8 @@ enum BillingTrialReminder {
     }
 
     /// Schedules the reminder `reminderDay` days from now.
-    static func schedule(grant: BillingTrialGrant, startedAt: Date = .now) async {
-        let days = trialDays(grant.offer)
-        guard let reminderDay = reminderDay(trialDays: days),
+    func schedule(grant: BillingTrialGrant, startedAt: Date = .now) async {
+        guard let reminderDay = grant.offer.reminderDay,
               let endDate = grant.offer.endDate(from: startedAt)
         else { return }
         let content = UNMutableNotificationContent()
@@ -634,7 +648,7 @@ enum BillingTrialReminder {
             ),
             BillingPlanCopy(planID: grant.planID).name,
             endDate.formatted(date: .long, time: .omitted),
-            BillingPriceCopy.price(grant.billingOffer)
+            grant.billingOffer.priceText
         )
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(reminderDay) * 86_400, repeats: false)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)

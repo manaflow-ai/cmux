@@ -88,6 +88,10 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
     /// such as `locked_vm_size`. An entry point without one uses
     /// ``headline``. Entries over ``headlineLimit`` are dropped.
     public let entryPointHeadlines: [String: String]
+    /// For ``BillingPaywallLayout/specList``: spec lines per plan id from the
+    /// server's pricing facts, such as `["20 vCPUs · 40 GB RAM", ...]`. Up to
+    /// four plain lines of at most 80 characters; bad entries are dropped.
+    public let planSpecs: [String: [String]]
 
     /// Maximum headline length in characters.
     public static let headlineLimit = 60
@@ -111,7 +115,8 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         defaultBillingPeriod: BillingPeriod,
         ctaStyle: BillingPaywallCTAStyle,
         showYearlySavings: Bool,
-        entryPointHeadlines: [String: String] = [:]
+        entryPointHeadlines: [String: String] = [:],
+        planSpecs: [String: [String]] = [:]
     ) {
         let headline = Self.plain(headline)
         let subheadline = Self.plain(subheadline)
@@ -139,6 +144,10 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         self.entryPointHeadlines = entryPointHeadlines.reduce(into: [:]) { result, entry in
             let text = Self.plain(entry.value)
             if !text.isEmpty, text.count <= Self.headlineLimit { result[entry.key] = text }
+        }
+        self.planSpecs = planSpecs.reduce(into: [:]) { result, entry in
+            let lines = entry.value.prefix(4).map(Self.plain).filter { !$0.isEmpty && $0.count <= Self.bulletLimit }
+            if !lines.isEmpty { result[entry.key] = Array(lines) }
         }
     }
 
@@ -175,6 +184,7 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         case ctaStyle
         case showYearlySavings
         case entryPointHeadlines
+        case planSpecs
     }
 
     /// Decodes the schema exactly; any violation throws, so the caller falls
@@ -194,7 +204,8 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
             ctaStyle: try container.decode(BillingPaywallCTAStyle.self, forKey: .ctaStyle),
             showYearlySavings: try container.decode(Bool.self, forKey: .showYearlySavings),
             // Optional and lenient: a bad map drops the map, not the config.
-            entryPointHeadlines: (try? container.decodeIfPresent([String: String].self, forKey: .entryPointHeadlines)) ?? [:]
+            entryPointHeadlines: (try? container.decodeIfPresent([String: String].self, forKey: .entryPointHeadlines)) ?? [:],
+            planSpecs: (try? container.decodeIfPresent([String: [String]].self, forKey: .planSpecs)) ?? [:]
         ) else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: decoder.codingPath,
@@ -218,6 +229,9 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         try container.encode(showYearlySavings, forKey: .showYearlySavings)
         if !entryPointHeadlines.isEmpty {
             try container.encode(entryPointHeadlines, forKey: .entryPointHeadlines)
+        }
+        if !planSpecs.isEmpty {
+            try container.encode(planSpecs, forKey: .planSpecs)
         }
     }
 

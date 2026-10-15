@@ -3,10 +3,14 @@ import CmuxMobileBilling
 import CmuxMobileSupport
 import Foundation
 
-/// Status copy shared by the plans screen and the paywall.
-enum BillingStatusCopy {
-    /// The result line for the last purchase or restore; nil when there is none.
-    static func resultMessage(purchase: BillingPurchasePhase, restore: BillingRestorePhase) -> String? {
+/// The result line for the last purchase or restore, shared by the plans
+/// screen and the paywall.
+struct BillingStatusCopy {
+    let purchase: BillingPurchasePhase
+    let restore: BillingRestorePhase
+
+    /// The message; nil when there is none.
+    var resultMessage: String? {
         switch restore {
         case .restoring:
             return L10n.string("mobile.billing.restoring", defaultValue: "Restoring purchases")
@@ -43,10 +47,12 @@ enum BillingStatusCopy {
             return BillingFailureCopy(failure: failure).message
         }
     }
+}
 
+extension BillingPlanSource {
     /// Which billing system grants the plan, for display.
-    static func sourceText(_ source: BillingPlanSource) -> String? {
-        switch source {
+    var displayText: String? {
+        switch self {
         case .apple:
             L10n.string("mobile.billing.source.apple", defaultValue: "Billed through the App Store.")
         case .stripe:
@@ -55,9 +61,13 @@ enum BillingStatusCopy {
             nil
         }
     }
+}
 
-    /// Why this account cannot buy in the app, as plain text with no link.
-    static func ineligibleText(_ reason: BillingIneligibilityReason?) -> String {
+/// Why this account cannot buy in the app, as plain text with no link.
+struct BillingIneligibilityCopy {
+    let reason: BillingIneligibilityReason?
+
+    var message: String {
         switch reason {
         case .stripeSubscriptionActive:
             // Plain text on purpose: the App Store build must not link to web

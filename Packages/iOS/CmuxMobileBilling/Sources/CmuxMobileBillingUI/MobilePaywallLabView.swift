@@ -197,7 +197,8 @@ struct MobilePaywallLabVariantView: View {
             defaultBillingPeriod: base.defaultBillingPeriod,
             ctaStyle: base.ctaStyle,
             showYearlySavings: base.showYearlySavings,
-            entryPointHeadlines: base.entryPointHeadlines
+            entryPointHeadlines: base.entryPointHeadlines,
+            planSpecs: base.planSpecs
         ) ?? base
     }
 }

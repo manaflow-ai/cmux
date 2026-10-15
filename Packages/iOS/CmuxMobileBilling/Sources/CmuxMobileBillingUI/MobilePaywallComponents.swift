@@ -3,38 +3,45 @@ import CmuxMobileBilling
 import CmuxMobileSupport
 import SwiftUI
 
-/// Prices and trial terms in words, from StoreKit values only.
-enum BillingPriceCopy {
+// Prices and trial terms in words, from StoreKit values only.
+
+extension BillingOffer {
     /// "$74.99/month", or the bare price when StoreKit has no period.
-    static func price(_ offer: BillingOffer) -> String {
-        guard let unit = offer.product.periodUnitName, !unit.isEmpty else { return offer.product.displayPrice }
+    var priceText: String {
+        guard let unit = product.periodUnitName, !unit.isEmpty else { return product.displayPrice }
         return String(
             format: L10n.string("mobile.billing.pricePerPeriodShort", defaultValue: "%1$@/%2$@"),
-            offer.product.displayPrice,
+            product.displayPrice,
             unit
         )
     }
+}
 
+extension StoreIntroductoryOffer {
     /// The trial's length, such as "7 days".
-    static func trialLength(_ offer: StoreIntroductoryOffer) -> String {
+    var lengthText: String {
         let formatter = DateComponentsFormatter()
         formatter.unitsStyle = .full
         formatter.allowedUnits = [.day, .month, .year]
-        return formatter.string(from: offer.duration) ?? ""
+        return formatter.string(from: duration) ?? ""
     }
+}
 
+extension BillingTrialGrant {
     /// "7 days free, then $74.99/month".
-    static func trialHeadline(_ grant: BillingTrialGrant) -> String {
+    var headlineText: String {
         String(
             format: L10n.string("mobile.billing.trial.headline", defaultValue: "%1$@ free, then %2$@"),
-            trialLength(grant.offer),
-            price(grant.billingOffer)
+            offer.lengthText,
+            billingOffer.priceText
         )
     }
+}
 
-    /// "1 Cloud VM, 2 vCPUs and 4 GB RAM, 20 VM-hours"; nil without limits.
-    static func trialLimits(_ limits: BillingTrialLimits?) -> String? {
-        guard let limits else { return nil }
+extension BillingTrialLimits {
+    /// "1 Cloud VM, 2 vCPUs and 4 GB RAM, VM-hours: 20"; nil when empty.
+    var summaryText: String? {
+        let limits = self
         var parts: [String] = []
         if let machines = limits.machines {
             parts.append(machines == 1
@@ -302,18 +309,18 @@ struct MobilePaywallPlanCard: View {
         if alternate.billingPeriod == .yearly, let alternateSavingsPercent {
             return String(
                 format: L10n.string("mobile.billing.paywall.orYearlySave", defaultValue: "or %1$@, save %2$lld%%"),
-                BillingPriceCopy.price(alternate),
+                alternate.priceText,
                 Int64(alternateSavingsPercent)
             )
         }
         return String(
             format: L10n.string("mobile.billing.paywall.orPrice", defaultValue: "or %@"),
-            BillingPriceCopy.price(alternate)
+            alternate.priceText
         )
     }
 
     private var priceLabel: some View {
-        Text(BillingPriceCopy.price(offer))
+        Text(offer.priceText)
             .font(style == .compact ? .subheadline.weight(.semibold) : .title3.weight(.semibold))
             .monospacedDigit()
             .accessibilityIdentifier("BillingOfferPrice.\(offer.planID.rawValue)")
@@ -334,7 +341,7 @@ struct MobilePaywallPlanCard: View {
             MobilePaywallBadge(
                 text: String(
                     format: L10n.string("mobile.billing.trial.badge", defaultValue: "%@ free"),
-                    BillingPriceCopy.trialLength(trial.offer)
+                    trial.offer.lengthText
                 ),
                 tone: .emphasis
             )
@@ -427,7 +434,7 @@ struct MobilePaywallTrialTerms: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(BillingPriceCopy.trialHeadline(grant))
+            Text(grant.headlineText)
                 .font(.headline)
             if let endDate = grant.offer.endDate(from: .now) {
                 Text(String(
@@ -442,7 +449,7 @@ struct MobilePaywallTrialTerms: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
-            if let limits = BillingPriceCopy.trialLimits(grant.limits) {
+            if let limits = grant.limits?.summaryText {
                 Text(String(
                     format: L10n.string(
                         "mobile.billing.trial.limits",
@@ -604,7 +611,7 @@ struct MobilePaywallPurchaseBar: View {
         case .price:
             return String(
                 format: L10n.string("mobile.billing.paywall.subscribeFor", defaultValue: "Subscribe for %@"),
-                BillingPriceCopy.price(offer)
+                offer.priceText
             )
         case .action:
             return String(
@@ -615,9 +622,9 @@ struct MobilePaywallPurchaseBar: View {
     }
 
     private var priceLine: String? {
-        if let trial { return BillingPriceCopy.trialHeadline(trial) }
+        if let trial { return trial.headlineText }
         guard !isCurrent, config.ctaStyle == .action || isSwitch else { return nil }
-        return BillingPriceCopy.price(offer)
+        return offer.priceText
     }
 
     private var renewal: String {
@@ -630,7 +637,7 @@ struct MobilePaywallPurchaseBar: View {
                 defaultValue: "%1$@ %2$@, renews automatically until cancelled."
             ),
             BillingPlanCopy(planID: offer.planID).name,
-            BillingPriceCopy.price(offer)
+            offer.priceText
         )
     }
 }

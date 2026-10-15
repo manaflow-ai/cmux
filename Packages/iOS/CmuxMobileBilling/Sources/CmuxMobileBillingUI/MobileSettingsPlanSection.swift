@@ -128,7 +128,7 @@ public struct MobileTrialStatusRow: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             }
-            if let limits = BillingPriceCopy.trialLimits(trial.limits) {
+            if let limits = trial.limits?.summaryText {
                 Text(String(
                     format: L10n.string("mobile.billing.trial.limitsNow", defaultValue: "During the trial: %@."),
                     limits

@@ -197,7 +197,7 @@ public struct MobilePaywallView: View {
             // Lead with the trial: select its plan and period.
             planPeriods[grant.planID] = grant.billingOffer.billingPeriod
             selectedPlan = grant.planID
-            reminderAllowed = await BillingTrialReminder.canRemind()
+            reminderAllowed = await BillingTrialReminder().canRemind()
         }
     }
 
@@ -243,12 +243,12 @@ public struct MobilePaywallView: View {
         Task {
             if promisesReminder {
                 // Ask in context: the timeline promised this reminder.
-                reminderAllowed = await BillingTrialReminder.requestIfNeeded()
+                reminderAllowed = await BillingTrialReminder().requestIfNeeded()
             }
             await billing.buy(offer, context: context, trial: trial)
             guard let trial, promisesReminder, reminderAllowed else { return }
             switch billing.purchase {
-            case .completed, .awaitingServer: await BillingTrialReminder.schedule(grant: trial)
+            case .completed, .awaitingServer: await BillingTrialReminder().schedule(grant: trial)
             default: break
             }
         }
@@ -259,7 +259,7 @@ public struct MobilePaywallView: View {
     @ViewBuilder
     private func content(_ context: BillingPaywallContext) -> some View {
         if let scenario = preview?.scenario, let reason = scenario.ineligibility {
-            MobilePaywallNotice(text: BillingStatusCopy.ineligibleText(reason), systemImage: "info.circle")
+            MobilePaywallNotice(text: BillingIneligibilityCopy(reason: reason).message, systemImage: "info.circle")
         } else {
             switch billing.account {
             case .idle, .loading:
@@ -270,7 +270,7 @@ public struct MobilePaywallView: View {
                 if account.eligible || preview != nil {
                     offersContent(context)
                 } else {
-                    MobilePaywallNotice(text: BillingStatusCopy.ineligibleText(account.reason), systemImage: "info.circle")
+                    MobilePaywallNotice(text: BillingIneligibilityCopy(reason: account.reason).message, systemImage: "info.circle")
                         .accessibilityIdentifier("BillingIneligible")
                 }
             }
@@ -354,6 +354,7 @@ public struct MobilePaywallView: View {
                         MobilePaywallSpecList.Row(
                             offer: offer,
                             facts: billing.planFacts(offer.planID),
+                            specLines: context.config.planSpecs[offer.planID.rawValue] ?? [],
                             isCurrent: isCurrent(offer),
                             trial: trial(for: offer),
                             period: plansWithBothPeriods.contains(offer.planID) ? periodBinding(for: offer.planID) : nil
@@ -637,16 +638,16 @@ public struct MobilePaywallView: View {
         case .checklist where trial(for: offer) == nil:
             return String(
                 format: L10n.string("mobile.billing.checklist.cta", defaultValue: "Upgrade for %@"),
-                BillingPriceCopy.price(offer)
+                offer.priceText
             )
         case .planTabs where trial(for: offer) == nil:
             return String(
                 format: L10n.string("mobile.billing.paywall.subscribeFor", defaultValue: "Subscribe for %@"),
-                BillingPriceCopy.price(offer)
+                offer.priceText
             )
         case .trialTimeline:
             guard let trial = trial(for: offer) else { return nil }
-            return BillingTrialReminder.trialDays(trial.offer) == 7
+            return trial.offer.totalDays == 7
                 ? L10n.string("mobile.billing.timeline.cta", defaultValue: "Start My Free Week")
                 : nil
         default:
@@ -675,7 +676,7 @@ public struct MobilePaywallView: View {
         guard preview == nil else {
             return L10n.string("mobile.billing.lab.purchasesOff", defaultValue: "Purchases are off in Paywall Lab.")
         }
-        return BillingStatusCopy.resultMessage(purchase: billing.purchase, restore: billing.restore)
+        return BillingStatusCopy(purchase: billing.purchase, restore: billing.restore).resultMessage
     }
 }
 

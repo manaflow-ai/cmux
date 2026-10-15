@@ -266,15 +266,15 @@ public struct MobilePlansView: View {
     }
 
     private var resultMessage: String? {
-        BillingStatusCopy.resultMessage(purchase: billing.purchase, restore: billing.restore)
+        BillingStatusCopy(purchase: billing.purchase, restore: billing.restore).resultMessage
     }
 
     private func sourceText(_ source: BillingPlanSource) -> String? {
-        BillingStatusCopy.sourceText(source)
+        source.displayText
     }
 
     private func ineligibleText(_ reason: BillingIneligibilityReason?) -> String {
-        BillingStatusCopy.ineligibleText(reason)
+        BillingIneligibilityCopy(reason: reason).message
     }
 }
 
