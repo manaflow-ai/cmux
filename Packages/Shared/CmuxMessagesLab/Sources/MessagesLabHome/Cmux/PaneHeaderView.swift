@@ -46,7 +46,7 @@ final class PaneHeaderView: NSView {
     /// A light theme: the measured white disc would vanish on a light
     /// header, so the disc takes the theme's secondary text grey with a
     /// white monogram (Messages' light-mode avatar).
-    var light = false { didSet { if light != oldValue { applyAvatar(); applyTitle(); placeRim(in: CGRect(origin: .zero, size: pill.frame.size)) } } }
+    var light = false { didSet { if light != oldValue { applyAvatar(); applyTitle(); applyGlassTint(); placeRim(in: CGRect(origin: .zero, size: pill.frame.size)) } } }
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
@@ -76,11 +76,7 @@ final class PaneHeaderView: NSView {
         addSubview(pillGlass)
         // Messages' pill (round 12 A/B: the closest system variant is clear glass with a 15 % white tint;
         // Messages' bright lower rim, 157 on its tp0000 crop, is drawn over it).
-        if #available(macOS 26, *), let glass = pillGlass as? NSGlassEffectView {
-            glass.style = .clear
-            // Messages' blue-grey body (tp0000: rgb 78/94/117), not round 12's neutral white tint.
-            glass.tintColor = NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 0.35)
-        }
+        applyGlassTint()
         pillRim.wantsLayer = true
         pillRim.layer?.addSublayer(pillRimLine)
         addSubview(pillRim)
@@ -196,6 +192,16 @@ final class PaneHeaderView: NSView {
         pillRimLine.mask = fade
     }
 
+    /// Messages' pill (round 12 A/B: clear glass). Dark: a tint to Messages' blue-grey body (tp0000 rgb
+    /// 78/94/117, 84 -> 106 down the body; round 14 measured 56/60/66 with the blue-grey at 35 %, so the
+    /// tint is brighter and stronger). Light: round 13's tint (the live light pill measured 178/185/193).
+    func applyGlassTint() {
+        guard #available(macOS 26, *), let glass = pillGlass as? NSGlassEffectView else { return }
+        glass.style = .clear
+        glass.tintColor = light ? NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 0.35)
+            : NSColor(srgbRed: 110 / 255, green: 132 / 255, blue: 165 / 255, alpha: 0.6)
+    }
+
     /// The pill's capsule is the system glass (macOS 26 and newer).
     static var systemGlass: Bool { if #available(macOS 26, *) { return true } else { return false } }
 
@@ -233,12 +239,17 @@ final class PaneHeaderView: NSView {
     }
 }
 
-// MARK: The thread view's blur and tint on the header (rounds 10-13)
+// MARK: The thread view's blur and tint on the header (rounds 10-14)
 
 extension PaneHeaderView {
-    /// Messages' header dims less than its transcript: out = 5.5 + 0.559 x (round 13: 0.510 of rest
-    /// against Messages' 0.51).
-    static let headerGain: CGFloat = 0.559
+    /// Messages' header dims less than its transcript (0.51 of rest). Fitted per appearance: round 14
+    /// measured 0.419 dark and 0.615 light at 0.559, and the box mean scales with the gain:
+    /// 0.559 x 0.51 / 0.419 and 0.559 x 0.51 / 0.615.
+    static func headerGain(light: Bool) -> CGFloat { light ? 0.464 : 0.680 }
+    /// Messages' header blurs later than our transcript (round 14: its avatar is half blurred at 140-198 ms
+    /// after the click, ours at 60-73 ms with the vendored backdrop's timing): the header's open waits this
+    /// long after the backdrop's, then takes its duration and curve.
+    static let openLag: CFTimeInterval = 0.09
     /// Messages' titlebar blurs its controls more than the transcript: on tp0600 the pill's row (58 pt)
     /// rises 10 -> 90 % over about 57 pt at its edges, about 22 pt sigma for a box edge, where the
     /// transcript's is about 9.5 (blur-fit.txt). Fitted: twice ThreadBackdrop.radius.
@@ -248,8 +259,11 @@ extension PaneHeaderView {
     static var pictureMargin: CGFloat { headerBlurRadius * 3 }
     /// The pill in the picture: Messages' glass body colour (its tp0000 mean, rgb 78/94/117); light grey on
     /// a light theme.
+    /// The live pill's measured colour (round 14 capture, the system glass as drawn: light 178/185/193;
+    /// dark with the new tint, Messages' body 78/94/117), so the picture at blur 0 matches it.
     static func blurredPillFill(light: Bool) -> NSColor {
-        light ? NSColor(white: 0.93, alpha: 1) : NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 1)
+        light ? NSColor(srgbRed: 178 / 255, green: 185 / 255, blue: 193 / 255, alpha: 1)
+            : NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 1)
     }
 
     /// The thread view's effect on the header while a thread or reply view is open (round 13):
@@ -269,25 +283,36 @@ extension PaneHeaderView {
         let generation = threadBlurGeneration
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        let timing = blur ?? tint
         if open {
             let scale = window?.backingScaleFactor ?? 2
-            threadBlurHost.show(cachedPicture(scale: scale), size: pictureSize, centre: controlsCentre, scale: scale)
+            threadBlurHost.show(cachedPicture(scale: scale), size: pictureSize, centre: controlsCentre, scale: scale,
+                                gain: Self.headerGain(light: light))
             liveControls(visible: false)
         } else {
+            // The live controls return, and the picture leaves, on the frame the blur reaches 0 (a step at the
+            // close's end, timed by the render server; round 14: a completion block landed 3-8 frames late).
+            let a = CABasicAnimation(keyPath: "opacity")
+            a.fromValue = 0; a.toValue = 0
+            Self.time(a, like: timing, open: false)
+            for v in liveViews { v.layer?.opacity = 1; v.layer?.add(a, forKey: "cmux.thread.return") }
+            let p = CABasicAnimation(keyPath: "opacity")
+            p.fromValue = 1; p.toValue = 1
+            Self.time(p, like: timing, open: false)
+            threadBlurHost.image.opacity = 0
+            threadBlurHost.image.add(p, forKey: "cmux.thread.return")
             CATransaction.setCompletionBlock { [weak self] in
                 guard let self, self.threadBlurGeneration == generation, !self.threadBlurOpen else { return }
-                CATransaction.begin(); CATransaction.setDisableActions(true)
-                self.liveControls(visible: true)
                 self.threadBlurHost.hide()
-                CATransaction.commit()
             }
         }
-        threadBlurHost.animate(open: open, blur: blur ?? tint, tint: tint ?? blur)
+        threadBlurHost.animate(open: open, blur: timing, tint: tint ?? blur, lag: open ? Self.openLag : 0)
         CATransaction.commit()
     }
 
+    private var liveViews: [NSView] { [avatar, pill, pillGlass, pillRim] }
     private func liveControls(visible: Bool) {
-        for v in [avatar, pill, pillGlass, pillRim] as [NSView] { v.layer?.opacity = visible ? 1 : 0 }
+        for v in liveViews { v.layer?.removeAnimation(forKey: "cmux.thread.return"); v.layer?.opacity = visible ? 1 : 0 }
     }
 
     /// The controls' union (this view's coordinates).
@@ -345,8 +370,22 @@ extension PaneHeaderView {
             let r = header.pill.frame
             blurredPillFill(light: header.light).setFill()
             NSBezierPath(roundedRect: r, xRadius: r.height / 2, yRadius: r.height / 2).fill()
+            // The title and its chevron as the button lays them out (the image trailing, hugging the title).
             let title = header.pill.attributedTitle, t = title.size()
-            title.draw(at: CGPoint(x: r.midX - t.width / 2, y: r.midY - t.height / 2))
+            let chevron = header.pill.image, c = chevron?.size ?? .zero, gap: CGFloat = chevron == nil ? 0 : 4
+            let x0 = r.midX - (t.width + gap + c.width) / 2
+            title.draw(at: CGPoint(x: x0, y: r.midY - t.height / 2))
+            chevron?.draw(in: CGRect(x: x0 + t.width + gap, y: r.midY - c.height / 2, width: c.width, height: c.height))
+            // The lower rim (pillRim): white, strongest at the bottom, gone by mid-height.
+            if let rim = header.pillRimLine.strokeColor.flatMap(NSColor.init(cgColor:)) {
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(rect: CGRect(x: r.minX - 1, y: r.midY, width: r.width + 2, height: r.height / 2 + 1)).addClip()
+                rim.setStroke()
+                let line = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: r.height / 2 - 0.5, yRadius: r.height / 2 - 0.5)
+                line.lineWidth = 1
+                line.stroke()
+                NSGraphicsContext.restoreGraphicsState()
+            }
         }
         if !header.avatar.isHidden, let img = header.avatar.image { img.draw(in: header.avatar.frame) }
         NSGraphicsContext.restoreGraphicsState()
@@ -355,10 +394,11 @@ extension PaneHeaderView {
 
     /// `a` takes the vendored animation's begin time, duration and curve (ThreadBackdrop's constants when
     /// there is none).
-    static func time(_ a: CABasicAnimation, like vendored: CABasicAnimation?, open: Bool) {
+    static func time(_ a: CABasicAnimation, like vendored: CABasicAnimation?, open: Bool, lag: CFTimeInterval = 0) {
         a.duration = vendored?.duration ?? (open ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration)
         a.timingFunction = vendored?.timingFunction ?? CAMediaTimingFunction(name: .easeInEaseOut)
-        if let begin = vendored?.beginTime, begin > 0 { a.beginTime = begin; a.fillMode = .backwards }
+        let begin = (vendored?.beginTime).flatMap { $0 > 0 ? $0 : nil } ?? (lag > 0 ? CACurrentMediaTime() : 0)
+        if begin > 0 { a.beginTime = begin + lag; a.fillMode = .backwards }
     }
 }
 
@@ -374,9 +414,7 @@ final class HeaderThreadBlur: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
         image.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
-        // The tint over the picture's own pixels (the group the filter makes), out = 5.5 + 0.559 x.
-        let g = PaneHeaderView.headerGain
-        tint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - g), alpha: 1).cgColor
+        // The tint over the picture's own pixels (the group the filter makes), out = 5.5 + g x.
         tint.compositingFilter = "sourceAtop"
         tint.actions = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
         tint.opacity = 0
@@ -393,7 +431,13 @@ final class HeaderThreadBlur: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func show(_ picture: CGImage?, size: CGSize, centre: CGPoint, scale: CGFloat) {
+    private(set) var gain: CGFloat = 0.6
+
+    func show(_ picture: CGImage?, size: CGSize, centre: CGPoint, scale: CGFloat, gain: CGFloat) {
+        self.gain = gain
+        tint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - gain), alpha: 1).cgColor
+        image.removeAnimation(forKey: "cmux.thread.return")
+        image.opacity = 1
         let f = CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2, width: size.width, height: size.height)
         if frame != f { frame = f }
         image.frame = bounds
@@ -415,19 +459,19 @@ final class HeaderThreadBlur: NSView {
         isHidden = true
     }
 
-    func animate(open: Bool, blur: CABasicAnimation?, tint vendoredTint: CABasicAnimation?) {
+    func animate(open: Bool, blur: CABasicAnimation?, tint vendoredTint: CABasicAnimation?, lag: CFTimeInterval = 0) {
         let key = "filters.\(Self.filterName).inputRadius"
         let r1: CGFloat = open ? PaneHeaderView.headerBlurRadius : 0
         let r0 = (image.presentation()?.value(forKeyPath: key) as? CGFloat) ?? (open ? 0 : PaneHeaderView.headerBlurRadius)
         image.setValue(r1, forKeyPath: key)
         let b = CABasicAnimation(keyPath: key)
         b.fromValue = r0; b.toValue = r1
-        PaneHeaderView.time(b, like: blur, open: open)
+        PaneHeaderView.time(b, like: blur, open: open, lag: lag)
         image.add(b, forKey: "cmux.thread.blur")
-        let t1: Float = open ? Float(1 - PaneHeaderView.headerGain) : 0
+        let t1: Float = open ? Float(1 - gain) : 0
         let a = CABasicAnimation(keyPath: "opacity")
         a.fromValue = tint.presentation()?.opacity ?? tint.opacity; a.toValue = t1
-        PaneHeaderView.time(a, like: vendoredTint, open: open)
+        PaneHeaderView.time(a, like: vendoredTint, open: open, lag: lag)
         tint.opacity = t1
         tint.add(a, forKey: "cmux.thread.tint")
     }

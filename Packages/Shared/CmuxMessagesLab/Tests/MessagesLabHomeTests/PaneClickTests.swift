@@ -286,7 +286,7 @@ import Testing
         #expect(header.pill.layer?.opacity == 0)
         #expect(header.pillRim.layer?.opacity == 0)
         #expect(header.threadBlurHost.image.filters?.count == 1)
-        #expect(abs(header.threadBlurHost.tint.opacity - Float(1 - PaneHeaderView.headerGain)) < 0.0001)
+        #expect(abs(header.threadBlurHost.tint.opacity - Float(1 - PaneHeaderView.headerGain(light: header.light))) < 0.0001)
         // The picture is padded by 3 x the blur radius beyond the controls on every side.
         let pad = PaneHeaderView.pictureMargin
         #expect(header.threadBlurHost.frame.maxY >= host.convert(header.pill.frame, from: header).maxY + pad - 0.5)
@@ -301,5 +301,12 @@ import Testing
         #expect(header.pillGlass.frame == header.pill.frame)
         controller.dispatch(.closeThread)
         #expect(!header.threadBlurOpen)
+        // The live controls return on the frame the blur reaches 0: a step held by the render server.
+        let back = try #require(header.avatar.layer?.animation(forKey: "cmux.thread.return") as? CABasicAnimation)
+        let unblur = try #require(header.threadBlurHost.image.animation(forKey: "cmux.thread.blur") as? CABasicAnimation)
+        #expect(back.duration == unblur.duration)
+        #expect(back.beginTime == unblur.beginTime)
+        #expect(header.avatar.layer?.opacity == 1)
+        #expect(header.threadBlurHost.image.opacity == 0)
     }
 }
