@@ -2473,6 +2473,12 @@ class CloudConversationHistoryRequest:
 
 
 @dataclass(frozen=True)
+class CloudConversationLiveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-live/request'
+    conversation: str
+
+
+@dataclass(frozen=True)
 class CloudConversationOpRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-op/request'
     idempotency_key: str
@@ -2830,6 +2836,27 @@ class ConversationListRequest:
 class ConversationListResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/result'
     conversations: List[ConversationSummary]
+
+
+@dataclass(frozen=True)
+class ConversationLiveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-live/request'
+    conversation: str
+
+
+@dataclass(frozen=True)
+class ConversationLiveResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-live/result'
+    conversation: str
+    runs: List[JsonValue]
+    type: Literal['run.live']
+
+
+@dataclass(frozen=True)
+class ConversationLivePublishRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-live-publish/request'
+    conversation: str
+    frame: Union[JsonValue, None]
 
 
 @dataclass(frozen=True)
@@ -4887,6 +4914,16 @@ class CloudConversationChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class CloudConversationLiveEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-conversation-live/payload'
+    conversation: str
+    event: Literal['cloud-conversation-live']
+    frame: Union[JsonValue, None]
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class CloudConversationResyncedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-conversation-resynced/payload'
     conversation: str
@@ -5025,6 +5062,15 @@ class ConversationInboxChangedEvent(EventBase):
     participant: str
     pinned: bool
     pin_position: Union[int, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class ConversationLiveEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/conversation-live/payload'
+    conversation: str
+    event: Literal['conversation-live']
+    frame: Union[JsonValue, None]
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5660,7 +5706,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5923,6 +5969,7 @@ __all__ = [
     'CloudAttachmentUploadResultStoredPoster',
     'CloudAttachmentUploadResultStoredPreview',
     'CloudConversationHistoryRequest',
+    'CloudConversationLiveRequest',
     'CloudConversationOpRequest',
     'CloudConversationRunRequest',
     'CloudConversationRunsRequest',
@@ -5968,6 +6015,9 @@ __all__ = [
     'ConversationLinkResolveResult',
     'ConversationListRequest',
     'ConversationListResult',
+    'ConversationLiveRequest',
+    'ConversationLiveResult',
+    'ConversationLivePublishRequest',
     'ConversationOpRequest',
     'ConversationOpResult',
     'ConversationRunRequest',
@@ -6207,6 +6257,7 @@ __all__ = [
     'ClientDetachedEvent',
     'ClientListInvalidatedEvent',
     'CloudConversationChangedEvent',
+    'CloudConversationLiveEvent',
     'CloudConversationResyncedEvent',
     'CloudConversationRunChangedEvent',
     'CloudInboxChangedEvent',
@@ -6220,6 +6271,7 @@ __all__ = [
     'ConversationChangedEvent',
     'ConversationDraftEvent',
     'ConversationInboxChangedEvent',
+    'ConversationLiveEvent',
     'ConversationRunChangedEvent',
     'ConversationTypingEvent',
     'DaemonShutdownEvent',

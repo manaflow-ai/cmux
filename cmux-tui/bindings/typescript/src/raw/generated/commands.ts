@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7. */
+/* cmux-tui mux protocol 12, IR d91559d14bc6c0566d2557f60d9999c737a45ba937e4f482f5726d537179fba6. */
 
 
 import type * as T from "./types.js";
@@ -435,6 +435,13 @@ export interface CloudConversationHistoryRequest extends CmuxRequestBase {
 export type CloudConversationHistoryResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudConversationLiveRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-live";
+  "conversation": string;
+}
+export type CloudConversationLiveResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudConversationOpRequest extends CmuxRequestBase {
   cmd: "cloud-conversation-op";
   "conversation"?: (string) | null;
@@ -756,6 +763,25 @@ export interface ConversationListRequest extends CmuxRequestBase {
 export type ConversationListResult = {
   "conversations": Array<T.ConversationSummary>;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationLiveRequest extends CmuxRequestBase {
+  cmd: "conversation-live";
+  "conversation": string;
+}
+export type ConversationLiveResult = {
+  "conversation": string;
+  "runs": Array<T.JsonValue>;
+  "type": "run.live";
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationLivePublishRequest extends CmuxRequestBase {
+  cmd: "conversation-live-publish";
+  "conversation": string;
+  "frame": (T.JsonValue) | null;
+}
+export type ConversationLivePublishResult = T.EmptyResult;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationOpRequest extends CmuxRequestBase {
@@ -2784,6 +2810,7 @@ export type CmuxRequest =
   | CloudAttachmentReadRequest
   | CloudAttachmentUploadRequest
   | CloudConversationHistoryRequest
+  | CloudConversationLiveRequest
   | CloudConversationOpRequest
   | CloudConversationRunRequest
   | CloudConversationRunsRequest
@@ -2814,6 +2841,8 @@ export type CmuxRequest =
   | ConversationInboxOpRequest
   | ConversationLinkResolveRequest
   | ConversationListRequest
+  | ConversationLiveRequest
+  | ConversationLivePublishRequest
   | ConversationOpRequest
   | ConversationRunRequest
   | ConversationRunAppendRequest
@@ -3316,6 +3345,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "cloud-conversations-v1";
     stream: null;
   };
+  "cloud-conversation-live": {
+    request: CloudConversationLiveRequest;
+    result: CloudConversationLiveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-chief-live-v1";
+    stream: null;
+  };
   "cloud-conversation-op": {
     request: CloudConversationOpRequest;
     result: CloudConversationOpResult;
@@ -3554,6 +3591,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-live": {
+    request: ConversationLiveRequest;
+    result: ConversationLiveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "chief-live-v1";
+    stream: null;
+  };
+  "conversation-live-publish": {
+    request: ConversationLivePublishRequest;
+    result: ConversationLivePublishResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "chief-live-v1";
     stream: null;
   };
   "conversation-op": {

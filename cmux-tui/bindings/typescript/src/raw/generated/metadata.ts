@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7. */
+/* cmux-tui mux protocol 12, IR d91559d14bc6c0566d2557f60d9999c737a45ba937e4f482f5726d537179fba6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7" as const;
+export const SDK_IR_SHA256 = "d91559d14bc6c0566d2557f60d9999c737a45ba937e4f482f5726d537179fba6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -550,6 +550,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
+  "cloud-conversation-live": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-chief-live-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "A subscriber of the conversation only (not_subscribed). Asks the Cloud owner for its run.live snapshot on the shared socket (run.live.get); the answer arrives as a cloud-conversation-live event. Answers the subscription's state. See spec/commands.md."
+    ]
+  },
   "cloud-conversation-op": {
     "authority": "local-admin",
     "since": 12,
@@ -848,6 +858,26 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. See spec/commands.md."
+    ]
+  },
+  "conversation-live": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "chief-live-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. The run.live snapshot: the running runs' streamed text so far (each step at most its last 64 KiB) and activity. See spec/commands.md."
+    ]
+  },
+  "conversation-live-publish": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "chief-live-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; the caller's principal must be an agent participant (not_agent), the run its own (not_run_author) and running (run_not_running). frame is {type:\"step.delta\", conversation, run, step, kind:\"talk\"|\"thought\", seq, text, final?} (text 1-4096 characters, seq from 0 without gaps: seq_gap, step_final) or {type:\"run.activity\", conversation, run, line, since, at} (line 1-80 characters). Never stored. See spec/commands.md."
     ]
   },
   "conversation-op": {
@@ -3488,6 +3518,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "cloud-conversation-live": {
+    "since": 12,
+    "capability": "cloud-chief-live-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "cloud-conversation-resynced": {
     "since": 12,
     "capability": "cloud-conversations-v1",
@@ -3587,6 +3625,14 @@ export const EVENT_METADATA = {
   "conversation-inbox-changed": {
     "since": 12,
     "capability": "conversation-inbox-state-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-live": {
+    "since": 12,
+    "capability": "chief-live-v1",
     "streams": [
       "subscribe"
     ],
@@ -15066,6 +15112,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-conversation-live": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-conversation-op": {
     "request": {
       "additional_properties": false,
@@ -16519,6 +16585,83 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "conversation-live": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "runs": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "kind": "array"
+          }
+        },
+        "type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "literal",
+            "value": "run.live"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-live-publish": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "frame": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
     }
   },
   "conversation-op": {
@@ -26948,6 +27091,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "cloud-conversation-live": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-live"
+        }
+      },
+      "frame": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "cloud-conversation-resynced": {
     "additional_properties": false,
     "fields": {
@@ -27542,6 +27723,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "conversation-live": {
+    "additional_properties": false,
+    "fields": {
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-live"
+        }
+      },
+      "frame": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
         }
       }
     },
