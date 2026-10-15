@@ -21,6 +21,7 @@ if [[ "${CMUX_NEXT_SKIP_UBLOCK:-}" == 1 ]]; then
   exit 0
 fi
 if ! src="$("$script_dir/fetch-ublock.sh")" || [[ ! -f "$src/manifest.json" ]]; then
+  rm -rf "$dest"
   if [[ "${CMUX_NEXT_REQUIRE_UBLOCK:-}" == 1 ]]; then
     echo "error: the built-in uBlock Origin could not be staged (scripts/cmux-next/fetch-ublock.sh)" >&2
     exit 1

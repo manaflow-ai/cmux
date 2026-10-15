@@ -30,6 +30,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       # Local packages CmuxNext depends on and files its tests read
@@ -164,6 +165,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       # Local packages CmuxNext depends on and files its tests read

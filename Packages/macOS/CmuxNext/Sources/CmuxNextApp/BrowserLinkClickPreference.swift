@@ -34,7 +34,9 @@ enum BrowserLinkClickPreference {
                 cef?.linkClicks = mapping
             }
         }
-        // `browser.builtInAdBlocker`: read by Chromium at its start.
+        // `browser.builtInAdBlocker`: read by Chromium at its start, so the
+        // loaded value is set now, before any Chromium tab can start it.
+        cef.builtInAdBlocker = settings.snapshot.browserBuiltInAdBlocker
         Task { [weak settings, weak cef] in
             guard let settings else { return }
             for await enabled in ObservationStream({ settings.snapshot.browserBuiltInAdBlocker }) { cef?.builtInAdBlocker = enabled }

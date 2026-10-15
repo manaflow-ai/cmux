@@ -22,6 +22,7 @@ UBLOCK_ID="cjpalhdlnbpafiamejdnhcphjbkeiagm"
 UBLOCK_ZIP_URL="https://github.com/gorhill/uBlock/releases/download/${UBLOCK_VERSION}/uBlock0_${UBLOCK_VERSION}.chromium.zip"
 UBLOCK_ZIP_SHA256="393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582"
 UBLOCK_SOURCE_URL="https://github.com/gorhill/uBlock/archive/refs/tags/${UBLOCK_VERSION}.tar.gz"
+UBLOCK_SOURCE_SHA256="a518c7d6e6b3f81d1a738befeb617abba59f93bd6b1e626da079a1003e9db52b"
 # The Web Store listing's public key (same value cmux-browser pins).
 UBLOCK_PUBLIC_KEY_BASE64="MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmJNzUNVjS6Q1qe0NRqpmfX/oSJdgauSZNdfeb5RV1Hji21vX0TivpP5gq0fadwmvmVCtUpOaNUopgejiUFm/iKHPs0o3x7hyKk/eX0t2QT3OZGdXkPiYpTEC0f0p86SQaLoA2eHaOG4uCGi7sxLJmAXc6IsxGKVklh7cCoLUgWEMnj8ZNG2Y8UKG3gBdrpES5hk7QyFDMraO79NmSlWRNgoJHX6XRoY66oYThFQad8KL8q3pf3Oe8uBLKywohU0ZrDPViWHIszXoE9HEvPTFAbHZ1umINni4W/YVs+fhqHtzRJcaKJtsTaYy+cholu5mAYeTZqtHf6bcwJ8t9i2afwIDAQAB"
 
@@ -33,7 +34,7 @@ stage() {
 import base64, hashlib, json, os, shutil, stat, sys, tempfile, urllib.request, zipfile
 from pathlib import Path, PurePosixPath
 
-(target, version, ext_id, zip_url, zip_sha, source_url, key_b64) = sys.argv[1:8]
+(target, version, ext_id, zip_url, zip_sha, source_url, key_b64, source_sha) = sys.argv[1:9]
 target = Path(target)
 
 def ext_id_for(key: bytes) -> str:
@@ -87,18 +88,27 @@ try:
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     (root / ".cmux-extension-source.json").write_text(json.dumps({
         "name": "uBlock Origin", "version": version, "id": ext_id, "license": "GPL-3.0-only",
-        "zip_url": zip_url, "zip_sha256": zip_sha, "source_url": source_url,
+        "zip_url": zip_url, "zip_sha256": zip_sha, "source_url": source_url, "source_sha256": source_sha,
         "manifest_key": "Chrome Web Store public key (stable id)"}, indent=2) + "\n")
     (root / "SOURCE.txt").write_text(
         f"uBlock Origin {version} (https://github.com/gorhill/uBlock), GPL-3.0.\n"
-        f"Corresponding source: {source_url}\n"
+        f"Corresponding source: {source_url} (sha256 {source_sha})\n"
         f"Unmodified release build: {zip_url} (sha256 {zip_sha}).\n"
-        "cmux changes: the manifest's \"key\" field only (keeps the Chrome Web Store extension id).\n")
+        "cmux changes: the manifest's \"key\" field only (keeps the Chrome Web Store extension id).\n"
+        "Bundled libraries (lib/) and filter lists (assets/) keep their own licenses: see the\n"
+        "LICENSE files beside them and the source tree above (EasyList and EasyPrivacy are\n"
+        "dual-licensed GPL-3.0 / CC BY-SA 3.0; Peter Lowe's list and the URLhaus filter carry\n"
+        "their own terms in assets/thirdparties/).\n")
     if not (root / "LICENSE.txt").exists():
         sys.exit("the release ZIP carries no LICENSE.txt")
+    # Concurrent builds share this cache: a staged copy moves in with one
+    # rename; a valid copy another build put there first wins.
     target.parent.mkdir(parents=True, exist_ok=True)
+    if receipt_ok(target):
+        print(target)
+        sys.exit(0)
     if target.exists():
-        shutil.rmtree(target)
+        os.replace(target, work / "old")
     os.replace(root, target)
 finally:
     shutil.rmtree(work, ignore_errors=True)
@@ -109,4 +119,4 @@ PY
 }
 
 mkdir -p "$cache_root"
-stage "$target" "$UBLOCK_VERSION" "$UBLOCK_ID" "$UBLOCK_ZIP_URL" "$UBLOCK_ZIP_SHA256" "$UBLOCK_SOURCE_URL" "$UBLOCK_PUBLIC_KEY_BASE64"
+stage "$target" "$UBLOCK_VERSION" "$UBLOCK_ID" "$UBLOCK_ZIP_URL" "$UBLOCK_ZIP_SHA256" "$UBLOCK_SOURCE_URL" "$UBLOCK_PUBLIC_KEY_BASE64" "$UBLOCK_SOURCE_SHA256"

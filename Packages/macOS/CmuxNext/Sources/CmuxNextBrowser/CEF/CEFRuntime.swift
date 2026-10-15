@@ -90,6 +90,8 @@ final class CEFRuntime {
     private(set) var loadsUnpackedExtensions = false
     /// Bundled extensions to load at start (`browser.builtInAdBlocker`).
     var builtInExtensions = CEFBuiltInExtensions(adBlockerEnabled: true)
+    /// True when this Chromium started with the built-in uBlock Origin.
+    private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
@@ -307,6 +309,7 @@ final class CEFRuntime {
             environment: environment,
             builtInExtensions: builtInExtensions.folders(resources: Bundle.main.resourceURL)
         )
+        builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)

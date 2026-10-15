@@ -20,7 +20,9 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     func folders(resources: URL?, fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String] {
         guard adBlockerEnabled, let resources else { return [] }
         let manifest = resources.appendingPathComponent(Self.adBlockerFolder).appendingPathComponent("manifest.json").path
-        guard fileExists(manifest) else { return [] }
-        return [resources.appendingPathComponent(Self.adBlockerFolder).path]
+        let folder = resources.appendingPathComponent(Self.adBlockerFolder).path
+        // Chromium splits --load-extension on commas.
+        guard fileExists(manifest), !folder.contains(",") else { return [] }
+        return [folder]
     }
 }
