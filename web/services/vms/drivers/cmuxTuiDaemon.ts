@@ -139,10 +139,12 @@ export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/la
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
 /**
- * CMUX_VM_CMUX_TUI_MANIFEST_URL pins a deployment to one commit's manifest
+ * CMUX_VM_CMUX_TUI_MANIFEST_URL pins the image scripts (bake, verify, reachability,
+ * BusyBox probe) to one commit's manifest
  * (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`) instead of the rolling
- * `latest`. Nothing else is configured by hand: the build and its sha256 come from
- * the manifest the artifacts workflow publishes.
+ * `latest`; the server never installs cmux-tui, so a deployment ignores it. Nothing
+ * else is configured by hand: the build and its sha256 come from the manifest the
+ * artifacts workflow publishes.
  */
 export function cmuxTuiManifestUrl(provider: ProviderId = "freestyle"): string {
   const url = process.env.CMUX_VM_CMUX_TUI_MANIFEST_URL?.trim() || CMUX_TUI_DEFAULT_MANIFEST_URL;

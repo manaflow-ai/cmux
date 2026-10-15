@@ -10,6 +10,7 @@ import { hasProviderGuestUnresponsiveCause, isProviderHangCause } from "./driver
 import { VmOperationDeadlineError, type VmWorkflowError } from "./errors";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { scrubErrorForLog } from "../observability/report";
+import { forceFlushTraces, withPrioritySpan, type MaybeAttributes } from "../telemetry";
 import { currentVmRequestContext } from "./requestContext";
 
 /**
@@ -28,9 +29,10 @@ import { currentVmRequestContext } from "./requestContext";
  * through `after()` until the route's maxDuration, then it is interrupted.
  * A mutation answers `vm_operation_in_progress` so the caller checks status
  * before retrying: pause reconciles on the provider's raw pause state, resume
- * waits out a start already under way, destroy tolerates a machine already
- * gone, snapshot and resize refuse a concurrent duplicate, and create-likes
- * reuse the Idempotency-Key.
+ * waits out a start already under way, destroy tolerates a machine already gone,
+ * snapshot and resize refuse a concurrent duplicate, and create-likes reuse
+ * the Idempotency-Key. Restart remains unsupported until the provider has a
+ * hard-reboot contract with completion and duplicate-request semantics.
  */
 
 /** Time left for the response to reach the client after the route answers. */
@@ -91,6 +93,8 @@ export const VM_ROUTE_DEADLINES = {
   restore: { clientTimeoutMs: 960_000, maxDurationMs: 600_000, mutating: true },
   /** VMClient.updateNetworkPolicy 60 s. */
   networkUpdate: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
+  /** Provider-level recovery for a frozen machine; it never waits on guest exec. */
+  restart: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
   /** No native caller; the 60 s URLRequest default. */
   filesWrite: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
   /** Mac VMClient.resize and CLI 120 s. */
@@ -196,6 +200,19 @@ export function continueAfterResponse(work: Promise<unknown>, label: string): vo
   }
 }
 
+/**
+ * Keeps a continuation span's export alive past the response through after().
+ * The promise never rejects; outside a request scope (tests, scripts) there is
+ * no function to keep alive, so it simply runs detached.
+ */
+function flushAfterResponse(flush: Promise<void>): void {
+  try {
+    after(() => flush);
+  } catch {
+    void flush;
+  }
+}
+
 /** Most continuations one function instance runs at once (see withVmAnswerDeadline). */
 export const VM_MAX_BACKGROUND_CONTINUATIONS = 64;
 
@@ -235,10 +252,33 @@ export function createBackgroundContinuations(cap: number = VM_MAX_BACKGROUND_CO
 export const backgroundContinuations: BackgroundContinuations = createBackgroundContinuations();
 
 /** One structured line per continuation outcome: route, outcome, and its cause or limit. */
-export function logContinuationResult(label: string, outcome: string, detail: Record<string, unknown> = {}): void {
+export function logContinuationResult(label: string, outcome: string, detail: Record<string, unknown> = {}): Promise<void> {
   const line = JSON.stringify({ route: label, outcome, ...detail });
   if (outcome === "completed" || outcome === "superseded") console.info("[vm-route-deadline] continuation", line);
   else console.error("[vm-route-deadline] continuation", line);
+  return recordContinuationSpan(label, outcome, detail);
+}
+
+/**
+ * The continuation's result as its own (priority-sampled) span, so outcomes
+ * and stops at maxDuration are queryable: the route's request span has
+ * already ended when a continuation finishes, and console lines are not
+ * shipped to the trace store. The background path awaits the returned flush
+ * inside after(), so a serverless freeze cannot drop the span; it never rejects.
+ */
+function recordContinuationSpan(label: string, outcome: string, detail: Record<string, unknown>): Promise<void> {
+  const attributes: MaybeAttributes = {
+    "cmux.vm.continuation.route": label,
+    "cmux.vm.continuation.outcome": outcome,
+  };
+  for (const [key, value] of Object.entries(detail)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      attributes[`cmux.vm.continuation.${key}`] = value;
+    }
+  }
+  return withPrioritySpan("cmux-vm", "cmux.vm.continuation", attributes, () => undefined)
+    .then(async () => { await forceFlushTraces(); })
+    .catch(() => undefined);
 }
 
 /** The failure's name and message, credential-scrubbed (no stacks, no provider bodies). */
@@ -303,7 +343,7 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     if (options.continuationKey !== undefined && continuations.hasKey(options.continuationKey)) {
       // The same re-entrant operation on the same machine is already running
       // in the background: this retry adds no second continuation.
-      logContinuationResult(options.label, "superseded", log);
+      flushAfterResponse(logContinuationResult(options.label, "superseded", log));
       yield* Fiber.interruptFork(fiber);
       return yield* options.onDeadline();
     }
@@ -313,14 +353,14 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
       // time the work would have had in the background.
       const inline = yield* Fiber.await(fiber).pipe(Effect.timeout(options.continueForMs), Effect.option);
       if (Option.isNone(inline)) {
-        logContinuationResult(options.label, "inline_stopped_at_max_duration", { ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS });
+        flushAfterResponse(logContinuationResult(options.label, "inline_stopped_at_max_duration", { ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS }));
         yield* Fiber.interruptFork(fiber);
         return yield* options.onDeadline();
       }
-      logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
+      flushAfterResponse(logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
         ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS,
         ...(inline.value._tag === "Failure" ? { cause: summarizeCause(inline.value.cause) } : {}),
-      });
+      }));
       return yield* inline.value;
     }
     // Each continuation owns only its own fiber: it holds no lock or permit a
@@ -331,12 +371,14 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     const bounded = Fiber.await(fiber).pipe(
       Effect.timeout(options.continueForMs),
       Effect.matchCauseEffect({
-        onSuccess: (finished) => Effect.sync(() => logContinuationResult(options.label, finished._tag === "Success" ? "completed" : "failed", {
+        onSuccess: (finished) => Effect.promise(() => logContinuationResult(options.label, finished._tag === "Success" ? "completed" : "failed", {
           ...log,
           ...(finished._tag === "Failure" ? { cause: summarizeCause(finished.cause) } : {}),
         })),
-        onFailure: () => Effect.sync(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))
-          .pipe(Effect.andThen(Fiber.interruptFork(fiber))),
+        // Stop the work first, so nothing it does lands after the recorded stop.
+        onFailure: () => Fiber.interruptFork(fiber).pipe(
+          Effect.andThen(Effect.promise(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))),
+        ),
       }),
       Effect.ensuring(Effect.sync(() => continuations.release(key))),
     );
@@ -363,8 +405,9 @@ export function isVmProviderHang(error: VmWorkflowError): boolean {
 
 /**
  * A hung mutation that may still complete at the provider. A stuck guest
- * (#19307's vm_guest_unresponsive) is excluded: that answer names the
- * machine and its restart action on every route.
+ * (#19307's vm_guest_unresponsive) is excluded: that answer preserves the
+ * machine and gives support guidance instead of claiming an unverified
+ * recovery operation.
  */
 function isUnfinishedMutation(error: VmWorkflowError): boolean {
   return isVmProviderHang(error) && !(error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause));

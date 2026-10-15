@@ -1995,7 +1995,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             _ = appDelegate.performNewWorkspaceAction(
                 tabManager: context.tabManager,
                 debugSource: "titlebar.accessoryNewWorkspace",
-                skipConfiguredAction: true
+                localOnly: true
             )
         }
         let focusHistoryBack = {
