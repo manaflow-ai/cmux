@@ -20,16 +20,12 @@ nonisolated enum AcpmuxPaneMethods {
     public static let requests: Set<String> = [
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
-        // acpmux extensions (direct.ts).
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
-        // A sent prompt's image (direct.ts promptImage, promptAttachments): a read like
-        // `_acpmux/events`, which acpmux answers only for an image the chat's own log names, by its
-        // content hash (never a path).
-        "_acpmux/attachment",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
