@@ -59,12 +59,16 @@ pub fn serve_terminal_host_stdio(
 
     let stopping = shared.clone();
     host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
-    // A plain SIGTERM ends an orphaned host (no client stream for a while:
-    // its daemon is gone); a host its daemon still serves, or one in a short
-    // reconnect gap, records and survives it.
+    // In a build with an orphan grace (tagged DEV, staging, debug), a plain
+    // SIGTERM ends an orphaned host (no client stream for a while: its
+    // daemon is gone); a host its daemon still serves, or one in a short
+    // reconnect gap, records and survives it. A normal install's host has
+    // no orphan grace and survives every stray SIGTERM: only an explicit
+    // close or a service-manager stop (PID 1) ends it (cx-t2sqm.17).
     let watched = shared.clone();
     host_signals::on_orphan_check(Box::new(move || {
-        watched.active_client_streams.load(Ordering::Acquire) == 0
+        host_orphan_grace().is_some()
+            && watched.active_client_streams.load(Ordering::Acquire) == 0
             && orphaned_for(HOST_SIGTERM_ORPHAN_MIN)
     }));
     let endpoint = PathBuf::from(&launch.endpoint);
