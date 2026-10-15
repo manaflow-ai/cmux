@@ -10,7 +10,7 @@
 //     most 12 px;
 //   - no label is cut while the row has free space, and a short row cuts by priority: the
 //     permission labels go to icons first, then effort shortens, the model last;
-//   - the folder and computer controls sit whole inside the location strip on the card's top edge
+//   - the folder and computer controls sit whole inside the location strip just above the card's top edge
 //     (hq#1957 composer location strip; composer-location-strip.test.ts measures the strip itself).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -212,9 +212,9 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         // At a normal and a wide pane every label of Leo's row shows whole.
         if (width >= 720 && variant !== "long-model" && cut.length > 0)
           problems.push(`${cut.join(", ")} cut at ${width} px`);
-        // The location strip heads the card, its controls whole inside it.
-        if (Math.abs(measured.footer.bottom - measured.box.top) > 1)
-          problems.push("the strip is not on the card's top edge");
+        // The location strip heads the card a few px above its top edge, its controls whole inside it.
+        const stripGap = measured.box.top - measured.footer.bottom;
+        if (stripGap < 2 || stripGap > 6) problems.push("the strip is not just above the card's top edge");
         for (const control of measured.footerControls) {
           if (control.top < measured.footer.top - 0.5 || control.bottom > measured.footer.bottom + 0.5)
             problems.push("a strip control runs out of the strip");
