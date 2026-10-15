@@ -150,6 +150,9 @@ private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
     @Test func closingRestoresThePageAndFrontendDockChoicesMove() throws {
         let h = Harness()
         h.open()
+        // The frontend's first report on load is its saved preference; the pane's layout wins.
+        h.controller.engineDidChooseDockSide(3)
+        #expect(h.controller.state.dock == .bottom)
         h.controller.engineDidChooseDockSide(1)
         #expect(h.controller.state.dock == .left)
         h.controller.engineDidChooseDockSide(9)

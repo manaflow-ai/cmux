@@ -37,6 +37,9 @@ public final class BrowserDevToolsPaneController {
     private let makeHostView: () -> NSView
     /// Between the engine's will-open and opened events: the layout keeps room.
     private var opening = false
+    /// The DevTools frontend reports its own saved dock side once when it loads (Chrome's
+    /// default is right); the pane's remembered layout wins over that first report.
+    private var awaitsFrontendDockReport = false
     /// The docked tools' parent view and the divider, while the engine shows tools in a cmux view.
     private var views: (host: NSView, divider: BrowserDevToolsDividerView)?
     private var window: (any BrowserDevToolsWindowHosting)?
@@ -211,6 +214,7 @@ public final class BrowserDevToolsPaneController {
     ///   window).
     public func engineDidOpenDevTools(docked: Bool) {
         opening = false
+        awaitsFrontendDockReport = true
         state = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
         // The engine put DevTools in its own window after all: keep no empty docked area.
@@ -231,7 +235,13 @@ public final class BrowserDevToolsPaneController {
     /// The user picked a dock side in the DevTools frontend menu (cmux fork dock-side event).
     /// - Parameter forkSide: The fork's side value.
     public func engineDidChooseDockSide(_ forkSide: Int) {
-        guard state.isOpen, let dock = BrowserDevToolsDock(forkSide: forkSide), dock != state.dock else { return }
+        guard state.isOpen else { return }
+        if awaitsFrontendDockReport {
+            // The frontend's restored preference, not a choice: keep the pane's layout.
+            awaitsFrontendDockReport = false
+            return
+        }
+        guard let dock = BrowserDevToolsDock(forkSide: forkSide), dock != state.dock else { return }
         perform(.dock(dock))
     }
 

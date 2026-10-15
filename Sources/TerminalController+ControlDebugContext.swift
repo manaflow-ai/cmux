@@ -375,6 +375,49 @@ extension TerminalController: ControlDebugContext {
         }
     }
 
+    func controlDebugBrowserFind(params: [String: JSONValue]) -> ControlCallResult {
+        let needle = params["needle"].flatMap { value -> String? in
+            if case let .string(text) = value { return text }
+            return nil
+        }
+        let action = params["action"].flatMap { value -> String? in
+            if case let .string(text) = value { return text }
+            return nil
+        }
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
+            if let needle {
+                if browserPanel.searchState == nil { browserPanel.startFind() }
+                browserPanel.searchState?.needle = needle
+            }
+            switch action {
+            case "next": browserPanel.findNext()
+            case "previous": browserPanel.findPrevious()
+            case "close": browserPanel.hideFind()
+            default: break
+            }
+            let state = browserPanel.searchState
+            return .ok([
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "engine": browserPanel.engineKind.rawValue,
+                "open": state != nil,
+                "needle": state?.needle ?? "",
+                "total": v2OrNull(state?.total.map { Int($0) }),
+                "selected": v2OrNull(state?.selected.map { Int($0) }),
+            ])
+        }
+        switch result {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(
+                code: code,
+                message: message,
+                data: data.flatMap { JSONValue(foundationObject: $0) }
+            )
+        }
+    }
+
     // MARK: - debug.right_sidebar.focus / debug.sidebar.visible
 
     func controlDebugRightSidebarFocus(
