@@ -1252,7 +1252,7 @@ struct BrowserPanelView: View {
                             reset: { _ = panel.resetZoomResult() }
                         )
                     }
-                    if activeToolbarMode != .design {
+                    if activeToolbarMode != .design, supportsDesignMode {
                         BrowserDesignModeToolbarButton(
                             controller: panel.designModeController,
                             iconPointSize: devToolsButtonIconSize,
@@ -1493,6 +1493,12 @@ struct BrowserPanelView: View {
         }
     }
 
+    /// Design Mode runs on WebKit only. A Chromium panel hides its button and
+    /// menu row instead of showing them dimmed (design spec §0.10).
+    private var supportsDesignMode: Bool {
+        panel.enginePage == nil
+    }
+
     private var activeToolbarModeCanToggle: Bool {
         switch activeToolbarMode {
         case .focus:
@@ -1634,11 +1640,13 @@ struct BrowserPanelView: View {
             BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
             if isChromeCompact {
                 Divider()
-                BrowserDesignModeOverflowMenuButton(
-                    controller: panel.designModeController,
-                    onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
-                )
-                .accessibilityIdentifier("BrowserOverflowDesignModeButton")
+                if supportsDesignMode {
+                    BrowserDesignModeOverflowMenuButton(
+                        controller: panel.designModeController,
+                        onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
+                    )
+                    .accessibilityIdentifier("BrowserOverflowDesignModeButton")
+                }
                 Button(action: openDevTools) {
                     Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
                 }
