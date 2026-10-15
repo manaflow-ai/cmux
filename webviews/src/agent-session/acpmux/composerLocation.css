@@ -381,55 +381,40 @@
 .acpmux-composer-bar > :not(.acpmux-chips),
 .acpmux-composer-bar .acpmux-chips > * { flex: none; }
 .acpmux-composer-bar .acpmux-picker-button > * { flex: none; }
-/* The row swaps whole units as the pane narrows (composerRowFit.ts COMPOSER_FIT_STEPS, the
-   compact-composer verdict): the access label at 460 px, Fast at 400, the mic and the model's full
-   name (for its family) at 340, the model's name and the effort suffix (for the mark alone) at 300.
-   A unit's part shows in the forms its data-fit-forms lists; a part of another form is laid out of
-   the row, absolute and invisible, so composerRowFit.ts still knows its width, and its control
-   clips it so it adds no scroll width. The container queries are the pane's widths (literals:
+/* The row swaps whole units as the pane narrows (composerRowFit.ts COMPOSER_FIT_STEPS): the
+   access label at 460 px, effort's short name ("Med") at 400, the mic and the model's full name
+   (for its family) at 340, the model's name (for its mark alone) at 300. A unit's part shows in the
+   forms its data-fit-forms lists; a part of another form is laid out of the row, absolute and
+   invisible, so composerRowFit.ts still knows its width, and its control clips it so it adds no
+   scroll width. The container queries are the pane's widths (literals:
    test/composer-fit-steps.test.ts holds them to the table); composerRowFit.ts marks the row with
-   data-fit-<unit> when a label is too long for its width's step. The short labels and the suffix
-   are drawn from data-label, so a chip's text stays its full value. */
+   data-fit-<unit> when a label is too long for its width's step. The short labels are drawn from
+   data-label, so a chip's text stays its full value. */
 .acpmux-main, .acpmux-quick { container: acpmux-pane / inline-size; }
 [data-fit-part]:not([data-fit-forms~="full"]),
-.acpmux-model-short,
-.acpmux-model-suffix { display: none; }
+.acpmux-model-short { display: none; }
 .acpmux-composer-bar .acpmux-picker-button { position: relative; overflow: clip; }
 .acpmux-composer-bar .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
 .acpmux-composer-bar .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
 .acpmux-composer-bar .acpmux-model-name[data-short] { display: none; }
 .acpmux-composer-bar .acpmux-model-short { color: var(--agent-text); }
-.acpmux-composer-bar .acpmux-model-suffix { color: var(--agent-muted); }
 .acpmux-fit-label::before { content: attr(data-label); }
 .acpmux-composer-bar .acpmux-composer-actions { position: relative; }
 .acpmux-fit-mic { display: inline-flex; }
 /* A mic hidden from the row by its menu leaves no empty slot (and no gap) before Send. */
 .acpmux-fit-mic:empty { display: none; }
-/* Effort rides in the model chip; its own menu stays mounted for the chip's menu and automation to
-   open (Reasoning in the model menu, openPicker), anchored at the chips' start, out of sight. */
-.acpmux-composer-bar .acpmux-chips { position: relative; }
-.acpmux-composer-bar .acpmux-chips > .acpmux-effort {
-  position: absolute;
-  inset-inline-start: 0;
-  bottom: 0;
-  width: 1px;
-  height: 28px;
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
-}
-.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"] {
+.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"],
+.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"][data-fit-forms~="short"] {
   position: static;
   visibility: visible;
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
-.acpmux-composer-bar[data-fit-fast="hidden"] [data-fit-part="fast"]:not([data-fit-forms~="hidden"]),
+.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
 .acpmux-composer-bar[data-fit-mic="hidden"] [data-fit-part="mic"]:not([data-fit-forms~="hidden"]),
 .acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
-.acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]),
-.acpmux-composer-bar[data-fit-effort="hidden"] [data-fit-part="effort"]:not([data-fit-forms~="hidden"]) {
+.acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
   position: absolute;
   top: 0;
   inset-inline-start: 0;
@@ -446,7 +431,12 @@
   }
 }
 @container acpmux-pane (max-width: 400px) {
-  .acpmux-composer-bar [data-fit-part="fast"]:not([data-fit-forms~="hidden"]) {
+  .acpmux-composer-bar [data-fit-part="effort"][data-fit-forms~="short"] {
+    position: static;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .acpmux-composer-bar [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -470,8 +460,7 @@
   }
 }
 @container acpmux-pane (max-width: 300px) {
-  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="icon"]),
-  .acpmux-composer-bar [data-fit-part="effort"]:not([data-fit-forms~="hidden"]) {
+  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;

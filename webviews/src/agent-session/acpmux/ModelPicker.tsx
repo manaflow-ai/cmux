@@ -237,7 +237,6 @@ export function ModelPicker(props: ModelPickerProps) {
     harness,
     label,
     chip,
-    effortMenu,
     switching,
     onLand,
     onHarness,
@@ -722,22 +721,6 @@ export function ModelPicker(props: ModelPickerProps) {
             data-label={chipFamily}
           />
         )}
-        {rowChip?.fast && (
-          <span
-            className="acpmux-model-suffix acpmux-fit-label"
-            data-fit-part="fast"
-            data-fit-forms="full"
-            data-label={rowChip.fast}
-          />
-        )}
-        {rowChip?.effort && (
-          <span
-            className="acpmux-model-suffix acpmux-fit-label"
-            data-fit-part="effort"
-            data-fit-forms="full"
-            data-label={rowChip.effort}
-          />
-        )}
         <ChevronIcon />
       </PickerButton>
       {open && (
@@ -1019,23 +1002,6 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
-            {effortMenu && (
-              // Effort rides in the chip, so its menu opens from here (the effort menu's own rows).
-              <div className="flex-none border-t-[0.5px] border-edge p-1.5">
-                <button
-                  type="button"
-                  className={`acpmux-mp-effort ${modelRow} ${rowFill(false)} justify-between`}
-                  aria-haspopup="menu"
-                  onClick={() => {
-                    close(false);
-                    requestAnimationFrame(() => effortMenu.open());
-                  }}
-                >
-                  <span>{effortMenu.title}</span>
-                  <span className="text-detail text-dim">{effortMenu.value}</span>
-                </button>
-              </div>
-            )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">
                 <button

@@ -2,17 +2,17 @@
 // Effort and the permission chip while the model and effort chips truncated ("Claude Opu…",
 // "Med…"), and the folder footer cut at the card's bottom edge. In the gallery's
 // `agent-pane.composer-row` entry at a narrow, a normal and a wide pane:
-//   - the controls are two clusters: + model (effort in its chip) access on the left, mic and Send (or Stop)
+//   - the controls are two clusters: + model effort access on the left, mic and Send (or Stop)
 //     on the right; the row's free space sits only between the two;
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
 //     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
 //     to 12 px, centred in a solid text-colored disc with a base-colored square (Q4-B: the faint
 //     disc read as a disabled Send);
-//   - no label is dropped while the row has free space (composer-row-steps.test.ts checks the
-//     steps a short row takes: the permission label first, then short labels, then icons);
-//   - the folder and computer controls sit whole inside the location strip on the card's top edge
-//     (hq#1957 composer location strip; composer-location-strip.test.ts measures the strip itself).
+//   - no label is cut while the row has free space, and a short row cuts by priority: the
+//     permission labels go to icons first, then effort shortens, the model last;
+//   - these chats have started, so no location strip heads the card (a new chat's strip is
+//     composer-location-strip.test.ts's).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -25,8 +25,7 @@ type Rect = { left: number; right: number; top: number; bottom: number; width: n
 type Row = {
   bar: Rect;
   box: Rect;
-  footer: Rect;
-  footerControls: Rect[];
+  footer: Rect | null;
   /** Left cluster controls in order, with the free space after the last one. */
   left: { name: string; rect: Rect }[];
   right: Rect;
@@ -62,10 +61,11 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       element instanceof HTMLElement && element.getBoundingClientRect().width > 0;
     const bar = document.querySelector(".acpmux-composer-bar")!;
     const box = document.querySelector(".acpmux-composer-box")!;
-    const footer = document.querySelector(".acpmux-composer-strip")!;
+    const footer = document.querySelector(".acpmux-composer-strip");
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
+      ["effort", ".acpmux-effort .acpmux-picker-button"],
       ["access", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
     ];
@@ -105,17 +105,13 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     return {
       bar: rect(bar),
       box: rect(box),
-      footer: rect(footer),
-      footerControls: [...footer.querySelectorAll(".acpmux-location-button, .acpmux-location-readonly")].map(rect),
+      footer: footer && rect(footer),
       left,
       right: rect(bar.querySelector(".acpmux-composer-actions")!),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
-        model: label(
-          ".acpmux-model .acpmux-picker-button",
-          '[data-fit-part="model"][data-fit-forms~="full"]',
-          ".acpmux-model",
-        ),
+        model: label(".acpmux-model .acpmux-picker-button", ".acpmux-model-name", ".acpmux-model"),
+        effort: label(".acpmux-effort .acpmux-picker-button", "span", ".acpmux-effort"),
         access: label(".acpmux-access-trigger", ".acpmux-mode-text", ".acpmux-access"),
       },
       spinners: [
@@ -193,7 +189,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
     await page.evaluate(() => document.fonts.ready);
     const measured = await page.evaluate(measure);
     await page.close();
@@ -202,7 +198,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
 
   for (const variant of ["claude-auto", "long-model", "granted", "queued"])
     for (const width of [420, 720, 1100])
-      test(`${variant} at ${width} px: two clusters, cut by priority, strip whole`, async () => {
+      test(`${variant} at ${width} px: two clusters, cut by priority, no location strip`, async () => {
         const measured = await row(variant, width);
         const { left, right, labels, barGap } = measured;
         const names = left.map((control) => control.name);
@@ -213,31 +209,26 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           if (gap > barGap + 0.5)
             problems.push(`${Math.round(gap)} px gap between ${names[index - 1]} and ${names[index]}`);
         }
-        // The permission mode follows the model (effort rides in its chip), in the left cluster.
-        if (names.indexOf("access") < names.indexOf("model"))
-          problems.push(`access is not after the model: ${names.join(", ")}`);
+        // The permission mode follows effort directly, in the left cluster.
+        if (names.indexOf("access") < names.indexOf("effort"))
+          problems.push(`access is not after effort: ${names.join(", ")}`);
         // The free space is only between the clusters; a cut label means there is none.
         const free = right.left - left.at(-1)!.rect.right - barGap;
-        // A label dropped for its short form or icon is a step, in the collapse order
-        // (composer-row-steps.test.ts); a label overflowing its box is a cut.
+        // A label dropped for its icon is a step: the row may keep less than that label's width.
         const cut = Object.entries(labels).flatMap(([name, label]) => (label?.cut ? [name] : []));
         for (const name of cut)
-          if (!labels[name]!.dropped && free > 1)
+          if (labels[name]!.dropped ? free >= labels[name]!.need - 0.5 : free > 1)
             problems.push(`${name} cut with ${Math.round(free)} px free in the row`);
-        // Priority: the permission label goes first (composer-row-steps.test.ts checks the rest).
-        if (labels.model?.cut && labels.access?.cut === false)
-          problems.push("the model is cut while the permission label shows");
+        // Priority: the permission label goes first, then effort, the model last.
+        if (labels.effort?.cut && labels.access?.cut === false)
+          problems.push("effort is cut while the permission label shows");
+        if (labels.model?.cut && (labels.effort?.atMin === false || labels.access?.cut === false))
+          problems.push("the model is cut before effort and the permission label");
         // At a normal and a wide pane every label of Leo's row shows whole.
         if (width >= 720 && variant !== "long-model" && cut.length > 0)
           problems.push(`${cut.join(", ")} cut at ${width} px`);
-        // The location strip heads the card, its controls whole inside it.
-        if (Math.abs(measured.footer.bottom - measured.box.top) > 1)
-          problems.push("the strip is not on the card's top edge");
-        for (const control of measured.footerControls) {
-          if (control.top < measured.footer.top - 0.5 || control.bottom > measured.footer.bottom + 0.5)
-            problems.push("a strip control runs out of the strip");
-          if (control.left < measured.footer.left - 0.5) problems.push("a strip control runs out of the strip's side");
-        }
+        // A started chat cannot change its folder or machine: no location strip heads the card.
+        if (measured.footer) problems.push("a started chat draws the location strip");
         expect(problems).toEqual([]);
       });
 

@@ -1,10 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample chats and model names), not shipped UI.
-// The composer's controls row and its footer (Composer.tsx, ComposerPickers.tsx, composerLocation.css)
+// The composer's controls row (Composer.tsx, ComposerPickers.tsx, composerLocation.css)
 // at the widths a chat pane takes (hq#1957 item 15): a left cluster (+, model, effort, the
 // permission mode, 8 px apart) and a right cluster (mic, Send or Stop), with the row's free space only
 // between the two; chips keep their full labels while the row has room, and a narrow pane drops
-// the permission label first, then shortens effort, and the model last. The folder and computer
-// footer stays whole inside the card at every width. test/composer-row-layout.test.ts measures it.
+// the permission label first, then shortens effort, and the model last. These chats have started, so
+// no location strip heads the card (locationRow.ts). test/composer-row-layout.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "./model";
@@ -94,11 +94,11 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 300,
   widths: { narrow: 420, normal: 720, wide: 1100 },
-  anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-context" }],
+  anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-box" }],
   covers: ["agent-session/acpmux/Composer.tsx#Composer", "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
   variants: {
     "claude-auto": {
-      note: "Claude Opus 5.5, Medium and Auto in one evenly spaced left cluster; mic and Send on the right; the footer whole.",
+      note: "Claude Opus 5.5, Medium and Auto in one evenly spaced left cluster; mic and Send on the right.",
       snapshot: row(),
     },
     "long-model": {
@@ -106,7 +106,7 @@ export default agentPaneEntry({
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },
     },
     "leo-report": {
-      note: "Claude Opus 5.5 with Fast mode, Medium and Auto: a narrower pane swaps whole units (the mode's label, Fast, the mic, the model's family, its mark alone), never an ellipsis.",
+      note: "Claude Opus 5.5 with Fast mode, Medium and Auto: a narrower pane swaps whole units (effort's short name, the model's family, its mark alone, then the mode's label and the mic), never an ellipsis; effort stays a chip of its own.",
       snapshot: {
         ...row({}, { configOptions: [effort, fastMode], modes }),
         catalog: leoCatalog,

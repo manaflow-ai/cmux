@@ -10,7 +10,7 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
-import { EffortPicker, type SpeedSection } from "./EffortPicker";
+import { EffortLabel, EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -24,7 +24,7 @@ import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
-import { openPicker, registerPicker } from "./pickerOpeners";
+import { registerPicker } from "./pickerOpeners";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -473,9 +473,9 @@ export function ComposerPickers({
     if (!awaiting && chipHarness && summary?.sessionId && (effortShown || modeLabel))
       rememberLastChips(chipHarness, { effort: effortShown, mode: modeLabel, modeId });
   }, [awaiting, chipHarness, summary?.sessionId, effortShown, modeLabel, modeId]);
-  // The model chip in the controls row (composerRowFit.ts, the compact-composer verdict): the name
-  // without its vendor ("Opus 5.5": the catalog's short name, else the name less its harness's
-  // vendor word), its family for a narrow row ("Opus"), and effort as a dim suffix ("Fast Med").
+  // The controls row's short forms (composerRowFit.ts): the model's name without its vendor
+  // ("Opus 5.5": the catalog's short name, else the name less its harness's vendor word), its
+  // family for a narrow row ("Opus"), and the effort level's short name ("Med").
   const chipEntry = pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness);
   const modelShort = modelName
     ? shortModelName(
@@ -484,33 +484,12 @@ export function ComposerPickers({
         chipEntry?.name ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.name,
       )
     : undefined;
-  const offersLevels = effort !== undefined && efforts.length > 1;
-  const levelShown = offersLevels && effortChoice && !isDefaultChoice(effortChoice) ? effortChoice : undefined;
-  const shortLevelKey = levelShown ? SHORT_LEVEL_KEYS[levelShown.id] : undefined;
-  const effortSuffix = ultracodeOn
-    ? effortLabel
-    : levelShown
-      ? shortLevelKey
-        ? t(shortLevelKey)
-        : levelShown.name
-      : !offersLevels && pendingEffort
-        ? shortLevelName(pendingEffort, t)
-        : undefined;
-  const fastOnNow = fastMode !== undefined && fastMode.currentValue === fastMode.onValue;
-  const fastWord = fastOnNow ? t("picker.chipFast") : undefined;
   const modelShown = modelShort ?? modelName;
+  const familyShown = modelFamily(modelShown ?? "");
   const modelChip = modelName
-    ? {
-        ...(modelShort ? { short: modelShort } : {}),
-        ...(modelFamily(modelShown ?? "") ? { family: modelFamily(modelShown ?? "") } : {}),
-        ...(fastWord ? { fast: fastWord } : {}),
-        ...(effortSuffix ? { effort: effortSuffix } : {}),
-        title: [modelShown, fastWord, offersLevels ? effortLabel : pendingEffort].filter(Boolean).join(" "),
-      }
+    ? { ...(modelShort ? { short: modelShort } : {}), ...(familyShown ? { family: familyShown } : {}), title: modelName }
     : undefined;
-  const effortMenu = offersLevels
-    ? { title: t("picker.reasoning"), value: effortLabel ?? "", open: () => openPicker(t(PICKER_LABELS.effort)) }
-    : undefined;
+  const shortLevelKey = !ultracodeOn && effortChoice ? SHORT_LEVEL_KEYS[effortChoice.id] : undefined;
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -526,7 +505,6 @@ export function ComposerPickers({
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
           {...(modelChip ? { chip: modelChip } : {})}
-          {...(effortMenu ? { effortMenu } : {})}
           switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
           effort={currentEffort}
@@ -573,6 +551,7 @@ export function ComposerPickers({
           current={effortValue}
           defaulted={effortDefaulted}
           ultracode={ultracode}
+          {...(shortLevelKey ? { short: t(shortLevelKey) } : {})}
           speed={
             // Fast mode only where the running model honors it (Claude Code offers it on every model).
             fastMode &&
@@ -637,11 +616,13 @@ export function ComposerPickers({
 /// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
 /// `modeId` is read from storage: only a string names a mode that may skip approvals.
 function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: string; modeId?: unknown }) {
+  const t = useT();
+  const short = kind === "effort" ? shortLevelName(label, t) : label;
   const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return kind === "effort" ? (
     <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
       <span className="acpmux-picker-button">
-        <span>{label}</span>
+        <EffortLabel label={label} short={short !== label ? short : undefined} />
         <ChevronIcon />
       </span>
     </span>
@@ -1254,7 +1235,7 @@ const LEVEL_KEYS: Record<string, StringKey> = {
   // A new chat that starts on Ultracode (its saved pick); never a level row (reasoningChoices).
   ultracode: "effort.level.ultracode",
 };
-/// A level's short name in the model chip's suffix: "Med" for Medium.
+/// A level's short name in a narrow controls row: "Med" for Medium.
 const SHORT_LEVEL_KEYS: Record<string, StringKey> = {
   low: "effort.short.low",
   medium: "effort.short.medium",

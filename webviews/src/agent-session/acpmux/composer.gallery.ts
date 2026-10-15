@@ -51,6 +51,12 @@ const composerControls = {
   },
 };
 
+// A new chat in a project on `branch`, before its first send.
+const onBranch = (branch: string) =>
+  noChat([session({ sessionId: "older", title: "An older chat" })], {
+    summary: { sessionId: "", cwd: CWD, branch, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+  });
+
 /// Claude Code's Ultracode switch, as acpmux's claude_stdio lists it beside the levels.
 const CLAUDE_ULTRACODE_OFF = {
   id: "ultracode",
@@ -455,17 +461,21 @@ export default agentPaneEntry({
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
     },
+    // The location row is a new chat's only (locationRow.ts): these show it before the first send.
     "tray-long-branch": {
-      note: "The footer row keeps a long branch readable without moving the composer.",
-      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      note: "A new chat's location row keeps a long branch readable without moving the composer.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: onBranch("feature/composer-location-tray"),
     },
     "docked-400": {
-      note: "The card's footer row at a 400px dock width.",
-      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      note: "A new chat's location row at a 400px dock width.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: onBranch("feature/composer-location-tray"),
     },
     "wide-760": {
-      note: "The composer card and its footer row at the 760px wide proof width.",
-      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      note: "The composer card and a new chat's location row at the 760px wide proof width.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: onBranch("feature/composer-location-tray"),
     },
     "folder-menu": {
       note: "Play: open the footer's folder menu; it draws above the whole card, opaque, rows legible.",
@@ -793,10 +803,7 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
-        await ctx.click({ selector: ".acpmux-mp-effort" });
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
       },
     },
@@ -854,10 +861,7 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
-        await ctx.click({ selector: ".acpmux-mp-effort" });
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
         await ctx.click({ role: "menuitemradio", name: /^Fast/ });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
@@ -945,10 +949,7 @@ export default agentPaneEntry({
         },
       }),
       play: async (ctx) => {
-        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
-        await ctx.click({ selector: ".acpmux-mp-effort" });
+        await ctx.click({ selector: '[data-menu="Effort"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
       },
     },
@@ -1073,12 +1074,11 @@ export default agentPaneEntry({
         if (!style.backgroundColor || style.backgroundColor === "rgba(0, 0, 0, 0)")
           throw new Error("shared popup is missing its themed surface fill");
         const box = ctx.find({ selector: ".acpmux-composer-box" });
-        const context = ctx.find({ selector: ".acpmux-composer-context" });
         const boxStyle = ctx.document.defaultView!.getComputedStyle(box);
-        const contextStyle = ctx.document.defaultView!.getComputedStyle(context);
         if (!boxStyle.boxShadow || boxStyle.boxShadow === "none") throw new Error("composer surface has no soft edge");
-        if (contextStyle.borderTopWidth !== "0px" || contextStyle.boxShadow !== "none")
-          throw new Error("location scope still draws a divider or inner box");
+        // The chat has a turn: no location strip at all (locationRow.ts), so nothing over the card.
+        if (ctx.document.querySelector(".acpmux-composer-context"))
+          throw new Error("a started chat still draws the location strip");
         if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
         // The free space sits only between the left cluster and mic/Send (hq#1957 item 15).
         const actions = ctx.find({ selector: ".acpmux-composer-actions" });
@@ -1087,10 +1087,7 @@ export default agentPaneEntry({
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
         await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));
-        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
-        await ctx.click({ selector: ".acpmux-mp-effort" });
+        await ctx.click({ selector: '[data-menu="Effort"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"] [role="menuitemradio"]'));
       },
     },

@@ -1,9 +1,9 @@
 import { type RefObject, useLayoutEffect } from "react";
 
-// The composer's controls row never cuts a label (Leo 2026-10-14: "Claude Opus …", "Medi…"). The
-// compact-composer verdict (cg-design-judge, 2026-10-14, items 3 to 5): effort rides in the model
-// chip as a dim suffix ("Opus 5.5 Fast Med", one chevron), and a narrower pane swaps whole units,
-// never letters. +, the access glyph, Send or Stop and every chevron always stay.
+// The composer's controls row never cuts a label (Leo 2026-10-14: "Claude Opus …", "Medi…"). A
+// narrower pane swaps whole units, never letters: the model, effort (its own chip, Leo 2026-10-15:
+// "move it back out"), the permission mode and the mic each take a shorter form or leave, and +,
+// the access glyph, Send or Stop and every chevron always stay.
 //
 // The steps are pane widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
 // container queries on the pane (`acpmux-pane`, the chat column), whose widths are literals that
@@ -18,49 +18,48 @@ import { type RefObject, useLayoutEffect } from "react";
 // row is resized and when a control in it changes, never on a keystroke in the prompt.
 
 /** The pane widths (px, at or under) where the composer's rows give up a unit. Shared with the
- *  location strip above the row (its owner reads the machine and folder steps). */
+ *  location strip above the row (its owner reads the machine and folder steps). To retune the
+ *  collapse, change a width here; composerLocation.css's container queries use the same numbers
+ *  (test/composer-fit-steps.test.ts holds the two together). */
 export const COMPOSER_FIT_STEPS = {
   /** The location strip's machine shows its laptop icon alone. */
   machineIconOnly: 460,
   /** The permission mode's label goes; its glyph and chevron stay. */
   accessLabelHidden: 460,
-  /** The model chip's suffix drops "Fast" and keeps the effort. */
-  fastHidden: 400,
+  /** The effort chip shows the level's short name ("Med"). */
+  effortShort: 400,
   /** The location strip's folder name truncates in the middle. */
   folderMiddleTruncate: 340,
   /** The mic leaves the row. */
   micHidden: 340,
   /** The model shows its family ("Opus"). */
   modelFamily: 340,
-  /** The model shows its harness mark alone, the full value in its tooltip. */
+  /** The model shows its harness mark alone, its name in its tooltip. */
   modelMark: 300,
-  /** The effort suffix leaves the chip (it stays in the chip's tooltip and menu). */
-  effortSuffixHidden: 300,
   /** The row tightens its gap and padding and narrows +. */
   barTight: 220,
 } as const;
 
-export type FitUnit = "access" | "fast" | "mic" | "model" | "effort";
-export type FitForm = "full" | "family" | "icon" | "hidden";
+export type FitUnit = "access" | "effort" | "mic" | "model";
+export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 
 /** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. A row too
  *  long for its width's steps takes the next ones too, in this order: the mic goes last, so a
  *  transient control (Steer while a turn runs) never moves it. One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [
   { step: "accessLabelHidden", unit: "access", to: "icon" },
-  { step: "fastHidden", unit: "fast", to: "hidden" },
+  { step: "effortShort", unit: "effort", to: "short" },
   { step: "modelFamily", unit: "model", to: "family" },
   { step: "modelMark", unit: "model", to: "icon" },
-  { step: "effortSuffixHidden", unit: "effort", to: "hidden" },
   { step: "micHidden", unit: "mic", to: "hidden" },
 ];
 
-const UNITS: readonly FitUnit[] = ["access", "fast", "mic", "model", "effort"];
+const UNITS: readonly FitUnit[] = ["access", "effort", "mic", "model"];
 type Forms = Record<FitUnit, FitForm>;
 
 /** Each unit's form in a pane `width` px wide that also took the first `extra` steps. */
 export function fitForms(width: number, extra = 0, steps = ROW_FIT_STEPS): Forms {
-  const forms: Forms = { access: "full", fast: "full", mic: "full", model: "full", effort: "full" };
+  const forms: Forms = { access: "full", effort: "full", mic: "full", model: "full" };
   steps.forEach(({ step, unit, to }, index) => {
     if (index < extra || width <= COMPOSER_FIT_STEPS[step]) forms[unit] = to;
   });

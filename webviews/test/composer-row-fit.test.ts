@@ -22,13 +22,13 @@ describe("composer row fit", () => {
     expect(fitStep(1, widths(room - 8), room)).toBe(0);
   });
 
-  test("the pane's width sets the verdict's steps", () => {
+  test("the pane's width sets the steps; effort stays a chip of its own", () => {
     const at = (width: number) => fitForms(width);
-    expect(at(760)).toEqual({ access: "full", fast: "full", mic: "full", model: "full", effort: "full" });
-    expect(at(460).access).toBe("icon");
-    expect(at(400).fast).toBe("hidden");
-    expect(at(340)).toMatchObject({ mic: "hidden", model: "family", effort: "full" });
-    expect(at(300)).toMatchObject({ model: "icon", effort: "hidden" });
+    expect(at(760)).toEqual({ access: "full", effort: "full", mic: "full", model: "full" });
+    expect(at(460)).toMatchObject({ access: "icon", effort: "full" });
+    expect(at(400).effort).toBe("short");
+    expect(at(340)).toMatchObject({ mic: "hidden", model: "family", effort: "short" });
+    expect(at(300)).toMatchObject({ model: "icon", effort: "short" });
   });
 
   test("a row too long for its width gives up the mic last", () => {
