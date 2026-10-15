@@ -192,8 +192,10 @@ public final class WorkspaceSync {
         repeat {
             dirty = false
             do {
-                let reply = try await client.request("list-workspaces")
+                // The arrangement first: nothing may wait between a list's reply and its
+                // publication, or an older list could land after a newer one (`listNow`).
                 await loadArrangementIfStale(client)
+                let reply = try await client.request("list-workspaces")
                 var next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
                 next.apply(arrangement)
                 tree = next
@@ -212,8 +214,8 @@ public final class WorkspaceSync {
     @discardableResult
     public func listNow() async throws -> DaemonTree {
         guard let client else { throw DaemonReplyError(message: "Not connected") }
-        let reply = try await client.request("list-workspaces")
         await loadArrangementIfStale(client)
+        let reply = try await client.request("list-workspaces")
         var next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
         next.apply(arrangement)
         tree = next
