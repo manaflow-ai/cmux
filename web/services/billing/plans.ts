@@ -78,6 +78,8 @@ export const MAX_PRICING_USD = {
  * valid.
  */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;
+/** New Pro customers can try Cloud for two weeks before the first charge. */
+export const PRO_TRIAL_DAYS = 14;
 export const PRO_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
 export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
