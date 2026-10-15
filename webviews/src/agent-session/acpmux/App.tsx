@@ -2395,9 +2395,11 @@ function AcpmuxPane() {
       method === "harness.health" ? readHarnessHealth(params) : callNative(method, params),
     [readHarnessHealth],
   );
-  // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
+  // After its Log In ran in a terminal tab, coming back to the chat checks again; an update the
+  // host ran (`harness.update`) checks again once the chat restarts on it.
   const healthStale = useRef(false);
   const [healthRecheck, setHealthRecheck] = useState(0);
+  const recheckHealth = useCallback(() => setHealthRecheck((count) => count + 1), []);
   const healthRechecked = useRef(0);
   useEffect(() => {
     const recheck = () => {
@@ -4725,6 +4727,9 @@ function AcpmuxPane() {
             healthStale.current = true;
             void callNative("tab.open", params).catch(() => undefined);
           }}
+          native={callNative}
+          turnRunning={snapshot.isWorking}
+          onUpdated={recheckHealth}
         />
       )}
       {folderNeeded && !snapshot.sessionId && (
