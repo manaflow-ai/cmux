@@ -978,7 +978,7 @@ async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
         "{}",
         String::from_utf8_lossy(&again.stderr)
     );
-    let _ = acpmux_cli(&home, &["daemon", "shutdown"], None);
+    let _ = acpmux_cli(&home, &["daemon", "shutdown", "--end-agents"], None);
     let _ = std::fs::remove_dir_all(&home);
 }
 
