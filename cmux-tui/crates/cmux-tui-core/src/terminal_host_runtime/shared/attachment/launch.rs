@@ -150,9 +150,9 @@ pub(crate) fn launch_terminal_host_seeded(
     // endpoint short; the private durable record still carries its full
     // canonical identity and owner capability.
     let uid = sys::file_owner(root)?;
-    let endpoint_root = sys::endpoint_dir(uid);
-    prepare_endpoint_dir(&endpoint_root)?;
-    let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
+    prepare_endpoint_dir(&sys::endpoint_dir(uid))?;
+    prepare_endpoint_dir(&sys::host_endpoint_dir(uid, root))?;
+    let endpoint = sys::host_endpoint(uid, root, &terminal_hex);
     let record_path =
         crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
     if record_path.exists() || endpoint.exists() {

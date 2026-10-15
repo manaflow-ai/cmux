@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The files panel motion never shows a blank strip (files-panel-motion.ts), in headless Chromium
 // and WebKit on the latency harness's diff page: at every step of an open, a close and a toggle in
 // the middle of either slide, each point of the content's width is covered by the diff column, the
@@ -15,6 +16,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type BrowserType } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("files-panel-coverage.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -63,7 +65,8 @@ await requireBrowserLane("files-panel-coverage.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/test/latency/diff.html");
+  }, 240_000);
 
   afterAll(() => {
     server?.kill();

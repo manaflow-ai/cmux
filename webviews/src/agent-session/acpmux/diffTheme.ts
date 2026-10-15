@@ -34,10 +34,10 @@ export const diffColors = {
   selected: `var(--agent-card-hover, ${fallbackDark.selected})`,
   addition,
   deletion,
-  additionLine: `color-mix(in srgb, ${addition} 20%, transparent)`,
-  deletionLine: `color-mix(in srgb, ${deletion} 20%, transparent)`,
-  additionGutter: `color-mix(in srgb, ${addition} 10%, transparent)`,
-  deletionGutter: `color-mix(in srgb, ${deletion} 10%, transparent)`,
+  additionLine: `color-mix(in srgb, ${addition} 14%, transparent)`,
+  deletionLine: `color-mix(in srgb, ${deletion} 14%, transparent)`,
+  additionGutter: `color-mix(in srgb, ${addition} 8%, transparent)`,
+  deletionGutter: `color-mix(in srgb, ${deletion} 8%, transparent)`,
   separator: `var(--agent-control, ${fallbackDark.separator})`,
 } as const;
 
@@ -79,14 +79,15 @@ const c = diffColors;
 const MONO = `"SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace`;
 const UI = `system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif`;
 
-/// Injected into each diff's shadow root: 12px / 21.6px code rows, a 4ch number column,
-/// darker gutters on changed rows and quiet "N unmodified lines" rows.
+/// Injected into each diff's shadow root: 12px / 18px code rows (the terminal's font, size and
+/// line height once the page sets the `--cmux-diff-*` variables, appearance.ts), a 4ch number
+/// column, low tints on changed rows and quiet 24px "N unmodified lines" rows.
 export const diffUnsafeCSS = /* css */ `
 :host {
-  --diffs-font-family: ${MONO};
+  --diffs-font-family: var(--cmux-diff-code-font-family, ${MONO});
   --diffs-header-font-family: ${UI};
-  --diffs-font-size: 12px;
-  --diffs-line-height: 21.6px;
+  --diffs-font-size: var(--cmux-diff-font-size, var(--text-detail, 12px));
+  --diffs-line-height: var(--cmux-diff-line-height, 18px);
   --diffs-dark-bg: ${c.bg};
   --diffs-dark: ${c.fg};
   --diffs-light-bg: ${c.bg};
@@ -109,10 +110,10 @@ export const diffUnsafeCSS = /* css */ `
 [data-gutter-buffer][data-line-type="change-deletion"] { --diffs-line-bg: ${c.deletionGutter}; }
 [data-line][data-line-type="change-addition"] { --diffs-line-bg: ${c.additionLine}; }
 [data-line][data-line-type="change-deletion"] { --diffs-line-bg: ${c.deletionLine}; }
-[data-separator="line-info"] { height: 32px; }
+[data-separator="line-info"] { height: 24px; }
 [data-acpmux-current] { box-shadow: inset 2px 0 0 var(--agent-accent, ${c.fg}); }
 [data-expand-button], [data-separator-content] { color: ${c.muted}; }
-[data-separator-content] { font-size: 12px; padding: 0 9px; }
+[data-separator-content] { font-size: var(--text-detail, 12px); padding: 0 9px; }
 ${PIERRE_DIFFS_SCROLLER_CSS}`;
 
 /// Injected into the tree's shadow root: 13px system font, 29px rows, a quiet selection.
