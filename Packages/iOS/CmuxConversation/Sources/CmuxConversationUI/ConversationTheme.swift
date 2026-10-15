@@ -481,7 +481,7 @@ extension UIColor {
     /// the crash reporter's screenshot masking resolve colors off the main
     /// thread; a provider written inside main-actor code inherits that
     /// isolation and traps there, so providers go through this `@Sendable`
-    /// entry point instead of `UIColor { }`.
+    /// entry point instead of the bare trailing-closure initializer.
     nonisolated static func resolving(_ provider: @escaping @Sendable (UITraitCollection) -> UIColor) -> UIColor {
         UIColor(dynamicProvider: provider)
     }
