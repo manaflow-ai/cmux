@@ -92,3 +92,28 @@
 .acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The session side rail (SessionRail.tsx, Labs sessionRail): a column beside the chat, as the side preview is (.acpmux-artifact), narrower; under 720px it lies over the chat. Cards are hairline-bordered and a step lighter than the page, rows 28px; it fades in, the width never animates. */
+.acpmux-rail{flex:0 0 clamp(260px,26%,360px);min-width:0;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;padding:8px 10px 10px 2px;overflow-y:auto;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
+@media (max-width:720px){.acpmux-rail{position:absolute;z-index:var(--layer-overlay);top:0;right:0;bottom:0;width:min(300px,calc(100% - 32px));padding-left:10px;box-shadow:var(--elevation-2)}}
+@media (prefers-reduced-motion:no-preference){.acpmux-rail{animation:acpmux-rail-in 100ms var(--acpmux-motion-ease,ease-out)}}
+@keyframes acpmux-rail-in{from{opacity:0}}
+.acpmux-rail-card{flex:none;padding:4px;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:10px;background:color-mix(in srgb,var(--agent-text) 3%,var(--agent-page-bg))}
+.acpmux-rail-card .ui-disclosure-trigger,.acpmux-rail-card__head{display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;box-sizing:border-box;border-radius:7px;text-align:left;cursor:default}
+.acpmux-rail-card .ui-disclosure-trigger{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-rail-card .ui-disclosure-trigger:hover{background:var(--acpmux-menu-hover)}
+.acpmux-rail-card .ui-disclosure-trigger:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-rail-card__title{flex:none;font-weight:500}
+.acpmux-rail-card__fold{flex:none;color:var(--agent-muted)}
+.acpmux-rail-card__meta{flex:none;display:inline-flex;align-items:center;gap:8px;margin-left:auto;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-rail-meter{display:block;width:28px;height:6px;border-radius:3px;overflow:hidden;background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
+.acpmux-rail-meter>span{display:block;height:100%;min-width:6px;border-radius:3px;background:var(--agent-accent)}
+.acpmux-rail-list{margin:0;padding:0;list-style:none}
+.acpmux-rail-row{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
+.acpmux-rail-row>svg{flex:none;color:var(--agent-muted)}
+.acpmux-rail-row__name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-rail-row__detail{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
+.acpmux-rail-row .acpmux-diff-counts{flex:none;margin-left:auto;font-size:var(--text-detail);opacity:.8}
+.acpmux-rail-output{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-rail-output:hover{background:var(--acpmux-menu-hover)}
+.acpmux-rail-output:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-rail-note{margin:0;padding:4px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail)}

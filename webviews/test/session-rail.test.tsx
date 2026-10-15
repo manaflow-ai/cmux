@@ -18,7 +18,10 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(labs: string): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
   dom.window.document.documentElement.setAttribute("data-labs", labs);
   const replacements: Record<string, unknown> = {
     window: dom.window,
@@ -29,6 +32,10 @@ function installDom(labs: string): HTMLElement {
     Element: dom.window.Element,
     MutationObserver: dom.window.MutationObserver,
     localStorage: dom.window.localStorage,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    // Base UI's Collapsible schedules its open and close on animation frames.
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     IS_REACT_ACT_ENVIRONMENT: true,
   };
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
@@ -106,9 +113,11 @@ test("the header's toggle opens a rail with the session's environment, context u
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
   expect(rail(container)).not.toBeNull();
   // The cards in order.
-  expect(
-    [...container.querySelectorAll(".acpmux-rail-card__title")].map((element) => element.textContent),
-  ).toEqual(["Environment", "Context", "Outputs"]);
+  expect([...container.querySelectorAll(".acpmux-rail-card__title")].map((element) => element.textContent)).toEqual([
+    "Environment",
+    "Context",
+    "Outputs",
+  ]);
 
   // Environment: this Mac by its name, the folder with its parent home-abbreviated, the branch.
   const environment = card(container, "Environment")!;
