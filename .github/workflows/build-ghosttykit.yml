@@ -116,6 +116,8 @@ jobs:
             -Demit-macos-app=false \
             -Dsentry=false \
             -Dtest-filter="resolveAtFiltered" \
+            -Dtest-filter="mid-token hard newline" \
+            -Dtest-filter="mid-token break only after a full row" \
             --summary all
 
       - name: Test OSC 7501 program status
