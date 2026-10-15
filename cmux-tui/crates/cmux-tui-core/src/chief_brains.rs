@@ -309,8 +309,9 @@ enum Signal {
     Updated(Box<ChiefRecord>),
     Deleted(String),
     /// `chief.engine.set` for this Chief: start its brain when it does
-    /// not run (as a message would).
-    Control(String),
+    /// not run (as a message would); `reply` hears whether a brain process
+    /// runs now (or starts again after the one that is ending).
+    Control(String, Option<mpsc::Sender<bool>>),
     #[cfg_attr(not(unix), allow(dead_code))]
     Exited {
         chief: String,
@@ -413,10 +414,19 @@ impl Slot {
     }
 
     /// `chief.engine.set` names this Chief (chief_control.rs): start its
-    /// brain when it does not run now.
+    /// brain when it does not run now. The answer says whether a brain
+    /// process runs now; `None` while the supervisor has not started yet.
     #[cfg_attr(not(unix), allow(dead_code))]
-    pub(crate) fn start_for_control(&self, chief: &str) {
-        self.send(Signal::Control(chief.to_owned()));
+    pub(crate) fn start_for_control(&self, chief: &str) -> Option<mpsc::Receiver<bool>> {
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
+            let (reply, answer) = mpsc::channel();
+            let sent = sender.send(Signal::Control(chief.to_owned(), Some(reply))).is_ok();
+            return sent.then_some(answer);
+        }
+        drop(sender);
+        self.send(Signal::Control(chief.to_owned(), None));
+        None
     }
 
     /// A committed registry write (not a replay). For a new Chief, what
@@ -730,15 +740,14 @@ impl Supervisor {
                 self.end_sessions(&chief);
                 self.brains.remove(&chief);
             }
-            Signal::Control(chief) => {
-                // A running brain only counts as active (no restart later).
-                if let Some(brain) = self.brains.get_mut(&chief)
-                    && brain.process.is_some()
-                {
-                    brain.last_activity = Instant::now();
-                    return;
-                }
+            Signal::Control(chief, reply) => {
+                // As a message: a brain that is ending (idle stop, exit 0)
+                // starts again after its exit (`pending_wake`).
                 self.wake(&chief);
+                if let Some(reply) = reply {
+                    let running = self.brains.get(&chief).is_some_and(|b| b.process.is_some());
+                    let _ = reply.send(running);
+                }
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}

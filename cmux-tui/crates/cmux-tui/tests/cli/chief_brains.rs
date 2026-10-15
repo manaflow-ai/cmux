@@ -698,6 +698,8 @@ fn chief_engine_and_stop_act_on_the_named_chief_only() {
         }
     };
     assert_eq!(set["ok"], true, "{set}");
+    // Started once by the set, never by the read or the stop before it.
+    assert_eq!(fs::read_to_string(night_home.join("starts")).unwrap().trim(), "2");
     assert_eq!(
         night_lines.lock().unwrap().clone(),
         vec![json!({"tool": "engine", "action": "set", "model": "m2"})]

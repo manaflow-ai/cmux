@@ -1209,9 +1209,10 @@ brain supervisor gave it) and to no other Chief; absent, `null` or
 exist answers `operation.failed` reason `not_found`; a daemon that runs no
 Chief brains, `not_configured`. A Chief whose brain does not run now (never
 started here, stopped after 30 minutes idle, or between restarts):
-`chief.engine.set` starts it, as a message to that Chief would, waits up to
-15 s for its tools socket and then forwards (`unavailable` when it does not
-answer in time); `chief.engine.get` and `chief.stop` never start a brain and
+`chief.engine.set` starts it as a message to that Chief would (a brain in
+restart backoff starts only at its retry time), waits up to 15 s for its tools
+socket and then forwards (`unavailable` at once when no brain process starts,
+and when the socket does not answer in time); `chief.engine.get` and `chief.stop` never start a brain and
 answer `unavailable`. With agents
 off in the build session, the same agents-disabled refusal as the default
 Chief. The daemon advertises `chief-brains-v1` only when it runs Chief brains.

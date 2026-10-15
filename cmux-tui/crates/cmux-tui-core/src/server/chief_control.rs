@@ -187,8 +187,20 @@ fn named_socket(
     if let Some(path) = answering() {
         return Ok(path);
     }
-    if operation == ResourceOperation::ChiefEngineSet && crate::chief_brains::taken().is_some() {
-        mux.chiefs().brains.start_for_control(chief);
+    let startable = operation == ResourceOperation::ChiefEngineSet
+        && !crate::agent_launch::disabled()
+        && !matches!(crate::chief_brains::tools_socket(chief), Err(("not_configured", _)));
+    if startable {
+        // The supervisor says at once when no brain process runs (restart
+        // backoff, a start that failed): then do not wait.
+        if let Some(answer) = mux.chiefs().brains.start_for_control(chief)
+            && !answer.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or(false)
+        {
+            return Err(match crate::chief_brains::tools_socket(chief) {
+                Err((reason, message)) => failed(reason, message),
+                Ok(_) => failed("unavailable", format!("Chief {chief}'s brain did not start")),
+            });
+        }
         // A readiness probe with a deadline: the brain binds its socket
         // when its host is up, and there is no start event to wait on.
         let deadline = std::time::Instant::now() + START_WAIT;
