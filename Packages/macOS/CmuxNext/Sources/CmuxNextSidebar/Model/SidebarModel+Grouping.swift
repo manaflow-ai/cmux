@@ -6,6 +6,12 @@ extension SidebarModel {
     public var groupsByFolder: Bool { grouping.by == .folder }
     /// Group by Status (Labs): rows sit under Needs you, Working, Done and No agent.
     public var groupsByStatus: Bool { grouping.by == .status }
+    /// Group by Status's elbow children (`SidebarGrouping.elbowsChildren`); the App sets it from
+    /// the Labs flag `labs.sidebarStatusElbow`.
+    public var elbowsChildren: Bool {
+        get { grouping.elbowsChildren }
+        set { grouping.elbowsChildren = newValue }
+    }
 
     /// A Group by Status header's click: fold or unfold its rows. Needs you never folds.
     public func toggleStatusBucket(_ bucket: SidebarStatusBucket) {

@@ -6,6 +6,10 @@ public nonisolated struct SidebarGrouping: Hashable, Sendable {
     public var by: SidebarGroupBy = .none
     /// Folded Group by Status headers (never Needs you).
     public var collapsed: Set<SidebarStatusBucket> = []
+    /// Group by Status's elbow children (Labs `labs.sidebarStatusElbow`): a child agent session's
+    /// row (`SidebarWorkspace.parentWorkspace`) sits directly under its parent row, in the parent's
+    /// bucket, drawn with the CLI connector `⎿` (`SidebarLayout+Status`). Off: no connector.
+    public var elbowsChildren = false
     /// The bucket the active row keeps while it stays the active row: the row the person is on
     /// does not jump to another section under them. It moves once another row is active.
     public var held: (row: WorkspaceID, bucket: SidebarStatusBucket)? {
