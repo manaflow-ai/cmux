@@ -10,10 +10,10 @@ public import CoreGraphics
 /// because the fork masks with even-odd rules and a nested hole would show
 /// the page again (Next `CEFHostView.outermost`).
 ///
-/// A rounded overlay (a card with corner radius r) gets a notched hole: three
-/// non-overlapping rects (an edge band inset by r, the full-width middle, the
-/// other edge band inset by r), so the page shows in its r x r corners instead
-/// of a square of cmux's background behind the card (design spec §0.9).
+/// A rounded overlay (a card with corner radius r) gets a notched hole: non-
+/// overlapping rects (one-point slabs that follow the corner arcs at each edge
+/// and the full-width middle), so the page shows outside the card's rounded
+/// corners instead of a square of cmux's background behind it (design spec §0.9).
 public struct BrowserPageOcclusionPlan: Equatable, Sendable {
     /// One shown overlay: its frame in the content view's coordinates and its
     /// corner radius (0 for a square bar).
@@ -66,11 +66,22 @@ public struct BrowserPageOcclusionPlan: Equatable, Sendable {
     static func notched(_ rect: CGRect, radius: CGFloat) -> [CGRect] {
         let r = radius.rounded(.up)
         guard r > 0, rect.width > 2 * r, rect.height > 2 * r else { return [rect] }
-        return [
-            CGRect(x: rect.minX + r, y: rect.minY, width: rect.width - 2 * r, height: r),
-            CGRect(x: rect.minX, y: rect.minY + r, width: rect.width, height: rect.height - 2 * r),
-            CGRect(x: rect.minX + r, y: rect.maxY - r, width: rect.width - 2 * r, height: r),
-        ]
+        // One-point slabs follow the arc (at most 12 per corner), so the hole
+        // reads as a rounded corner rather than a square step at 2x.
+        let steps = Int(min(r, 12))
+        let slab = r / CGFloat(steps)
+        var rects: [CGRect] = []
+        for step in 0..<steps {
+            // Distance from the corner circle's center at the slab's middle row.
+            let fromCenter = r - (CGFloat(step) + 0.5) * slab
+            let inset = (r - (r * r - fromCenter * fromCenter).squareRoot()).rounded()
+            let width = rect.width - 2 * inset
+            let offset = CGFloat(step) * slab
+            rects.append(CGRect(x: rect.minX + inset, y: rect.minY + offset, width: width, height: slab))
+            rects.append(CGRect(x: rect.minX + inset, y: rect.maxY - offset - slab, width: width, height: slab))
+        }
+        rects.append(CGRect(x: rect.minX, y: rect.minY + r, width: rect.width, height: rect.height - 2 * r))
+        return rects
     }
 
     /// `rects` without those inside another (of equal rects the first stays).
