@@ -2,8 +2,7 @@ import AppKit
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
-import CmuxNextCompat
-import CmuxNextWakeups
+import CmuxNextHome
 
 extension InternalPageID {
     /// The docked Home's tab (`HomeDock.page`): the switch and the Messages or Channels view.
@@ -64,62 +63,12 @@ final class HomeDockTab: InternalPageProvider {
     /// when the page has none, is older or not connected yet (unknown_op), is gone, or does not
     /// answer within a second: a page that hangs never holds the switch.
     static func askSelection(_ page: PageWebView) async -> HomeDockView.Selection? {
-        let once = HomeDockOnce()
-        let deadline = DemandTimer(owner: "HomeDockTab.currentSelection")
-        deadline.schedule(after: .seconds(1)) { once.resume(nil) }
         let router = page.router
-        // task-owner: one page call; ends with the page's answer or its close (the deadline answers first if it hangs).
-        Task { @MainActor in
-            once.resume(try? await router.callPage(selectionCommand, params: .object([:])))
-        }
-        let answer = await once.value()
-        deadline.cancel()
+        let answer = await PageAnswerDeadline(.seconds(1)).answer { try await router.callPage(selectionCommand, params: .object([:])) }
         guard let fields = answer?.objectValue, let conversation = fields["conversation"]?.stringValue,
-              HomeDockLinkID.isValid(conversation) else { return nil }
-        let message = fields["message"]?.stringValue.flatMap { HomeDockLinkID.isValid($0) ? $0 : nil }
+              HomeDockSelection.isLinkID(conversation) else { return nil }
+        let message = fields["message"]?.stringValue.flatMap { HomeDockSelection.isLinkID($0) ? $0 : nil }
         return HomeDockView.Selection(conversation: conversation, message: message)
-    }
-}
-
-/// The first of the page's answer and the deadline: later ones are dropped.
-private nonisolated final class HomeDockOnce: Sendable {
-    private struct State {
-        var done = false
-        var value: CmuxNextSettings.JSONValue?
-        var waiter: CheckedContinuation<CmuxNextSettings.JSONValue?, Never>?
-    }
-
-    private let state = Mutex(State())
-
-    func resume(_ value: CmuxNextSettings.JSONValue?) {
-        let waiter = state.withLock { state -> CheckedContinuation<CmuxNextSettings.JSONValue?, Never>? in
-            guard !state.done else { return nil }
-            state.done = true
-            state.value = value
-            defer { state.waiter = nil }
-            return state.waiter
-        }
-        waiter?.resume(returning: value)
-    }
-
-    func value() async -> CmuxNextSettings.JSONValue? {
-        await withCheckedContinuation { continuation in
-            let ready = state.withLock { state -> (Bool, CmuxNextSettings.JSONValue?) in
-                if state.done { return (true, state.value) }
-                state.waiter = continuation
-                return (false, nil)
-            }
-            if ready.0 { continuation.resume(returning: ready.1) }
-        }
-    }
-}
-
-/// A conversation or message id from a page or a caller: only the permalink grammar's characters
-/// (letters, digits, `_`, `-`; at most 128), so it can only ever name an id in a route.
-nonisolated enum HomeDockLinkID {
-    static func isValid(_ id: String) -> Bool {
-        !id.isEmpty && id.count <= 128 && id.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-" }
-            && id.allSatisfy(\.isASCII)
     }
 }
 
@@ -142,7 +91,7 @@ final class HomeSwitchPageRoute: PageProvider {
         }
         let conversation = fields["conversation"]?.stringValue
         let message = fields["message"]?.stringValue
-        if let conversation, !HomeDockLinkID.isValid(conversation) || !(message.map(HomeDockLinkID.isValid) ?? true) {
+        if let conversation, !HomeDockSelection.isLinkID(conversation) || !(message.map(HomeDockSelection.isLinkID) ?? true) {
             throw PageError(code: "cmux.home.invalid_selection", message: "not a conversation or message id", retryable: false)
         }
         dock.switchTo(view, selection: conversation.map { HomeDockView.Selection(conversation: $0, message: message) })
