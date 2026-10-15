@@ -95,10 +95,15 @@ fn env_of(path: &std::path::Path) -> BTreeMap<String, String> {
 }
 
 fn make_chief(server: &HeadlessServer, name: &str, role: &str) -> String {
+    make_chief_with_brain(server, name, role).0
+}
+
+/// A new Chief's id and what its create answered about its brain.
+fn make_chief_with_brain(server: &HeadlessServer, name: &str, role: &str) -> (String, Value) {
     let output = chief_cli(server, &["new", "--name", name, "--role", role, "--json"], "");
     assert_success(&output);
     let made: Value = serde_json::from_slice(&output.stdout).unwrap();
-    made["id"].as_str().unwrap().to_owned()
+    (made["id"].as_str().unwrap().to_owned(), made["brain"].clone())
 }
 
 fn dm(home: &mut Conn, key: &str, chief: &str, name: &str) -> String {
@@ -162,8 +167,10 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     );
     let mut home = Conn::open(&server.socket);
 
-    // A new Chief gets its own brain at once, in its own directory.
-    let scout = make_chief(&server, "Scout", "Researcher");
+    // A new Chief gets its own brain at once, in its own directory, and the
+    // create says so from the supervisor's real state.
+    let (scout, brain) = make_chief_with_brain(&server, "Scout", "Researcher");
+    assert_eq!(brain, json!({"state": "started"}), "{brain}");
     let scout_home = brain_dir(&chief_home, &scout);
     let scout_pid: i32 = wait_file(&scout_home.join("pid.1")).parse().unwrap();
     assert!(alive(scout_pid));
@@ -479,7 +486,8 @@ fn a_daemon_with_agents_off_starts_no_brain_and_says_why() {
     );
     let server = &owned;
     let mut home = Conn::open(&server.socket);
-    let scout = make_chief(server, "Scout", "Researcher");
+    let (scout, brain) = make_chief_with_brain(server, "Scout", "Researcher");
+    assert_eq!(brain, json!({"state": "not_started", "reason": "launch_disabled"}), "{brain}");
     let conversation = dm(&mut home, "deny-dm", &scout, "Scout");
     say(&mut home, &conversation, "deny-1", "hello");
     // The supervisor says, once, that the brain does not start.
