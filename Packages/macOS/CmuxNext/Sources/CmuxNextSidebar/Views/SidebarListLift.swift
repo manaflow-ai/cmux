@@ -43,7 +43,7 @@ import AppKit
             let view = NSView(frame: line.frame)
             view.wantsLayer = true
             view.layer?.cornerRadius = line.frame.width / 2
-            container.performWithTheme { view.layer?.backgroundColor = line.color.headerFill.cgColor }
+            container.performWithTheme { view.layer?.backgroundColor = line.color.lineColor(themed: SidebarGroupPalette.tunable.value == .theme).cgColor }
             container.addSubview(view)
         }
         for row in rows {
