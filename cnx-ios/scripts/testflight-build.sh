@@ -303,7 +303,8 @@ check_app() {  # <CnxApp.app>
   [[ "$(plutil -extract CNXAPIBase raw "$info")" == "$api_base" ]] || bad+=("CNXAPIBase")
   [[ "$(plutil -extract CNXCloudAPIBase raw "$info" 2>/dev/null)" == "$cloud_api_base" ]] || bad+=("CNXCloudAPIBase (want $cloud_api_base)")
   [[ "$(plutil -extract CNXSourceCommit raw "$info" 2>/dev/null)" == "$sha" ]] || bad+=("CNXSourceCommit (want $sha)")
-  [[ "$(plutil -extract ITSAppUsesNonExemptEncryption raw "$info")" == true ]] || bad+=("ITSAppUsesNonExemptEncryption")
+  # No key: the encryption answer is filed per build after upload (project.yml).
+  ! plutil -extract ITSAppUsesNonExemptEncryption raw "$info" >/dev/null 2>&1 || bad+=("ITSAppUsesNonExemptEncryption must be absent")
   local k; for k in NSCameraUsageDescription NSPhotoLibraryUsageDescription NSPhotoLibraryAddUsageDescription \
       NSMicrophoneUsageDescription NSLocalNetworkUsageDescription UILaunchScreen; do
     plutil -extract "$k" raw "$info" >/dev/null 2>&1 || plutil -extract "$k" xml1 -o /dev/null "$info" 2>/dev/null || bad+=("$k")
@@ -436,7 +437,13 @@ open(sys.argv[1],"w").write(k if k.endswith("\n") else k+"\n")' "$private/AuthKe
     xcrun altool --upload-app -f "$ipa" -t ios --apiKey "$asc_key_id" --apiIssuer "$asc_issuer" \
       --p8-file-path "$private/AuthKey_$asc_key_id.p8" --output-format json > "$out/logs/upload.json" 2>&1 \
       || { tail -30 "$out/logs/upload.json"; die "upload failed"; }
-    notes+=("Uploaded to $app_name at $(date -u +%Y-%m-%dT%H:%M:%SZ). Add What to Test notes from cnx-ios/verify/testflight-metadata.md before distributing.")
+    log "wait for App Store Connect to process $build_number, then file the encryption answer"
+    asc_ builds wait --app "$app_id" --build-number "$build_number" --fail-on-invalid --timeout 45m --output json > "$out/logs/process.json" 2>&1 \
+      || { tail -20 "$out/logs/process.json"; die "build $build_number did not finish processing"; }
+    asc_ builds update --app "$app_id" --build-number "$build_number" --uses-non-exempt-encryption true \
+      --output json > "$out/logs/encryption.json" 2>&1 \
+      || { tail -20 "$out/logs/encryption.json"; die "could not file the encryption answer for $build_number"; }
+    notes+=("Uploaded to $app_name at $(date -u +%Y-%m-%dT%H:%M:%SZ); processed; encryption answer filed (usesNonExemptEncryption=true, standard algorithms). Add What to Test notes from cnx-ios/verify/testflight-metadata.md.")
   fi
 fi
 
