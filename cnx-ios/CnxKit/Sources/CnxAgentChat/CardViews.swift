@@ -151,7 +151,7 @@ public struct PermissionActionBar: View {
 
     public var body: some View {
         VStack(spacing: 8) {
-            ForEach(request.options) { option in
+            ForEach(request.phoneOptions) { option in
                 Button {
                     // The allow already waiting for Face ID ignores a second tap.
                     guard !(option.isAllow && approvingOptionID != nil) else { return }
@@ -166,7 +166,7 @@ public struct PermissionActionBar: View {
                             Text(Self.waitingForFaceID).lineLimit(2).multilineTextAlignment(.center)
                         } else {
                             if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
-                            Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                            Text(option.phoneLabel).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
                         }
                     }
                     .animation(.cnxSnap, value: approvingOptionID)

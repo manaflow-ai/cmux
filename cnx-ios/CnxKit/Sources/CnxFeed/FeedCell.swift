@@ -273,7 +273,7 @@ struct FeedCell: View {
                         CodeCard(language: "bash", code: command, title: "Command", maxHeight: 120)
                     }
                     HStack(spacing: 8) {
-                        ForEach(request.options) { option in
+                        ForEach(request.phoneOptions) { option in
                             Button {
                                 withAnimation(.cnxSmooth) { store.respond(item.id, option: option) }
                             } label: {
@@ -292,10 +292,11 @@ struct FeedCell: View {
         }
     }
 
+    /// The Mac agent pane's words: "Allow once", "Deny".
     private func feedTitle(_ option: ACPPermissionOption) -> String {
         switch option.kind {
-        case .allowOnce: "Allow"
-        case .allowAlways: "Always"
+        case .allowOnce: "Allow once"
+        case .allowAlways: "Allow for this chat"
         case .rejectOnce, .rejectAlways: "Deny"
         }
     }

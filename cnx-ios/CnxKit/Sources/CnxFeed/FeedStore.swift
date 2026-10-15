@@ -115,6 +115,13 @@ public protocol FeedActions: AnyObject {
     func decline(_ item: FeedItem, question: AgentQuestion) async throws
     /// Display copy for a refused answer.
     func message(for error: any Error) -> String
+    /// The ask was already answered (on the Mac or another device): the card closes
+    /// instead of reopening with the Mac's raw "no pending permission".
+    func isAlreadyAnswered(_ error: any Error) -> Bool
+}
+
+public extension FeedActions {
+    func isAlreadyAnswered(_ error: any Error) -> Bool { false }
 }
 
 /// The Feed's state: newest first. Empty until `CnxLive` fills it with
@@ -381,6 +388,7 @@ public final class FeedStore {
                 do {
                     try await actions.answer(item, question: question, with: answer)
                 } catch {
+                    if actions.isAlreadyAnswered(error) { return settleAnsweredElsewhere(id, attempt: attempt) }
                     mutate(id) {
                         guard $0.attempt == attempt else { return }
                         $0.kind = .question(question)
@@ -414,6 +422,7 @@ public final class FeedStore {
             do {
                 try await actions.decline(item, question: question)
             } catch {
+                if actions.isAlreadyAnswered(error) { return settleAnsweredElsewhere(id, attempt: attempt) }
                 mutate(id) {
                     guard $0.attempt == attempt else { return }
                     $0.kind = .question(question)
@@ -421,6 +430,24 @@ public final class FeedStore {
                     $0.error = actions.message(for: error)
                 }
             }
+        }
+    }
+
+    /// Copy for an ask that another device or the Mac answered first.
+    public static let answeredElsewhere = "Already answered on your Mac"
+
+    /// The Mac no longer waits on this ask: close the card, with no error.
+    private func settleAnsweredElsewhere(_ id: String, attempt: Int) {
+        mutate(id) { item in
+            guard item.attempt == attempt else { return }
+            item.pending = nil
+            item.error = nil
+            if case .question(var question) = item.kind, question.isPending {
+                question.state = .answered(AgentQuestionAnswer(selections: [:]))
+                item.kind = .question(question)
+            }
+            item.resolution = Self.answeredElsewhere
+            item.isRead = true
         }
     }
 
@@ -460,6 +487,7 @@ public final class FeedStore {
                         $0.isRead = true
                     }
                 } catch {
+                    if actions.isAlreadyAnswered(error) { return settleAnsweredElsewhere(id, attempt: attempt) }
                     mutate(id) {
                         guard $0.attempt == attempt else { return }
                         $0.pending = nil

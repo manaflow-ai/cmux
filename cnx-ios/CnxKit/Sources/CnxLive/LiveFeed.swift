@@ -198,4 +198,10 @@ public final class LiveFeed: FeedActions {
     public func message(for error: any Error) -> String {
         AcpmuxSessionSource.message(error)
     }
+
+    /// acpmux answers a decided (or withdrawn) ask with not-found "no pending permission <id>".
+    public func isAlreadyAnswered(_ error: any Error) -> Bool {
+        guard let error = error as? AcpmuxConnection.RPCError else { return false }
+        return error.message.hasPrefix("no pending permission")
+    }
 }
