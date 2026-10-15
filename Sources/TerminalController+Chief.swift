@@ -60,7 +60,7 @@ extension TerminalController {
                 return .ok(Self.chiefPayload(status))
             case .conversations:
                 let rows = try await v2MainAsync { ChiefService.shared.controlConversations() }
-                return .ok(["conversations": rows.map(Self.chiefPayload)])
+                return .ok(["conversations": rows.map { Self.chiefPayload($0) }])
             case .read(let conversation, let limit):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
@@ -68,7 +68,7 @@ extension TerminalController {
                 let messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
                 let working = await owner.isWorking(id)
                 return .ok(["conversation": id.rawValue, "working": working,
-                            "messages": messages.map(Self.chiefPayload)] as [String: Any])
+                            "messages": messages.map { Self.chiefPayload($0) }] as [String: Any])
             case .stop(let conversation):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID

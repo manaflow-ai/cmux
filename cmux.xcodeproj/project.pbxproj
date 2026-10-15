@@ -630,6 +630,7 @@
 		C41EF4955CDF1447413C46C1 /* ChiefAttachmentIntake.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFE566B9B6D444D122D31 /* ChiefAttachmentIntake.swift */; };
 		C41EF8C8A4ECE325373F7E81 /* ChiefBrainSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF5F8577AB32FD6EC113E /* ChiefBrainSwitch.swift */; };
 		C41EF3684F6AEFB1FBCE143A /* ChiefControlRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF4F63A64D736DCDC0FFD /* ChiefControlRequest.swift */; };
+		D6A4A997D5FFA4275447E76B /* ChiefControlRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */; };
 		C41EF9F9E5F927F28B6946A5 /* ChiefConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF3329C1652D4C80B6991 /* ChiefConversationListView.swift */; };
 		C41EFE522A9F79BCD582CCDE /* ChiefEngineSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF322A13A3F710137F679 /* ChiefEngineSettings.swift */; };
 		C41EF89EF450E4FAFC350CBA /* ChiefFirstRunRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF092222718DC46D80B94 /* ChiefFirstRunRow.swift */; };
@@ -651,6 +652,7 @@
 		C41EF58FF000CD7219406D6C /* ChiefTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF580ABAEC34BF541461B /* ChiefTranscriptView.swift */; };
 		C41EFA69FDC0B7F2ADA75E9D /* ChiefTurnContextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFD4052070BDA635A9D1E /* ChiefTurnContextBuilder.swift */; };
 		C41EF69DD6EC14119E2F575D /* ChiefWakeScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF6D8A03BFC8747E7EB30 /* ChiefWakeScheduler.swift */; };
+		811DB65B69FB55E2B57AAE6E /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A2CC959D489C3B451AD54C /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
@@ -5398,6 +5400,7 @@
 		C41EFE566B9B6D444D122D31 /* ChiefAttachmentIntake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefAttachmentIntake.swift; sourceTree = "<group>"; };
 		C41EF5F8577AB32FD6EC113E /* ChiefBrainSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefBrainSwitch.swift; sourceTree = "<group>"; };
 		C41EF4F63A64D736DCDC0FFD /* ChiefControlRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefControlRequest.swift; sourceTree = "<group>"; };
+		293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefControlRequestTests.swift"; sourceTree = "<group>"; };
 		C41EF3329C1652D4C80B6991 /* ChiefConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefConversationListView.swift; sourceTree = "<group>"; };
 		C41EF322A13A3F710137F679 /* ChiefEngineSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefEngineSettings.swift; sourceTree = "<group>"; };
 		C41EF092222718DC46D80B94 /* ChiefFirstRunRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefFirstRunRow.swift; sourceTree = "<group>"; };
@@ -5419,6 +5422,7 @@
 		C41EF580ABAEC34BF541461B /* ChiefTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefTranscriptView.swift; sourceTree = "<group>"; };
 		C41EFD4052070BDA635A9D1E /* ChiefTurnContextBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefTurnContextBuilder.swift; sourceTree = "<group>"; };
 		C41EF6D8A03BFC8747E7EB30 /* ChiefWakeScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefWakeScheduler.swift; sourceTree = "<group>"; };
+		16A2CC959D489C3B451AD54C /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeBackgroundSessionRestoreTests.swift"; sourceTree = "<group>"; };
@@ -14028,6 +14032,8 @@
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				2BA756EDFFAB6F990E00AF37 /* ChiefPanelSessionTests.swift */,
+				16A2CC959D489C3B451AD54C /* CJKIMEInputTests+DeadKeyComposition.swift */,
+				293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18156,7 +18162,9 @@
 				0A0F00580000000000000003 /* CampfireSupportTestSupport.swift in Sources */,
 				852600010000000000000002 /* CanvasPaneContentMountTests.swift in Sources */,
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
+				D6A4A997D5FFA4275447E76B /* ChiefControlRequestTests.swift in Sources */,
 				19E97DB221B879A7A25AB8AC /* ChiefPanelSessionTests.swift in Sources */,
+				811DB65B69FB55E2B57AAE6E /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */,
 				F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,

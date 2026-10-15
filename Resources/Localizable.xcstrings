@@ -653657,7 +653657,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown chief subcommand. Try: home, memory"
+            "value": "Unknown chief subcommand. Try: open, send, status, conversations, read, stop, home, memory"
           }
         }
       }
@@ -653734,7 +653734,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux chief <subcommand> [options]\n\nChief's home directory and long-term memory. Works without a running cmux.\n\nSubcommands:\n  home                       Print the Chief home directory.\n  memory add <text|->        Save one fact Chief should remember (- reads stdin).\n  memory list [--json]       List saved facts, oldest first, with their ids.\n  memory forget <id>         Remove a saved fact.\n  memory path [--json]       Print the memory directory and its files\n                             (person.md, instructions.md, memory.jsonl).\n\nMemory never stores secrets: text that looks like a token, key or password is refused.\nThe home is $CMUX_CHIEF_HOME, else ~/.cmux/chief/<app bundle id>.\n\nExamples:\n  cmux chief memory add \"Their build machine is brave-otter\"\n  cmux chief memory list\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Usage: cmux chief <subcommand> [options]\n\nChief, cmux's home agent: its conversations, home directory and long-term memory.\n\nSubcommands (need a running cmux):\n  open                       Show Chief Home in this window.\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Send a message as you, like typing it in Home (- reads stdin).\n                             With --from, post it as a report from an agent named <name>;\n                             Chief answers it unless --no-reply is given.\n  status [--json]            Print the harness, model, unread count and working conversations.\n  conversations [--json]     List Chief conversations.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Print the newest messages (default 20).\n  stop [--conversation <id>] Stop Chief's running reply.\n\nSubcommands (work without a running cmux):\n  home                       Print the Chief home directory.\n  memory add <text|->        Save one fact Chief should remember (- reads stdin).\n  memory list [--json]       List saved facts, oldest first, with their ids.\n  memory forget <id>         Remove a saved fact.\n  memory path [--json]       Print the memory directory and its files\n                             (person.md, instructions.md, memory.jsonl).\n\nWithout --conversation, commands use the default Chief conversation.\nMemory never stores secrets: text that looks like a token, key or password is refused.\nThe home is $CMUX_CHIEF_HOME, else ~/.cmux/chief/<app bundle id>.\n\nExamples:\n  cmux chief send \"What are my agents doing?\"\n  cmux chief send --from \"build bot\" \"Release build finished\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Their build machine is brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         }
       }
@@ -658020,6 +658020,149 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chiefのエフォート"
+          }
+        }
+      }
+    },
+    "cli.chief.error.invalidLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--limit must be a positive whole number."
+          }
+        }
+      }
+    },
+    "cli.chief.error.invalidNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must be a number."
+          }
+        }
+      }
+    },
+    "cli.chief.error.missingValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs a value."
+          }
+        }
+      }
+    },
+    "cli.chief.error.noReplyNeedsFrom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--no-reply only applies with --from."
+          }
+        }
+      }
+    },
+    "cli.chief.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown flag: %@"
+          }
+        }
+      }
+    },
+    "cli.chief.read.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(Chief is replying…)"
+          }
+        }
+      }
+    },
+    "cli.chief.send.queued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued: Chief isn't connected yet; the message sends when it is."
+          }
+        }
+      }
+    },
+    "cli.chief.send.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux chief send [--conversation <id>] [--from <name>] [--no-reply] <text|->"
+          }
+        }
+      }
+    },
+    "cli.chief.stop.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief isn't replying."
+          }
+        }
+      }
+    },
+    "socket.chief.error.noWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux window is open."
+          }
+        }
+      }
+    },
+    "socket.chief.error.remoteDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief is not available through a remote session."
+          }
+        }
+      }
+    },
+    "socket.chief.error.transcriptNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No window shows that Chief conversation."
+          }
+        }
+      }
+    },
+    "socket.chief.error.windowNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No window matches that id."
           }
         }
       }
