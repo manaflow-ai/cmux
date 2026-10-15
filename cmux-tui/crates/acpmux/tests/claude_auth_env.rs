@@ -451,6 +451,45 @@ async fn an_edited_rc_file_refreshes_the_login_env_without_a_spawn() {
     );
 }
 
+/// An edit that lands while the login shell is still reading the previous
+/// edit is read too: the login env ends at the last edit, never one behind.
+/// The shell takes about 1 s; edit B lands about 0.7 s after edit A, past
+/// the watcher's 300 ms quiet window, so A's read is already running.
+#[tokio::test]
+async fn an_edited_rc_file_during_a_read_is_read_again() {
+    let dir = scratch("race", "export NO_PROXY=before-edit\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    std::fs::write(dir.join("home/.zshrc"), "sleep 1\nexport NO_PROXY=edit-a\n").unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    std::fs::write(dir.join("home/.zshrc"), "sleep 1\nexport NO_PROXY=edit-b-last\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "edit-b-last", Duration::from_secs(10)).await,
+        "the edit made during a read was dropped"
+    );
+}
+
+/// `~/.zshrc -> dotfiles/zshrc`: an edit to the link's target refreshes the
+/// login env (the watcher watches the target's folder too).
+#[tokio::test]
+async fn an_edited_rc_file_behind_a_symlink_refreshes_the_login_env() {
+    let dir = scratch("link", "");
+    std::fs::create_dir_all(dir.join("dotfiles")).unwrap();
+    let target = dir.join("dotfiles/zshrc");
+    std::fs::write(&target, "export NO_PROXY=before-edit\n").unwrap();
+    std::fs::remove_file(dir.join("home/.zshrc")).unwrap();
+    std::os::unix::fs::symlink(&target, dir.join("home/.zshrc")).unwrap();
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    std::fs::write(&target, "export NO_PROXY=after-the-edit\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "after-the-edit", Duration::from_secs(6)).await,
+        "the edited symlink target was not read again"
+    );
+}
+
 /// A login shell that hangs: the daemon stops waiting after 3 s, and
 /// agents start without it (falling back to the daemon's environment).
 #[tokio::test]
