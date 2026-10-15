@@ -1159,7 +1159,8 @@ public final class LiveCoordinator {
         Task { @MainActor [weak self] in
             guard let self, !stopped else { return }
             feedSavePending = false
-            archive.save(feed.store.items)
+            // Encoded and written off the main thread (a save per change dropped frames while scrolling).
+            archive.saveInBackground(feed.store.items)
         }
     }
 

@@ -141,7 +141,7 @@ final class FeedStressRig {
                 self.savePending = true
                 Task { @MainActor in
                     self.savePending = false
-                    archive.save(store.items)
+                    archive.saveInBackground(store.items)
                 }
             }
         }

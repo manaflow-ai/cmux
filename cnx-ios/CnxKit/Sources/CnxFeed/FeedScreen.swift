@@ -16,6 +16,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var expanded: Set<String> = []
     @State private var columnWidth: CGFloat = 0
     @State private var swipe = FeedSwipeCoordinator()
+    @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
     #if DEBUG
     private let director = DemoDirector.shared
@@ -47,14 +48,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     }
                     LazyVStack(spacing: 0) {
                         ForEach(store.visibleItems) { item in
-                            FeedSwipeRow(id: item.id, actions: item.swipeActions(store: store, open: { open(item) }), coordinator: swipe) {
-                                FeedCell(item: item, store: store, open: { open(item) }, expanded: Binding(
-                                    get: { expanded.contains(item.id) },
-                                    set: { if $0 { expanded.insert(item.id) } else { expanded.remove(item.id) } }
-                                ))
-                                .background(Color.cnxBackground)
-                            }
-                            .id(item.id)
+                            FeedRow(item: item, expanded: expanded.contains(item.id), context: rowContext, swipe: swipe)
+                                .equatable()
+                                .id(item.id)
                             .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
                             Divider()
                         }
@@ -102,6 +98,10 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .agentChatDestinations()
         }
         .onAppear {
+            rowContext.open = { open($0) }
+            rowContext.setExpanded = { id, on in
+                if on { expanded.insert(id) } else { expanded.remove(id) }
+            }
             #if DEBUG
             FeedStressRig.shared.start(store: store)
             #endif

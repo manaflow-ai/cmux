@@ -31,6 +31,9 @@ public struct DaemonTree: Sendable {
         public var unread: Bool
     }
 
+    /// The workspace kind of the Mac's home workspace (`workspace-kind-v1`).
+    static let homeKind = "home"
+
     /// The app tab id for a daemon surface.
     public static func tabID(surface: Int) -> String { "s\(surface)" }
 
@@ -58,6 +61,12 @@ public struct DaemonTree: Sendable {
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
+            // The Mac's home workspace (`kind` "home", `workspace-kind-v1`) is what
+            // its sidebar's Home item shows, not a workspace row (`SidebarMapping`
+            // filters it the same way). The phone has its own Home tab, so nothing
+            // of it (row, tabs, surfaces, unread markers) reaches the phone.
+            // Matched by kind, never by name: a renamed home stays out.
+            if ws["kind"] as? String == Self.homeKind { continue }
             let key = (ws["key"] as? String) ?? (ws["id"] as? Int).map { "w\($0)" } ?? UUID().uuidString
             var tabs: [WorkspaceTab] = []
             var activeTab: [String: Any]?
