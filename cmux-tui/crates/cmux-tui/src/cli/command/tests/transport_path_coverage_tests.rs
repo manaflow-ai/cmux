@@ -59,6 +59,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "browser.tab.emulate",
         ),
+        (vec!["tab", TAB, "emulate", "--fit", "16:9"], "browser.tab.emulate"),
         // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
         (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
         (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
@@ -75,6 +76,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                 "42",
             ],
             "session.journal.subscribe",
+        ),
+        // A turn-start hook's prompt rides beside the event as live_prompt (memory only, never
+        // journaled: the event itself carries the prompt redacted).
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "UserPromptSubmit",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"fix the parser"}"#,
+            ],
+            "session.journal.append",
         ),
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
@@ -153,7 +172,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.forget"
                         | "sidebar_layout.update"
                         // The sidebar document (sidebar-doc-v1) is the app's
-                        // too; the CLI has no sidebar verbs yet.
+                        // too; the CLI sets only a section's scroll and row
+                        // limit (`sidebar section-scroll`, `section-max-rows`,
+                        // both sidebar.section.update with a partial patch).
                         | "sidebar.adopt"
                         | "sidebar.apply"
                         | "sidebar.get"
@@ -162,9 +183,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "sidebar.group.update"
                         | "sidebar.item.add"
                         | "sidebar.item.remove"
+                        | "sidebar.item.remove_ref"
                         | "sidebar.item.update"
                         | "sidebar.move"
                         | "sidebar.pin"
+                        | "sidebar.reset"
                         | "sidebar.section.add"
                         | "sidebar.section.move"
                         | "sidebar.section.remove"
@@ -205,6 +228,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // `cmux chief list|new|adopt|edit|delete` send these
+                        // (cli/chief/registry.rs), outside the noun grammar.
+                        | "chief.profile.list"
+                        | "chief.profile.get"
+                        | "chief.profile.create"
+                        | "chief.profile.adopt"
+                        | "chief.profile.update"
+                        | "chief.profile.delete"
+                        | "chief.profile.avatar.set"
+                        | "chief.profile.avatar.get"
+                        // `cmux avatar set|get` and the Channels page send these.
+                        | "participant.avatar.set"
+                        | "participant.avatar.get"
                         // Launch credentials: acpmux and owners call these
                         // on the socket; an agent never mints or rotates.
                         | "credential.verify"

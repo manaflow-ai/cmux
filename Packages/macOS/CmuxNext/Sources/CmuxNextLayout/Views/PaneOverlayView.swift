@@ -22,6 +22,14 @@ final class PaneOverlayView: NSView {
         var color: ThemeRGB?
     }
 
+    /// What the inactive dim paints: the pane fill (clear over a
+    /// see-through window), or the Ghostty config's `unfocused-split-fill`
+    /// (the theme background when nil) over any window, as Ghostty.app.
+    enum DimFill: Equatable {
+        case pane
+        case ghostty(ThemeRGB?)
+    }
+
     private let border = CALayer()
     private let ring = CALayer()
     private let glowClip = CALayer()
@@ -41,6 +49,7 @@ final class PaneOverlayView: NSView {
     /// One observation of the look is registered at a time.
     private var observesAttentionLook = false
     private var borderStyle = Border(shows: false)
+    private var dimFill = DimFill.pane
     private var excluded: [CGRect] = []
     private var excludedBounds: CGRect = .zero
 
@@ -178,8 +187,9 @@ final class PaneOverlayView: NSView {
         if layer.mask !== mask { layer.mask = mask }
     }
 
-    func update(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil, border borderStyle: Border,
-                attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+    func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
+                border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+        self.dimFill = dimFill
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
         let showsBorder = borderStyle.shows
@@ -273,7 +283,12 @@ final class PaneOverlayView: NSView {
             // In glass windows the root backdrop owns the ground. An opaque
             // inactive-pane veil would hide the painting and reintroduce the
             // History/terminal mismatch; paneFill is clear in that mode.
-            dimLayer.backgroundColor = Palette.paneFill.cgColor
+            switch dimFill {
+            case .pane:
+                dimLayer.backgroundColor = Palette.paneFill.cgColor
+            case .ghostty(let fill):
+                dimLayer.backgroundColor = (fill?.nsColor ?? Palette.surfaceBackground.withAlphaComponent(1)).cgColor
+            }
         }
     }
 }

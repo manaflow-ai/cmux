@@ -40,7 +40,7 @@ enum BrowserMetrics {
     static var emphasizedFont: NSFont { Typography.bodyEmphasized }
     static var captionFont: NSFont { Typography.caption }
     static var countFont: NSFont {
-        .monospacedDigitSystemFont(ofSize: Typography.caption.pointSize, weight: .regular)
+        Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
     }
     static var errorTitleFont: NSFont { Typography.header }
 }

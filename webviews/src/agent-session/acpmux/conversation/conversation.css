@@ -36,6 +36,9 @@
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
   --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
+     Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
+  --font-mono: var(--cv-mono);
 }
 
 /* ---------- User bubble ---------- */
@@ -73,7 +76,7 @@
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
   background: var(--cv-bubble);
-  box-shadow: inset 0 0 0 0.5px var(--acpmux-composer-edge, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
@@ -654,8 +657,8 @@
   color: var(--cv-text);
 }
 
-/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. The
-   katex stylesheet ships beside these rules (build-agent-pane-web.sh). */
+/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. KaTeX's
+   stylesheet loads with KaTeX, after these rules; each rule here has two classes, so it wins. */
 .cv-math .katex {
   white-space: nowrap;
 }
@@ -696,13 +699,10 @@ pre.cv-math-source {
 
 /* ---------- Column ---------- */
 
-/* The transcript column; styles.css lines the composer and the cards above it up with it.
-   The queued prompts lie over the transcript's foot (ComposerQueue.tsx): the transcript ends above
-   them, so a followed reply's latest line is never under the queue. The size change is the
-   scroller's, which keeps a followed view at its end before the frame paints. A question waiting
-   for an answer keeps the space clear itself (.acpmux-asks-stack). */
+/* The transcript column; styles.css lines the composer and the cards above it up with it. The
+   bottom stack under it (bottomStack.css) changes the scroller's size, which keeps a followed view
+   at its end before the frame paints. */
 .acpmux-scroll {
-  margin-bottom: var(--acpmux-queue-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -1712,7 +1712,7 @@ pre.cv-math-source {
   border-radius: 9px;
   overflow: hidden;
   background: var(--agent-page-bg);
-  box-shadow: inset 0 0 0 0.5px var(--agent-border-strong, var(--agent-border));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong, var(--agent-border));
 }
 .acpmux-render-card-head {
   display: flex;
@@ -1852,10 +1852,11 @@ pre.cv-math-source {
   gap: 2px;
   height: 28px;
   padding: 0 3px 0 9px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
-  box-shadow: var(--ui-popup-shadow, 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%)));
+  /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
+  box-shadow: var(--ui-popup-drop, var(--elevation-2));
   font-family: var(--cv-font);
   font-size: var(--text-body);
 }
@@ -1949,14 +1950,17 @@ pre.cv-math-source {
   -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent),
-    0 4px 14px color-mix(in srgb, black 14%, transparent),
-    0 1px 2px color-mix(in srgb, black 10%, transparent);
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent)),
+    var(--elevation-2);
   color: var(--agent-text);
   cursor: default;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-50%, 6px, 0);
+}
+/* appearance.borders none clears the rim in place, as it clears the composer's and the popups'. */
+:root[data-borders="none"] .acpmux-jump-latest {
+  --acpmux-jump-latest-rim: transparent;
 }
 .acpmux-jump-latest[data-shown] {
   opacity: 1;
@@ -2013,6 +2017,55 @@ pre.cv-math-source {
   30% {
     opacity: 1;
   }
+}
+/* A chat reopening where the reader left it stays unseen while older pages bring that row back
+   (cx-odzaz), so it never flashes at its latest message first. */
+.acpmux-scroll[data-seeking] {
+  visibility: hidden;
+}
+/* The transcript's soft edges (New Tab's list, #19791): rows fade in under the header once the view
+   has left the start, and out above the composer while more lies below, instead of a hard cut. A
+   mask paints nothing, so rows dissolve into whatever is behind the pane (its background or the
+   wallpaper) and nothing moves; at either end the edge is plain, so the first and last rows sit in
+   full ink. Reduce Transparency keeps plain edges. */
+.acpmux-scroll[data-fade-top] {
+  --acpmux-fade-top: 18px;
+}
+.acpmux-scroll[data-fade-bottom] {
+  --acpmux-fade-bottom: 18px;
+}
+/* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
+.acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
+  --acpmux-fade-top: 0px;
+}
+.acpmux-scroll[data-fade-top],
+.acpmux-scroll[data-fade-bottom] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
+    transparent
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-scroll[data-fade-top],
+  .acpmux-scroll[data-fade-bottom] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-scroll[data-fade-top],
+:root[data-reduce-transparency] .acpmux-scroll[data-fade-bottom] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-jump-latest {

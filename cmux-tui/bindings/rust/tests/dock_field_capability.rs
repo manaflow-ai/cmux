@@ -68,6 +68,7 @@ fn docked_move() -> MoveTabToColumnRequest {
             mode: "docked".to_string(),
             role: Optional::Missing,
         }),
+        keep_focus: None,
         pane: Optional::Value(3),
         respawn: Optional::Missing,
         screen: Optional::Missing,

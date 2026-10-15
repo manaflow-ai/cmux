@@ -8,6 +8,9 @@
 //! Claude Code does and says what it found, or fails like Claude Code.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -101,8 +104,12 @@ impl Drop for Daemon {
     }
 }
 
-/// The daemon the way the Chief or launchd starts it: a bare environment
-/// (only PATH for python3, the fake HOME and its login shell) plus `extra`.
+/// The daemon the way the Chief or launchd starts it: the hermetic test
+/// environment (`daemon_env`: a bare PATH with python3, never the host's, so
+/// no real codex or claude is found; the fake HOME) with its login shell, plus
+/// `extra`. A fleet host's real agent CLIs would be probed, and Codex's shell
+/// snapshot sources the fake `~/.zshrc`, so the login shell would seem to run
+/// more often than it does (cx-w014j).
 async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
     let config = json!({"harnesses": harnesses, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
     start_config(dir, config, extra).await
@@ -111,13 +118,10 @@ async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
 async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daemon {
     std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
     let socket = dir.join("s.sock");
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    // The stand-in claude (fake_claude.py) is the only agent.
+    let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
-        .env_clear()
-        .env("PATH", std::env::var("PATH").unwrap_or_default())
-        .env("HOME", dir.join("home"))
         .env("SHELL", dir.join("loginsh"))
-        .env("TMPDIR", std::env::temp_dir())
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_AGENT_HOSTS", "0")
@@ -297,7 +301,7 @@ async fn a_claude_only_on_the_login_path_starts() {
     std::fs::create_dir_all(&shims).unwrap();
     write_executable(
         &shims.join("claude"),
-        &format!("#!/bin/sh\nexec env FAKE_CLAUDE_VIA=mise-shim python3 {FAKE_CLAUDE} \"$@\"\n"),
+        &format!("#!/bin/sh\nexec env FAKE_CLAUDE_VIA=mise-shim python3 '{FAKE_CLAUDE}' \"$@\"\n"),
     );
     let harness =
         json!({"argv": ["claude"], "kind": "claude-stdio", "env": {"FAKE_CLAUDE_AUTH": "1"}});

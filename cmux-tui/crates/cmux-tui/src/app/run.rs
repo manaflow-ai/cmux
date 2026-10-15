@@ -442,6 +442,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         machine_footer_scroll: 0,
         workspace_rail_scroll: 0,
         workspace_footer_scroll: 0,
+        workspace_drop_geometry: None,
         tabs_rail_selection: 0,
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,

@@ -6,6 +6,7 @@
 // loaded window. A retracted reply never counts (it shows as deleted in the thread).
 import type { HomeDraft } from "./drafts";
 import type {
+  HomeAttachment,
   HomeConversation,
   HomeMessage,
   HomePart,
@@ -44,6 +45,32 @@ export function channelIds(conversations: Iterable<HomeConversation>, me?: strin
     for (const c of list.slice(1)) if (c.title) channels.add(c.id);
   }
   return channels;
+}
+
+/** The conversations with each Chief's current name (its record) on its direct messages: the
+ * title and the participant's name. A channel keeps its own title; the same map comes back when
+ * nothing changes. */
+export function withChiefNames(
+  conversations: ReadonlyMap<string, HomeConversation>,
+  channels: ReadonlySet<string>,
+  me: string | undefined,
+  chiefs: ReadonlyMap<string, { name: string }>,
+): ReadonlyMap<string, HomeConversation> {
+  if (chiefs.size === 0) return conversations;
+  let changed: Map<string, HomeConversation> | undefined;
+  for (const c of conversations.values()) {
+    if (channels.has(c.id)) continue;
+    const others = c.participants.filter((p) => p.id !== me);
+    const record = others.length === 1 && others[0]!.chief ? chiefs.get(others[0]!.id) : undefined;
+    if (!record || (c.title === record.name && others[0]!.name === record.name)) continue;
+    changed ??= new Map(conversations);
+    changed.set(c.id, {
+      ...c,
+      title: record.name,
+      participants: c.participants.map((p) => (p.id === others[0]!.id ? { ...p, name: record.name } : p)),
+    });
+  }
+  return changed ?? conversations;
 }
 
 export function railSections(conversations: Iterable<HomeConversation>, me?: string): RailSections {
@@ -293,6 +320,16 @@ export function messageLink(conversation: string, message?: string, scheme = "cm
     : `${scheme}://conversation/${conversation}`;
 }
 
+/** The conversation and message a cmux link names (`cmux[-<tag>]://conversation/<id>[/message/<id>]`;
+ * query and fragment ignored), the daemon's link grammar. Ids may also hold `-` (the page only opens
+ * a conversation it already lists this way). */
+export function parseConversationLink(url: string): { conversation: string; message?: string } | undefined {
+  if (url.length > 512) return undefined;
+  const match = /^cmux(?:-[a-z0-9]+)*:\/\/conversation\/([\w-]+)(?:\/message\/([\w-]+))?\/?(?:[?#].*)?$/i.exec(url);
+  if (!match) return undefined;
+  return match[2] ? { conversation: match[1]!, message: match[2] } : { conversation: match[1]! };
+}
+
 /** The link a page URL's hash carries (`#/conversation/<id>[/message/<id>]`), as a cmux link. */
 export function hashLink(hash: string): string | undefined {
   const match = /^#\/(conversation\/[A-Za-z0-9_]+(?:\/message\/[A-Za-z0-9_]+)?)\/?$/.exec(hash);
@@ -385,7 +422,15 @@ export const PENDING_PREFIX = "pending:";
 /** My pending sends of one conversation as messages after the window (seq after `afterSeq`), so
  * the timeline and the thread tree place them like owner messages. */
 export function pendingMessages(
-  pending: readonly { key: string; conversation: string; text: string; threadRoot?: string; replyTo?: string; createdAt: number }[],
+  pending: readonly {
+    key: string;
+    conversation: string;
+    text: string;
+    attachments?: readonly HomeAttachment[];
+    threadRoot?: string;
+    replyTo?: string;
+    createdAt: number;
+  }[],
   conversation: string | undefined,
   me: string | undefined,
   afterSeq: number,
@@ -401,7 +446,10 @@ export function pendingMessages(
         author: me,
         createdAt: entry.createdAt,
         retracted: false,
-        parts: [{ type: "text", text: entry.text, mentions: [] }],
+        parts: [
+          ...(entry.text ? [{ type: "text" as const, text: entry.text, mentions: [] }] : []),
+          ...(entry.attachments ?? []),
+        ],
         reactions: [],
         clientMessageId: entry.key,
       };
@@ -414,6 +462,25 @@ export function pendingMessages(
 /** Every conversation, newest activity first (the one chronological list: rooms and people). */
 export function chronological(conversations: Iterable<HomeConversation>): HomeConversation[] {
   return [...conversations].sort((a, b) => activityAt(b) - activityAt(a) || (a.id < b.id ? -1 : 1));
+}
+
+/** The list as it shows: my pinned conversations first, in my pin order (lower position first),
+ * then every other conversation newest activity first. */
+export function listOrder(conversations: Iterable<HomeConversation>): {
+  pinned: HomeConversation[];
+  rest: HomeConversation[];
+} {
+  const pinned: HomeConversation[] = [];
+  const rest: HomeConversation[] = [];
+  for (const conversation of chronological(conversations)) (conversation.pinned ? pinned : rest).push(conversation);
+  // Stable: equal positions (an owner without positions) keep the chronological order.
+  pinned.sort((a, b) => (a.pinPosition ?? 0) - (b.pinPosition ?? 0));
+  return { pinned, rest };
+}
+
+/** Unread as the list shows it: messages after my read cursor, or my own unread mark. */
+export function isUnread(conversation: HomeConversation): boolean {
+  return (conversation.unread > 0 || conversation.markedUnread === true) && !conversation.muted;
 }
 
 /** A conversation's last activity: its last message, else its last change (a new, empty room). */

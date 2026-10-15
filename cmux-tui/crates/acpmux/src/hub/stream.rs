@@ -136,7 +136,7 @@ impl Hub {
 
     /// Forget per-turn stream state when a turn starts.
     pub(super) fn reset_stream(&self, session: &Session) {
-        *session.stream.lock().unwrap() = StreamState::default();
+        *session.stream.lock().unwrap_or_else(|e| e.into_inner()) = StreamState::default();
     }
 
     /// Error fields for `turn_result`: the text and code of the failure, and

@@ -37,7 +37,7 @@ final class SidebarCardTextButton: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    static var font: NSFont { .systemFont(ofSize: Typography.caption.pointSize, weight: .medium) }
+    static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .medium) }
     static var height: CGFloat { ceil(font.boundingRectForFont.height) + Metrics.space1 }
 
     /// `title` drawn and `help` as the tooltip; VoiceOver reads `help` as the label (nil: the title).

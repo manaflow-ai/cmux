@@ -26,6 +26,17 @@ pub(crate) const ACTIVATE_FIELD: &str = "frontend_browser_activate";
 /// the surface the new tab goes right after (`frontend-browser-insert-after-v1`).
 pub(crate) const AFTER_FIELD: &str = "frontend_browser_after";
 
+/// Internal `tab.create_browser` field (never accepted from a v2 client):
+/// the client transaction the created tab's own `tab-added` carries
+/// (`conversation-tab-transaction-v1`), so a client sees one `tab-added` per
+/// tab and settles its provisional tab on it.
+pub(crate) const TRANSACTION_FIELD: &str = "frontend_browser_transaction";
+
+/// The client transaction of a `tab.create_browser` ([`TRANSACTION_FIELD`]).
+pub(crate) fn effect_transaction(fields: &Map<String, Value>) -> Option<Arc<str>> {
+    fields.get(TRANSACTION_FIELD).and_then(Value::as_str).map(Arc::from)
+}
+
 /// Where a new frontend browser tab lands in its pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FrontendTabPlacement {
@@ -113,13 +124,18 @@ impl Mux {
             activate: fields.get(ACTIVATE_FIELD).and_then(Value::as_bool).unwrap_or(true),
             after: fields.get(AFTER_FIELD).and_then(Value::as_u64),
         };
-        self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement)
+        let transaction = effect_transaction(fields);
+        self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, transaction)
     }
 
     /// A browser tab under a reserved identity. With `activate` false
     /// (`frontend-browser-activate-v1`) a tab added to an existing pane does
     /// not become its active tab and does not bump the pane's focus order;
-    /// with `after` it lands right after that tab of the pane.
+    /// with `after` it lands right after that tab of the pane. A client
+    /// `transaction` rides on the tab's one `tab-added`; a tab that arrives
+    /// inside a new workspace or screen delta gets a `tab-added` carrying it
+    /// after that delta.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_browser_tab_reserved(
         self: &Arc<Self>,
         url: String,
@@ -128,6 +144,7 @@ impl Mux {
         resource_identity: TabResourceIdentity,
         workspace_key: Option<String>,
         placement: FrontendTabPlacement,
+        transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_browser_tab_with_resource_identity(
             url,
@@ -136,9 +153,11 @@ impl Mux {
             Some(resource_identity),
             workspace_key,
             placement,
+            transaction,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_browser_tab_with_resource_identity(
         self: &Arc<Self>,
         url: String,
@@ -147,6 +166,7 @@ impl Mux {
         resource_identity: Option<TabResourceIdentity>,
         workspace_key: Option<String>,
         placement: FrontendTabPlacement,
+        transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
         let FrontendTabPlacement { activate, after } = placement;
         let (target, empty_workspace) = {
@@ -175,6 +195,7 @@ impl Mux {
                     url,
                     size,
                     resource_identity,
+                    transaction,
                 );
             }
             let workspace_key = match workspace_key {
@@ -238,6 +259,9 @@ impl Mux {
                     }
                 };
                 self.emit(MuxEvent::TreeDelta(delta));
+                if let Some(transaction) = transaction {
+                    self.emit_tab_added_for_transaction(surface.id, transaction);
+                }
                 self.reap_if_dead(&surface);
                 return Ok(surface);
             }
@@ -332,6 +356,9 @@ impl Mux {
             let selection_resync = delta.index.is_some_and(|index| index > 0);
             self.emit_committed_workspace_delta(&registry, delta, selection_resync);
             drop(registry);
+            if let Some(transaction) = transaction {
+                self.emit_tab_added_for_transaction(surface.id, transaction);
+            }
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
@@ -379,7 +406,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
-                        transaction: None,
+                        transaction,
                     })
                 }
                 None => {
