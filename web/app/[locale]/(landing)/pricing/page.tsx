@@ -6,18 +6,12 @@ export function generateMetadata({ params }: { params: Promise<{ locale: string 
 }
 
 /** `/pricing`: the `web-pricing-v1` control arm, and every visitor outside the experiment. */
-export default function Page({
+export default async function Page({
   params,
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  return (
-    <PricingPage
-      params={params}
-      searchParams={searchParams}
-      variant={WEB_PRICING_CONTROL_VARIANT}
-    />
-  );
+  return PricingPage({ params, searchParams, variant: WEB_PRICING_CONTROL_VARIANT });
 }

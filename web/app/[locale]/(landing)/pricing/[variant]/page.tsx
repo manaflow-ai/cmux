@@ -38,12 +38,5 @@ export default async function Page({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const variant = await variantFor(params);
-  return (
-    <PricingPage
-      params={params}
-      searchParams={searchParams}
-      variant={variant.key}
-      presentation={variant.presentation}
-    />
-  );
+  return PricingPage({ params, searchParams, variant: variant.key, presentation: variant.presentation });
 }

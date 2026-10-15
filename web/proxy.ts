@@ -30,10 +30,17 @@ import { withWebPricingExperiment } from "./services/billing/pricingExperiment/p
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest, event?: NextFetchEvent) {
-  return responseWithInternalRewrite(routeRequest(incomingRequest, event), incomingRequest);
+  // The pricing experiment applies to whichever branch rewrote `/pricing` to
+  // the English page (the fallback-content branch does, before next-intl), and
+  // after the prefetch rebuild, so a prefetch pins the same arm the later
+  // navigation renders.
+  return responseWithInternalRewrite(
+    withWebPricingExperiment(incomingRequest, routeRequest(incomingRequest), event),
+    incomingRequest,
+  );
 }
 
-function routeRequest(incomingRequest: NextRequest, event?: NextFetchEvent) {
+function routeRequest(incomingRequest: NextRequest) {
   const request = requestWithOrigin(incomingRequest);
   const dashboardReturnPath = dashboardReturnPathForRequest(
     request.nextUrl.pathname,
@@ -95,9 +102,6 @@ function routeRequest(incomingRequest: NextRequest, event?: NextFetchEvent) {
       headers,
     });
   }
-  // After the prefetch rebuild, so a prefetch pins the same variant the
-  // later navigation renders.
-  response = withWebPricingExperiment(request, response, event);
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,

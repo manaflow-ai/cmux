@@ -562,7 +562,7 @@ describe("billing checkout route", () => {
       plan: "pro",
       billingInterval: "month",
       attribution: expect.objectContaining({ source: "unknown", client: "web" }),
-      tagging: expect.any(Object),
+      tagging: expect.objectContaining({}),
       signedIn: true,
       existingStripeCustomer: false,
     });
@@ -683,7 +683,7 @@ describe("billing checkout route", () => {
         utmContent: null,
         utmTerm: null,
       },
-      tagging: expect.any(Object),
+      tagging: expect.objectContaining({}),
       signedIn: true,
       existingStripeCustomer: false,
     });
@@ -991,7 +991,7 @@ describe("billing checkout route", () => {
       plan: "team",
       billingInterval: "month",
       attribution: expect.objectContaining({ source: "unknown", client: "web" }),
-      tagging: expect.any(Object),
+      tagging: expect.objectContaining({}),
       signedIn: true,
       existingStripeCustomer: false,
     });
