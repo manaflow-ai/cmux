@@ -42,6 +42,8 @@ parser.add_argument("--floors", default="plain",
                     help="--clean: host floor variants (scripts/cmux-next/sidebar-scroll-floor.swift), comma list of plain, vib"
                          " (behind-window sidebar material), vibfade (material + edge-fade mask), fade (edge-fade mask), optout"
                          " (scrollWheel override: no responsive scrolling), optoutfade; empty = none")
+parser.add_argument("--warmup", action="store_true",
+                    help="--clean: one unrecorded floor gesture first (the first run after host jobs end read high in round 5)")
 parser.add_argument("--modes", default="noticks,ticks", help="--clean: the modes each cmux run records")
 parser.add_argument("--round-offset", type=int, default=0,
                     help="--clean: the first round's number (an odd offset starts with the reversed order, for a second job)")
@@ -703,6 +705,8 @@ def run_clean(apps):
     items = [("cmux", app) for app in apps] + [("floor", (v, opts.frame, f"floor-{v}")) for v in floors]
     items += [("floor", ("plain", f, "floor-at-" + f.replace(",", "_"))) for f in extra]
     runs = {}
+    if opts.warmup and exe:
+        summary["warmup"] = floor_run(exe, "plain", opts.frame, "warmup", 0)
     for i in range(opts.round_offset, opts.round_offset + opts.repeats):
         order = items if i % 2 == 0 else items[::-1]
         print(f"round {i}: {[it[1]['label'] if it[0] == 'cmux' else it[1][2] for it in order]}", flush=True)
