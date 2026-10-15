@@ -1,0 +1,111 @@
+@testable import CmuxCloud
+import Foundation
+import Testing
+
+/// `.env` parsing, matching `cmux vm env set --file`.
+@Suite struct CloudSecretDotenvTests {
+    func pairs(_ text: String) throws -> [String] {
+        try CloudSecretDotenv.parse(text).map { "\($0.name)=\($0.value)" }
+    }
+
+    @Test
+    func parsesTheCommonSubset() throws {
+        let text = """
+        # comment
+        
+        ANTHROPIC_API_KEY=sk-ant-1
+        export OPENAI_API_KEY=sk-2
+        export\tTAB_EXPORT=t
+          SPACED = padded  
+        DOUBLE="quoted value"
+        SINGLE='single # not a comment'
+        TRAILING=value # comment
+        QUOTED_TRAILING="v" # comment
+        HASH=abc#def
+        EQUALS=a=b=c
+        EMPTY=
+        ESCAPED="a\\"b"
+        """
+        #expect(try pairs(text) == [
+            "ANTHROPIC_API_KEY=sk-ant-1",
+            "OPENAI_API_KEY=sk-2",
+            "TAB_EXPORT=t",
+            "SPACED=padded",
+            "DOUBLE=quoted value",
+            "SINGLE=single # not a comment",
+            "TRAILING=value",
+            "QUOTED_TRAILING=v",
+            "HASH=abc#def",
+            "EQUALS=a=b=c",
+            "EMPTY=",
+            "ESCAPED=a\\\"b"
+        ])
+    }
+
+    @Test
+    func quotesWithTextAfterThemStayLiteral() throws {
+        #expect(try pairs(#"A="a"b"#) == [#"A="a"b"#])
+    }
+
+    @Test
+    func repeatedKeyKeepsLastValueAtFirstPosition() throws {
+        #expect(try pairs("A=1\nB=2\nA=3\n") == ["A=3", "B=2"])
+    }
+
+    @Test
+    func handlesCRLFAndByteOrderMark() throws {
+        #expect(try pairs("\u{FEFF}A=1\r\nB=2\r\n") == ["A=1", "B=2"])
+        // Line numbers count CRLF lines once.
+        #expect(throws: CloudSecretDotenvError(line: 3, reason: .expectedAssignment)) {
+            try CloudSecretDotenv.parse("A=1\r\n\r\nnot an assignment\r\n")
+        }
+    }
+
+    @Test
+    func errorsCarryOneBasedLineNumbers() {
+        #expect(throws: CloudSecretDotenvError(line: 2, reason: .expectedAssignment)) {
+            try CloudSecretDotenv.parse("A=1\nJUST_A_NAME\n")
+        }
+        #expect(throws: CloudSecretDotenvError(line: 3, reason: .invalidName("1BAD"))) {
+            try CloudSecretDotenv.parse("# header\nA=1\n1BAD=x\n")
+        }
+        #expect(throws: CloudSecretDotenvError(line: 1, reason: .invalidName("A-B"))) {
+            try CloudSecretDotenv.parse("A-B=x")
+        }
+    }
+
+    @Test
+    func rejectsMultilineQuotedValues() {
+        let text = """
+        A=1
+        CERT="-----BEGIN
+        body
+        -----END"
+        """
+        #expect(throws: CloudSecretDotenvError(line: 2, reason: .multilineValue("CERT"))) {
+            try CloudSecretDotenv.parse(text)
+        }
+        #expect(throws: CloudSecretDotenvError(line: 1, reason: .multilineValue("K"))) {
+            try CloudSecretDotenv.parse("K='unterminated")
+        }
+    }
+
+    @Test
+    func errorDescriptionsNeverContainValues() {
+        do {
+            _ = try CloudSecretDotenv.parse("TOKEN=\"sk-secret-value")
+            Issue.record("expected an error")
+        } catch {
+            let text = error.localizedDescription
+            #expect(!text.contains("sk-secret-value"))
+            #expect(text.contains("TOKEN"))
+            #expect(text.contains("1"))
+        }
+    }
+
+    @Test
+    func emptyTextParsesToNothing() throws {
+        #expect(try CloudSecretDotenv.parse("").isEmpty)
+        #expect(try CloudSecretDotenv.parse("\n# only comments\n\n").isEmpty)
+    }
+}
