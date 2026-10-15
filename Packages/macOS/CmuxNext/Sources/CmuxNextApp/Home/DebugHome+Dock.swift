@@ -36,6 +36,7 @@ extension DebugHome {
             "switch_selected": .number(Double(control.selectedSegment)),
             "switch_labels": .array((0..<control.segmentCount).map { .string(control.label(forSegment: $0) ?? "") }),
             "switch_frame": header.map(box) ?? .null,
+            "handoff": view.lastHandoff.map { .object(["conversation": .string($0.conversation), "message": $0.message.map { .string($0) } ?? .null]) } ?? .null,
         ])
     }
 }

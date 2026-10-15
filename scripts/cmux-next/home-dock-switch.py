@@ -14,6 +14,9 @@ checks:
 - a click on the switch's Channels segment shows the page at `#/conversation/<id>` (the same conversation);
 - Ctrl-Option-Cmd-H (home.switchView) goes back to Messages with the same conversation, and again to Channels;
 - home.switchView {view: messages} by action;
+- a selection change inside the Channels page (another channel's row, then the keyboard's message), then
+  Messages: the same conversation shows and the switch handed over the page's message (the native view has no
+  message highlight yet, MessagesLab C4, so the message is checked in the hand-off);
 - after a relaunch in Channels the dock opens Messages again.
 Screenshots of each step. Runs on cmux-lawrence-2 through
 `nx-remote --needs gui --app-from-fleet cmux --tag <tag> --ref <sha> -- 'python3 scripts/cmux-next/home-dock-switch.py'`
@@ -214,6 +217,34 @@ try:
         reply = run("home.switchView")
         check("home.switchView with no view shows Channels", bool(in_mode("channels", conversation)), dock())
         shot("5-channels-by-action")
+
+        # A selection change inside the Channels page (a click on another channel's row, then the keyboard's
+        # message), then Messages: the switch hands over the page's conversation and message.
+        other = (rpc("debug.home.api", {"call": "submit", "op": {"kind": "create_group", "title": "switch-b-%s" % stamp, "participants": []}}) or {}).get("conversation")
+        if check("a second local channel", bool(other), other):
+            for n in (1, 2):
+                rpc("debug.home.api", {"call": "submit", "op": {"kind": "send", "conversation": other, "text": "switch b %s %d" % (stamp, n)}})
+            row = '[data-list-row="%s"]' % other
+            clicked = poll(lambda: (rpc("debug.page", {"page": "cmux.home-channels", "action": "click", "selector": row}) or {}).get("clicked"), 30)
+            check("a click on the second channel's row in the page", bool(clicked), row)
+            check("the page opens the second channel", bool(in_mode("channels", other)), page_fragment())
+            # A real click on the timeline takes the keyboard off the composer; k then puts the page on the last message.
+            box = dock().get("dock_frame") or {}
+            if box:
+                rpc("debug.mouse", {"action": "click", "x": box["x"] + box["width"] / 2, "y": box["y"] + box["height"] * 0.45})
+            rpc("debug.key", {"key": "k"})
+            messages = (rpc("debug.home.api", {"call": "snapshot", "conversation": other}) or {}).get("messages") or []
+            last = messages[-1].get("id") if messages else None
+            shot("6-channels-page-selection")
+            frame = dock().get("switch_frame") or {}
+            if frame:
+                rpc("debug.mouse", {"action": "click", "x": frame["x"] + frame["width"] * 0.25, "y": frame["y"] + frame["height"] / 2})
+            state = in_mode("messages", other)
+            check("after a selection change in the page, Messages shows the same conversation", bool(state), dock())
+            handoff = (state or dock()).get("handoff") or {}
+            check("the switch hands over the page's conversation and message",
+                  handoff.get("conversation") == other and bool(last) and handoff.get("message") == last, {"handoff": handoff, "last": last})
+            shot("7-messages-after-page-selection")
 finally:
     quit_app(app)
 
@@ -222,7 +253,7 @@ app = launch(2)
 try:
     run("home.show")
     check("after a relaunch the dock opens Messages", bool(in_mode("messages")), dock())
-    shot("6-relaunch-messages")
+    shot("8-relaunch-messages")
 finally:
     quit_app(app)
     rpc("action.run", {"id": "endAgents"}, timeout=10)

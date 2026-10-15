@@ -41,6 +41,8 @@ open class HomeDockSwitchView: NSView {
     public let control: HomeDockSwitchControl
     private let content = NSView()
     public private(set) var mode: HomeDockMode
+    /// The selection the last switch handed over (debug and GUI proofs).
+    public private(set) var lastHandoff: HomeDockSelection?
     private var made: [HomeDockMode: NSView] = [:]
     /// A switch in flight: a second one waits for it, so two quick clicks end on the last choice.
     private var switching: Task<Void, Never>?
@@ -133,6 +135,7 @@ open class HomeDockSwitchView: NSView {
             }
             var selection = given
             if selection == nil { selection = await currentSelection() }
+            lastHandoff = selection
             show(target)
             if let selection { open(selection) }
             focusPrimaryInput()
