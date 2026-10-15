@@ -68,31 +68,49 @@ extension CloudSecretsService {
         if plan.isNoop {
             // A machine the ledger has never seen gets an entry, so later changes to
             // the `all` scope reach it through ``syncAllStale()``.
+            var routingError: String?
             do {
                 if routesMachine {
-                    try await applyProviderRouting(routing, machineID: machineID)
-                    recordProviderRouting(routing, machineID: machineID)
+                    let result = try await applyProviderRouting(routing, machineID: machineID)
+                    if result.isRouted {
+                        recordProviderRouting(routing, machineID: machineID)
+                    } else {
+                        routingError = CloudSecretsProviderRouting.heldBackMessage(
+                            result.heldBack(names: plan.effective.keys), retries: true
+                        )
+                    }
                 }
                 if try await vault.delivery(for: machineID) == nil {
                     try await vault.recordDelivered(machineID: machineID, plan: plan, at: Date())
-                    await reload()
-                    postDidChange()
                 }
+                if let routingError {
+                    try await vault.recordFailure(machineID: machineID, message: routingError)
+                }
+                await reload()
+                postDidChange()
             } catch {
                 return await failure(machineID: machineID, error: error, values: values)
             }
             return CloudSecretSyncResult(
                 machineID: machineID, sent: [], removed: [], noop: true,
-                configuredGitCredentials: false, error: nil
+                configuredGitCredentials: false, error: routingError
             )
         }
         var configuredGit = false
+        // Keys of a provider the guard could not route wait for a later sync;
+        // everything else is delivered now.
+        var heldBack: [String: CloudSecretsProviderRouting.HoldReason] = [:]
+        var routed = true
+        var toSend = plan.toSend
         do {
             if routesMachine, routing.hasUserProviderKey {
-                try await applyProviderRouting(routing.protectingOnly, machineID: machineID)
+                let result = try await applyProviderRouting(routing.protectingOnly, machineID: machineID)
+                heldBack = result.heldBack(names: plan.sendNames)
+                routed = result.isRouted
+                toSend = plan.toSend.filter { heldBack[$0.key] == nil }
             }
-            if !plan.toSend.isEmpty {
-                try await transport.deliver(machineID, plan.toSend)
+            if !toSend.isEmpty {
+                try await transport.deliver(machineID, toSend)
             }
             if !plan.toRemove.isEmpty {
                 let result = try await transport.exec(machineID, Self.envRemoveCommand(names: plan.toRemove))
@@ -103,11 +121,15 @@ extension CloudSecretsService {
                 // own endpoint is read on the machine, so its pass reruns once the
                 // endpoint landed.
                 if routing.releasesEndpoint || routing.usesUserEndpoint {
-                    try await applyProviderRouting(routing, machineID: machineID)
+                    let result = try await applyProviderRouting(routing, machineID: machineID)
+                    routed = routed && result.isRouted
                 }
-                recordProviderRouting(routing, machineID: machineID)
+                if routed, heldBack.isEmpty {
+                    recordProviderRouting(routing, machineID: machineID)
+                }
             }
-            if !plan.toSend.isEmpty, !Self.gitTokenNames.isDisjoint(with: plan.sendNames) {
+            let sentNames = toSend.map(\.key)
+            if !toSend.isEmpty, !Self.gitTokenNames.isDisjoint(with: sentNames) {
                 // Best effort: the token itself is delivered; only `git push` over
                 // HTTPS depends on the helper, and `gh auth setup-git` remains a fallback.
                 if let result = try? await transport.exec(machineID, Self.gitCredentialHelperCommand),
@@ -115,19 +137,34 @@ extension CloudSecretsService {
                     configuredGit = true
                 }
             }
-            try await vault.recordDelivered(machineID: machineID, plan: plan, at: Date())
+            // The ledger records what landed: a held-back key stays missing, so the
+            // next sync sends it.
+            let delivered = heldBack.isEmpty ? plan : CloudSecretPlan(
+                machineID: plan.machineID,
+                toSend: toSend,
+                toRemove: plan.toRemove,
+                effective: plan.effective,
+                fingerprints: plan.fingerprints
+            )
+            try await vault.recordDelivered(machineID: machineID, plan: delivered, at: Date())
         } catch {
             return await failure(machineID: machineID, error: error, values: values)
+        }
+        var error: String?
+        if !heldBack.isEmpty {
+            let message = CloudSecretsProviderRouting.heldBackMessage(heldBack, retries: true)
+            try? await vault.recordFailure(machineID: machineID, message: message)
+            error = message
         }
         await reload()
         postDidChange()
         return CloudSecretSyncResult(
             machineID: machineID,
-            sent: plan.sendNames,
+            sent: toSend.map(\.key),
             removed: plan.toRemove,
             noop: false,
             configuredGitCredentials: configuredGit,
-            error: nil
+            error: error
         )
     }
 
@@ -346,6 +383,13 @@ struct CloudSecretsProviderRouting: Equatable, Sendable {
 # this precedence. $1: OpenAI mode, $2: Anthropic mode: direct (a user key, no
 # endpoint of theirs), user (a user key and their endpoint), plane (no user
 # key), keep (leave that provider's endpoint as it is).
+#
+# Its only output is one line, CMUX-ROUTING-RESULT openai=<r> anthropic=<r>,
+# where <r> is ok or why that provider's key must not land yet: env (its
+# endpoint could not be written), plane-copy (the model-plane copy could not
+# be neutralized), codex, opencode. The Mac holds back only those keys and
+# delivers everything else. Nothing here needs the network: this exec channel
+# may not resolve the model router's alias at all.
 set -u
 openai=${1:-keep}
 anthropic=${2:-keep}
@@ -354,7 +398,13 @@ etc=${CMUX_ROUTING_ETC:-/etc/cmux}
 home=${HOME:-/root}
 envf="$home/.config/cmux/env"
 placeholder=cmux-vm-edge-placeholder
-status=0
+fail_openai=""
+fail_anthropic=""
+# fail <openai|anthropic|both> <cause>: the first cause per provider wins.
+fail() {
+  case "$1" in openai|both) [ -n "$fail_openai" ] || fail_openai=$2 ;; esac
+  case "$1" in anthropic|both) [ -n "$fail_anthropic" ] || fail_anthropic=$2 ;; esac
+}
 plane=""
 if [ -f "$etc/model-plane.env" ]; then
   plane=$(CMUX_CODEROUTER_URL=""; . "$etc/model-plane.env" >/dev/null 2>&1; printf '%s' "${CMUX_CODEROUTER_URL:-}")
@@ -368,13 +418,13 @@ plane=${plane%/}
 mp="$home/.config/cmux/model-plane.env"
 if [ -f "$etc/model-plane.env" ]; then
   if [ ! -L "$mp" ] || [ "$(readlink "$mp")" != /dev/null ]; then
-    { mkdir -p "$home/.config/cmux" && ln -sfn /dev/null "$mp"; } || status=1
+    { mkdir -p "$home/.config/cmux" && ln -sfn /dev/null "$mp"; } || fail both plane-copy
   fi
 elif [ -f "$mp" ]; then
   {
     grep -v -E "^export (OPENAI|ANTHROPIC)_API_KEY=" "$mp" || :
     grep -x -E "export (OPENAI|ANTHROPIC)_API_KEY='$placeholder'" "$mp" || :
-  } > "$mp.cmux-tmp" && chmod 600 "$mp.cmux-tmp" && mv -f "$mp.cmux-tmp" "$mp" || status=1
+  } > "$mp.cmux-tmp" && chmod 600 "$mp.cmux-tmp" && mv -f "$mp.cmux-tmp" "$mp" || fail both plane-copy
 fi
 
 # A provider key can reach the env file outside Cloud Secrets (`cmux vm env
@@ -396,16 +446,17 @@ route() {
   case "$1" in
     direct)
       if [ -z "$current" ] || on_plane "$current"; then
-        cmux env set "$2=$3" >/dev/null 2>&1 || status=1
+        cmux env set "$2=$3" >/dev/null 2>&1 || fail "$4" env
       fi
       ;;
     plane)
-      if [ "$current" = "$3" ]; then cmux env rm "$2" >/dev/null 2>&1 || status=1; fi
+      # A failed release leaves OpenAI's own endpoint without a key: no key is at risk.
+      if [ "$current" = "$3" ]; then cmux env rm "$2" >/dev/null 2>&1 || :; fi
       ;;
   esac
 }
-route "$openai" OPENAI_BASE_URL https://api.openai.com/v1
-route "$anthropic" ANTHROPIC_BASE_URL https://api.anthropic.com
+route "$openai" OPENAI_BASE_URL https://api.openai.com/v1 openai
+route "$anthropic" ANTHROPIC_BASE_URL https://api.anthropic.com anthropic
 
 # The image's agent-config, run in a shell that carries only the baked plane
 # (as the machine's first login shell does), then $1, whose status it returns.
@@ -441,45 +492,50 @@ if [ -f "$codex_cfg" ] && ! grep -qs cmux_codex_user_key_provider "$etc/agent-au
         if ! grep -qx '\[model_providers\.cmux-openai-key\]' "$codex_cfg"; then
           printf '\n# Cloud Secrets: your own OPENAI_API_KEY goes to OpenAI directly.\n[model_providers.cmux-openai-key]\nname = "OpenAI"\nbase_url = "https://api.openai.com/v1"\nenv_key = "OPENAI_API_KEY"\nwire_api = "responses"\n'
         fi
-      } > "$codex_cfg.cmux-tmp" && mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || status=1
+      } > "$codex_cfg.cmux-tmp" && mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || fail openai codex
     fi
     if grep -qx 'model_provider = "cmux-openai-key"' "$codex_cfg"; then
       awk -v url="$codex_url" '
         /^\[/ { block = ($0 == "[model_providers.cmux-openai-key]") }
         block && /^base_url = / { print "base_url = \"" url "\""; next }
         { print }
-      ' "$codex_cfg" > "$codex_cfg.cmux-tmp" || status=1
-      if cmp -s "$codex_cfg" "$codex_cfg.cmux-tmp"; then rm -f "$codex_cfg.cmux-tmp"; else mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || status=1; fi
+      ' "$codex_cfg" > "$codex_cfg.cmux-tmp" || fail openai codex
+      if cmp -s "$codex_cfg" "$codex_cfg.cmux-tmp"; then rm -f "$codex_cfg.cmux-tmp"; else mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || fail openai codex; fi
     fi
   elif [ "$openai" = plane ] && grep -qx 'model_provider = "cmux-openai-key"' "$codex_cfg"; then
     sed 's/^model_provider = "cmux-openai-key"$/model_provider = "cmux"/' "$codex_cfg" > "$codex_cfg.cmux-tmp" \
-      && mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || status=1
+      && mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || :
   fi
 fi
 
 # 4. OpenCode: the image writes the model router's providers with
 # {env:OPENAI_API_KEY} as their key, which is the user's key once they have
-# one, and its launch fetches them with OPENAI_API_KEY as the credential.
-# Fetch them now in a plane-only shell (the placeholder), so a launch finds
-# them in place, then give those providers the public placeholder.
+# one, and a team-mode launch with no provider file fetches them with
+# OPENAI_API_KEY as the credential; a launch that finds the file never
+# fetches. Fetch them now in a plane-only shell (the placeholder). When that
+# cannot work from here (the alias may not resolve from this exec channel, or
+# the router is down), put a cmux stub ({}) in the file's place instead: the
+# launch then has its file, adds no team providers, and never sends the
+# user's key; the next sync that reaches the router replaces the stub. A file
+# that is not cmux's stub is never touched.
 if user_key "$openai" && [ -n "$plane" ] && grep -qs 'os.environ\["OPENAI_API_KEY"\]' "$etc/agent-config.sh"; then
-  fetched=0
-  plane_shell cmux_ensure_opencode_config || fetched=$?
-  # Still no providers after a failed fetch: a team-mode launch would fetch
-  # again, with the user's key as its credential, so the key must not land
-  # yet (the Mac retries on the next sync). 78 is the team having no OpenCode
-  # account: the launch resolves to the user's own sign-in instead, unless
-  # the user chose team mode against it. A user who chose own mode never
-  # fetches.
-  if [ "$fetched" -ne 0 ] && [ "$fetched" -ne 78 ] \
-    && [ ! -e "$home/.config/cmux/opencode-team.json" ] \
-    && [ ! -e "${XDG_CONFIG_HOME:-$home/.config}/opencode/opencode.json" ] \
-    && [ "$(head -n 1 "$home/.config/cmux/agent-auth/opencode" 2>/dev/null | tr -d '[:space:]')" != own ]; then
-    status=1
+  if grep -qs 'opencode-team.json' "$etc/agent-config.sh"; then
+    oc_file="$home/.config/cmux/opencode-team.json"
+  else
+    oc_file="${XDG_CONFIG_HOME:-$home/.config}/opencode/opencode.json"
+  fi
+  oc_stub="$home/.config/cmux/opencode-providers.cmux-stub"
+  is_stub() { [ -f "$oc_stub" ] && [ -f "$oc_file" ] && [ "$(cat "$oc_file" 2>/dev/null)" = "{}" ]; }
+  if is_stub; then rm -f "$oc_file"; fi
+  if [ ! -e "$oc_file" ]; then plane_shell cmux_ensure_opencode_config || :; fi
+  if [ -e "$oc_file" ]; then
+    is_stub || rm -f "$oc_stub"
+  else
+    { mkdir -p "${oc_file%/*}" "$home/.config/cmux" && printf '{}\n' > "$oc_file" && : > "$oc_stub"; } || fail openai opencode
   fi
 fi
 if command -v python3 >/dev/null 2>&1; then
-  python3 - "$plane" "$home/.config/cmux/opencode-team.json" "${XDG_CONFIG_HOME:-$home/.config}/opencode/opencode.json" <<'CMUX_OPENCODE_ROUTING' || status=1
+  python3 - "$plane" "$home/.config/cmux/opencode-team.json" "${XDG_CONFIG_HOME:-$home/.config}/opencode/opencode.json" <<'CMUX_OPENCODE_ROUTING' || fail openai opencode
 import json, os, sys, tempfile
 plane, files = sys.argv[1], sys.argv[2:]
 reference = "{env:OPENAI_API_KEY}"
@@ -521,7 +577,8 @@ for name in files:
     os.replace(temporary, name)
 CMUX_OPENCODE_ROUTING
 fi
-exit "$status"
+printf 'CMUX-ROUTING-RESULT openai=%s anthropic=%s\n' "${fail_openai:-ok}" "${fail_anthropic:-ok}"
+exit 0
 """#
     // END cmux-provider-routing-guard
 }
@@ -564,7 +621,8 @@ extension CloudSecretsService {
     }
 
     /// Runs the routing guard on the machine. Names and constants only.
-    func applyProviderRouting(_ routing: CloudSecretsProviderRouting, machineID: String) async throws {
+    @discardableResult
+    func applyProviderRouting(_ routing: CloudSecretsProviderRouting, machineID: String) async throws -> CloudSecretsProviderRouting.GuardResult {
         try await routing.apply(machineID: machineID, exec: transport.exec)
     }
 }
@@ -581,28 +639,159 @@ extension CloudSecretsProviderRouting {
     }
 
     /// Runs this routing's guard on the machine over `exec` (names and constants
-    /// only) and throws unless it succeeded.
+    /// only) and returns, per provider, whether its keys may land. Throws only when
+    /// the guard could not run at all (a transport error, a shim too old).
     func apply(
         machineID: String,
         exec: @Sendable (_ machineID: String, _ command: String) async throws -> VMExecResult
-    ) async throws {
+    ) async throws -> GuardResult {
         let result = try await exec(machineID, command)
-        try CloudSecretsService.requireShimSuccess(result, machineID: machineID)
+        return try GuardResult(result, machineID: machineID)
     }
 
     /// Delivers `entries` to a machine outside Cloud Secrets (`vm.env_set`): when
-    /// any is a provider key, the guard runs first, and a guard that fails keeps
-    /// every value off the machine. The one guarded path for writes that name a
-    /// provider key.
+    /// any is a provider key, the guard runs first. Every entry it does not hold
+    /// back is delivered; a held-back key is then reported as an error naming it
+    /// and why. The one guarded path for writes that name a provider key.
+    @discardableResult
     static func deliverGuarded<Outcome: Sendable>(
         machineID: String,
         entries: [CloudEnvDelivery.Entry],
         exec: @Sendable (_ machineID: String, _ command: String) async throws -> VMExecResult,
         deliver: @Sendable ([CloudEnvDelivery.Entry]) async throws -> Outcome
     ) async throws -> Outcome {
-        if let routing = CloudSecretsProviderRouting(protectingNames: entries.map(\.key)) {
-            try await routing.apply(machineID: machineID, exec: exec)
+        guard let routing = CloudSecretsProviderRouting(protectingNames: entries.map(\.key)) else {
+            return try await deliver(entries)
         }
-        return try await deliver(entries)
+        let heldBack = try await routing.apply(machineID: machineID, exec: exec).heldBack(names: entries.map(\.key))
+        guard !heldBack.isEmpty else { return try await deliver(entries) }
+        let safe = entries.filter { heldBack[$0.key] == nil }
+        if !safe.isEmpty { _ = try await deliver(safe) }
+        throw HeldBackError(message: heldBackMessage(heldBack, retries: false))
+    }
+
+    // MARK: Guard results
+
+    /// Why the guard could not route a provider, so its keys must not land yet.
+    enum HoldReason: Equatable, Hashable, Sendable {
+        /// The provider's own endpoint could not be written to the machine env.
+        case env
+        /// The machine's model-plane copy could not be neutralized.
+        case planeCopy
+        /// Codex's config could not be switched to the user's key.
+        case codex
+        /// OpenCode's provider file could not be secured.
+        case opencode
+        /// The guard reported a cause this build does not know.
+        case other
+        /// The guard ended without a result.
+        case noResult(exitCode: Int)
+
+        init(token: String) {
+            switch token {
+            case "env": self = .env
+            case "plane-copy": self = .planeCopy
+            case "codex": self = .codex
+            case "opencode": self = .opencode
+            default: self = .other
+            }
+        }
+
+        var explanation: String {
+            switch self {
+            case .env:
+                return String(localized: "cloudSecrets.routing.hold.env", defaultValue: "the machine env could not name the provider's own endpoint")
+            case .planeCopy:
+                return String(localized: "cloudSecrets.routing.hold.planeCopy", defaultValue: "the machine's model routing file could not be locked against copies of your key")
+            case .codex:
+                return String(localized: "cloudSecrets.routing.hold.codex", defaultValue: "Codex's config on the machine could not be switched to your key")
+            case .opencode:
+                return String(localized: "cloudSecrets.routing.hold.opencode", defaultValue: "OpenCode's provider file on the machine could not be secured")
+            case .other:
+                return String(localized: "cloudSecrets.routing.hold.other", defaultValue: "the machine could not route the provider's traffic away from cmux model routing")
+            case .noResult(let exitCode):
+                return String(
+                    format: String(localized: "cloudSecrets.routing.hold.noResult", defaultValue: "the routing check on the machine ended without a result (exit %ld)"),
+                    exitCode
+                )
+            }
+        }
+    }
+
+    /// The guard's per-provider answer. nil means routed.
+    struct GuardResult: Equatable, Sendable {
+        var openAI: HoldReason?
+        var anthropic: HoldReason?
+
+        static let resultPrefix = "CMUX-ROUTING-RESULT "
+
+        init(openAI: HoldReason?, anthropic: HoldReason?) {
+            self.openAI = openAI
+            self.anthropic = anthropic
+        }
+
+        /// Parses the guard's one result line. Without one (or with a failed exit),
+        /// every provider is held back: no provider key lands on a machine whose
+        /// routing is unknown.
+        init(_ result: VMExecResult, machineID: String) throws {
+            let text = result.stdout + "\n" + result.stderr
+            if text.contains("unknown resource scope") || text.contains("unknown vm subcommand") {
+                throw CloudEnvDelivery.DeliveryError.outdatedShim(machineID)
+            }
+            // The guard always exits 0 after its result; any other exit means it did
+            // not finish, whatever it printed.
+            guard result.exitCode == 0, let line = result.stdout.split(whereSeparator: \.isNewline)
+                .last(where: { $0.hasPrefix(Self.resultPrefix) }) else {
+                let reason = HoldReason.noResult(exitCode: result.exitCode)
+                self.init(openAI: reason, anthropic: reason)
+                return
+            }
+            var fields: [String: String] = [:]
+            for field in line.dropFirst(Self.resultPrefix.count).split(separator: " ") {
+                let pair = field.split(separator: "=", maxSplits: 1)
+                if pair.count == 2 { fields[String(pair[0])] = String(pair[1]) }
+            }
+            func reason(_ name: String) -> HoldReason? {
+                guard let token = fields[name] else { return .other }
+                return token == "ok" ? nil : HoldReason(token: token)
+            }
+            self.init(openAI: reason("openai"), anthropic: reason("anthropic"))
+        }
+
+        /// True when every provider was routed.
+        var isRouted: Bool { openAI == nil && anthropic == nil }
+
+        /// The provider keys among `names` that must wait, with why.
+        func heldBack<Names: Sequence>(names: Names) -> [String: HoldReason] where Names.Element == String {
+            var held: [String: HoldReason] = [:]
+            for name in names {
+                if let openAI, CloudSecretsProviderRouting.openAIKeyNames.contains(name) { held[name] = openAI }
+                if let anthropic, CloudSecretsProviderRouting.anthropicKeyNames.contains(name) { held[name] = anthropic }
+            }
+            return held
+        }
+    }
+
+    /// A key `vm.env_set` held back; the message names it and why, never a value.
+    struct HeldBackError: Error, LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Human text for held-back keys: one sentence per cause, names only.
+    static func heldBackMessage(_ heldBack: [String: HoldReason], retries: Bool) -> String {
+        var byReason: [HoldReason: [String]] = [:]
+        for (name, reason) in heldBack { byReason[reason, default: []].append(name) }
+        let sentences = byReason
+            .map { (names: $0.value.sorted(), reason: $0.key) }
+            .sorted { $0.names.first ?? "" < $1.names.first ?? "" }
+            .map { group -> String in
+                let names = group.names.joined(separator: ", ")
+                let format = retries
+                    ? String(localized: "cloudSecrets.routing.heldBack.retry", defaultValue: "%1$@ held back from this machine: %2$@. Your other secrets were delivered; cmux tries again on the next sync.")
+                    : String(localized: "cloudSecrets.routing.heldBack.envSet", defaultValue: "%1$@ was not set on this machine: %2$@. Every other variable was set.")
+                return String(format: format, names, group.reason.explanation)
+            }
+        return sentences.joined(separator: " ")
     }
 }
