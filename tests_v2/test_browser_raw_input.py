@@ -88,6 +88,12 @@ def main() -> int:
         keys = _eval(client, sid, "log")
         _must([e[:3] for e in keys] == [["keydown", True, "h"], ["keydown", True, "i"]], f"keydowns: {keys}")
 
+        # A key typed after inserted text lands before the reply.
+        _eval(client, sid, "document.getElementById('t').value = ''; true")
+        client._call("browser.input_keyboard", {"surface_id": sid, "args": ["type", "é b"]})
+        typed = _eval(client, sid, "document.getElementById('t').value")
+        _must(typed == "é b", f"keys after inserted text arrived late: {typed!r}")
+
         try:
             client._call("browser.input_mouse", {"surface_id": sid, "args": ["hover"]})
             raise cmuxError("unknown mouse command was accepted")

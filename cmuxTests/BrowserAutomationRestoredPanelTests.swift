@@ -77,4 +77,41 @@ struct BrowserAutomationRestoredPanelTests {
         #expect(resolved.error == nil)
         #expect(resolved.context?.surfaceId == restoredPanelID)
     }
+
+    /// A restored session with one browser already live and others still
+    /// placeholders: a command that names no surface, with a terminal
+    /// focused, drives the live browser as it did before placeholders were
+    /// counted as browsers.
+    @Test
+    func soleBrowserFallbackPrefersTheOneLiveBrowserOverPlaceholders() throws {
+        let source = Workspace()
+        defer { source.retireFromOwningTabManager() }
+        let sourcePane = try #require(source.bonsplitController.focusedPaneId)
+        let first = try #require(source.newBrowserSurface(inPane: sourcePane, url: URL(string: "about:blank"), focus: false))
+        let second = try #require(source.newBrowserSurface(inPane: sourcePane, url: URL(string: "about:blank"), focus: false))
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let remap = workspace.restoreSessionSnapshot(snapshot, deferBrowserPanels: true)
+        let liveID = try #require(remap[first.id])
+        let placeholderID = try #require(remap[second.id])
+        // The person selected one browser tab since relaunch; the other is
+        // still a placeholder.
+        _ = try #require(workspace.browserPanelForAutomation(liveID))
+        #expect(workspace.panels[liveID] is BrowserPanel)
+        #expect(workspace.panels[placeholderID] is DeferredBrowserPanel)
+        #expect(workspace.focusedPanelId != liveID)
+
+        let resolved = TerminalController.shared.v2ResolveBrowserPanelContext(
+            params: ["workspace_id": workspace.id.uuidString],
+            tabManager: manager,
+            allowSoleBrowserFallback: true
+        )
+        #expect(resolved.error == nil)
+        #expect(resolved.context?.surfaceId == liveID)
+        // The placeholder stays a placeholder.
+        #expect(workspace.panels[placeholderID] is DeferredBrowserPanel)
+    }
 }

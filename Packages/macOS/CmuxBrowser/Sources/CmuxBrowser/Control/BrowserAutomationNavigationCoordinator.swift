@@ -19,6 +19,10 @@ public final class BrowserAutomationNavigationCoordinator {
     private var allowsSameDocumentCompletion = false
     private var downloadPolicyNavigationID: ObjectIdentifier?
     private var pendingReplacementNavigationID: ObjectIdentifier?
+    /// Whether WebKit has reported the provisional start of the active
+    /// navigation. Before it, the app has no provisional navigation to name
+    /// when it replaces the load at action-policy time.
+    private var activeNavigationDidStartProvisionally = false
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -71,6 +75,7 @@ public final class BrowserAutomationNavigationCoordinator {
         }
         activeTicket = ticket
         activeNavigationID = nil
+        activeNavigationDidStartProvisionally = false
         activeTargetURL = targetURL
         self.allowsSameDocumentCompletion = allowsSameDocumentCompletion
         downloadPolicyNavigationID = nil
@@ -89,6 +94,7 @@ public final class BrowserAutomationNavigationCoordinator {
             return
         }
         activeNavigationID = navigationID
+        activeNavigationDidStartProvisionally = false
     }
 
     /// Associates a deferred or replacement load's returned navigation identity.
@@ -118,6 +124,17 @@ public final class BrowserAutomationNavigationCoordinator {
         targetURL: URL? = nil
     ) {
         didAssociate(instanceID: instanceID, navigationID: navigationID, targetURL: targetURL)
+        if let navigationID, navigationID == activeNavigationID {
+            activeNavigationDidStartProvisionally = true
+        }
+    }
+
+    /// The navigation a replacement names: the given one, or, when the app
+    /// replaces the load at action-policy time and so has none to name, the
+    /// active navigation if it has not started provisionally yet.
+    private func replacedNavigation(named navigationID: ObjectIdentifier?) -> ObjectIdentifier? {
+        if let navigationID { return navigationID }
+        return activeNavigationDidStartProvisionally ? nil : activeNavigationID
     }
 
     /// Keeps an active transaction pending while an app-owned replacement is prepared.
@@ -134,7 +151,7 @@ public final class BrowserAutomationNavigationCoordinator {
         instanceID: UUID,
         navigationID: ObjectIdentifier?
     ) {
-        guard let navigationID,
+        guard let navigationID = replacedNavigation(named: navigationID),
               let activeTicket,
               activeTicket.instanceID == instanceID,
               activeNavigationID == navigationID else {
@@ -159,7 +176,7 @@ public final class BrowserAutomationNavigationCoordinator {
         replacedNavigationID: ObjectIdentifier?,
         replacementNavigationID: ObjectIdentifier?
     ) {
-        guard let replacedNavigationID,
+        guard let replacedNavigationID = replacedNavigation(named: replacedNavigationID),
               let activeTicket,
               activeTicket.instanceID == instanceID,
               activeNavigationID == replacedNavigationID,
@@ -172,6 +189,7 @@ public final class BrowserAutomationNavigationCoordinator {
             return
         }
         activeNavigationID = replacementNavigationID
+        activeNavigationDidStartProvisionally = false
         downloadPolicyNavigationID = nil
     }
 

@@ -13,17 +13,31 @@ public struct BrowserRawInputModifiers: OptionSet, Hashable, Sendable {
     public static let shift = BrowserRawInputModifiers(rawValue: 8)
 }
 
+/// Where a mouse step happens: a point in CSS pixels from the top-left of
+/// the viewport, or wherever the pointer last moved.
+public enum BrowserRawInputLocation: Equatable, Sendable {
+    case point(CGPoint)
+    case pointer
+
+    /// The point, with ``pointer`` resolved to `current`.
+    public func resolved(pointer current: CGPoint) -> CGPoint {
+        switch self {
+        case .point(let point): point
+        case .pointer: current
+        }
+    }
+}
+
 /// One low-level input step of `browser.input_mouse` / `browser.input_keyboard`.
 ///
 /// Steps follow the DevTools protocol's `Input.dispatchMouseEvent` and
 /// `Input.dispatchKeyEvent`, so a Chromium page forwards them as they are and
-/// a WebKit page replays them as native AppKit events. Points are CSS pixels
-/// from the top-left of the viewport.
+/// a WebKit page replays them as native AppKit events.
 public enum BrowserRawInputStep: Equatable, Sendable {
-    case mouseMoved(CGPoint, modifiers: BrowserRawInputModifiers)
-    case mousePressed(CGPoint, button: BrowserReplMouseButton, clickCount: Int, modifiers: BrowserRawInputModifiers)
-    case mouseReleased(CGPoint, button: BrowserReplMouseButton, clickCount: Int, modifiers: BrowserRawInputModifiers)
-    case mouseWheel(CGPoint, deltaX: Double, deltaY: Double, modifiers: BrowserRawInputModifiers)
+    case mouseMoved(BrowserRawInputLocation, modifiers: BrowserRawInputModifiers)
+    case mousePressed(BrowserRawInputLocation, button: BrowserReplMouseButton, clickCount: Int, modifiers: BrowserRawInputModifiers)
+    case mouseReleased(BrowserRawInputLocation, button: BrowserReplMouseButton, clickCount: Int, modifiers: BrowserRawInputModifiers)
+    case mouseWheel(BrowserRawInputLocation, deltaX: Double, deltaY: Double, modifiers: BrowserRawInputModifiers)
     /// A key goes down, by DOM `key` value (`Enter`, `a`, `ArrowLeft`).
     case keyDown(String, modifiers: BrowserRawInputModifiers)
     /// A key goes up, by DOM `key` value.
@@ -52,44 +66,54 @@ public enum BrowserRawInputRequestError: Error, Equatable, Sendable {
 ///   `{"type": "mousePressed", "x": 10, "y": 20, "button": "left", "clickCount": 1}`
 ///   or `{"type": "keyDown", "key": "Enter"}`. Mouse types are `mouseMoved`,
 ///   `mousePressed`, `mouseReleased` and `mouseWheel` (`deltaX`, `deltaY`);
-///   key types are `keyDown`, `rawKeyDown`, `keyUp` and `char` (`text`).
+///   key types are `keyDown`, `rawKeyDown` (same as `keyDown`), `keyUp` and
+///   `char` (`text`, inserted as text).
 /// - Command form (`cmux browser input mouse|keyboard ...`), as `args`:
 ///   mouse `move X Y`, `down [BUTTON]`, `up [BUTTON]`, `click X Y [BUTTON] [COUNT]`,
 ///   `wheel DY [DX]`; keyboard `down KEY`, `up KEY`, `press KEY`, `type TEXT`,
 ///   `inserttext TEXT`.
 ///
-/// Commands without a point (`down`, `up`, `wheel`) act where the pointer
-/// last moved; pass that position as `pointer`.
+/// Commands without a point (`down`, `up`, `wheel`, a DevTools event with no
+/// `x`/`y`) act at ``BrowserRawInputLocation/pointer``. Values are clamped
+/// to sane ranges: click counts to 1...3, coordinates and wheel deltas to
+/// ±1,000,000.
 public struct BrowserRawInputRequest: Equatable, Sendable {
+    /// The largest click count a request may carry (triple click).
+    public static let maximumClickCount = 3
+    /// The largest coordinate or wheel delta magnitude, in CSS pixels.
+    public static let maximumMagnitude = 1_000_000.0
+
     /// The steps to deliver, in order.
     public let steps: [BrowserRawInputStep]
 
     /// Reads a `browser.input_mouse` request.
-    public init(mouseParams params: [String: Any], pointer: CGPoint) throws(BrowserRawInputRequestError) {
+    public init(mouseParams params: [String: Any]) throws(BrowserRawInputRequestError) {
         let modifiers = Self.modifiers(params)
         if let args = Self.args(params) {
-            steps = try Self.mouseSteps(args: args, pointer: pointer, modifiers: modifiers)
+            steps = try Self.mouseSteps(args: args, modifiers: modifiers)
             return
         }
         guard let type = params["type"] as? String else { throw .missingAction }
-        let point = CGPoint(
-            x: Self.number(params["x"]) ?? pointer.x,
-            y: Self.number(params["y"]) ?? pointer.y
-        )
-        let clickCount = max(1, Int(Self.number(params["clickCount"]) ?? Self.number(params["click_count"]) ?? 1))
+        let location: BrowserRawInputLocation
+        if let x = Self.coordinate(params["x"]), let y = Self.coordinate(params["y"]) {
+            location = .point(CGPoint(x: x, y: y))
+        } else {
+            location = .pointer
+        }
+        let clickCount = Self.clickCount(params["clickCount"] ?? params["click_count"])
         switch type {
         case "mouseMoved":
-            steps = [.mouseMoved(point, modifiers: modifiers)]
+            steps = [.mouseMoved(location, modifiers: modifiers)]
         case "mousePressed", "mouseReleased":
             let button = try Self.button(params["button"] as? String ?? "left")
             steps = type == "mousePressed"
-                ? [.mousePressed(point, button: button, clickCount: clickCount, modifiers: modifiers)]
-                : [.mouseReleased(point, button: button, clickCount: clickCount, modifiers: modifiers)]
+                ? [.mousePressed(location, button: button, clickCount: clickCount, modifiers: modifiers)]
+                : [.mouseReleased(location, button: button, clickCount: clickCount, modifiers: modifiers)]
         case "mouseWheel":
             steps = [.mouseWheel(
-                point,
-                deltaX: Self.number(params["deltaX"]) ?? Self.number(params["delta_x"]) ?? 0,
-                deltaY: Self.number(params["deltaY"]) ?? Self.number(params["delta_y"]) ?? 0,
+                location,
+                deltaX: Self.coordinate(params["deltaX"] ?? params["delta_x"]) ?? 0,
+                deltaY: Self.coordinate(params["deltaY"] ?? params["delta_y"]) ?? 0,
                 modifiers: modifiers
             )]
         default:
@@ -121,23 +145,22 @@ public struct BrowserRawInputRequest: Equatable, Sendable {
 
     private static func mouseSteps(
         args: [String],
-        pointer: CGPoint,
         modifiers: BrowserRawInputModifiers
     ) throws(BrowserRawInputRequestError) -> [BrowserRawInputStep] {
         let verb = args[0].lowercased()
         let rest = Array(args.dropFirst())
         switch verb {
         case "move":
-            return [.mouseMoved(try point(rest, at: 0), modifiers: modifiers)]
+            return [.mouseMoved(.point(try point(rest)), modifiers: modifiers)]
         case "down", "up":
             let button = try Self.button(rest.first ?? "left")
             return verb == "down"
-                ? [.mousePressed(pointer, button: button, clickCount: 1, modifiers: modifiers)]
-                : [.mouseReleased(pointer, button: button, clickCount: 1, modifiers: modifiers)]
+                ? [.mousePressed(.pointer, button: button, clickCount: 1, modifiers: modifiers)]
+                : [.mouseReleased(.pointer, button: button, clickCount: 1, modifiers: modifiers)]
         case "click":
-            let at = try point(rest, at: 0)
+            let at = BrowserRawInputLocation.point(try point(rest))
             let button = try Self.button(rest.count > 2 ? rest[2] : "left")
-            let count = rest.count > 3 ? max(1, Int(number(rest[3]) ?? 1)) : 1
+            let count = rest.count > 3 ? clickCount(rest[3]) : 1
             var steps: [BrowserRawInputStep] = [.mouseMoved(at, modifiers: modifiers)]
             for click in 1...count {
                 steps.append(.mousePressed(at, button: button, clickCount: click, modifiers: modifiers))
@@ -145,9 +168,9 @@ public struct BrowserRawInputRequest: Equatable, Sendable {
             }
             return steps
         case "wheel", "scroll":
-            guard let deltaY = rest.first.flatMap({ number($0) }) else { throw .missingValue("deltaY") }
-            let deltaX = rest.count > 1 ? (number(rest[1]) ?? 0) : 0
-            return [.mouseWheel(pointer, deltaX: deltaX, deltaY: deltaY, modifiers: modifiers)]
+            guard let deltaY = rest.first.flatMap({ coordinate($0) }) else { throw .missingValue("deltaY") }
+            let deltaX = rest.count > 1 ? (coordinate(rest[1]) ?? 0) : 0
+            return [.mouseWheel(.pointer, deltaX: deltaX, deltaY: deltaY, modifiers: modifiers)]
         default:
             throw .unknownAction(args[0])
         }
@@ -170,10 +193,21 @@ public struct BrowserRawInputRequest: Equatable, Sendable {
         case "type":
             let text = rest.joined(separator: " ")
             guard !text.isEmpty else { throw .missingValue("text") }
-            return text.flatMap { character -> [BrowserRawInputStep] in
+            // A character with no key on the US layout (é, emoji) is
+            // inserted as text, the way an input method commits it.
+            var steps: [BrowserRawInputStep] = []
+            for character in text {
                 let key = String(character)
-                return [.keyDown(key, modifiers: modifiers), .keyUp(key, modifiers: modifiers)]
+                if BrowserKeyboardEvent(rawKey: key)?.nativeKey != nil {
+                    steps.append(.keyDown(key, modifiers: modifiers))
+                    steps.append(.keyUp(key, modifiers: modifiers))
+                } else if case .insertText(let pending)? = steps.last {
+                    steps[steps.count - 1] = .insertText(pending + key)
+                } else {
+                    steps.append(.insertText(key))
+                }
             }
+            return steps
         case "inserttext", "insert":
             let text = rest.joined(separator: " ")
             guard !text.isEmpty else { throw .missingValue("text") }
@@ -191,10 +225,10 @@ public struct BrowserRawInputRequest: Equatable, Sendable {
         return args.isEmpty ? nil : args
     }
 
-    private static func point(_ values: [String], at index: Int) throws(BrowserRawInputRequestError) -> CGPoint {
-        guard values.count > index + 1,
-              let x = number(values[index]),
-              let y = number(values[index + 1]) else {
+    private static func point(_ values: [String]) throws(BrowserRawInputRequestError) -> CGPoint {
+        guard values.count >= 2,
+              let x = coordinate(values[0]),
+              let y = coordinate(values[1]) else {
             throw .missingValue("x y")
         }
         return CGPoint(x: x, y: y)
@@ -210,7 +244,17 @@ public struct BrowserRawInputRequest: Equatable, Sendable {
     }
 
     private static func modifiers(_ params: [String: Any]) -> BrowserRawInputModifiers {
-        BrowserRawInputModifiers(rawValue: Int(number(params["modifiers"]) ?? 0) & 0xF)
+        guard let value = number(params["modifiers"]), let bits = Int(exactly: value.rounded()) else { return [] }
+        return BrowserRawInputModifiers(rawValue: bits & 0xF)
+    }
+
+    private static func clickCount(_ value: Any?) -> Int {
+        guard let value = number(value) else { return 1 }
+        return Int(min(max(value.rounded(), 1), Double(maximumClickCount)))
+    }
+
+    private static func coordinate(_ value: Any?) -> Double? {
+        number(value).map { min(max($0, -maximumMagnitude), maximumMagnitude) }
     }
 
     private static func number(_ value: Any?) -> Double? {

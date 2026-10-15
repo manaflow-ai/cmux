@@ -22,6 +22,9 @@ public final class WebKitBrowserPage: BrowserPage {
     public weak var uiDelegate: (any BrowserPageUIDelegate)?
     /// Owner of Web Inspector state, usually the browser panel.
     public weak var devToolsController: (any WebKitBrowserPageDevToolsControlling)?
+    /// Delivers trusted input, usually the browser panel. While set, the page
+    /// declares ``BrowserEngineCapabilities/trustedInput``.
+    public weak var nativeInput: (any WebKitBrowserPageNativeInputDelivering)?
 
     private var addedUserScripts: [WKUserScript] = []
     private var observations: [NSKeyValueObservation] = []
@@ -44,9 +47,12 @@ public final class WebKitBrowserPage: BrowserPage {
     public var engineKind: BrowserEngineKind { .webkit }
 
     /// WebKit's features: Web Inspector, snapshots, downloads, user scripts,
-    /// muting and in-pane fullscreen.
+    /// muting and in-pane fullscreen, plus trusted input while
+    /// ``nativeInput`` is attached.
     public var capabilities: BrowserEngineCapabilities {
-        WebKitBrowserPage.engineCapabilities
+        nativeInput == nil
+            ? WebKitBrowserPage.engineCapabilities
+            : WebKitBrowserPage.engineCapabilities.union(.trustedInput)
     }
 
     /// The capabilities of every WebKit page.
@@ -154,7 +160,7 @@ public final class WebKitBrowserPage: BrowserPage {
         case .page:
             return try await webView.evaluateJavaScript(script)
         case .isolated(let name):
-            return try await webView.evaluateJavaScript(script, in: nil, contentWorld: WKContentWorld.world(name: name))
+            return try await webView.evaluateJavaScript(script, in: nil, contentWorld: WebKitBrowserPage.contentWorld(for: .isolated(name)))
         }
     }
 
@@ -273,11 +279,13 @@ public final class WebKitBrowserPage: BrowserPage {
     /// - Parameter visible: Ignored.
     public func setContentVisible(_ visible: Bool) {}
 
-    /// WebKit has no trusted input path.
-    /// - Parameter event: Ignored.
-    /// - Throws: ``BrowserEngineError/unsupported(_:)`` always.
+    /// Delivers the event through ``nativeInput`` as native AppKit events.
+    /// - Parameter event: The event.
+    /// - Throws: ``BrowserEngineError/unsupported(_:)`` without
+    ///   ``nativeInput``, or the delivery's error.
     public func dispatchInput(_ event: BrowserPageInputEvent) async throws {
-        throw BrowserEngineError.unsupported("trustedInput")
+        guard let nativeInput else { throw BrowserEngineError.unsupported("trustedInput") }
+        _ = try await nativeInput.deliverNativeInput(event.rawInputSteps, to: webView)
     }
 
     // MARK: Media, restore, teardown
@@ -311,10 +319,21 @@ public final class WebKitBrowserPage: BrowserPage {
 
     // MARK: Private
 
+    /// Named worlds, kept for the life of the process. A `WKContentWorld`
+    /// that is released after one call can take its web-process world and
+    /// the globals scripts left there with it (observed on macOS 15), so
+    /// every world is held here, as the panel holds its own named worlds.
+    private static var namedWorlds: [String: WKContentWorld] = [:]
+
     private static func contentWorld(for world: BrowserPageScriptWorld) -> WKContentWorld {
         switch world {
-        case .page: .page
-        case .isolated(let name): .world(name: name)
+        case .page:
+            return .page
+        case .isolated(let name):
+            if let existing = namedWorlds[name] { return existing }
+            let created = WKContentWorld.world(name: name)
+            namedWorlds[name] = created
+            return created
         }
     }
 

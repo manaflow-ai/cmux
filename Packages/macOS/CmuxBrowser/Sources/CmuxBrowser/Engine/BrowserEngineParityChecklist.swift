@@ -23,6 +23,24 @@ public struct BrowserEngineParityEntry: Sendable {
     /// Chromium's support.
     public let chromium: BrowserEngineParitySupport
 
+    /// Creates an entry.
+    /// - Parameters:
+    ///   - name: A stable name, matching the capability's static name.
+    ///   - capability: A single capability bit.
+    ///   - webkit: WebKit's support.
+    ///   - chromium: Chromium's support.
+    public init(
+        name: String,
+        capability: BrowserEngineCapabilities,
+        webkit: BrowserEngineParitySupport,
+        chromium: BrowserEngineParitySupport
+    ) {
+        self.name = name
+        self.capability = capability
+        self.webkit = webkit
+        self.chromium = chromium
+    }
+
     /// The support of `engine`.
     /// - Parameter engine: The engine.
     /// - Returns: That engine's column of this entry.
@@ -34,16 +52,26 @@ public struct BrowserEngineParityEntry: Sendable {
     }
 }
 
-/// The checked-in parity checklist between the two browser engines.
+/// A parity checklist between the two browser engines.
 ///
 /// Each engine's declared ``BrowserEngineCapabilities`` must equal the
 /// checklist's `.supported` column for that engine
-/// (``mismatches(declared:engine:)``). An engine that gains a capability, or
-/// drops one, fails its package tests until this table says so, so the table
-/// stays the parity matrix rather than a description of it.
-public enum BrowserEngineParityChecklist {
+/// (``mismatches(declared:engine:)``). ``standard`` is the checked-in table:
+/// an engine that gains a capability, or drops one, fails its package tests
+/// until that table says so, so it stays the parity matrix rather than a
+/// description of it.
+public struct BrowserEngineParityChecklist: Sendable {
     /// Every capability, once.
-    public static let entries: [BrowserEngineParityEntry] = [
+    public let entries: [BrowserEngineParityEntry]
+
+    /// Creates a checklist.
+    /// - Parameter entries: One entry per capability.
+    public init(entries: [BrowserEngineParityEntry]) {
+        self.entries = entries
+    }
+
+    /// The checked-in checklist the engines are held to.
+    public static let standard = BrowserEngineParityChecklist(entries: [
         entry("devTools", .devTools, webkit: .supported, chromium: .supported),
         entry("devToolsProtocol", .devToolsProtocol,
               webkit: .notApplicable(reason: "WebKit has no Chrome DevTools Protocol"),
@@ -52,7 +80,7 @@ public enum BrowserEngineParityChecklist {
               webkit: .notApplicable(reason: "WKWebView cannot load Chrome extensions"),
               chromium: .supported),
         entry("trustedInput", .trustedInput,
-              webkit: .notApplicable(reason: "WebKit offers no trusted input injection"),
+              webkit: .supported,
               chromium: .supported),
         entry("nativeFind", .nativeFind, webkit: .gap(owner: "devtools"), chromium: .supported),
         entry("findMatchCount", .findMatchCount, webkit: .supported, chromium: .supported),
@@ -67,17 +95,17 @@ public enum BrowserEngineParityChecklist {
               chromium: .supported),
         entry("userScripts", .userScripts, webkit: .supported, chromium: .supported),
         entry("mediaMuting", .mediaMuting, webkit: .supported, chromium: .supported),
-    ]
+    ])
 
     /// Every capability the checklist names.
-    public static var allCapabilities: BrowserEngineCapabilities {
+    public var allCapabilities: BrowserEngineCapabilities {
         entries.reduce(into: []) { $0.formUnion($1.capability) }
     }
 
     /// The capabilities `engine` must declare.
     /// - Parameter engine: The engine.
     /// - Returns: The union of the entries marked `.supported` for it.
-    public static func supported(by engine: BrowserEngineKind) -> BrowserEngineCapabilities {
+    public func supported(by engine: BrowserEngineKind) -> BrowserEngineCapabilities {
         entries.reduce(into: []) { result, entry in
             if entry.support(for: engine) == .supported { result.formUnion(entry.capability) }
         }
@@ -86,7 +114,7 @@ public enum BrowserEngineParityChecklist {
     /// The open gaps of `engine`, by capability name.
     /// - Parameter engine: The engine.
     /// - Returns: `name -> owner` for each `.gap` entry.
-    public static func gaps(of engine: BrowserEngineKind) -> [String: String] {
+    public func gaps(of engine: BrowserEngineKind) -> [String: String] {
         entries.reduce(into: [:]) { result, entry in
             if case let .gap(owner) = entry.support(for: engine) { result[entry.name] = owner }
         }
@@ -97,7 +125,7 @@ public enum BrowserEngineParityChecklist {
     ///   - declared: What the engine's pages report as ``BrowserPage/capabilities``.
     ///   - engine: The engine.
     /// - Returns: One message per difference; empty when they agree.
-    public static func mismatches(
+    public func mismatches(
         declared: BrowserEngineCapabilities,
         engine: BrowserEngineKind
     ) -> [String] {
