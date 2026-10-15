@@ -83,6 +83,23 @@
    "/tmp/acpmux-501/eaf4eea38918181c.sock"
   ]
  ],
+ "router_sockets": [
+  [
+   "/Users/me/.acpmux",
+   501,
+   "/Users/me/.acpmux/router/router.sock"
+  ],
+  [
+   "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.cxfootb-352cfa5c-capture-slot-0",
+   501,
+   "/tmp/acpmux-501/38f8b1d912f066ff.router.sock"
+  ],
+  [
+   "/Users/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/.acpmux",
+   501,
+   "/tmp/acpmux-501/eaf4eea38918181c.router.sock"
+  ]
+ ],
  "configured_sockets": [
   [
    "/tmp/x/s.sock",

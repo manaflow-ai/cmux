@@ -175,6 +175,17 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return shortAlias(home.path, uid: uid)
     }
 
+    /// The local model relay's admin socket (cmux-agent-pane-policy
+    /// `environment::router_socket_path`): `<home>/router/router.sock`, or
+    /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.router.sock` when that is 96 bytes or longer. A capture
+    /// slot's long tag put the long path past `sun_path`, and `NWEndpoint.unix` trapped on it at
+    /// launch (cx-qukj2).
+    static func routerSocketPath(home: URL, uid: UInt32) -> String {
+        let preferred = home.appendingPathComponent("router", isDirectory: true).appendingPathComponent("router.sock").path
+        if preferred.utf8.count < 96 { return preferred }
+        return "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(home.path))).router.sock"
+    }
+
     static func fnv1a64(_ text: String) -> UInt64 {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in text.utf8 {
