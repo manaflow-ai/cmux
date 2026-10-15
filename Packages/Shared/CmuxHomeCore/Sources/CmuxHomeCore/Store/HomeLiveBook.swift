@@ -111,6 +111,21 @@ struct HomeLiveBook {
             guard next != runs else { return .ignored }
             runs = next
             return .changed
+        case .rows(let conversation, let author, let run, let rows):
+            // A step the run does not hold (not in run.live, no delta seen) whose row has text ended
+            // before this client joined: its row is its whole text (cx-kdm25).
+            let key = Key(conversation: conversation, author: author, run: run)
+            guard !ended.contains(key), var live = runs[key] else { return .ignored }
+            var changed = false
+            for row in rows where row.isTalk && live.steps[row.step] == nil && !row.text.isEmpty {
+                live.steps[row.step] = Step(isTalk: true, seq: 0, text: Self.capped(row.text))
+                live.order.append(row.step)
+                live.done.insert(row.step)
+                changed = true
+            }
+            guard changed else { return .ignored }
+            runs[key] = live
+            return .changed
         case .run(let change):
             let key = Key(conversation: change.conversation, author: change.author, run: change.run)
             if let turn = change.turn { turns[key] = turn }

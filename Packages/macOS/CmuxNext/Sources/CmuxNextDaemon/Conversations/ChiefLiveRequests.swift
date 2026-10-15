@@ -35,3 +35,53 @@ extension ConversationClient {
         return try await connection.request(ConversationLiveRequest(conversation: conversation))
     }
 }
+
+/// The steps of one run (`conversation-run`, `cloud-conversation-run`): Home reads the
+/// talk steps' text to show reply segments a live buffer already freed (a mid-run join).
+public struct ConversationRunRows: Decodable, Sendable, Hashable {
+    public struct Step: Decodable, Sendable, Hashable {
+        public var id: String
+        public var kind: String
+        public var text: String?
+    }
+
+    public var steps: [Step]
+}
+
+/// `conversation-run {conversation, run}` (`conversation-runs-v1`): every step of a local run.
+public struct ConversationRunRequest: DaemonRequest {
+    public typealias Response = ConversationRunRows
+    public static let command = "conversation-run"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationRuns
+    public var conversation: String
+    public var run: String
+
+    public init(conversation: String, run: String) {
+        self.conversation = conversation
+        self.run = run
+    }
+}
+
+/// `cloud-conversation-run {conversation, agent, run}` (`cloud-conversation-runs-v1`): a Cloud Chief's run.
+public struct CloudConversationRunRequest: DaemonRequest {
+    public typealias Response = ConversationRunRows
+    public static let command = "cloud-conversation-run"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.cloudConversationRuns
+    public var conversation: String
+    public var agent: String
+    public var run: String
+
+    public init(conversation: String, agent: String, run: String) {
+        self.conversation = conversation
+        self.agent = agent
+        self.run = run
+    }
+}
+
+extension ConversationClient {
+    /// The steps of `run`; nil from a daemon without `conversation-runs-v1`.
+    public func runRows(_ conversation: String, run: String) async throws -> ConversationRunRows? {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.conversationRuns) == true else { return nil }
+        return try await connection.request(ConversationRunRequest(conversation: conversation, run: run))
+    }
+}
