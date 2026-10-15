@@ -68,7 +68,6 @@ extension PaneContentView {
             window.makeFirstResponder(nil)
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        unfollowTabRow(view)
         view.isHidden = true
         // Hidden views do not follow pane resizes; `install` sets the frame.
         view.autoresizingMask = []

@@ -88,7 +88,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            // `ChromeTunables.tabRowTools` too: the content takes or gives back the strip's row.
             for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
@@ -128,7 +127,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown)
-        // A chat's tools in the row (`PaneContentView+TabRow`): the content covers the row too.
         let rowTools = tabRowToolsWidth(shown: shown, tools: tools)
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
@@ -244,10 +242,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Another pane may own `previous` now and have taken its callback.
         if let previous, previous !== view, previous.superview == nil {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-            unfollowTabRow(previous)
         }
         content = view
-        followTabRow(view)
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }
@@ -285,7 +281,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         endPaintHold()
         if hostsContent {
             (content as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-            unfollowTabRow(content)
             content?.removeFromSuperview()
         }
         content = nil

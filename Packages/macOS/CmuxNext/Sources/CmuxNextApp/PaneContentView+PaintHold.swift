@@ -153,7 +153,6 @@ extension PaneContentView {
             guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
             retire(outgoing)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-            unfollowTabRow(outgoing)
         }, ended: { [weak self] in
             // The strip, ring and corners change with the swap, in its transaction.
             guard let self, holdKeepsStrip else { return }

@@ -1,4 +1,5 @@
 public import CoreGraphics
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// A chat's header tools in its pane's tab row (`ChromeTunables.tabRowTools`, header/tabRow.ts):
@@ -32,11 +33,20 @@ import CmuxNextSettings
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
     var event: AgentPageEvent { .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0) }
 
-    /// Offers `view`'s page the top `height` CSS pixels of the pane, less `trailingInset` at the
-    /// trailing end (0: no row); pushed only when it changed.
-    public static func offer(height: CGFloat, trailingInset: CGFloat, to view: AgentPaneView) {
+    /// The tools' width in points at `zoom` (points per CSS pixel); nil while the setting is off or
+    /// the page draws no tools in the row.
+    public func sharedWidth(zoom: CGFloat) -> CGFloat? {
+        guard ChromeTunables.tabRowTools.value, toolsWidth > 0 else { return nil }
+        return toolsWidth * max(0.25, zoom)
+    }
+
+    /// Offers `view`'s page the top `height` points of the pane, less `trailingInset` at the trailing
+    /// end (0, or the setting off: no row), converted to CSS pixels; pushed only when it changed.
+    public static func offer(points height: CGFloat, trailingInset: CGFloat, to view: AgentPaneView) {
+        let zoom = max(0.25, view.webView.pageZoom)
+        let on = ChromeTunables.tabRowTools.value && height > 0
         let row = view.model.tabRow
-        let next = (height: max(0, height), trailingInset: height > 0 ? max(0, trailingInset) : 0)
+        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0)
         guard row.offered.map({ $0 != next }) ?? (next.height > 0) else { return }
         row.offered = next
         let event = row.event
