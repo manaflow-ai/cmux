@@ -173,14 +173,13 @@ test("a full-bleed page fills the frame: the base adds no body margin or padding
   const scene = "<style>body{margin:0}canvas{display:block}</style><canvas></canvas>";
   const { page, style } = framePage(await frameMessage(LIGHT, scene));
   const body = style("body");
-  const box = page.innerWidth - parseFloat(body.paddingLeft) - parseFloat(body.paddingRight);
-  expect(box).toBe(page.innerWidth);
-  expect(body.paddingTop).toBe("0px");
-  expect(body.paddingBottom).toBe("0px");
-  expect(body.marginTop).toBe("0px");
+  // An unset padding reads "" here; the page's default is none.
+  const px = (value: string) => parseFloat(value || "0");
+  expect(page.innerWidth - px(body.paddingLeft) - px(body.paddingRight)).toBe(page.innerWidth);
+  expect([px(body.paddingTop), px(body.paddingBottom), px(body.marginTop)]).toEqual([0, 0, 0]);
   // A page with no CSS at all gets no inset either.
   const plain = framePage(await frameMessage(LIGHT, PAGE)).style("body");
-  expect([plain.margin, plain.paddingLeft, plain.paddingTop]).toEqual(["0px", "0px", "0px"]);
+  expect([plain.marginLeft, plain.paddingLeft, plain.paddingTop].map(px)).toEqual([0, 0, 0]);
 });
 
 test("a dark theme changes the variables a page sees", async () => {

@@ -3,7 +3,8 @@
 // stylesheet, so a page with no CSS of its own already reads as part of the chat: the pane's font,
 // type scale, links, headings, tables, buttons, inputs and code, in the pane's light or dark, on a
 // transparent background so the card's surface shows. Every base rule sits in `:where()` (no
-// specificity) and comes before the page's own styles, so any rule the page writes wins.
+// specificity), the variables included, and comes before the page's own styles, so any rule the
+// page writes wins. The base adds no body margin or padding, so a full-bleed page fills the frame.
 // The `render` tool's description (cmux-tui/.../mcp/render_tool.rs) lists the same variables.
 
 /// The variables a page can use, each read from the pane's theme (or the pane's fixed scale) with
@@ -37,12 +38,12 @@ export function renderFrameCSS(): string {
   const read = (name: string | null, fallback: string) => (name && style.getPropertyValue(name).trim()) || fallback;
   const scheme = style.colorScheme.includes("dark") ? "dark" : "light";
   const tokens = RENDER_TOKENS.map(([name, source, fallback]) => `${name}:${read(source, fallback)}`);
-  return `:root{color-scheme:${scheme};${tokens.join(";")}}${BASE}`;
+  return `:where(:root){color-scheme:${scheme};${tokens.join(";")}}${BASE}`;
 }
 
 const BASE = [
   ":where(html){background:transparent;-webkit-text-size-adjust:100%}",
-  ":where(body){margin:0;padding:var(--cmux-space-3) 14px;color:var(--cmux-text);",
+  ":where(body){margin:0;color:var(--cmux-text);",
   "font:var(--cmux-size-body)/1.5 var(--cmux-font);-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}",
   ":where(*,*::before,*::after){box-sizing:border-box}",
   ":where(h1,h2,h3,h4,h5,h6){margin:0 0 6px;font-weight:600;line-height:1.3}",
@@ -62,7 +63,8 @@ const BASE = [
   ":where(th){color:var(--cmux-muted);font-size:var(--cmux-size-detail);font-weight:500}",
   ":where(tr:last-child > td){border-bottom:0}",
   ":where(code,kbd,samp,pre){font-family:var(--cmux-mono);font-size:0.92em}",
-  ":where(:not(pre) > code,kbd){padding:1px 4px;border-radius:4px;background:var(--cmux-control)}",
+  ":where(code,kbd){padding:1px 4px;border-radius:4px;background:var(--cmux-control)}",
+  ":where(pre code){padding:0;background:none}",
   ":where(pre){padding:8px 10px;border-radius:var(--cmux-radius);background:var(--cmux-control);overflow:auto;line-height:1.45}",
   ":where(button,input,select,textarea){font:inherit;color:inherit}",
   ":where(button,input[type=button],input[type=submit],input[type=reset]){height:26px;padding:0 10px;",
