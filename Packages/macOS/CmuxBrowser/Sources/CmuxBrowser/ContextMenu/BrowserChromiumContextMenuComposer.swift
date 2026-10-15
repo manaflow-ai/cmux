@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Composes a Chromium page's context menu for cmux Classic: Chromium's own model (its link,
 /// image, selection, edit, extension, spelling and Inspect rows) with Classic's cmux rows in the
