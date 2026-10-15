@@ -499,7 +499,7 @@ struct HybridUnderlay {
     /// `DialOptions::restrict_inbound_udp`, UDP from anywhere else is dropped.
     sent_to: HashSet<SocketAddr>,
     /// What was sent lately, for the replay after a route change.
-    recent: std::collections::VecDeque<(Instant, Bytes)>,
+    recent: std::collections::VecDeque<(Instant, Bytes, RelayClass)>,
     /// When a route change last replayed.
     last_replay: Option<Instant>,
 }
@@ -645,18 +645,19 @@ impl HybridUnderlay {
         }
     }
 
-    fn record(&mut self, datagram: &[u8]) {
+    /// Keep `datagram` for a replay, with the relay class it went out in.
+    fn record(&mut self, datagram: &[u8], class: RelayClass) {
         // Handshake messages are never worth repeating.
         if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardData {
             return;
         }
         let now = Instant::now();
         while self.recent.len() >= REPLAY_MAX
-            || self.recent.front().is_some_and(|(at, _)| now.duration_since(*at) > REPLAY_AGE)
+            || self.recent.front().is_some_and(|(at, _, _)| now.duration_since(*at) > REPLAY_AGE)
         {
             self.recent.pop_front();
         }
-        self.recent.push_back((now, Bytes::copy_from_slice(datagram)));
+        self.recent.push_back((now, Bytes::copy_from_slice(datagram), class));
     }
 
     /// Send what went out lately again, on the current route. Replays for
@@ -669,17 +670,17 @@ impl HybridUnderlay {
             }
             self.last_replay = Some(now);
         }
-        let recent: Vec<Bytes> = self
+        let recent: Vec<(Bytes, RelayClass)> = self
             .recent
             .iter()
-            .filter(|(at, _)| now.duration_since(*at) <= REPLAY_AGE)
-            .map(|(_, datagram)| datagram.clone())
+            .filter(|(at, _, _)| now.duration_since(*at) <= REPLAY_AGE)
+            .map(|(_, datagram, class)| (datagram.clone(), *class))
             .collect();
         if !recent.is_empty() {
             tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
         }
-        for datagram in recent {
-            self.transmit(&datagram, relay_class(&datagram));
+        for (datagram, class) in recent {
+            self.transmit(&datagram, class);
         }
     }
 
@@ -857,14 +858,16 @@ impl HybridUnderlay {
 impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
         self.drain_control();
-        self.record(datagram);
-        self.transmit(datagram, relay_class(datagram));
+        let class = relay_class(datagram);
+        self.record(datagram, class);
+        self.transmit(datagram, class);
     }
 
     fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
         self.drain_control();
-        self.record(datagram);
-        self.transmit(datagram, relay_class_of(datagram, priority));
+        let class = relay_class_of(datagram, priority);
+        self.record(datagram, class);
+        self.transmit(datagram, class);
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {

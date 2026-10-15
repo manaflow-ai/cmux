@@ -9,8 +9,10 @@
 //! 1. signals and socket pings: never dropped, never behind a relay frame;
 //! 2. relay control: the "your UDP reaches me" marker, handshake messages
 //!    and keepalives (they confirm and keep the route);
-//! 3. relay input: small data datagrams (keystrokes, TCP ACKs, small
-//!    requests);
+//! 3. relay input: what the tunnel's pacer sends as interactive
+//!    (keystrokes, TCP ACKs, small requests, and terminal output at a
+//!    terminal's pace, full-size segments included, so a keystroke can
+//!    wait behind a few such segments);
 //! 4. relay bulk (large transfers) and media (video): they share what is
 //!    left by bytes, whichever sent fewer bytes goes next, so neither
 //!    starves the other.
@@ -18,13 +20,17 @@
 //! Relay classes are bounded by bytes. Past its bound a class drops its
 //! oldest frame: relay frames are datagrams, and what they carry (TCP in the
 //! tunnel, the media lane's RTP with its own resends) already copes with
-//! loss, while a stale frame only delays the fresh ones behind it.
+//! loss, while a stale frame only delays the fresh ones behind it. Media
+//! older than [`MEDIA_MAX_AGE`] is dropped too: a late video packet is
+//! worthless.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
 
 use futures_util::{Sink, SinkExt};
 use tokio::sync::Notify;
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::signaling::{RelayClass, SignalingError};
@@ -37,6 +43,9 @@ pub(crate) const CONTROL_BYTES: usize = 16 * 1024;
 pub(crate) const INPUT_BYTES: usize = 64 * 1024;
 pub(crate) const BULK_BYTES: usize = 256 * 1024;
 pub(crate) const MEDIA_BYTES: usize = 256 * 1024;
+/// Media queued longer than this is dropped (the tunnel's own pacer drops
+/// media after 50 ms; the relay adds the backend's round trip).
+pub(crate) const MEDIA_MAX_AGE: Duration = Duration::from_millis(250);
 
 /// A message that is not a relay frame.
 #[derive(Debug, PartialEq, Eq)]
@@ -47,7 +56,7 @@ pub(crate) enum Signal {
 
 #[derive(Default)]
 struct Class {
-    frames: VecDeque<Vec<u8>>,
+    frames: VecDeque<(Instant, Vec<u8>)>,
     bytes: usize,
     dropped: u64,
 }
@@ -57,18 +66,30 @@ impl Class {
     /// `limit` (a single frame larger than `limit` is still kept).
     fn push(&mut self, frame: Vec<u8>, limit: usize) {
         self.bytes += frame.len();
-        self.frames.push_back(frame);
+        self.frames.push_back((Instant::now(), frame));
         while self.bytes > limit && self.frames.len() > 1 {
-            let oldest = self.frames.pop_front().expect("more than one frame");
+            let (_, oldest) = self.frames.pop_front().expect("more than one frame");
             self.bytes -= oldest.len();
             self.dropped += 1;
         }
     }
 
     fn pop(&mut self) -> Option<Vec<u8>> {
-        let frame = self.frames.pop_front()?;
+        let (_, frame) = self.frames.pop_front()?;
         self.bytes -= frame.len();
         Some(frame)
+    }
+
+    /// Drop frames queued longer than `max_age`, oldest first.
+    fn expire(&mut self, max_age: Duration) {
+        let now = Instant::now();
+        while let Some((queued_at, frame)) = self.frames.front()
+            && now.saturating_duration_since(*queued_at) > max_age
+        {
+            self.bytes -= frame.len();
+            self.frames.pop_front();
+            self.dropped += 1;
+        }
     }
 }
 
@@ -76,6 +97,7 @@ impl Queues {
     /// Bulk or media, whichever sent fewer bytes while both waited.
     fn pop_bulk_or_media(&mut self) -> Option<Vec<u8>> {
         let (bulk, media) = (index(RelayClass::Bulk), index(RelayClass::Media));
+        self.relay[media].expire(MEDIA_MAX_AGE);
         let both = !self.relay[bulk].frames.is_empty() && !self.relay[media].frames.is_empty();
         let from =
             if self.relay[media].frames.is_empty() || (both && self.bulk_lead <= 0) { bulk } else { media };
@@ -335,6 +357,17 @@ mod tests {
         }
         assert!(queue.queued_bytes(RelayClass::Media) <= MEDIA_BYTES);
         assert!(queue.dropped(RelayClass::Media) > 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stale_media_is_dropped() {
+        let queue = SendQueue::default();
+        queue.push_relay(vec![0x3D; 600], RelayClass::Media).unwrap();
+        tokio::time::advance(MEDIA_MAX_AGE + Duration::from_millis(1)).await;
+        queue.push_relay(vec![0x3E; 600], RelayClass::Media).unwrap();
+        assert_eq!(queue.pop(), Some(Some(Message::Binary(vec![0x3E; 600].into()))));
+        assert_eq!(queue.dropped(RelayClass::Media), 1);
+        assert_eq!(queue.pop(), None);
     }
 
     #[tokio::test]
