@@ -37,6 +37,9 @@ struct CardSwipe: Equatable, Sendable {
     /// (scale fit 0.57 / 0.94).
     static let liftScale: CGFloat = 1.093
     static let lift = ZoomSpring(response: 0.12, damping: 1)
+    /// The card follows the finger on this spring (Safari's glide over the
+    /// slop and its carry past a stopped finger, re-audit 3 D3).
+    static let follow = ZoomSpring(response: 0.12, damping: 0.7)
     /// The touch slop is caught up over this long once the drag is recognised.
     static let slopCatchUp = 0.08
     static let settle = ZoomSpring(response: 0.57, damping: 0.94)
@@ -83,7 +86,8 @@ struct CardSwipe: Equatable, Sendable {
 
     /// Where the fly-off ends: past the screen's leading edge.
     static func flyOffOffset(cardMinX: CGFloat, cardWidth: CGFloat) -> CGFloat {
-        -(cardMinX + cardWidth + 24)
+        // Safari's flung card ends just past the edge (its right edge at 0).
+        -(cardMinX + cardWidth)
     }
 }
 

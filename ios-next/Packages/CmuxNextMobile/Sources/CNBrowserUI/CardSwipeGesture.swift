@@ -46,26 +46,62 @@ final class CardSwipeState {
 
     func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
         let target = CardSwipe.offset(translation: translation)
-        let first = !raised.contains(key)
-        if first { raised.insert(key) }
+        if !raised.contains(key) { raised.insert(key) }
         if !reduceMotion, scales[key] == nil {
             withAnimation(spring(CardSwipe.lift)) { scales[key] = CardSwipe.liftScale }
         }
+        opacities[key] = nil
+        if reduceMotion {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { offsets[key] = target }
+            return
+        }
+        // Safari's card follows the finger on a quick spring: it glides over
+        // the touch slop at the start (-2, -8, -15, -22 pt in its first
+        // frames) and carries about 4 pt past the finger when it stops
+        // (re-audit 3 D3: ours jumped, then stood still, and never carried).
+        var f = followers[key] ?? Follower(position: offsets[key] ?? 0)
+        f.target = target
+        followers[key] = f
+        followClock.start { [weak self] now in self?.stepFollowers(now) ?? false }
+    }
+
+    /// A card following the finger (`CardSwipe.follow`).
+    private struct Follower {
+        var position: CGFloat
+        var velocity: CGFloat = 0
+        var target: CGFloat = 0
+        var last: CFTimeInterval?
+    }
+    private var followers: [String: Follower] = [:]
+    @ObservationIgnored private let followClock = FrameClock()
+
+    private func stepFollowers(_ now: CFTimeInterval) -> Bool {
+        let w = 2 * Double.pi / CardSwipe.follow.response, z = CardSwipe.follow.damping
         var t = Transaction()
         t.disablesAnimations = true
-        withTransaction(t) {
-            if first, !reduceMotion, offsets[key] == nil {
-                // Start where the card is (its slot) and glide to the finger.
-                catchUps[key] = -target
+        for (key, var f) in followers {
+            let dt = min(0.05, f.last.map { now - $0 } ?? 1.0 / 60)
+            f.last = now
+            var rem = dt
+            while rem > 0 {
+                let h = min(rem, 1.0 / 600)
+                let a = -w * w * Double(f.position - f.target) - 2 * z * w * Double(f.velocity)
+                f.velocity += CGFloat(a * h)
+                f.position += f.velocity * CGFloat(h)
+                rem -= h
             }
-            offsets[key] = target
-            opacities[key] = nil
+            followers[key] = f
+            withTransaction(t) { offsets[key] = f.position }
         }
-        if first, !reduceMotion, catchUps[key] != nil {
-            withAnimation(.easeOut(duration: CardSwipe.slopCatchUp)) { catchUps[key] = 0 } completion: { [weak self] in
-                if self?.catchUps[key] == 0 { self?.catchUps[key] = nil }
-            }
-        }
+        return !followers.isEmpty
+    }
+
+    /// Stops following and returns the card's offset and velocity.
+    private func stopFollowing(_ key: String) -> CGFloat? {
+        guard let f = followers.removeValue(forKey: key) else { return nil }
+        return f.velocity
     }
 
     /// Release: fly off and close, or spring back. A committed card keeps
@@ -79,6 +115,8 @@ final class CardSwipeState {
     /// reappears at its slot with a 0.18 s fade.
     func release(_ key: String, velocity: CGFloat, card: CGRect, reduceMotion: Bool,
                  departing makeCopy: () -> DepartingCard, close: @escaping () async -> Bool) {
+        let fingerOffset = followers[key]?.target
+        _ = stopFollowing(key)
         let offset = offsets[key] ?? 0
         guard CardSwipe.commits(offset: offset, velocity: velocity, cardWidth: card.width) else {
             comeBack(key, velocity: velocity, reduceMotion: reduceMotion)
@@ -123,7 +161,11 @@ final class CardSwipeState {
         // own fling (it holds 2 frames, accelerates and slows to the edge;
         // a constant speed left 120-210 ms early, re-audit 3 D1), scaled to
         // this card's distance to the screen edge.
-        flights[key] = Flight(start: start, target: target, t0: CACurrentMediaTime(), landed: landed)
+        // The curve's clock starts at the finger's end, which the pan reports
+        // about 2.5 frames late (measured against Safari with the same
+        // input); the card leaves from where it is shown.
+        _ = fingerOffset
+        flights[key] = Flight(start: start, target: target, t0: CACurrentMediaTime() - 2.5 / 60, landed: landed)
         flightLink.start { [weak self] now in self?.stepFlights(now) ?? false }
         // The tab leaves the grid one frame after the release (Safari's count
         // changes about 10 ms after it, re-audit 2 D10): the fly-off's first
@@ -163,7 +205,10 @@ final class CardSwipeState {
         return !flights.isEmpty
     }
 
-    func cancel(_ key: String, reduceMotion: Bool) { comeBack(key, velocity: 0, reduceMotion: reduceMotion) }
+    func cancel(_ key: String, reduceMotion: Bool) {
+        _ = stopFollowing(key)
+        comeBack(key, velocity: 0, reduceMotion: reduceMotion)
+    }
 
     /// Back to the card's slot: the snap-back spring carrying the finger's
     /// velocity (Safari's card keeps moving 1–2 frames after a slow release)
@@ -191,7 +236,7 @@ final class CardSwipeState {
             // (re-audit 3 3g); right: the fitted spring (3i passes).
             let animation: Animation = from > 0
                 ? CardSwipe.snapBackRight.animation(initialVelocity: abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0)
-                : .safari(.snapBack)
+                : .safari(.snapBack, lead: 1.5 / 60)
             withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
