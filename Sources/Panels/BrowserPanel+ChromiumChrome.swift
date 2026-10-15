@@ -30,6 +30,21 @@ extension BrowserPanel {
         allowsChromiumInternalPages && ChromiumPageRoute(typed: input) == .browserSettings
     }
 
+    /// `entries` without the Chromium-only pages (`chrome://`,
+    /// `chrome-extension://`) unless the panel can show them: history is
+    /// shared by both engines, and a WebKit panel's address bar must not
+    /// offer a page it would search instead of opening.
+    static func omnibarHistoryEntries(
+        _ entries: [BrowserHistoryStore.Entry],
+        allowsChromiumPages: Bool
+    ) -> [BrowserHistoryStore.Entry] {
+        guard !allowsChromiumPages else { return entries }
+        return entries.filter { entry in
+            guard let url = URL(string: entry.url) else { return true }
+            return !ChromiumInternalURL.needsChromium(url)
+        }
+    }
+
     /// The `chrome://` pages the address bar offers for `query` in this panel.
     func chromiumInternalPageCompletions(for query: String) -> [URL] {
         ChromiumPageRoute.completions(for: query, allowsChromiumSchemes: allowsChromiumInternalPages)
