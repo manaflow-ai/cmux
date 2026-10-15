@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 
 use crate::model::State;
-use crate::mux::tab_groups::pane_by_public_id;
+use crate::mux::tab_groups::{pane_by_public_id, pane_public_id};
 use crate::mux::*;
 use crate::{Actor, PaneId, SurfaceId};
 
@@ -68,31 +68,72 @@ fn edge_leaf(node: &Value, first: bool) -> Option<String> {
     }
 }
 
-/// The live neighbor closed tab member `record` was split off, while it
-/// is still on the member's screen in the member's workspace: a neighbor
-/// that moved elsewhere (another workspace, maybe an incognito one) never
-/// takes the tab.
-pub(super) fn split_neighbor(state: &State, record: &Value) -> Option<PaneId> {
-    let split = &record["split"];
-    let neighbor = pane_by_public_id(state, split["neighbor"].as_str()?)?;
-    let (workspace, screen) = state.screen_of(neighbor)?;
+/// Live pane `pane` while it is in `record`'s workspace, and on `screen`
+/// when one is named: a pane that moved elsewhere (another workspace,
+/// maybe an incognito one) never takes a closed tab.
+fn pane_in_place(
+    state: &State,
+    record: &Value,
+    pane: &str,
+    screen: Option<&str>,
+) -> Option<PaneId> {
+    let pane = pane_by_public_id(state, pane)?;
+    let (workspace, index) = state.screen_of(pane)?;
     let workspace = &state.workspaces[workspace];
     let home = record["workspace_id"].as_str() == Some(workspace.public_id.as_str())
-        && split["screen"]
-            .as_str()
-            .is_none_or(|id| id == workspace.screens[screen].public_id.as_str());
-    home.then_some(neighbor)
+        && screen.is_none_or(|id| id == workspace.screens[index].public_id.as_str());
+    home.then_some(pane)
+}
+
+/// The live pane closed tab member `record` left, or the pane a partial
+/// reopen split again for it (`panes`), while it is where the member
+/// names (its workspace; that pane's screen).
+pub(super) fn home_pane(
+    state: &State,
+    record: &Value,
+    panes: &HashMap<String, SplitPane>,
+) -> Option<PaneId> {
+    let closed = record["pane_id"].as_str()?;
+    match panes.get(closed) {
+        Some(split) => pane_in_place(state, record, &split.pane, Some(split.screen.as_str())),
+        None => pane_in_place(state, record, closed, record["screen_id"].as_str()),
+    }
+}
+
+/// The live neighbor closed tab member `record` was split off, while it
+/// is still on the recorded screen in the member's workspace.
+pub(super) fn split_neighbor(state: &State, record: &Value) -> Option<PaneId> {
+    let split = &record["split"];
+    pane_in_place(state, record, split["neighbor"].as_str()?, split["screen"].as_str())
+}
+
+/// The pane a reopen split off a closed pane's neighbor again, and its
+/// screen (public ids).
+pub(super) struct SplitPane {
+    pub(super) pane: String,
+    pub(super) screen: String,
+}
+
+impl SplitPane {
+    pub(super) fn of(state: &State, pane: PaneId) -> Option<Self> {
+        let (workspace, screen) = state.screen_of(pane)?;
+        Some(Self {
+            pane: pane_public_id(state, pane).ok()?,
+            screen: state.workspaces[workspace].screens[screen].public_id.as_str().to_string(),
+        })
+    }
 }
 
 /// Point the kept tab members of a closed pane that a partial reopen split
-/// again (`panes`: closed pane id to new pane id) at that new pane, so a
-/// later reopen puts them there instead of splitting once more.
-pub(super) fn follow_split_panes(members: &mut [Value], panes: &HashMap<String, String>) {
+/// again (`panes`, by closed pane id) at that new pane and its screen, so
+/// a later reopen puts them there instead of splitting once more.
+pub(super) fn follow_split_panes(members: &mut [Value], panes: &HashMap<String, SplitPane>) {
     for member in members {
-        let Some(pane) = member["pane_id"].as_str().and_then(|pane| panes.get(pane)) else {
+        let Some(split) = member["pane_id"].as_str().and_then(|pane| panes.get(pane)) else {
             continue;
         };
-        member["pane_id"] = json!(pane);
+        member["pane_id"] = json!(split.pane);
+        member["screen_id"] = json!(split.screen);
         if let Some(fields) = member.as_object_mut() {
             fields.remove("split");
         }

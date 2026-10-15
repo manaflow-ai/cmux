@@ -13,7 +13,7 @@
 //! request's result, so a retry with the same key replays it.
 
 use crate::Actor;
-use crate::mux::tab_groups::{group_members, pane_by_public_id, pane_public_id};
+use crate::mux::tab_groups::{group_members, pane_by_public_id};
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
 use crate::state::closed_history_query::{
@@ -66,9 +66,9 @@ struct Reopened {
     placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
     reopened_as: std::collections::HashMap<String, String>,
-    /// A closed pane's id to the id of the pane split off its neighbor
-    /// again; the group's kept tabs of that pane follow it there.
-    panes: std::collections::HashMap<String, String>,
+    /// A closed pane's id to the pane split off its neighbor again; the
+    /// group's kept tabs of that pane follow it there.
+    panes: std::collections::HashMap<String, super::closed_pane_split::SplitPane>,
 }
 
 impl Reopened {
@@ -662,14 +662,15 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let tab = &record["screens"][0]["tabs"][0];
         let closed_pane = record["pane_id"].as_str();
-        // The tab's own pane: live, or split off its neighbor again for an
-        // earlier tab of this reopen. With it gone, the neighbor it was
-        // split off takes the tab first, then splits again (cx-gzh.32).
+        // The tab's own pane: live, or split off its neighbor again by an
+        // earlier reopen, while still in the tab's workspace. With it gone,
+        // the neighbor it was split off takes the tab first, then splits
+        // again (cx-gzh.32).
         let (home, neighbor) = self.with_state(|state| {
-            let home = closed_pane
-                .and_then(|pane| reopened.panes.get(pane).map(String::as_str).or(Some(pane)))
-                .and_then(|pane| pane_by_public_id(state, pane));
-            (home, super::closed_pane_split::split_neighbor(state, record))
+            (
+                super::closed_pane_split::home_pane(state, record, &reopened.panes),
+                super::closed_pane_split::split_neighbor(state, record),
+            )
         });
         let pane = self.with_state(|state| {
             home.or(neighbor)
@@ -697,10 +698,11 @@ impl Mux {
         let home = match (home, neighbor) {
             (None, Some(neighbor)) => {
                 let pane = self.split_closed_pane_again(actor, surface, neighbor, &record["split"]);
-                let public =
-                    pane.and_then(|pane| self.with_state(|state| pane_public_id(state, pane).ok()));
-                if let (Some(closed), Some(public)) = (closed_pane, public) {
-                    reopened.panes.insert(closed.to_string(), public);
+                let split = pane.and_then(|pane| {
+                    self.with_state(|state| super::closed_pane_split::SplitPane::of(state, pane))
+                });
+                if let (Some(closed), Some(split)) = (closed_pane, split) {
+                    reopened.panes.insert(closed.to_string(), split);
                 }
                 pane
             }
