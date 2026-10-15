@@ -13997,10 +13997,10 @@
 				2B8ACF56AB5811EEC9D0203F /* SidebarCloudButtonActionTests.swift */,
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
-				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
 				FCB9513322321D01C4B712B9 /* BrowserEngineSocketTests.swift */,
 				1B8829D76A6D3ACDAC3462FE /* BrowserPanelEngineTests.swift */,
 				EA7E86D9097FFFF1D3C8B851 /* BrowserChromiumAutomationTests.swift */,
+				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
