@@ -427,7 +427,9 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let roots = CloudTreeNodeBuilder.nodes(
             machines: [fleetRow()],
             snapshot: SurfaceCatalogSnapshot(
-                machines: [info(workspaces: [main, side])], resources: [resource], projections: []
+                machines: [info(workspaces: [main, side])],
+                resources: [resource, terminal("side-shell", in: [side])],
+                projections: []
             ),
             localWorkspaces: [],
             includeLocalMachine: false

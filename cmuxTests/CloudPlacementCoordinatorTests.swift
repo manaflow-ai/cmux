@@ -149,6 +149,32 @@ struct CloudPlacementCoordinatorTests {
         })
     }
 
+    @Test func aCloudBrowserSidebarMoveIgnoresAReplacedProvidersReply() async {
+        let (catalog, provider) = Self.harness(bound: UUID())
+        let browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        catalog.replaceResources([browser], on: Self.machine)
+        let original = SurfaceProjection(
+            resource: browser.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: Self.main.id, remoteTabID: "tab_docs"
+        )
+        catalog.record(original)
+        let replacement = CloudPlacementTestProvider(machine: Self.machine)
+        provider.beforeMutation = { catalog.register(replacement) }
+
+        let task = catalog.cloudPlacementCoordinator.moveRemoteTab(
+            resource: browser.id,
+            tabID: "tab_docs",
+            intoRemoteWorkspace: Self.api.id,
+            catalog: catalog,
+            provider: provider,
+            onFailure: { error in Issue.record("browser move failed: \(error)") }
+        )
+        await task.value
+
+        #expect(catalog.projection(forPanel: original.panelID) == original)
+        #expect(replacement.moved.isEmpty)
+    }
+
     @Test func aViewlessTerminalMovedIntoTheMirroredWorkspaceIsProjectedThere() async {
         let viewer = UUID(), bound = UUID(), panel = UUID()
         let (catalog, provider) = Self.harness(bound: bound)
