@@ -1,6 +1,9 @@
 import CnxAgentChat
 import CnxTransport
 import Foundation
+import OSLog
+
+private let rpcLog = Logger(subsystem: "dev.cmux.cnx", category: "acpmux-rpc")
 
 /// JSON-RPC 2.0 over a link's `acpmux` channel: one link data frame carries
 /// one WebSocket text message (PROTOCOL.md "Link"). Requests resolve by id;
@@ -41,12 +44,26 @@ public actor AcpmuxConnection {
         nextID += 1
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
+        rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             Task {
                 do { try await channel.send(data) } catch { self.fail(id, error) }
             }
         }
+    }
+
+    /// `request` that gives up after `timeout` (a read the person waits on: the
+    /// agent catalog). A late reply is dropped.
+    public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
+        let id = nextID
+        let timer = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            await self?.fail(id, LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"))
+        }
+        defer { timer.cancel() }
+        return try await request(method, params)
     }
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
@@ -84,7 +101,10 @@ public actor AcpmuxConnection {
         var joiner = frames
         let message = joiner.push(data)
         frames = joiner
-        guard let value = message else { return }
+        guard let value = message else {
+            rpcLog.debug("frame of \(data.count) bytes is not a whole JSON message yet")
+            return
+        }
         dispatch(value)
     }
 
@@ -92,7 +112,11 @@ public actor AcpmuxConnection {
 
     private func dispatch(_ value: JSONValue) {
         if let id = value["id"]?.numberValue, value["method"] == nil {
-            guard let continuation = pending.removeValue(forKey: Int(id)) else { return }
+            guard let continuation = pending.removeValue(forKey: Int(id)) else {
+                rpcLog.debug("<- \(Int(id)) with no request waiting")
+                return
+            }
+            rpcLog.debug("<- \(Int(id)) \(value["error"] == nil ? "result" : "error", privacy: .public)")
             if let error = value["error"] {
                 continuation.resume(throwing: RPCError(
                     code: Int(error["code"]?.numberValue ?? 0),

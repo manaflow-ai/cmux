@@ -172,6 +172,9 @@ public struct WorkspaceScreen: View {
     static func openingText(_ optionTitle: String) -> String {
         var name = optionTitle
         if name.hasPrefix("New ") { name.removeFirst(4) }
+        if name.hasSuffix("…") { name.removeLast() }
+        if name.hasPrefix("Agent Chat") { return "Opening an agent chat…" }
+        if name == "Duplicate Tab" { return "Opening a copy…" }
         return name.hasSuffix(" Chat") ? "Opening a \(name.dropLast(5)) chat…" : "Opening a \(name.lowercased())…"
     }
 

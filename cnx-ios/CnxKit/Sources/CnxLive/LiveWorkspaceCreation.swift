@@ -139,11 +139,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         let harnesses: JSONValue
         do {
-            harnesses = try await acpmux.request("_acpmux/harnesses", .object([:]))
+            harnesses = try await acpmux.request("_acpmux/harnesses", .object([:]), timeout: .seconds(15))
         } catch {
             throw WorkspaceCreationError(AcpmuxSessionSource.message(error))
         }
-        let models = try? await acpmux.request("_acpmux/models", .object([:]))
+        let models = try? await acpmux.request("_acpmux/models", .object([:]), timeout: .seconds(10))
         return AgentCatalog(harnesses: harnesses, models: models)
     }
 
