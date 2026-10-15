@@ -83,7 +83,7 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud open-machine`, `cmux cloud new-terminal-on-machine` |
 | `vm open <id> <port>`, `vm ports` | `cmux cloud machine-ports`, `cmux cloud copy-machine-link --port <n>` |
 | `vm ssh`, `vm scp` diagnostics | none |
-| `vm wait`, `vm pause`, `vm resume`, `vm stats`, `vm base open\|reset`, `vm prompt` | none |
+| `vm wait`, `vm pause`, `vm resume`, `vm restart`, `vm stats`, `vm base open\|reset`, `vm prompt` | none |
 | `vm snapshot\|fork\|restore\|promote-template\|rename\|rm\|handoff\|status\|resize` | the matching `cmux cloud …-machine` action |
 | `cloud domains list\|publish\|verify\|access\|rm\|zones` | none |
 | `vpn up\|down\|status`, `ai-accounts`, `auth login\|logout` | none on the CLI; use the app |
