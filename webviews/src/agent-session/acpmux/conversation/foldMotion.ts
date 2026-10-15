@@ -37,6 +37,9 @@ type Armed = {
 const STALE_MS = 500;
 /// The `fade` mode's fade: short, and visible (Leo 2026-10-14: a fade that shows nothing is no option).
 const FADE_MS = { min: 120, max: 180 };
+/// Where a row the fold moved starts its fade: in sight, so the view never reads as empty while the
+/// steps that appear fade in from nothing.
+const MOVED_FROM = 0.4;
 
 /// A row's place in the transcript: RowFrame places it with `translateY(top)`.
 const placeOf = (row: HTMLElement) => Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? Number.NaN);
@@ -139,7 +142,7 @@ export class FoldMotion {
         if (Math.abs(shift) > 0.5) row.style.translate = `0 ${shift}px`;
       } else if (fading && Math.abs((armed.placed.get(row.dataset.rowId!) ?? Number.NaN) - placeOf(row)) > 0.5) {
         // Moved in the transcript, not only on screen: rows the scroll alone moves stay in full ink.
-        row.style.opacity = "0";
+        row.style.opacity = String(MOVED_FROM);
         moved.add(row);
       }
     }
@@ -160,7 +163,7 @@ export class FoldMotion {
         if (moved.has(row)) {
           row.style.opacity = "";
           this.running.push(
-            row.animate([{ opacity: 0 }, { opacity: 1 }], { duration: fadeMs, easing, fill: "backwards" }),
+            row.animate([{ opacity: MOVED_FROM }, { opacity: 1 }], { duration: fadeMs, easing, fill: "backwards" }),
           );
           continue;
         }
