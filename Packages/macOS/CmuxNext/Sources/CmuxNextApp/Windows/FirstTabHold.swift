@@ -36,7 +36,6 @@ enum FirstTabHold {
             throw error
         }
         if created != nil { await firstTab(of: id, windows.services) }
-        DebugTimings.markLaunch("first_tab_hold_released")
         release(id, windows)
         return created
     }

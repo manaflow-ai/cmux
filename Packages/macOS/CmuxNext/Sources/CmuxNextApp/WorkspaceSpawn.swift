@@ -167,7 +167,6 @@ struct WorkspaceSpawner {
 
     private func create(_ key: WorkspaceKey, rule: NewWorkspaceDefaultSlot?) async throws -> String {
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
-        DebugTimings.markLaunch("spawn.lane_entered")
         let services = windows.services
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule,
                                       then: windowID == nil ? nil : spawn.onListed, windows: windows)
@@ -182,7 +181,6 @@ struct WorkspaceSpawner {
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
             try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
         }
-        DebugTimings.markLaunch("spawn.pinned")
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
             try services.browserProfiles.setWorkspaceDefault(browserProfile, for: qualified)
@@ -191,7 +189,6 @@ struct WorkspaceSpawner {
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
         var vars = daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:]
-        DebugTimings.markLaunch("spawn.terminal_env_ready")
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
