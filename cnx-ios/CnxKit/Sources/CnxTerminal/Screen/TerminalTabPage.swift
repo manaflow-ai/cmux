@@ -15,8 +15,26 @@ public final class TerminalTabHost {
     }
 
     /// The tab grid is about to show this tab's card.
+    /// Puts the page's views in (or out of) accessibility and hit-testing.
+    /// SwiftUI's bridge reads a hosted view's `accessibilityElements`, so an
+    /// empty list is set as well as the hidden flag.
+    static func expose(_ view: UIView, _ exposed: Bool) {
+        if view.accessibilityElementsHidden == exposed { view.accessibilityElementsHidden = !exposed }
+        if exposed {
+            if view.accessibilityElements != nil { view.accessibilityElements = nil }
+        } else if (view.accessibilityElements?.isEmpty ?? false) == false {
+            view.accessibilityElements = []
+        }
+        if view.isUserInteractionEnabled != exposed { view.isUserInteractionEnabled = exposed }
+    }
+
     public func prepareCard() {
         model.captureSnapshot()
+        // The grid opens: the page becomes a picture in its card. TabsKit
+        // does not lay the page out again until it zooms back in, so it is
+        // taken out of accessibility and hit-testing here; the page's next
+        // interactive update puts it back (V3-4, T-TABS-14).
+        controller.viewIfLoaded.map { Self.expose($0, false) }
     }
 }
 
@@ -197,6 +215,11 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: TerminalViewController, context: Context) {
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
+        // `accessibilityHidden` does not reach a representable's UIKit views,
+        // so its composer, Return and Scroll to bottom stayed exposed and took
+        // taps and VoiceOver focus inside the card (V3-4, T-TABS-14).
+        TerminalTabHost.expose(controller.view, isInteractive)
         // A zoom to the grid, a swipe or the page menu takes the page: the
         // keyboard goes, as in Safari.
         if !isInteractive, host.model.keyboardVisible {
