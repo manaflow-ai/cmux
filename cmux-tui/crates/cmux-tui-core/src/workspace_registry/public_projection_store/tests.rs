@@ -22,6 +22,8 @@ fn seed_live_terminal(
         public_id: WorkspacePublicId::parse("ws_00000000000000000000000000000001").unwrap(),
         key: "workspace-one".into(),
         name: "One".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "public-projections".into(),
     };
     let screen = ScreenPublicId::parse("screen_00000000000000000000000000000001").unwrap();

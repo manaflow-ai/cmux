@@ -278,6 +278,8 @@ impl Mux {
                     public_id: workspace_public_id.clone(),
                     key: workspace_key.clone(),
                     name: name.clone(),
+                    name_source: crate::resource_name::NameSource::Auto,
+                    name_revision: 0,
                     group_key: self.session.clone(),
                 });
                 let commit = match registry.commit(
@@ -315,6 +317,8 @@ impl Mux {
                     public_id: workspace_public_id,
                     key: workspace_key,
                     name,
+                    name_source: crate::resource_name::NameSource::Auto,
+                    name_revision: 0,
                     screens: vec![Screen {
                         id: screen_id,
                         public_id: ScreenPublicId::random()?,
