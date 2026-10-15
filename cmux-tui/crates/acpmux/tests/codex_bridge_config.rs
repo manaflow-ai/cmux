@@ -4,6 +4,9 @@
 //! codex binary the bridge runs, and a family `prefer` list picks the profile.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -12,7 +15,7 @@ use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -220,14 +223,13 @@ async fn discovered_harnesses(d: &Path) -> Value {
     let acp_home = d.join("acpmux");
     std::fs::create_dir_all(&acp_home).unwrap();
     let socket = acp_home.join("s.sock");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    // The daemon runs the stand-in codex in `d/bin`, first on the bare PATH.
+    let mut child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
-        .env("PATH", format!("{}:/usr/bin:/bin", d.join("bin").display()))
-        .env("HOME", &home)
+        .env("PATH", format!("{}:{}", d.join("bin").display(), daemon_env::bare_path(&[])))
         .env("ACPMUX_HOME", &acp_home)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
