@@ -215,8 +215,39 @@ public struct BrowserPageAutomation {
     /// (`Emulation.setGeolocationOverride`, `Network.emulateNetworkConditions`).
     /// WebKit pages use the panel's own emulation (user scripts and content
     /// rules) instead.
-    public func applyEmulation(_ overrides: BrowserEmulationOverrides) async throws(BrowserAutomationPageError) {
+    ///
+    /// The page also gets WebKit's emulation page script, in this document
+    /// and every later one: it answers geolocation requests from the override
+    /// without a permission prompt (Chromium would otherwise ask, or deny),
+    /// and fires `online`/`offline` when the state flips, as on WebKit.
+    /// - Parameters:
+    ///   - overrides: The overrides to apply.
+    ///   - documentScript: The identifier of the document-start script a
+    ///     previous call registered, which this call replaces.
+    /// - Returns: The identifier of the registered document-start script, or
+    ///   nil when the overrides are the defaults (none is needed).
+    @discardableResult
+    public func applyEmulation(
+        _ overrides: BrowserEmulationOverrides,
+        replacingDocumentScript documentScript: String? = nil
+    ) async throws(BrowserAutomationPageError) -> String? {
         guard speaksDevTools else { throw .unsupported("geolocation and offline emulation") }
+        try await applyDevToolsEmulation(overrides)
+        if let documentScript {
+            _ = try await devTools("Page.removeScriptToEvaluateOnNewDocument", ["identifier": documentScript])
+        }
+        var registered: String?
+        if !overrides.isDefault {
+            let json = try await devTools("Page.addScriptToEvaluateOnNewDocument", [
+                "source": overrides.pageScript(dispatchesChangeEvents: false),
+            ])
+            registered = try codec.parseObject(json)["identifier"] as? String
+        }
+        _ = try await evaluate(overrides.pageScript(dispatchesChangeEvents: true), form: .expression, world: .page)
+        return registered
+    }
+
+    private func applyDevToolsEmulation(_ overrides: BrowserEmulationOverrides) async throws(BrowserAutomationPageError) {
         if let position = overrides.geolocation {
             _ = try await devTools("Emulation.setGeolocationOverride", [
                 "latitude": position.latitude,
