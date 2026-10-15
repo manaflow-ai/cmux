@@ -514,14 +514,16 @@ private struct PairMacStep: View {
             ConnectMacSteps(email: email, onlineMac: onlineMac, teamName: store.teams.count > 1 ? store.activeTeam?.name : nil,
                             noMacsForAccount: store.accountMacCount == 0)
         } actions: {
-            ZStack {
-                if onlineMac != nil {
-                    PrimaryCapsule("Continue", action: next).transition(.opacity)
-                } else {
-                    TextCTA("Not now", action: next).transition(.opacity)
-                }
+            // One button for both states (D6): see `PairMacCallToAction`. Its
+            // label and style change in place; nothing is inserted or removed,
+            // so a press in flight when the Mac shows up still fires.
+            let cta = PairMacCallToAction(macOnline: onlineMac != nil)
+            Button { perform(PairMacCallToAction(macOnline: onlineMac != nil).action) } label: {
+                Text(LocalizedStringKey(cta.title))
             }
-            .animation(theme.motion.snappy.animation, value: onlineMac != nil)
+            .buttonStyle(PairMacCTAStyle(emphasis: cta.emphasis))
+            .accessibilityIdentifier(PairMacCallToAction.accessibilityIdentifier)
+            .animation(theme.motion.snappy.animation, value: cta.emphasis)
         }
         .onAppear { foundAtStart = onlineMac != nil }
         .onChange(of: onlineMac != nil) { _, found in
@@ -549,6 +551,13 @@ private struct PairMacStep: View {
         #endif
     }
 
+    /// Resolved at touch-up from the state then; every state advances.
+    private func perform(_ action: PairMacCallToAction.Action) {
+        switch action {
+        case .advance: next()
+        }
+    }
+
     /// The settled devices while waiting (Reduce Motion: no pulses), then
     /// the ride and the bloom from the welcome's intro.
     private var art: some View {
@@ -567,6 +576,34 @@ private struct PairMacStep: View {
             }()
             WelcomeArt(t: t, idle: idle, idleStyle: .waiting, width: 200)
         }
+    }
+}
+
+/// The pair-Mac step's button in both states (D6): the primary capsule when a
+/// Mac is online, plain text while waiting. One view tree in both, with the
+/// capsule's fill faded rather than removed and a full-width, 52 pt hit shape
+/// in both states, so a state change never replaces or shrinks the hit target
+/// under a finger.
+private struct PairMacCTAStyle: ButtonStyle {
+    let emphasis: PairMacCallToAction.Emphasis
+
+    func makeBody(configuration: Configuration) -> some View {
+        let primary = emphasis == .primary
+        let pressed = configuration.isPressed
+        configuration.label
+            .font(theme.type.cta)
+            .foregroundStyle(primary ? theme.colors.onAccent : theme.colors.label)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, theme.metrics.ctaInlinePadding)
+            // Grows with Dynamic Type instead of clipping its label.
+            .padding(.vertical, 12)
+            .frame(minHeight: CnxCapsuleSize.large.height)
+            .background(theme.colors.accent.color.opacity(primary ? 1 : 0), in: .capsule)
+            .contentShape(.rect)
+            .opacity(pressed ? 0.85 : 1)
+            .scaleEffect(primary && pressed ? 0.98 : 1)
+            .animation(theme.motion.snap.animation, value: pressed)
     }
 }
 
