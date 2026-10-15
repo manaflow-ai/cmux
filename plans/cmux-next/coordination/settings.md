@@ -1,6 +1,7 @@
 # Lane: settings
 
 ## Active streams
+- 2026-10-16 next-settings-ui: `settings.refinedLook` in PageTunables (Pages, default false). Settings host facts add optional `settings_refined_look`; the existing host.changed observation keeps the page attribute and theme illustration current. Native and web schemas otherwise unchanged. Local commits only.
 - Settings in Rust + web page (settings lead): config actor in the daemon owns cmux.json (validate, MDM guard, JSONC persist, `settings-changed`); Swift applies daemon snapshots; web Settings page in a page tab via `cmux-settings://page`; palette, CLI and MCP use the same `settings.*` v2 ops. Design: plans/cmux-next/settings-react.md. Touches: catalog lane (settings-surfaces export), lane 20 (background token, transparency), app platform (page tabs).
 
 ## Landed

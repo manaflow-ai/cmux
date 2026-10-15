@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -16,7 +16,8 @@ afterEach(() => {
 
 const preview = () => page!.container.querySelector("[data-theme-preview]")!;
 const normalized = () => preview().outerHTML.replace(/theme-preview-app-[^" )]+/g, "theme-preview-app-ID");
-const original = readFileSync(new URL("./themePreview.default.html", import.meta.url), "utf8").trim();
+// Captured from origin/feat-cmux-next at 4081b771ee4; only React clip IDs are normalized.
+const original = readFileSync(new URL("./themePreview.default.svg.snap", import.meta.url), "utf8").trim();
 
 test("off preserves the complete upstream theme preview", async () => {
   page = await renderPage({ path: "/settings/theme" });
@@ -61,7 +62,9 @@ test("mount leaves the default look attribute absent", async () => {
   document.body.append(root);
   let unmount: (() => void) | undefined;
   try {
-    await run(async () => { unmount = await mountSettingsPage(root, mock.client); });
+    await run(async () => {
+      unmount = await mountSettingsPage(root, mock.client);
+    });
     expect(document.documentElement.hasAttribute("data-settings-look")).toBe(false);
   } finally {
     await run(() => unmount?.());
@@ -72,8 +75,7 @@ test("mount leaves the default look attribute absent", async () => {
 
 test("the variant stylesheet has no matching rules while off", async () => {
   page = await renderPage({ path: "/settings/theme" });
-  const refined = new URL("./refined.css", import.meta.url);
-  const css = readFileSync(existsSync(refined) ? refined : new URL("./polish.css", import.meta.url), "utf8");
+  const css = readFileSync(new URL("./refined.css", import.meta.url), "utf8");
   const style = document.createElement("style");
   style.textContent = css;
   document.head.append(style);
@@ -88,7 +90,7 @@ test("the variant stylesheet has no matching rules while off", async () => {
     collect(style.sheet!.cssRules);
     expect(selectors.length).toBeGreaterThan(30);
     for (const selector of selectors) expect(document.querySelectorAll(selector).length).toBe(0);
-    document.documentElement.setAttribute("data-settings-look", "refined");
+    await run(() => document.documentElement.setAttribute("data-settings-look", "refined"));
     expect(selectors.some((selector) => document.querySelector(selector))).toBe(true);
   } finally {
     style.remove();
