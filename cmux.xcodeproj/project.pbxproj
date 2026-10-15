@@ -524,6 +524,7 @@
 		8054A0010000000000000001 /* BrowserPanel+AutomationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */; };
 		805600000000000000000001 /* BrowserPanel+AutomationViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */; };
 		9A126160000000000000000C /* BrowserPanel+CloudConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A126160000000000000000B /* BrowserPanel+CloudConnection.swift */; };
+		DE70C0DE0000000000000005 /* BrowserPanel+ContextMenuHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE70C0DE0000000000000006 /* BrowserPanel+ContextMenuHosting.swift */; };
 		C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */; };
 		D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */; };
 		F15069A000000000000000A1 /* BrowserPanel+FormStateTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15069A000000000000000A2 /* BrowserPanel+FormStateTracking.swift */; };
@@ -5256,6 +5257,7 @@
 		8054A0020000000000000002 /* BrowserPanel+AutomationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AutomationRecovery.swift"; sourceTree = "<group>"; };
 		805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AutomationViewport.swift"; sourceTree = "<group>"; };
 		9A126160000000000000000B /* BrowserPanel+CloudConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+CloudConnection.swift"; sourceTree = "<group>"; };
+		DE70C0DE0000000000000006 /* BrowserPanel+ContextMenuHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+ContextMenuHosting.swift"; sourceTree = "<group>"; };
 		C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+DisplayURL.swift"; sourceTree = "<group>"; };
 		D35B0000000000000000001A /* BrowserPanel+ElementPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+ElementPicker.swift"; sourceTree = "<group>"; };
 		F15069A000000000000000A2 /* BrowserPanel+FormStateTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+FormStateTracking.swift"; sourceTree = "<group>"; };
@@ -11602,6 +11604,7 @@
 				C67540070000000000000002 /* BrowserPDFDocumentToolbarButtons.swift */,
 				C42660010000000000000002 /* BrowserPDFPreviewActionUIDelegate.swift */,
 				C67540090000000000000002 /* OmnibarAddressButtonStyle.swift */,
+				DE70C0DE0000000000000006 /* BrowserPanel+ContextMenuHosting.swift */,
 				DE70C0DE0000000000000002 /* BrowserZoomChip.swift */,
 				DE70C0DE0000000000000004 /* BrowserChromeMetrics+Zoom.swift */,
 				A9E010000000000000000001 /* AgentSessionProvider.swift */,
@@ -15103,6 +15106,7 @@
 				8054A0010000000000000001 /* BrowserPanel+AutomationRecovery.swift in Sources */,
 				805600000000000000000001 /* BrowserPanel+AutomationViewport.swift in Sources */,
 				9A126160000000000000000C /* BrowserPanel+CloudConnection.swift in Sources */,
+				DE70C0DE0000000000000005 /* BrowserPanel+ContextMenuHosting.swift in Sources */,
 				C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */,
 				D35A0000000000000000001A /* BrowserPanel+ElementPicker.swift in Sources */,
 				F15069A000000000000000A1 /* BrowserPanel+FormStateTracking.swift in Sources */,

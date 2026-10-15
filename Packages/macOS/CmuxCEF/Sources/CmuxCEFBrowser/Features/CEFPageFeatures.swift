@@ -38,6 +38,8 @@ public final class CEFPageFeatures {
     private let shim: any CEFPageFeatureShim
     private let browserID: @MainActor () -> Int32?
     private let pageHostView: CEFHostView
+    /// Held here: the DevTools controller keeps its driver weakly.
+    private let devToolsDriver: CEFDevToolsEngineDriver
     private let composer = BrowserChromiumContextMenuComposer()
     private let presenter = BrowserContextMenuPresenter()
     private var frames: BrowserDevToolsLayoutFrames?
@@ -65,7 +67,8 @@ public final class CEFPageFeatures {
             paneView: paneView, store: layoutStore, makeWindow: makeWindow,
             makeHostView: { CEFHostView() }
         )
-        devTools.driver = CEFDevToolsEngineDriver(shim: shim, browserID: browserID)
+        devToolsDriver = CEFDevToolsEngineDriver(shim: shim, browserID: browserID)
+        devTools.driver = devToolsDriver
         devTools.onLayout = { [weak self] frames in
             self?.frames = frames
             self?.applyOcclusion()
