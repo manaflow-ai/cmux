@@ -101,15 +101,14 @@ struct BrowserMotion: Sendable {
     let editEnd = Animation.spring(response: 0.30, dampingFraction: 1)
     /// Page menu glass morph.
     let menu = Animation.spring(response: 0.40, dampingFraction: 0.78)
-    /// Card reflow after closing a tab (verified: x and y 0.427 / 0.89, one spring).
+    /// Card reflow after closing a tab. Fitted to Safari's own frames
+    /// (`xclose-reflow-4daaf01.csv`, minimax): response 0.43, damping 0.865,
+    /// from rest, overshooting about 0.8 pt (Safari 0.7). An explicit damped
+    /// oscillator (stiffness (2π / 0.43)², damping 4π · 0.865 / 0.43, mass
+    /// 1): SwiftUI's `.spring(response:dampingFraction:)` renders stiffer
+    /// than its parameters (traced, tabs-parity-reaudit D8).
     /// The tab zoom's springs are `ZoomSpring` (TabZoom.swift), the one source.
-    ///
-    /// An explicit damped oscillator (stiffness (2π / 0.432)², damping
-    /// 4π · 0.89 / 0.432, mass 1): SwiftUI's `.spring(response: 0.43,
-    /// dampingFraction: 0.89)` was in effect on the close path (traced) yet
-    /// measured 0.40 / 0.93 on screen, 10–17 pt ahead of Safari at 117 ms
-    /// (tabs-parity-reaudit D8).
-    let reflow = Animation.interpolatingSpring(mass: 1, stiffness: 211.5, damping: 25.9, initialVelocity: 0)
+    let reflow = Animation.interpolatingSpring(mass: 1, stiffness: 213.5, damping: 25.28, initialVelocity: 0)
     /// Toolbar swipe snap.
     let swipe = Animation.spring(response: 0.40, dampingFraction: 0.9)
 
