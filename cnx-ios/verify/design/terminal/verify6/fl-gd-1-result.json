@@ -1,0 +1,111 @@
+{
+ "tag": "fl-gd-1",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv6/fl-gd-1.mp4",
+ "flings": 100,
+ "jumps": 10,
+ "fling_reached_bottom": 0,
+ "history_pruned": 2,
+ "settled_following": 0,
+ "settled_reading": 11,
+ "jump_logs": 10,
+ "trips": [
+  {
+   "trip": 0,
+   "jump_visible_before": true,
+   "top_before": [],
+   "jump_tap": 15.9,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 1,
+   "jump_visible_before": true,
+   "top_before": [],
+   "jump_tap": 32.85,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 2,
+   "jump_visible_before": true,
+   "top_before": [],
+   "jump_tap": 53.9,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 3,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-1926",
+    "GEN-1927",
+    "GEN-192"
+   ],
+   "jump_tap": 80.71,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 4,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-3303",
+    "GEN-330",
+    "GEN-330"
+   ],
+   "jump_tap": 106.43,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 5,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-409",
+    "GEN-4092",
+    "GEN-409"
+   ],
+   "jump_tap": 124.82,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 6,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-369",
+    "GEN-3699",
+    "GEN-3700"
+   ],
+   "jump_tap": 142.2,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 7,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-1700",
+    "GEN-1701",
+    "GEN-1702"
+   ],
+   "jump_tap": 159.01,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 8,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-5912",
+    "GEN-5913",
+    "GEN-591"
+   ],
+   "jump_tap": 176.14,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 9,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-357",
+    "GEN-3574",
+    "GEN-3575"
+   ],
+   "jump_tap": 192.63,
+   "jump_visible_after": false
+  }
+ ]
+}

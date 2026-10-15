@@ -1,0 +1,140 @@
+[
+ {
+  "bar_top": 720.0,
+  "bar_bottom": 736.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 736.0,
+  "below_rgb": [
+   31,
+   31,
+   31
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "ax_card_top": 736,
+  "ax_gap_pt": 0.0,
+  "state": "kbdown-1line",
+  "keyboard": false,
+  "card_top_ax": 736
+ },
+ {
+  "bar_top": 442.0,
+  "bar_bottom": 458.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 458.0,
+  "below_rgb": [
+   33,
+   33,
+   33
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "ax_card_top": 458,
+  "ax_gap_pt": 0.0,
+  "state": "kbup-1line",
+  "keyboard": true,
+  "card_top_ax": 458
+ },
+ {
+  "bar_top": 398.0,
+  "bar_bottom": 414.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 414.0,
+  "below_rgb": [
+   35,
+   35,
+   35
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "ax_card_top": 414,
+  "ax_gap_pt": 0.0,
+  "state": "kbup-3line",
+  "keyboard": true,
+  "card_top_ax": 414
+ },
+ {
+  "bar_top": 342.0,
+  "bar_bottom": 358.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 358.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "ax_card_top": 358,
+  "ax_gap_pt": 0.0,
+  "state": "kbup-6line",
+  "keyboard": true,
+  "card_top_ax": 358
+ },
+ {
+  "bar_top": 620.0,
+  "bar_bottom": 636.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 636.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "ax_card_top": 636,
+  "ax_gap_pt": 0.0,
+  "state": "kbdown-6line",
+  "keyboard": false,
+  "card_top_ax": 636
+ },
+ {
+  "bar_top": 620.0,
+  "bar_bottom": 636.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 642.0,
+  "below_rgb": [
+   32,
+   32,
+   32
+  ],
+  "gap_px": 18,
+  "gap_pt": 6.0,
+  "ax_card_top": 642,
+  "ax_gap_pt": 6.0,
+  "state": "kbdown-cleared",
+  "keyboard": false,
+  "card_top_ax": 642
+ }
+]

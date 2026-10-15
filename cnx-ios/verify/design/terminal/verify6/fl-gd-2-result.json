@@ -1,0 +1,151 @@
+{
+ "tag": "fl-gd-2",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv6/fl-gd-2.mp4",
+ "flings": 100,
+ "jumps": 10,
+ "fling_reached_bottom": 1,
+ "history_pruned": 6,
+ "settled_following": 1,
+ "settled_reading": 10,
+ "jump_logs": 10,
+ "trips": [
+  {
+   "trip": 0,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-693",
+    "GEN-6934",
+    "GEN-6935"
+   ],
+   "jump_tap": 14.65,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 1,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-690",
+    "GEN-6909",
+    "GEN-6910"
+   ],
+   "jump_tap": 31.36,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 2,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-9014",
+    "GEN-9015",
+    "GEN-9016"
+   ],
+   "jump_tap": 47.81,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 3,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-9670",
+    "GEN-9671",
+    "GEN-9672"
+   ],
+   "jump_tap": 64.36,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 4,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-14182",
+    "GEN-14183",
+    "GEN-14184"
+   ],
+   "jump_tap": 81.31,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 5,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-13399",
+    "GEN-13400",
+    "GEN-13401"
+   ],
+   "jump_tap": 98.27,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 6,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-11142",
+    "GEN-11143",
+    "GEN-11144"
+   ],
+   "jump_tap": 115.12,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 7,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-16538",
+    "GEN-16539",
+    "GEN-16540"
+   ],
+   "jump_tap": 133.52,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 8,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-15871",
+    "GEN-15872",
+    "GEN-15873"
+   ],
+   "jump_tap": 151.55,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 9,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-18084",
+    "GEN-18085",
+    "GEN-18086"
+   ],
+   "before": [
+    "GEN-18084",
+    "GEN-18085",
+    "GEN-18086",
+    "GEN-18087",
+    "GEN-18088",
+    "GEN-18089"
+   ],
+   "kill": 1792052066.9763808,
+   "after": [
+    "GEN-18200",
+    "GEN-18201",
+    "GEN-18202",
+    "GEN-18203",
+    "GEN-18204",
+    "GEN-18205"
+   ],
+   "hostd": [
+    [
+     2.36,
+     "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+    ],
+    [
+     3.37,
+     "NFO cnx_hostd::host: link up session_id=\"12271d02-f130-412e-a2c9-97ecc8e3ef35\" kind=WireGuard path=Direct phone=\"0e42baa"
+    ]
+   ],
+   "jump_visible_after_drop": true,
+   "jump_tap": 188.25,
+   "jump_visible_after": false
+  }
+ ]
+}

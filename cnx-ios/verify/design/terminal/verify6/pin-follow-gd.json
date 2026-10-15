@@ -1,0 +1,98 @@
+[
+ {
+  "frames": 41,
+  "gap_pt": [
+   0.0
+  ],
+  "bar_h": [
+   16.0
+  ],
+  "ax_gap_pt": [
+   0.0
+  ],
+  "errors": 0,
+  "state": "kbdown-1line",
+  "keyboard": false,
+  "card_top_ax": 736
+ },
+ {
+  "frames": 40,
+  "gap_pt": [
+   0.0
+  ],
+  "bar_h": [
+   16.0
+  ],
+  "ax_gap_pt": [
+   0.0
+  ],
+  "errors": 0,
+  "state": "kbup-1line",
+  "keyboard": true,
+  "card_top_ax": 458
+ },
+ {
+  "frames": 40,
+  "gap_pt": [
+   0.0
+  ],
+  "bar_h": [
+   16.0
+  ],
+  "ax_gap_pt": [
+   0.0
+  ],
+  "errors": 0,
+  "state": "kbup-3line",
+  "keyboard": true,
+  "card_top_ax": 414
+ },
+ {
+  "frames": 40,
+  "gap_pt": [
+   0.0
+  ],
+  "bar_h": [
+   16.0
+  ],
+  "ax_gap_pt": [
+   0.0
+  ],
+  "errors": 0,
+  "state": "kbup-6line",
+  "keyboard": true,
+  "card_top_ax": 358
+ },
+ {
+  "frames": 40,
+  "gap_pt": [
+   0.0
+  ],
+  "bar_h": [
+   16.0
+  ],
+  "ax_gap_pt": [
+   0.0
+  ],
+  "errors": 0,
+  "state": "kbdown-6line",
+  "keyboard": false,
+  "card_top_ax": 636
+ },
+ {
+  "frames": 40,
+  "gap_pt": [
+   6.0
+  ],
+  "bar_h": [
+   16.0
+  ],
+  "ax_gap_pt": [
+   6.0
+  ],
+  "errors": 0,
+  "state": "kbdown-cleared",
+  "keyboard": false,
+  "card_top_ax": 642
+ }
+]
