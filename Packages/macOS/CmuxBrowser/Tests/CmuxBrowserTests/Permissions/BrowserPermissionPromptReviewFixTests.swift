@@ -23,6 +23,21 @@ struct BrowserPermissionPromptReviewFixTests {
         #expect(queue.current == nil)
     }
 
+    @Test func embeddedFrameRequestsNameBothSitesAndSameSiteFramesDoNot() {
+        let embedded = BrowserPermissionPrompt(
+            kinds: [.camera], origin: URL(string: "https://video.example:8443/frame")!,
+            topLevelURL: URL(string: "https://docs.example/page")
+        )
+        #expect(embedded.displayOrigin == "video.example:8443")
+        #expect(embedded.displayEmbeddingOrigin == "docs.example")
+        let sameSite = BrowserPermissionPrompt(kinds: [.camera], origin: origin, topLevelURL: URL(string: "https://meet.example.com/room"))
+        #expect(sameSite.embeddingOrigin == nil)
+        let queue = BrowserPermissionPromptQueue()
+        queue.enqueue(embedded) { _ in }
+        queue.enqueue(BrowserPermissionPrompt(kinds: [.camera], origin: URL(string: "https://video.example:8443")!)) { _ in }
+        #expect(queue.prompts.count == 2)
+    }
+
     @Test func differentOriginsOrKindsStaySeparateQuestions() {
         let queue = BrowserPermissionPromptQueue()
         queue.enqueue(BrowserPermissionPrompt(kinds: [.camera], origin: origin)) { _ in }
