@@ -753,7 +753,7 @@ fn agents_doctor_mcp_and_cli_redact_symlinked_home_and_config_dirs() {
     check("mcp", &tool.to_string(), &expected);
 
     // Claude Code configured in $CLAUDE_CONFIG_DIR.
-    world.env.push(("CLAUDE_CONFIG_DIR", claude_config.clone()));
+    world.env.push(("CLAUDE_CONFIG_DIR", claude_config));
     let expected = ["$CLAUDE_CONFIG_DIR/.claude.json"];
     let cli = world.run(&no_app, &["--json", "agents", "doctor"]);
     report(&cli);
