@@ -31,7 +31,9 @@ struct BrowserEngineFallbackNoticeBar: View {
                 .font(.system(size: metrics.noticeStripFontSize))
                 .lineLimit(2)
                 .textSelection(.enabled)
-                .help(reason.detail ?? message)
+                // The localized reason only; the engine's raw error text
+                // stays in the Chromium log behind Show Log.
+                .help(message)
                 .accessibilityIdentifier("BrowserEngineFallbackNoticeMessage")
             Spacer(minLength: 0)
             if case .startFailed = reason, let onShowLog {
@@ -60,6 +62,10 @@ struct BrowserEngineFallbackNoticeBar: View {
                 .frame(height: 0.5)
         }
         .opacity(isFadingOut ? 0 : 1)
+        .onAppear {
+            // VoiceOver hears why the tab is WebKit (design spec §0.7a).
+            AccessibilityNotification.Announcement(message).post()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("BrowserEngineFallbackNotice")
     }
