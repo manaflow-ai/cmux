@@ -767,6 +767,13 @@
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
+  "sidebar.cloud.button": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
+    }
+  },
   "command.cloudVM.subtitle": {
     "source": "Cloud",
     "identityLocales": {
@@ -4974,5 +4981,164 @@
   "globalSearch.agent.claude": {
     "class": "brand",
     "source": "Claude"
+  },
+  "settings.account.max.title": {
+    "source": "cmux Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "fr": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ar": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "es": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ko": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ja": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithMaxPlan": {
+    "source": "%1$@ · Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithGoPlan": {
+    "source": "%1$@ · Go",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      }
+    }
   }
 }
