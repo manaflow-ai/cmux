@@ -35,18 +35,30 @@ extension TabStripView {
     }
 
     /// A tracking area on the extended rect: leaving it starts the exit delay even when the pointer
-    /// goes into a view that does not track movement (no mouseMoved reaches the monitor there).
+    /// goes into a view that does not track movement (no mouseMoved reaches the monitor there). It lives
+    /// on the window's content view, because AppKit clips a tracking area to its view's bounds and the
+    /// pad (below and past the strip) lies outside the strip; this strip owns its events.
     func installClosingModeTracking() {
-        if let closingTrackingArea { removeTrackingArea(closingTrackingArea) }
-        let area = NSTrackingArea(rect: closingModeArea, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
-        addTrackingArea(area)
+        removeClosingModeTracking()
+        guard let host = window?.contentView else { return }
+        let area = NSTrackingArea(rect: host.convert(closingModeArea, from: self), options: [.mouseEnteredAndExited, .activeAlways],
+                                  owner: self, userInfo: nil)
+        host.addTrackingArea(area)
         closingTrackingArea = area
+        closingTrackingHost = host
     }
 
-    /// Handles an enter or exit of the extended rect; false for any other tracking area's event.
+    func removeClosingModeTracking() {
+        if let closingTrackingArea { closingTrackingHost?.removeTrackingArea(closingTrackingArea) }
+        closingTrackingArea = nil
+        closingTrackingHost = nil
+    }
+
+    /// Handles an enter or exit of the extended rect; false for any other tracking area's event. The
+    /// pointer's own position decides (inside the pad cancels the exit, outside starts it).
     func closingModeTrackingEvent(_ event: NSEvent, entered: Bool) -> Bool {
         guard let closingTrackingArea, event.trackingArea === closingTrackingArea else { return false }
-        if entered { closingExit.cancel() } else { closingModePointerMoved(to: nil) }
+        if entered { closingExit.cancel() } else { closingModePointerMoved(to: pointerInStrip) }
         return true
     }
 
@@ -95,7 +107,6 @@ extension TabStripView {
         if let closingExitGlobalMonitor { NSEvent.removeMonitor(closingExitGlobalMonitor) }
         closingExitMonitor = nil
         closingExitGlobalMonitor = nil
-        if let closingTrackingArea { removeTrackingArea(closingTrackingArea) }
-        closingTrackingArea = nil
+        removeClosingModeTracking()
     }
 }
