@@ -52,10 +52,13 @@ public struct BrowserChromiumCookieWrite: Sendable, Equatable, CustomStringConve
         guard !host.isEmpty, !host.contains("/"),
               let url = URL(string: "\(cookie.isSecure ? "https" : "http")://\(host)\(cookie.path.hasPrefix("/") ? cookie.path : "/")")
         else { return nil }
-        let sameSite: SameSite = switch cookie.sameSitePolicy {
-        case .sameSiteLax?: .lax
-        case .sameSiteStrict?: .strict
-        default: .unspecified
+        let sameSite: SameSite
+        if cookie.sameSitePolicy == .sameSiteLax {
+            sameSite = .lax
+        } else if cookie.sameSitePolicy == .sameSiteStrict {
+            sameSite = .strict
+        } else {
+            sameSite = .unspecified
         }
         self.init(
             url: url,

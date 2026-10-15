@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxBrowser
 
-@Suite("Chromium profile storage")
+@Suite("Chromium profile storage") @MainActor
 struct BrowserChromiumProfileStorageTests {
     private let support = URL(fileURLWithPath: "/Users/u/Library/Application Support", isDirectory: true)
 
