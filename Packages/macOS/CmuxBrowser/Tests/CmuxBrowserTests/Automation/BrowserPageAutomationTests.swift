@@ -112,7 +112,7 @@ struct ChromiumBrowserPageAutomationTests {
         page.close()
         let automation = BrowserPageAutomation(page: page)
 
-        await #expect(throws: BrowserAutomationPageError.pageUnavailable) {
+        await #expect(throws: BrowserAutomationPageError.pageUnavailable(nil)) {
             _ = try await automation.captureViewportPNG()
         }
     }

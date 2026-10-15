@@ -197,11 +197,10 @@ extension TerminalController {
             do {
                 try await BrowserPageAutomation(page: enginePage).dispatchKey(event, action: action, modifiers: modifiers)
             } catch {
-                return .err(
-                    code: (error as? BrowserAutomationPageError) == .pageUnavailable ? "unavailable" : "internal_error",
-                    message: Self.v2EngineAutomationMessage(error),
-                    data: .object(["surface_id": .string(context.surfaceId.uuidString)])
-                )
+                guard case let .err(code, message, data) = v2EngineAutomationError(error, surfaceId: context.surfaceId) else {
+                    return .err(code: "internal_error", message: Self.v2EngineAutomationMessage(error), data: nil)
+                }
+                return .err(code: code, message: message, data: data.flatMap(JSONValue.init(foundationObject:)))
             }
             let workspaceRef = v2EnsureHandleRef(kind: .workspace, uuid: context.workspaceId)
             let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: context.surfaceId)

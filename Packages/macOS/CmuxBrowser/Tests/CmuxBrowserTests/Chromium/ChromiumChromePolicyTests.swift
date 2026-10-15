@@ -78,10 +78,15 @@ import Testing
     @Test func crashHistoryCountsRepeatsWithinTenSeconds() {
         var history = ChromiumCrashHistory()
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
-        #expect(!history.record(at: start))
-        #expect(history.record(at: start.addingTimeInterval(9.9)))
-        #expect(!history.record(at: start.addingTimeInterval(9.9 + 10)))
-        #expect(history.record(at: start.addingTimeInterval(9.9 + 10 + 1)))
+        // `record` mutates, so its results are taken before #expect.
+        let first = history.record(at: start)
+        let soonAfter = history.record(at: start.addingTimeInterval(9.9))
+        let tenSecondsLater = history.record(at: start.addingTimeInterval(9.9 + 10))
+        let againSoon = history.record(at: start.addingTimeInterval(9.9 + 10 + 1))
+        #expect(!first)
+        #expect(soonAfter)
+        #expect(!tenSecondsLater)
+        #expect(againSoon)
     }
 }
 
