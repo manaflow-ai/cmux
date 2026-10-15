@@ -253,7 +253,8 @@ def guarded_command_profiles(source: str) -> dict[str, str]:
 
 
 def command_profiles() -> dict[str, set[str]]:
-    source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    # The Command router lives in server/command_dispatch.rs (cx-6so.3).
+    source = (TUI / "crates/cmux-tui-core/src/server/command_dispatch.rs").read_text()
     runtime_commands = command_names()
     sdk_commands = load_sdk_catalog().get("commands")
     if not isinstance(sdk_commands, dict):

@@ -82,6 +82,11 @@ pub fn enter_terminal_host_process() -> anyhow::Result<()> {
         return Err(std::io::Error::last_os_error())
             .context("terminal host could not leave the daemon's session");
     }
+    // Keep this host's orphan grace, then drop the variable so its shell
+    // does not inherit it (cx-t2sqm.16).
+    let _ = host_orphan_grace();
+    // SAFETY: the host is still single-threaded (see below).
+    unsafe { std::env::remove_var(HOST_ORPHAN_GRACE_ENV) };
     if let Some(soft) = std::env::var_os(NOFILE_SOFT_ENV) {
         // SAFETY: the host is still single-threaded: no other thread reads
         // the environment while this removes the variable its shell must

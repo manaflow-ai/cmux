@@ -35,13 +35,26 @@ extension PaletteController {
             scope: .root
         )
         page.mergesSectionsWhenTyping = true
+        return previewingActions(page)
+    }
+
+    /// The highlighted row previews its action live when the action has a
+    /// preview (`ActionRegistry.bindPreview`: a "Window Style: Card" row
+    /// shows that style); another row, leaving the page or closing the
+    /// palette puts the committed look back, and running the row keeps it.
+    func previewingActions(_ page: PalettePageSpec) -> PalettePageSpec {
+        var page = page
+        let registry = registry
+        page.onHighlight = { [weak registry] item in registry?.showPreview(item?.actionRefs.first?.action) }
+        page.onLeave = { [weak registry] in registry?.endPreview() }
         return page
     }
 
     /// Scope `commands` (`>`): catalog actions only.
     func commandsOnlyPage() -> PalettePageSpec {
-        PalettePageSpec(id: "commandsOnly", title: PaletteStrings.commandsTitle, placeholder: PaletteStrings.searchPlaceholder,
-                        symbol: "command", providers: [makeRegistryProvider()], showsRecent: true, scope: PaletteScopeID.commands)
+        previewingActions(PalettePageSpec(id: "commandsOnly", title: PaletteStrings.commandsTitle, placeholder: PaletteStrings.searchPlaceholder,
+                                          symbol: "command", providers: [makeRegistryProvider()], showsRecent: true,
+                                          scope: PaletteScopeID.commands))
     }
 
     /// Scope `scopes` (`?`): every scope, with its prefix and keyword.
