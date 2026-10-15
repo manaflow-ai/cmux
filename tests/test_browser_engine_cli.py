@@ -34,6 +34,23 @@ class FakeCmuxState:
             }
         if method == "browser.navigate":
             return {"surface_id": SURFACE_ID, "surface_ref": "surface:2"}
+        if method == "browser.tab.new":
+            return {
+                "surface_id": "44444444-4444-4444-8444-444444444444",
+                "surface_ref": "surface:3",
+                "engine": params.get("engine", "webkit"),
+            }
+        if method == "system.identify":
+            return {"focused": {"surface_id": SURFACE_ID, "surface_ref": "surface:2"}}
+        if method == "browser.url.get":
+            return {
+                "surface_id": SURFACE_ID,
+                "url": "https://example.com/",
+                "engine": "webkit",
+                "engine_fallback_reason": "notBundled",
+            }
+        if method == "browser.get.title":
+            return {"surface_id": SURFACE_ID, "title": "Example"}
         if method == "surface.list" or method == "surface.resolve":
             return {"surfaces": []}
         raise RuntimeError(f"unexpected method: {method}")
@@ -148,6 +165,24 @@ def main() -> int:
                 ["browser", "--surface", SURFACE_ID, "open", "https://example.com", "--engine", "chromium"],
                 "--engine is only supported when browser open creates a new pane",
             )
+
+            # `tab new` forwards the engine too, without it leaking into the URL.
+            expect_ok(
+                cli,
+                socket_path,
+                ["browser", "--surface", SURFACE_ID, "tab", "new", "https://example.com", "--engine", "cef"],
+            )
+            method, params = state.calls[-1]
+            if method != "browser.tab.new" or params.get("engine") != "chromium" or params.get("url") != "https://example.com":
+                raise AssertionError(f"tab new --engine sent {method} {params!r}")
+
+            # `browser identify --json` reports the surface's engine and fallback reason.
+            result = run_cli(cli, socket_path, ["--json", "browser", "--surface", SURFACE_ID, "identify"])
+            if result.returncode != 0:
+                raise AssertionError(f"identify failed: {result.stdout}\n{result.stderr}")
+            browser = json.loads(result.stdout).get("browser") or {}
+            if browser.get("engine") != "webkit" or browser.get("engine_fallback_reason") != "notBundled":
+                raise AssertionError(f"identify did not report the engine: {result.stdout!r}")
         finally:
             server.shutdown()
             server.server_close()
