@@ -2,6 +2,7 @@ import type { AddressDO } from "./address-do.ts"
 import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
+import type { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
@@ -235,6 +236,14 @@ export interface Env {
   readonly CHIEF_BRAIN_DAILY_TURNS?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
+  /** One OpencodeBrainDO per chief: the opencode brain (implementation O, chief-brain-opencode/) and its container. Absent: O is off. */
+  readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
+  /** "1": a Chief's owner may pick the opencode brain (`brain_impl`), and MuxDO asks it first. */
+  readonly CHIEF_OPENCODE_ENABLED?: string
+  /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
+  readonly CHIEF_OPENCODE_CONTAINER?: string
+  /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
+  readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
