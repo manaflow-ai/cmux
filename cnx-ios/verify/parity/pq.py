@@ -272,11 +272,16 @@ def chat_prompt(j, prompt, expect, timeout=180):
     s.tap_el(f); time.sleep(0.6)
     type_text(prompt)
     time.sleep(0.5)
-    x, y, w, h = f.frame
-    s.tap(363, y + h + 25 if h < 60 else y + h - 10)
+    send = s.find(label="Send", kind="Button")
+    if send:
+        s.tap_el(send[0])
+    else:
+        x, y, w, h = f.frame
+        s.tap(363, y + h + 25 if h < 60 else y + h - 10)
     t = time.time()
     while time.time() - t < timeout:
-        hits = [e for e in s.find(contains=expect) if prompt not in (e.label or "")]
+        hits = [e for e in s.find(contains=expect) if prompt not in (e.label or "")
+                and e.kind not in ("TextView", "TextField") and prompt not in (e.value or "")]
         if hits:
             return time.time() - t, hits[0].label
         if s.find(contains="Agent stopped"):
