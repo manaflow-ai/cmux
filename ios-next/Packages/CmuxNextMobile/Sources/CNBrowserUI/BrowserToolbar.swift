@@ -279,9 +279,9 @@ struct BrowserToolbar: View {
             .foregroundStyle(style.colors.label)
             .opacity(showsStartPage ? 0 : glyphOpacity)
             .allowsHitTesting(!collapsed && !chrome.editing && !showsStartPage)
+            .accessibilityLabel("Page Menu")
             .accessibilityHidden(collapsed || chrome.editing || showsStartPage)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("Page Menu")
 
             if let local {
                 localLabel(local, r)
@@ -324,9 +324,9 @@ struct BrowserToolbar: View {
             .foregroundStyle(style.colors.label)
             .opacity(showsStartPage || local != nil ? 0 : glyphOpacity)
             .allowsHitTesting(!collapsed && !chrome.editing && !showsStartPage && local == nil)
+            .accessibilityLabel(tab?.loading == true ? "Stop" : "Reload")
             .accessibilityHidden(collapsed || chrome.editing || showsStartPage || local != nil)
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .accessibilityLabel(tab?.loading == true ? "Stop" : "Reload")
         }
         .frame(width: r.width, height: r.height)
         .overlay(alignment: .bottomLeading) {
