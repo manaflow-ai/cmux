@@ -68,7 +68,8 @@ const worktreeProps = {
 };
 
 const openComputer: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Computer" });
+  // The button's name carries the machine ("Computer: This Mac", #20791): a narrow strip shows its icon alone.
+  await ctx.click({ role: "button", name: /^Computer\b/ });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
 };
 
