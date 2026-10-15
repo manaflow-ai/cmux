@@ -18,6 +18,9 @@ final class AgentPanePageSettings {
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
     private var plainFooterObservation: Task<Void, Never>?
+    /// Debug Settings' plain footer look as last pushed, and whether the push under way is its change.
+    private var plainFooter = false
+    private var lookChanged = false
     private var diffColorsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
@@ -54,17 +57,19 @@ final class AgentPanePageSettings {
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
                 composer = value
-                composer.plainFooter = AgentPaneTunables.composerPlainFooter.value
                 push()
             }
         }
         // task-owner: lives as long as the tabs; event-driven (Observation): Debug Settings' plain
-        // footer look, which rides the composer's page event.
+        // footer look, which the composer's page event carries (AgentPaneComposerSetting+Page).
         plainFooterObservation = Task { [weak self] in
             for await on in ObservationStream({ AgentPaneTunables.composerPlainFooter.value }) {
                 guard let self else { return }
-                composer.plainFooter = on
+                guard on != plainFooter else { continue }
+                plainFooter = on
+                lookChanged = true
                 push()
+                lookChanged = false
             }
         }
         // task-owner: lives as long as the tabs; event-driven (Observation)
@@ -90,7 +95,7 @@ final class AgentPanePageSettings {
         view.previewFeatures = previewFeatures
         view.editedFiles = editedFiles
         view.zoom = zoom
-        composer.push(to: view)
+        composer.push(to: view, lookChanged: lookChanged)
         view.pushDiffColors(diffColors)
     }
 }

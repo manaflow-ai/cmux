@@ -33,10 +33,10 @@ extension SidebarListView {
         let anchored = after.anchored(from: before, offset: offset, focused: previousActive)
         let delta = anchored - offset
         if abs(delta) > 0.25 {
+            RowMotion.shift(self, by: delta) // closing rows too; nothing draws until the offset moves with them
             Motion.withoutAnimation {
                 // Rows and the offset move together: no visible change yet.
                 if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
-                for view in rowViews.values { view.frame.origin.y += delta }
                 decorations.shift(by: delta)
                 groupLineViews.shift(by: delta)
                 // Rows are realized by `apply` from the new layout, not from
