@@ -342,6 +342,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/start_mode",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/queue_remove",
       "params": true,
       "result": true
@@ -808,6 +814,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/harnesses_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/start_mode_changed",
       "params": true
     },
     {

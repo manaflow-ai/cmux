@@ -172,6 +172,14 @@ session load or new, config replay): past it the request fails with code -32000 
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
 
+A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
+event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
+`titles.command` (an argv reading the request on stdin and printing the title; env
+`ACPMUX_TITLE_COMMAND` wins) makes it; unset, the chat's own Claude Code profile runs
+`-p --model haiku` (`titles.model`) with no tools, MCP or session file. A harness title
+always wins, a chat titled before this (or adopted) keeps its title, and
+`titles.generate: false` turns it off.
+
 ## TUI
 
 The TUI is modelled on the Codex desktop app, screenshot by screenshot: a shaded sidebar

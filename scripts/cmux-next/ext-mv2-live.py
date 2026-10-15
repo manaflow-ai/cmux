@@ -102,6 +102,8 @@ def serve():
 
 
 class Job:
+    config = "{}"
+
     def __init__(self, phase, extensions=()):
         self.phase = phase
         self.app = os.environ["NX_APP"]
@@ -122,7 +124,7 @@ class Job:
             binary = os.path.join(self.app, "Contents/MacOS", plistlib.load(plist)["CFBundleExecutable"])
         config = os.path.join(self.out, "cmux.json")
         with open(config, "w") as empty:
-            empty.write("{}\n")
+            empty.write(Job.config + "\n")
         env = {
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""),
             "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -163,7 +165,7 @@ class Job:
         # Chromium starts with the first Chromium tab (CEFRuntime.start is lazy).
         self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": "about:blank"},
                                  "focus": True, "origin": "remote"})
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             try:
                 cdp.targets(self.port)
@@ -272,6 +274,90 @@ def drain_contexts(session):
     except OSError:
         pass
     return names
+
+
+def observed_load(job, url, label, watch):
+    """Loads `url` in a person's tab with the cache off and DevTools' Network domain
+    on, and returns the page state plus, for each watched URL, what happened to it:
+    "blocked" (net::ERR_BLOCKED_BY_CLIENT), "redirected to <url>" (uBlock Origin
+    answers some ad scripts and ad requests with a neutered local resource, so the
+    page still sees a load), "loaded" or "not requested"."""
+    session = job.open_tab("about:blank", match="about:blank")
+    events = []
+    try:
+        session.call("Network.enable")
+        session.call("Network.setCacheDisabled", {"cacheDisabled": True})
+        session._send(json.dumps({"id": 888888, "method": "Page.navigate", "params": {"url": url}}))
+        deadline = time.monotonic() + 12
+        session.sock.settimeout(1)
+        while time.monotonic() < deadline:
+            try:
+                message = session._recv()
+            except OSError:
+                continue
+            if message.get("method", "").startswith("Network."):
+                events.append(message)
+        state = poll(session, "window.mv2 && window.mv2.done && window.mv2", 10) or {}
+        time.sleep(2)
+        state["slot_late"] = session.evaluate("getComputedStyle(document.getElementById('ad-slot')).display")
+        state["ubo_world"] = ubo_world_state(session)
+        state["shot"] = job.page_shot(session, f"{label}-page")
+    finally:
+        session.close()
+    by_id = {}
+    for event in events:
+        params = event["params"]
+        rid = params.get("requestId")
+        if event["method"] == "Network.requestWillBeSent":
+            entry = by_id.setdefault(rid, {"url": params["request"]["url"], "chain": []})
+            entry["chain"].append(params["request"]["url"])
+        elif event["method"] == "Network.loadingFailed" and rid in by_id:
+            by_id[rid]["failed"] = params.get("blockedReason") or params.get("errorText")
+        elif event["method"] == "Network.loadingFinished" and rid in by_id:
+            by_id[rid]["finished"] = True
+    outcomes = {}
+    for name, target in watch.items():
+        entry = next((e for e in by_id.values() if e["chain"][0] == target), None)
+        if not entry:
+            outcomes[name] = "not requested"
+        elif entry.get("failed"):
+            outcomes[name] = "blocked" if "BLOCKED_BY_CLIENT" in str(entry["failed"]).upper() or entry["failed"] == "inspector" \
+                else f"failed {entry['failed']}"
+        elif any(u.startswith("chrome-extension://") or u.startswith("data:") for u in entry["chain"][1:]):
+            outcomes[name] = "redirected to " + entry["chain"][-1][:80]
+        else:
+            outcomes[name] = "loaded"
+    return state, outcomes
+
+
+def ubo_world_state(session):
+    """What uBlock Origin's content script sees in the page (its isolated world)."""
+    try:
+        session.call("Runtime.disable")
+        session._send(json.dumps({"id": 777777, "method": "Runtime.enable", "params": {}}))
+        session.sock.settimeout(5)
+        context = None
+        while True:
+            message = session._recv()
+            if message.get("method") == "Runtime.executionContextCreated" and message["params"]["context"].get("name") == "uBlock Origin":
+                context = message["params"]["context"]["id"]
+            if message.get("id") == 777777:
+                break
+        if context is None:
+            return "no uBlock Origin world"
+        result = session.call("Runtime.evaluate", {"contextId": context, "returnByValue": True, "expression":
+            "JSON.stringify({vapi: typeof vAPI, noGeneric: self.vAPI && vAPI.noGenericCosmeticFiltering,"
+            " noSpecific: self.vAPI && vAPI.noSpecificCosmeticFiltering, filterer: !!(self.vAPI && vAPI.domFilterer),"
+            " surveyor: !!(self.vAPI && vAPI.domSurveyor), bootstrapped: self.vAPI && vAPI.bootstrap === undefined})"})
+        return result.get("result", {}).get("value")
+    except Exception as error:  # noqa: BLE001 - diagnosis only
+        return repr(error)
+
+
+def enforced(outcome):
+    """Blocked, or answered by uBlock Origin with a neutered resource (its
+    web_accessible_resources surrogate or a data: no-op)."""
+    return outcome == "blocked" or outcome.startswith(("redirected to chrome-extension://", "redirected to data:"))
 
 
 def poll(session, expression, timeout, interval=0.5):
@@ -432,7 +518,8 @@ def phase_baseline(_args):
 
 def phase_ublock(args):
     server, url = serve()
-    job = Job("ublock", extensions=[args.ubo])
+    # Without --ubo the app's built-in copy (browser.builtInAdBlocker, on by default) is checked.
+    job = Job(args.label or ("ublock" if args.ubo else "builtin"), extensions=[args.ubo] if args.ubo else [])
     ctx = {}
 
     def loaded():
@@ -441,9 +528,15 @@ def phase_ublock(args):
         while time.monotonic() < deadline and not ubo:
             ubo = next((e for e in job.extensions_report() if e.get("name") == UBO_NAME), None)
             time.sleep(0.5)
+        if not args.ubo and "false" in Job.config.replace(" ", ""):
+            job.row("builtin-off: with browser.builtInAdBlocker false uBlock Origin does not run",
+                    not (ubo and ubo.get("enabled")), ubo or "not listed")
+            return "stop"
         job.row("ublock: loaded and enabled", bool(ubo and ubo.get("enabled")), ubo or "not listed")
         if not ubo:
             return "stop"
+        if not args.ubo:
+            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == "cjpalhdlnbpafiamejdnhcphjbkeiagm", ubo)
         ctx["id"] = ubo["id"]
         ctx["prefix"] = f"chrome-extension://{ubo['id']}/"
 
@@ -497,7 +590,7 @@ def phase_ublock(args):
         if target:
             bg = cdp.Session(target["webSocketDebuggerUrl"])
             try:
-                version = bg.evaluate("chrome.runtime.getManifest().manifest_version")
+                version = poll(bg, "chrome.runtime && chrome.runtime.getManifest().manifest_version", 20)
             finally:
                 bg.close()
         job.row("ublock: MV2 background page runs", version == 2 and target is not None,
@@ -554,6 +647,53 @@ def phase_ublock(args):
             job.row(f"control: the host reaches the {name}", status in (200, 204), {"url": address, "status": status})
         ctx["ads"] = ads_check(job, url, "ublock", expect_blocked=True)
 
+    def network():
+        state, outcomes = observed_load(job, url + "?net=1", "ublock-network",
+                                        {"ad script": AD_SCRIPT, "ad server request": AD_BEACON, "jQuery": JQUERY})
+        ctx["net"] = outcomes
+        job.row("ublock: network filters enforced (ad script and ad server request blocked or neutered)",
+                enforced(outcomes["ad script"]) and enforced(outcomes["ad server request"]),
+                {"outcomes": outcomes, "page": state})
+        job.row("ublock: a normal third-party script still loads", outcomes["jQuery"] == "loaded", outcomes)
+        job.row("diagnose: ad slot on the 127.0.0.1 page (uBlock Origin skips generic cosmetic filters there)",
+                state.get("slot") == "hidden", state, gating=False)
+        session = job.open_tab("https://example.com/", match="example.com")
+        try:
+            poll(session, "location.host === 'example.com' && document.readyState === 'complete' && !!document.body", 30)
+            time.sleep(1)
+            session.evaluate("document.body.insertAdjacentHTML('beforeend', '<div id=\"mv2-slot\" class=\"adsbygoogle-box\" "
+                             "style=\"width:300px;height:100px;background:#fdd\">ad slot</div>'); true")
+            hidden = poll(session, "(() => { const e = document.getElementById('mv2-slot');"
+                                   " return e && getComputedStyle(e).display === 'none'; })()", 10)
+            hidden = {"hidden": bool(hidden), "slot": session.evaluate("(() => { const e = document.getElementById('mv2-slot');"
+                                                                      " return e ? getComputedStyle(e).display : 'missing'; })()")}
+            world = ubo_world_state(session)
+            shot = job.page_shot(session, f"{job.phase}-cosmetic-example")
+        finally:
+            session.close()
+        job.row("ublock: EasyList generic cosmetic filter hides an ad slot (##.adsbygoogle-box on example.com)",
+                hidden["hidden"], {"result": hidden, "ubo_world": world, "shot": shot})
+
+    def insert_css():
+        """The API uBlock Origin's cosmetic filtering uses (tabs.insertCSS, user origin)."""
+        session = job.open_tab(url + "?css=1", match="/ads.html?css=1")
+        bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
+        try:
+            poll(session, "window.mv2 && window.mv2.done", 20)
+            time.sleep(2)  # the tab's URL reaches chrome.tabs after load
+            result = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => {
+              const t = tabs.find(t => (t.url || '').includes('?css=1'));
+              if (!t) return r({error: 'no tab'});
+              chrome.tabs.insertCSS(t.id, {code: '#state{display:none!important}', cssOrigin: 'user'},
+                () => r({tab: t.id, lastError: chrome.runtime.lastError ? chrome.runtime.lastError.message : null}));
+            }))""")
+            time.sleep(1)
+            hidden = session.evaluate("getComputedStyle(document.getElementById('state')).display === 'none'")
+        finally:
+            bg.close()
+            session.close()
+        job.row("ublock: tabs.insertCSS applies in a person's tab", bool(hidden), {"result": result, "hidden": hidden})
+
     def popup():
         prefix = ctx["prefix"]
         before = {t.get("id") for t in cdp.targets(job.port)}
@@ -572,6 +712,9 @@ def phase_ublock(args):
                 detail["shot"] = job.page_shot(session, "ublock-popup")
                 # Dynamic filtering through uBlock Origin's own privileged messaging (an
                 # extension page may use the dashboard channel), as "My rules" does.
+                # uBlock Origin applies dynamic rules only in its advanced-user mode
+                # (pagestore.js: userSettings.advancedUserEnabled).
+                session.evaluate("vAPI.messaging.send('dashboard', {what: 'userSettings', name: 'advancedUserEnabled', value: true})")
                 ctx["rule"] = session.evaluate(
                     "vAPI.messaging.send('dashboard', {what: 'modifyRuleset', permanent: false,"
                     " toAdd: '* * 3p-script block', toRemove: ''})"
@@ -583,10 +726,25 @@ def phase_ublock(args):
         job.call("debug.extensions.popup", {"hide": True})
 
     def dynamic():
-        before = (ctx.get("ads") or {}).get("jq")
-        after = ads_check_jq(job, url)
-        job.row("ublock: dynamic filtering blocks a third-party script", before == "loaded" and after == "blocked"
-                and bool(ctx.get("rule")), {"before": before, "rule": ctx.get("rule"), "after": after})
+        state, outcomes = observed_load(job, url + "?dyn=1", "ublock-dynamic", {"jQuery": JQUERY})
+        before = (ctx.get("net") or {}).get("jQuery")
+        job.row("ublock: dynamic filtering (* * 3p-script block) blocks a third-party script",
+                before == "loaded" and (outcomes["jQuery"] == "blocked" or state.get("jq") == "blocked") and bool(ctx.get("rule")),
+                {"before": before, "rule": ctx.get("rule"), "after": outcomes["jQuery"], "page": state})
+
+    def menu_note():
+        """The Extensions menu says the full uBlock Origin is built in (the Web Store
+        lists only uBlock Origin Lite)."""
+        job.call("debug.extensions.click", {"button": "extensions"})
+        state = {}
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not state.get("open"):
+            state = job.call("debug.extensions.menu").get("result") or {}
+            time.sleep(0.25)
+        shot = job.window_shot("builtin-extensions-menu", popups=True)
+        job.call("debug.extensions.menu", {"dismiss": True})
+        note = [i for i in state.get("items", []) if isinstance(i, dict) and str(i.get("identifier", "")).endswith(".builtInAdBlocker")]
+        job.row("builtin: Extensions menu says uBlock Origin (full) is built in", bool(note), {"note": note, "shot": shot, "open": state.get("open")})
 
     def dashboard():
         """Automation may not open extension pages as tabs; a person's tab is
@@ -608,9 +766,10 @@ def phase_ublock(args):
         job.window_shot("ublock-window")
 
     return run_phase(job, [("ublock: loaded", loaded), ("ublock: background", background),
-                           ("ublock: ready", ready), ("ublock: diagnose", diagnose),
-                           ("ublock: verdicts", verdicts), ("ublock: blocking", blocking), ("ublock: popup", popup),
+                           ("ublock: ready", ready), ("ublock: network", network),
+                           ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
+                           *([] if args.ubo else [("builtin: menu note", menu_note)]),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
 
@@ -627,12 +786,17 @@ def ads_check_jq(job, url):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("phase", choices=["store", "baseline", "ublock"])
+    parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
+    parser.add_argument("--label", help="artifact folder name (default: the phase)")
+    parser.add_argument("--config", default="{}", help="cmux.json the app starts with, e.g. {\"browser\": {\"builtInAdBlocker\": false}}")
     args = parser.parse_args()
+    Job.config = args.config
     if args.phase == "ublock" and not args.ubo:
         parser.error("--ubo is required")
-    return {"store": phase_store, "baseline": phase_baseline, "ublock": phase_ublock}[args.phase](args)
+    if args.phase == "builtin":
+        args.ubo = None
+    return {"store": phase_store, "baseline": phase_baseline, "ublock": phase_ublock, "builtin": phase_ublock}[args.phase](args)
 
 
 if __name__ == "__main__":

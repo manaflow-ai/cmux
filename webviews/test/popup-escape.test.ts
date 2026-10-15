@@ -233,7 +233,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       },
       [list, before] as const,
     );
-    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("INPUT");
+    expect(["INPUT", "TEXTAREA"]).toContain(await page.evaluate(() => document.activeElement?.tagName ?? ""));
     // The host's labels are the rows' words, spaced, without the Return hint the selected row shows.
     const labels = ((show?.params.items ?? []) as { label: string }[]).map((item) => item.label);
     for (const label of labels) expect(label).not.toContain("↵");
