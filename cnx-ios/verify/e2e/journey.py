@@ -1987,6 +1987,11 @@ w("\r\x1b[2KSTREAMDONE\n")
         return {"notes": f"3 hostd kills: link up {[r['reconnect_s'] for r in rows]} s (median {median:.2f}, worst {worst:.2f}), "
                          f"paths {[r['path'] for r in rows]}; terminal input reached the Mac after each", "kills": rows}
 
+    def s_transport_wireguard(self):
+        a = self.settings_transport("WireGuard")
+        self.term_roundtrip()
+        return {"notes": f"WireGuard Connected in {a:.1f} s; terminal input works"}
+
     def s_browser_stream(self):
         """A browser tab on the Mac streams to the phone: a tab on https://example.com in
         the seed workspace, opened from the phone's tab grid, shows the page (OCR)."""
@@ -2052,6 +2057,7 @@ w("\r\x1b[2KSTREAMDONE\n")
             ("agent_chat", "Agent chat (stream, tools, approvals, question, attachments, diff, artifacts)", "approvals", self.s_agent_chat),
             ("feed", "Feed events and inline answer", "approvals", self.s_feed),
             ("feed_terminal", "Feed: a terminal agent's events (real Codex), Needs input opens the tab", "feedterm", self.s_feed_terminal),
+            ("transport_wireguard", "Settings > Transport: WireGuard (stays on for the next steps)", "fastconn", self.s_transport_wireguard),
             ("browser_stream", "Browser tab streams to the phone (https://example.com)", "rbhost", self.s_browser_stream),
             ("hostd_kill_reconnect", "Terminal back within ~2 s after a cnx-hostd kill", "machost", self.s_hostd_kill_reconnect),
             ("chief", "Chief: real Mac conversation, send/receive, model", "chieflive", self.s_chief),
