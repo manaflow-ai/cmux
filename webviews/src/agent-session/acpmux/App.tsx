@@ -766,8 +766,11 @@ type TranscriptRange = { anchorId: string; focusId: string };
 /// is navigation, with nothing to copy. The Edited files card keeps its own controls in that
 /// corner, where the floating Copy covered View changes once focus was in the card (cx-ncc.106);
 /// a selected range still copies it.
+/// A render row has none: the row's Copy sits at its top right, over the card's Open, and the card's
+/// panel copies the page.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "assistant" &&
+  row.kind !== RENDER &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   rowKind(row) !== "editedFiles" &&
