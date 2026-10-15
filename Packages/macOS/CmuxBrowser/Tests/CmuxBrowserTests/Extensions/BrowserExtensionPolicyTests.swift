@@ -29,6 +29,9 @@ struct BrowserExtensionPolicyTests {
         #expect(policy.decision(for: .reload, target: off) == .requiresConsent)
         #expect(policy.decision(for: .reload, target: crashed) == .allow)
         #expect(policy.decision(for: .reload, target: running) == .allow)
+        let unpacked = BrowserExtensionInfo(id: "x", name: "x", location: .unpacked)
+        #expect(policy.decision(for: .reload, target: unpacked) == .requiresConsent, "re-reads a folder that may have changed")
+        #expect(policy.decision(for: .disable, target: unpacked) == .allow)
         #expect(policy.decision(for: .enable, target: running) == .requiresConsent)
     }
 

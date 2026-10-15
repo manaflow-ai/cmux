@@ -14,6 +14,21 @@ extension BrowserPanel {
         return view.convert(view.bounds, to: nil).minX
     }
 
+    /// The enabled third-party extensions that can reach the panel's current
+    /// page. Automation that reads or drives page content must refuse while
+    /// this is non-empty (``BrowserExtensionAgentAccess``); WebKit panels
+    /// have no extensions and return an empty list.
+    func extensionAutomationBlockers(
+        access: BrowserExtensionAgentAccess = .fromDisk(
+            trustedBuiltInFolder: BrowserBuiltInExtensionTrust(resources: Bundle.main.resourceURL).trustedAdBlockerFolder
+        )
+    ) -> [BrowserExtensionInfo] {
+        guard let host = extensionHost else { return [] }
+        let store = host.extensionStore
+        store.refresh()
+        return access.blockers(store.extensions, url: enginePage?.state.url ?? currentURL)
+    }
+
     /// The window of the panel's engine page, if it is on screen.
     var extensionPageWindow: NSWindow? { enginePage?.contentView.window }
 
@@ -40,11 +55,29 @@ extension BrowserPanel {
         case .loadUnpacked:
             presentLoadUnpackedPanel(store: store)
         case .webStore:
-            openLinkInNewTab(url: BrowserExtensionPage.webStore.url)
+            openExtensionPage(.webStore)
         case .manage:
-            openLinkInNewTab(url: BrowserExtensionPage.management.url)
+            openExtensionPage(.management)
         }
         host.refreshExtensionActions()
+    }
+
+    /// Opens the Chrome Web Store or `chrome://extensions` as a new tab in
+    /// this panel's pane, in this panel's engine and profile (the
+    /// `browser.engine` setting may be WebKit, where neither page works).
+    /// Automation passes `focus: false` (socket focus policy).
+    func openExtensionPage(_ page: BrowserExtensionPage, focus: Bool = true) {
+        guard let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: id,
+            preferredWorkspaceId: workspaceId
+        )?.workspace, let paneId = workspace.paneId(forPanelId: id) else { return }
+        _ = workspace.newBrowserSurface(
+            inPane: paneId,
+            url: page.url,
+            focus: focus,
+            preferredProfileID: profileID,
+            engine: engineKind
+        )
     }
 
     private func presentLoadUnpackedPanel(store: BrowserExtensionStore) {

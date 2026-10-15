@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxControlSocket
 import Foundation
 
 /// `browser.extension.*`: Chrome extension management for Chromium panels.
@@ -29,15 +30,16 @@ extension TerminalController {
     ]
 
     /// How long a consent sheet may wait for the person before the request times out.
-    nonisolated static let v2BrowserExtensionConsentTimeout: TimeInterval = 120
+    nonisolated static let v2BrowserExtensionConsentTimeout = BrowserExtensionControlRequest.consentSeconds
 
     /// Runs one `browser.extension.*` method; waits on the socket worker.
     nonisolated func v2BrowserExtensionOnSocketWorker(id: Any?, method: String, params: [String: Any]) -> String {
         guard let operation = Self.v2BrowserExtensionMethods[method] else {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
-        let timeout = BrowserExtensionAutomationPolicy().decision(for: operation) == .allow
-            ? 20 : Self.v2BrowserExtensionConsentTimeout + 5
+        // Reload may need consent (a disabled extension), so it gets the consent window too.
+        let mayAsk = BrowserExtensionAutomationPolicy().decision(for: operation) != .allow || operation == .reload
+        let timeout = mayAsk ? Self.v2BrowserExtensionConsentTimeout : BrowserExtensionControlRequest.quickSeconds - 5
         return v2AsyncResultCall(id: id, timeoutSeconds: timeout) {
             await self.v2BrowserExtension(operation, params: params)
         }
@@ -89,7 +91,7 @@ extension TerminalController {
                 return v2BrowserExtensionError("invalid_params", String(
                     localized: "cli.browser.extension.error.page", defaultValue: "page must be webstore or manage"))
             }
-            ctx.browserPanel.navigate(to: page.url)
+            ctx.browserPanel.openExtensionPage(page, focus: false)
             return .ok(v2BrowserPanelFields(ctx, adding: ["url": page.url.absoluteString]))
         }
         guard store.supportsManagement else {
@@ -159,7 +161,9 @@ extension TerminalController {
         params: [String: Any], ctx: V2BrowserPanelContext, store: BrowserExtensionStore
     ) async -> V2CallResult {
         let raw = (params["path"] as? String) ?? ""
-        let path = URL(fileURLWithPath: (raw as NSString).expandingTildeInPath).standardizedFileURL.path
+        // Resolve symlinks so the sheet names the folder Chromium will load.
+        let path = URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
+            .resolvingSymlinksInPath().standardizedFileURL.path
         var isDirectory: ObjCBool = false
         guard !raw.isEmpty,
               FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue,
@@ -169,11 +173,19 @@ extension TerminalController {
                 defaultValue: "No manifest.json in \u{201C}\(raw)\u{201D}. Pass an unpacked extension folder."))
         }
         guard let host = ctx.browserPanel.extensionHost else { return v2BrowserExtensionDeclined() }
+        let manifestPath = (path as NSString).appendingPathComponent("manifest.json")
+        let agreedManifest = FileManager.default.contents(atPath: manifestPath)
         let summary = BrowserExtensionManifestSummary.read(folder: path)
         let content = BrowserExtensionPromptContent(
             automation: .loadUnpacked, name: path, permissions: summary?.permissions ?? []
         )
         guard await v2BrowserExtensionConsent(content, ctx: ctx, host: host) else { return v2BrowserExtensionDeclined() }
+        // The person agreed to the manifest shown in the sheet; refuse one that changed while it was open.
+        guard let agreedManifest, FileManager.default.contents(atPath: manifestPath) == agreedManifest else {
+            return v2BrowserExtensionError("conflict", String(
+                localized: "cli.browser.extension.error.manifestChanged",
+                defaultValue: "The extension's manifest.json changed while waiting for approval. Nothing was loaded; run the command again."))
+        }
         let before = Set(store.extensions.map(\.id))
         guard store.loadUnpacked(at: path) else {
             return v2BrowserExtensionError("refused", String(

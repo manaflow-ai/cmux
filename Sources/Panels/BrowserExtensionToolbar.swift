@@ -20,7 +20,8 @@ struct BrowserExtensionToolbar: View {
     let onChoice: (BrowserExtensionsMenuView.Choice) -> Void
 
     @State private var isMenuPresented = false
-    @State private var menuButtonFrame: CGRect = .zero
+    @State private var menuAnchor = BrowserExtensionAnchor()
+    @State private var buttonAnchors = BrowserExtensionAnchorSet()
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -38,6 +39,7 @@ struct BrowserExtensionToolbar: View {
                             isCrashed: crashed.contains(action.id),
                             isPopupOpen: host.openExtensionPopup == action.id,
                             metrics: metrics,
+                            anchor: buttonAnchors.anchor(for: action.id),
                             onRun: { frame in run(action.id, buttonFrame: frame) },
                             onReload: { _ = store.reload(action.id) },
                             onContextMenu: { point in host.showExtensionActionMenu(action.id, atScreenPoint: point) }
@@ -50,6 +52,12 @@ struct BrowserExtensionToolbar: View {
         .onAppear {
             store.refresh()
             host.refreshExtensionActions()
+            // Actions run by a shortcut or the CLI hang below their pinned
+            // button when it is shown, else below the Extensions button.
+            host.extensionActionRequestHandler = { [buttonAnchors, menuAnchor] id in
+                let frame = buttonAnchors.windowFrame(for: id) ?? menuAnchor.windowFrame ?? .zero
+                run(id, buttonFrame: frame)
+            }
         }
     }
 
@@ -62,13 +70,7 @@ struct BrowserExtensionToolbar: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle(isActive: isMenuPresented))
         .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { menuButtonFrame = proxy.frame(in: .global) }
-                    .onChange(of: proxy.frame(in: .global)) { _, frame in menuButtonFrame = frame }
-            }
-        }
+        .background(BrowserExtensionAnchorReader(anchor: menuAnchor))
         .popover(isPresented: $isMenuPresented, arrowEdge: .bottom) {
             BrowserExtensionsMenuView(
                 extensions: extensions,
@@ -79,7 +81,7 @@ struct BrowserExtensionToolbar: View {
                     isMenuPresented = false
                     if case .run(let id) = choice {
                         // Unpinned actions hang their popup below the Extensions button.
-                        run(id, buttonFrame: menuButtonFrame)
+                        run(id, buttonFrame: menuAnchor.windowFrame ?? .zero)
                     } else {
                         onChoice(choice)
                     }
@@ -92,8 +94,8 @@ struct BrowserExtensionToolbar: View {
         .accessibilityIdentifier("BrowserExtensionsButton")
     }
 
-    /// Runs an action with its popup below `buttonFrame` (SwiftUI global =
-    /// window coordinates), converted to the page view's x.
+    /// Runs an action with its popup below `buttonFrame` (window
+    /// coordinates), converted to the page view's x.
     private func run(_ id: String, buttonFrame: CGRect) {
         let leading = pageLeadingX() ?? 0
         let anchor = CGRect(x: max(buttonFrame.minX - leading, 0), y: 0, width: max(buttonFrame.width, 1), height: 1)
