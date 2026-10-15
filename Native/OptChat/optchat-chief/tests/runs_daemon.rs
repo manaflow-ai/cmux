@@ -543,6 +543,8 @@ fn the_chief_streams_its_run_live_while_it_works() {
         "the tool's activity",
         |f| has(f, "run.activity", "line", "Running git log -1"),
     );
+    // The tool ends and the turn thinks again; it ends while that thought is
+    // still open, so the thought's last frame must still come before the end.
     h.agents.push_events(
         &session,
         vec![
@@ -551,8 +553,23 @@ fn the_chief_streams_its_run_live_while_it_works() {
                 json!({"toolCallId": "toolu_sh", "status": "completed",
                        "content": [{"type": "content", "content": {"type": "text", "text": "3158c157a2 base"}}]}),
             ),
-            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+            update(
+                "agent_thought_chunk",
+                json!({"content": {"type": "text", "text": "That is the newest commit."}}),
+            ),
         ],
+    );
+    drive(
+        &mut h,
+        &live,
+        &conversation,
+        &mut frames,
+        "the second thought",
+        |f| has(f, "step.delta", "step", "thought:1"),
+    );
+    h.agents.push_events(
+        &session,
+        vec![json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}})],
     );
     h.agents.release();
 
@@ -607,14 +624,24 @@ fn the_chief_streams_its_run_live_while_it_works() {
         f["type"] == "step.delta" && f["step"] == "talk:0" && f["final"] == true
     })
     .unwrap_or_else(|| panic!("no final reply frame: {frames:#?}"));
+    let run_id = frames[last_frame]["run"].clone();
     let ended = position(&frames, &|f| {
-        f["type"] == "run.changed" && f["status"] == "done"
+        f["type"] == "run.changed" && f["status"] == "done" && f["run"] == run_id
     })
     .unwrap_or_else(|| panic!("no run end: {frames:#?}"));
     let reply = position(&frames, &is_reply).unwrap();
     assert!(
         last_frame < ended && ended < reply,
         "order {last_frame} {ended} {reply}: {frames:#?}"
+    );
+    // The thought still open when the turn ended got its last frame first too.
+    let thought_end = position(&frames, &|f| {
+        f["type"] == "step.delta" && f["step"] == "thought:1" && f["final"] == true
+    })
+    .unwrap_or_else(|| panic!("the open thought got no final frame: {frames:#?}"));
+    assert!(
+        thought_end < ended,
+        "order {thought_end} {ended}: {frames:#?}"
     );
     let frames: Vec<Value> = frames
         .into_iter()
