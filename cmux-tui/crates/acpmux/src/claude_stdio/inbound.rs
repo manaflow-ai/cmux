@@ -210,6 +210,8 @@ impl Translator {
                 let mut prompt = self.prompt_echo.lock().await;
                 if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
                     *prompt = None;
+                    // What follows is this prompt's output, not a stopped turn's tail.
+                    self.turn_output.store(false, Ordering::SeqCst);
                     return out;
                 }
                 drop(prompt);
@@ -452,10 +454,17 @@ impl Translator {
                         ));
                     }
                 }
-                // The result of a turn acpmux already ended, before Claude Code
-                // read the next prompt: it ends only the abandoned prompts.
+                // The result of a turn acpmux already ended (a Stop Claude Code
+                // answered late): it ends only the abandoned prompts. It comes
+                // before Claude Code read the next prompt, or after its echo but
+                // before any of its output (cx-he737). A result after the next
+                // prompt's own output is that prompt's: the stopped turn never
+                // had one, and it ends them all.
                 let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
-                if !abandoned.is_empty() && self.prompt_echo.lock().await.is_some() {
+                let next_unread = self.prompt_echo.lock().await.is_some();
+                if !abandoned.is_empty()
+                    && (next_unread || !self.turn_output.load(Ordering::SeqCst))
+                {
                     for k in abandoned {
                         self.pending.lock().await.remove(&k);
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));

@@ -49,6 +49,9 @@ enum SurfaceDiagnosticsReport {
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                     #if DEBUG
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
+                    // The font zoom the terminal draws at, as a scale of the configured
+                    // `font-size` (1 at that size); its tab record saves it (cx-mzuqi).
+                    object["font_scale"] = .number(TerminalFontScale(entry.session.surfaceView).current ?? 1)
                     #endif
                 }
                 if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
