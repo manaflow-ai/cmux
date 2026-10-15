@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 use super::bin;
 
 fn own_probe() -> Value {
-    let output = Command::new(bin()).args(["remote-probe", "--json"]).output().unwrap();
+    let output =
+        Command::new(bin()).args(["remote-probe", "--json", "--build-facts"]).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let probe: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(probe["build_time"].as_u64().is_some_and(|time| time > 0), "{probe}");
@@ -101,4 +102,16 @@ fn a_build_before_the_facts_is_older_and_bad_input_fails() {
         .output()
         .unwrap();
     assert!(!bad.status.success());
+}
+
+/// The plain probe stays inside what every client's SSH bootstrap reads (4096
+/// bytes): the capability list comes only with `--build-facts`.
+#[test]
+fn the_plain_probe_fits_the_bootstrap_limit() {
+    let output = Command::new(bin()).args(["remote-probe", "--json"]).output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stdout.len() < 2048, "{} bytes", output.stdout.len());
+    let probe: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(probe.get("daemon_capabilities").is_none(), "{probe}");
+    assert!(probe["build_time"].is_u64(), "{probe}");
 }

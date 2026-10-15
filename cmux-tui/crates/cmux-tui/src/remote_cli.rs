@@ -2055,13 +2055,19 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "build_identity": BUILD_IDENTITY,
         // cx-3r9mt: what `remote update-need` orders builds by.
         "build_time": cmux_build_identity::BUILD_TIME,
-        "daemon_capabilities": cmux_tui_core::server::build_capabilities(),
         "remote_protocol": REMOTE_PROTOCOL_VERSION,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         // Client-side transport capabilities a control plane can key routing on.
         "capabilities": PROBE_CAPABILITIES,
     });
+    // The capability list only on request: the SSH bootstrap of every client reads at most
+    // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
+    let mut value = value;
+    if args.iter().any(|argument| argument == "--build-facts") {
+        value["daemon_capabilities"] =
+            serde_json::json!(cmux_tui_core::server::build_capabilities());
+    }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
     } else {
