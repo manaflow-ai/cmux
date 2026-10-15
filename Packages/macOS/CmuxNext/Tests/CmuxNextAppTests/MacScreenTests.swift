@@ -244,3 +244,25 @@ struct MacScreenRightClickTests {
         #expect(RemoteMouseButton(event: try event(.leftMouseDown)) == .left)
     }
 }
+
+/// Which tabs reconnect when Relay Only changes: only a stream that is live
+/// (shown, or hidden within its grace), or a shown tab whose last try failed.
+/// A hidden tab that ended or failed stays down until it is shown.
+@MainActor
+struct MacScreenRelayChangeTests {
+    @Test func liveStreamsReconnectShownOrHidden() {
+        #expect(MacScreenPane.reconnectsOnRelayChange(streaming: true, failed: false, visible: true, gateOpen: true, stoppedByPerson: false))
+        #expect(MacScreenPane.reconnectsOnRelayChange(streaming: true, failed: false, visible: false, gateOpen: true, stoppedByPerson: false))
+    }
+
+    @Test func aFailedTabRetriesOnlyWhenShown() {
+        #expect(MacScreenPane.reconnectsOnRelayChange(streaming: false, failed: true, visible: true, gateOpen: true, stoppedByPerson: false))
+        #expect(!MacScreenPane.reconnectsOnRelayChange(streaming: false, failed: true, visible: false, gateOpen: true, stoppedByPerson: false))
+    }
+
+    @Test func endedWaitingOrStoppedTabsOnlyTakeTheSetting() {
+        #expect(!MacScreenPane.reconnectsOnRelayChange(streaming: false, failed: false, visible: true, gateOpen: true, stoppedByPerson: false))
+        #expect(!MacScreenPane.reconnectsOnRelayChange(streaming: true, failed: false, visible: true, gateOpen: false, stoppedByPerson: false))
+        #expect(!MacScreenPane.reconnectsOnRelayChange(streaming: true, failed: false, visible: true, gateOpen: true, stoppedByPerson: true))
+    }
+}

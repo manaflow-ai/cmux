@@ -221,12 +221,20 @@ public final class MacScreenPane {
         // or one the person disconnected, just takes the setting.
         var failed = false
         if case .failed = session.phase { failed = true }
-        let running = session.stream != nil || session.isReconnecting || failed
         session.relayOnly = on
         model.relayOnly = on
-        if running, !stoppedByPerson { session.reconnect() }
+        if Self.reconnectsOnRelayChange(streaming: session.stream != nil || session.isReconnecting, failed: failed,
+                                        visible: visible, gateOpen: model.gate == .open, stoppedByPerson: stoppedByPerson) {
+            session.reconnect()
+        }
     }
     #endif
+
+    /// Whether a Relay Only change reconnects now (with retries: the host may
+    /// still be dropping the old connection).
+    static func reconnectsOnRelayChange(streaming: Bool, failed: Bool, visible: Bool, gateOpen: Bool, stoppedByPerson: Bool) -> Bool {
+        (streaming || failed) && !stoppedByPerson
+    }
 
     /// The Mac was forgotten: the session ends and the tab says it is not paired.
     public func forgotten() {
