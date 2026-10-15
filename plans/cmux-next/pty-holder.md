@@ -103,6 +103,9 @@ and old holders keep running their own copy, pinned by its lock.
 
 ### 2.1 Holder wire protocol v1 (frozen)
 
+Full spec (frame layouts, kind values, error codes, corpus):
+`plans/cmux-next/holder-protocol-v1.md`. Summary:
+
 Framing: `magic "CMHL" u32 | kind u16 | flags u16 | len u32 | payload`. Little
 endian. Max payload 1 MiB. Payloads are fixed binary structs plus byte
 strings; no JSON in the holder.
@@ -122,7 +125,7 @@ strings; no JSON in the holder.
 | EXIT | h->d | wait status, end offset, time; also written to `<id>.exit` |
 | CLOSE | d->h | end the child: SIGHUP/SIGTERM, then SIGKILL after `grace_ms` |
 | PING/PONG | both | liveness of the link only |
-| ERROR | h->d | code (UNKNOWN_KIND, BAD_TOKEN, ...) for a request; link stays up |
+| ERROR | h->d | code (UNKNOWN_KIND, BAD_TOKEN, ...) for a request; link stays up except after BAD_TOKEN / NO_COMMON_VERSION |
 
 Rules that keep it frozen:
 - A holder answers an unknown kind with ERROR UNKNOWN_KIND and keeps the link.
@@ -147,9 +150,9 @@ replica). Agent hosts move the same way: new agents start under
 ## 3. Discovery and restore without scanning
 
 - At spawn the holder writes an identity record (atomic, 0600, O_NOFOLLOW):
-  schema, id, mode, owner install (`<bundle>:<tag>`), session, cwd, argv,
+  schema, id, mode, install (12-hex hash of bundle id + tag), session, cwd, argv,
   start time, protocol min/max, capability bits, socket path, lease nonce.
-  pid fields are informational only and are never used to find or signal.
+  The record has no pid fields: nothing finds or signals a holder by pid.
 - Records and sockets live in a per-install runtime directory (0700):
   `<runtime>/cmux/holders/<install id>/`, where the install id is a short
   hash (12 hex) of BuildIdentity's stable part (bundle id + tag), NOT the
@@ -280,3 +283,7 @@ never infers an agent from a process name, argv, foreground group or tree.
 - D5 (chief): peer checks that walk parent processes (control socket,
   computer-use helper) become a capability token the app gives its
   children.
+- D6 (pending, security policy): the frozen holder checks the macOS peer's
+  code identity (same Team ID + daemon identifier, audit token) before
+  HELLO; ad hoc DEV builds skip it. A frozen holder cannot add this later.
+  Recommend: freeze it now (holder-protocol-v1.md section 7).
