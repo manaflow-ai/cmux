@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CMUXAgentLaunch
 import CmuxFoundation
 import Bonsplit
@@ -393,7 +394,7 @@ extension DockSplitStore {
                 guard browser.shouldPersistSessionSnapshot() else { return nil }
                 let history = browser.sessionNavigationHistorySnapshot()
                 let diffViewer = browser.diffViewerSessionComponents()
-                browserSnapshot = SessionBrowserPanelSnapshot(
+                var engineAwareSnapshot = SessionBrowserPanelSnapshot(
                     urlString: browser.preferredURLStringForSessionSnapshot(),
                     profileID: browser.profileID,
                     shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
@@ -409,6 +410,8 @@ extension DockSplitStore {
                     diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession, interactionState: browser.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browser.keepsPageActiveForSessionSnapshot,
                     cloudTeamID: browser.cloudTeamIDForSession
                 )
+                engineAwareSnapshot.engine = browser.sessionSnapshotEngine
+                browserSnapshot = engineAwareSnapshot
             } else if let deferred = panel as? DeferredBrowserPanel {
                 browserSnapshot = deferred.sessionPanelSnapshot.browser
             } else {

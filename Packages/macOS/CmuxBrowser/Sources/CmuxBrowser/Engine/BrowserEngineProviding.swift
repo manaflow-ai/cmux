@@ -2,9 +2,10 @@ import Foundation
 
 /// Creates pages for one engine.
 ///
-/// The WebKit provider ships in this package. The Chromium provider ships in
-/// the CEF package, which depends on this one; the app registers it in its
-/// ``BrowserEngineRegistry`` when the runtime is bundled.
+/// Browser panels create WebKit pages themselves (``WebKitBrowserPage`` over
+/// their `WKWebView`), so WebKit needs no provider. The Chromium provider
+/// ships in the CEF package, which depends on this one; the app registers it
+/// in its ``BrowserEngineRegistry`` at launch.
 @MainActor
 public protocol BrowserEngineProviding: AnyObject {
     /// The engine this provider creates pages for.

@@ -722,7 +722,7 @@ extension Workspace {
                 guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
                 let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
                 let diffViewerComponents = browserPanel.diffViewerSessionComponents()
-                browserSnapshot = SessionBrowserPanelSnapshot(
+                var engineAwareSnapshot = SessionBrowserPanelSnapshot(
                     urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                     profileID: browserPanel.profileID,
                     shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
@@ -739,6 +739,8 @@ extension Workspace {
                     interactionState: browserPanel.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browserPanel.keepsPageActiveForSessionSnapshot,
                     cloudTeamID: browserPanel.cloudTeamIDForSession
                 )
+                engineAwareSnapshot.engine = browserPanel.sessionSnapshotEngine
+                browserSnapshot = engineAwareSnapshot
             } else if let deferredPanel = panel as? DeferredBrowserPanel {
                 // A deferred panel already owns the exact persisted browser DTO;
                 // serializing it here keeps autosave lossless before first reveal.
@@ -5622,7 +5624,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             transparentBackground: browserSnapshot.transparentBackground ?? false,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
+            engineChoice: BrowserPanel.restoredEngineChoice(browserSnapshot.engine)
         )
         browserPanel.adoptStableSurfaceId(deferredPanel.stableSurfaceIdentity.id)
         configureBrowserPanel(browserPanel)
