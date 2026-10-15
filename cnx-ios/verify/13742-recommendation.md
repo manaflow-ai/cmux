@@ -289,3 +289,32 @@ live run in `verify/persistence.md`.
   "Remove This iPhone from My Macs" as the explicit way to end them? Reply
   `approve: sign-out keeps the approval` or `sign-out replaces the keys`
   (every sign-in asks each Mac again).
+
+## Agent chats in workspace folders (implemented 2026-10-14, for review)
+
+The person said the phone must do everything the cmux-next Mac app does, and
+that GUI agent sessions must open from the phone, model-agnostic. Agent chats
+from the phone failed in every new workspace folder ("cwd is refused"), so the
+`feat-cnx-ios-agentcwd` proposal is now merged and implemented on
+`feat-cnx-ios-parity`.
+
+**What changed:** the Mac app hands acpmux, on its person connection, the
+folders of the tabs its daemon lists (`_acpmux/workspace_roots_set`, memory
+only, at most 256, only while iPhone connections are on and someone is signed
+in). acpmux adds them to the remote (Web) roots under its existing guards: `/`,
+the home folder and everything above it are dropped, and paths are canonical
+(symlinks and `..` resolved) before the check.
+
+**What it keeps:** folders scoped to the person's own open tabs; no arbitrary
+paths (the phone never names a folder, it uses the workspace's own tab folder);
+command-bearing params still refused (no argv, env, mode or policy other than
+`ask`, no MCP servers); Codex and opencode still refused from the phone; every
+tool still asks the person (on the Mac, or with the phone's Face ID
+signature). Policy tests: acpmux `tests/workspace_roots.rs`, plus
+`person_allow` and `remote_guard`. Details: `cnx-ios/SECURITY.md`.
+
+**Decision:** reply `keep agent chats in workspace folders` (as implemented) or
+`agent chats in known projects only` (revert `_acpmux/workspace_roots_set`;
+the phone then says to update or use a known project) or `ask on the Mac for
+each new folder` (a follow-up: the Mac prompts the first time a phone starts a
+chat in a folder).
