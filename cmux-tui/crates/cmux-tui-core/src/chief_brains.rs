@@ -316,7 +316,8 @@ pub(crate) struct Slot {
 /// with the reason (`no_supervisor`: this daemon runs no brains;
 /// `launch_disabled`: agents are off in this build session;
 /// `supervisor_starting`: it starts once the supervisor runs; `error`: the
-/// start failed, see the daemon log).
+/// start failed, see the daemon log; `unconfirmed`: the supervisor did not
+/// answer in time, it may still start).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum BrainStart {
     Started,
@@ -347,7 +348,7 @@ impl BrainPending {
             Self::Ready(start) => start,
             Self::Wait(answer) => answer
                 .recv_timeout(Duration::from_secs(5))
-                .unwrap_or(BrainStart::NotStarted("error")),
+                .unwrap_or(BrainStart::NotStarted("unconfirmed")),
         }
     }
 }
@@ -416,7 +417,7 @@ impl Slot {
             return Some(BrainPending::Ready(BrainStart::NotStarted("error")));
         }
         drop(sender);
-        if taken().is_none() {
+        if config().is_none() {
             return Some(BrainPending::Ready(BrainStart::NotStarted("no_supervisor")));
         }
         self.send(Signal::Created(Box::new(record.clone()), None));
@@ -659,7 +660,10 @@ impl Supervisor {
                 }
                 if let Some(reply) = reply {
                     let running = self.brains.get(&record.id).is_some_and(|b| b.process.is_some());
-                    let _ = reply.send(if running {
+                    let held = lock_held(
+                        &brain_home(&self.config.home, &record.id).join("state/host.lock"),
+                    );
+                    let _ = reply.send(if running || held {
                         BrainStart::Started
                     } else if crate::agent_launch::disabled() {
                         BrainStart::NotStarted("launch_disabled")

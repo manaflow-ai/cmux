@@ -578,7 +578,7 @@
             "min_length": 1,
             "max_length": 64
           },
-          "description": "With not_started: no_supervisor (this daemon runs no Chief brains), launch_disabled (agents are off in this build session), supervisor_starting (it starts once the supervisor runs) or error (the start failed; the daemon log says why)."
+          "description": "With not_started: no_supervisor (this daemon runs no Chief brains), launch_disabled (agents are off in this build session), supervisor_starting (it starts once the supervisor runs), error (the start failed; the daemon log says why) or unconfirmed (the supervisor did not answer in time; it may still start)."
         }
       },
       "extra": false

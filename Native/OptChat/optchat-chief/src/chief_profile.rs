@@ -896,7 +896,12 @@ impl ProfileClient {
                                 format!("{e} (The other changes did commit.)")
                             }
                         })?;
+                    // The create's brain outcome stays (the picture's answer has none).
+                    let brain = record.get("brain").cloned();
                     record = set.get("value").cloned().unwrap_or(set);
+                    if let (Some(brain), Some(fields)) = (brain, record.as_object_mut()) {
+                        fields.insert("brain".into(), brain);
+                    }
                 }
                 let note = if action == "create" {
                     brain_note(&record)
@@ -934,6 +939,10 @@ person plainly that the new Chief exists but will not answer here."
         (Some("not_started"), Some("supervisor_starting")) => {
             "Its brain did not start yet: the brain supervisor is still starting. Tell the \
 person it should answer shortly, and that you cannot confirm it yet."
+        }
+        (Some("not_started"), Some("unconfirmed")) => {
+            "Whether its brain started is not confirmed yet (the supervisor was busy). Tell \
+the person it may answer soon, and do not promise it."
         }
         (Some("not_started"), _) => {
             "Its brain did NOT start (an error; the daemon log says why). Tell the person \

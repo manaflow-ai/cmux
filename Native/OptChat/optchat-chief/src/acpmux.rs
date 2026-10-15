@@ -825,7 +825,12 @@ pub fn new_session(
         // An acpmux from before the turn seal refuses that key: the turn
         // runs without it (its `chiefs` tool then answers that it is not
         // this Chief's turn), never not at all.
-        Err(e) if e.to_string().contains(crate::chief_profile::TURN_KEY_ENV) => {
+        Err(e)
+            if e.to_string().contains(&format!(
+                "env key {} is not one a session may set",
+                crate::chief_profile::TURN_KEY_ENV
+            )) =>
+        {
             if let Some(env) = meta.get_mut("env").and_then(Value::as_object_mut) {
                 env.remove(crate::chief_profile::TURN_KEY_ENV);
                 if env.is_empty() {
