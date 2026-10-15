@@ -134,6 +134,22 @@ def move(point):
     probe("path", x0, y0, x, y, 6)
 
 
+CUA = os.path.expanduser("~/.local/bin/cua-driver")
+
+
+def app_active():
+    return bool((rpc("debug.focus") or {}).get("app_active"))
+
+
+def activate():
+    """Cards show only while the app is active, and real input reaches its window only while it
+    is in front: bring it to the front (cua-driver, by pid; the input job has the session alone)."""
+    if app_active():
+        return
+    subprocess.run([CUA, "call", "bring_to_front", json.dumps({"pid": APP_PID})], capture_output=True, text=True, timeout=60)
+    quiet_wait(app_active, 3)
+
+
 def shot(name):
     if not (opts.shots and opts.capture and APP_PID):
         return
@@ -144,13 +160,18 @@ def shot(name):
 
 
 # --- targets ------------------------------------------------------------------------------------
+def xywh(f):
+    """A frame as [x, y, w, h]: debug.sidebar_rows gives objects, debug.tab_drag arrays."""
+    return [f["x"], f["y"], f["width"], f["height"]] if isinstance(f, dict) else list(f)
+
+
 def row_points():
     rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
     points = []
     for row in rows:
         if not str(row.get("key", "")).startswith("workspace") or not row.get("in_list"):
             continue
-        f = row["window_frame"]
+        f = xywh(row["window_frame"])
         points.append((row.get("title") or row["key"], [f[0] + f[2] / 2, f[1] + f[3] / 2]))
     return points
 
@@ -160,12 +181,13 @@ def tab_points():
     for strip in strips:
         tabs = strip.get("tabs") or []
         if len(tabs) >= 2:
-            return [(t.get("label"), [t["frame"][0] + t["frame"][2] * 0.35, t["frame"][1] + t["frame"][3] / 2]) for t in tabs]
+            return [(t.get("label"), (lambda f: [f[0] + f[2] * 0.35, f[1] + f[3] / 2])(xywh(t["frame"]))) for t in tabs]
     return []
 
 
 def settle():
     """Off every target until no card is pending or shown and the quick-reshow window passed."""
+    activate()
     move(None)
     quiet_wait(lambda: cards().get("phase") == "idle", 3)
     time.sleep(0.4)
@@ -234,7 +256,7 @@ def held_button(row_point):
     rows_frame = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
     for row in rows_frame:
         if str(row.get("key", "")).startswith("workspace"):
-            left = row["window_frame"][0] + 4
+            left = xywh(row["window_frame"])[0] + 4
             break
     (x0, y0), (x1, y1) = to_screen([OFF[0], row_point[1]]), to_screen([left, row_point[1]])
     # 900 drag events at ~120 Hz (about 7.5 s); the pointer is over the row for about 2 s of it.
@@ -283,13 +305,19 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     window = ((quiet_wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60, step=0.2) or [{}])[0]).get("id")
     rpc("debug.window_frame", {"window": window, "frame": [40, 40, 1100, 700]})
-    print(f"app pid {APP_PID}, input {opts.input}, window {window}: {(main_window() or {}).get('frame')}", flush=True)
+    activate()
+    print(f"app pid {APP_PID}, input {opts.input}, window {window}: {(main_window() or {}).get('frame')}, active {app_active()}",
+          flush=True)
     # Two workspaces and two tabs in the selected one.
     for attempt in range(3):
         if len(row_points()) >= 3:
             break
         made = call("workspace.create", {"focus": False})
         print(f"   workspace.create: {'ok' if made.get('ok') else made.get('error')}", flush=True)
+        if not made.get("ok"):
+            cli = os.path.join(HERE, "..", "cmux-debug-cli.sh")
+            run = subprocess.run([cli, "--app-socket", SOCKET, "workspace", "create"], capture_output=True, text=True, timeout=60)
+            print(f"   cmux workspace create: exit {run.returncode} {(run.stdout + run.stderr).strip()[-160:]}", flush=True)
         quiet_wait(lambda: len(row_points()) >= attempt + 2, 10, step=0.2)
     for attempt in range(2):
         if len(tab_points()) >= 2:
