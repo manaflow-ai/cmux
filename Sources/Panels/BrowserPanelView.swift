@@ -1937,7 +1937,9 @@ struct BrowserPanelView: View {
                 BrowserEnginePageHost(
                     page: enginePage,
                     isVisible: isVisibleInUI && isCurrentPaneOwner,
-                    shouldFocus: isFocused && !addressBarFocused,
+                    // The open find bar owns the keyboard (its field is in this window, the page
+                    // in its own): the page window gives the keys back until a click chooses it.
+                    shouldFocus: isFocused && !addressBarFocused && panel.searchState == nil,
                     onAttach: { contentView in panel.attachPageOverlays(contentView: contentView) },
                     onPageClicked: {
                         // As a click into a WebKit page: the pane takes focus

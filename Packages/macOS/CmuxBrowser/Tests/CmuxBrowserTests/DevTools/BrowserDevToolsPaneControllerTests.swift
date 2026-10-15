@@ -19,6 +19,7 @@ private final class FakeDevToolsEngine: BrowserDevToolsEngineDriving {
 @MainActor
 private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
     var onClose: (() -> Void)?
+    var onFrameChange: ((CGRect) -> Void)?
     var title = ""
     private(set) var adopted: [NSView] = []
     private(set) var shown = 0
@@ -46,6 +47,7 @@ private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
 
         @MainActor final class WindowBox {
             var made: [FakeDevToolsWindow] = []
+            var remembered: [CGRect?] = []
         }
 
         init() {
@@ -53,7 +55,8 @@ private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
             defaults = UserDefaults(suiteName: suite)!
             let box = WindowBox()
             windowBox = box
-            controller = BrowserDevToolsPaneController(paneView: pane, store: BrowserDevToolsLayoutStore(defaults: defaults)) { _ in
+            controller = BrowserDevToolsPaneController(paneView: pane, store: BrowserDevToolsLayoutStore(defaults: defaults)) { _, remembered in
+                box.remembered.append(remembered)
                 let window = FakeDevToolsWindow()
                 box.made.append(window)
                 return window
@@ -150,6 +153,9 @@ private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
     @Test func closingRestoresThePageAndFrontendDockChoicesMove() throws {
         let h = Harness()
         h.open()
+        // The frontend's first report on load is its saved preference; the pane's layout wins.
+        h.controller.engineDidChooseDockSide(3)
+        #expect(h.controller.state.dock == .bottom)
         h.controller.engineDidChooseDockSide(1)
         #expect(h.controller.state.dock == .left)
         h.controller.engineDidChooseDockSide(9)
@@ -197,6 +203,33 @@ private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
         #expect(h.controller.state.dock == .right)
         BrowserMenuActionTarget.target(of: menu.items[5])?.run(nil)
         #expect(h.engine.requests == [.close])
+    }
+
+    @Test func configureSetsTheDividerThicknessAndTheCloseShortcut() {
+        let h = Harness()
+        h.open()
+        h.controller.configure(
+            dividerThickness: 6,
+            closeShortcut: BrowserDevToolsMenuShortcut(key: "i", modifiers: [.command, .option])
+        )
+        h.pane.layoutSubtreeIfNeeded()
+        // 801 high: 795 available after the 6 pt line, 0.4 of it is 318; grab = line +/- 3.
+        #expect(h.host()?.frame == CGRect(x: 0, y: 0, width: 1001, height: 318))
+        #expect(h.pane.pageView.frame.minY == 324)
+        let close = BrowserDevToolsDockMenu(controller: h.controller).makeMenu().items[5]
+        #expect(close.keyEquivalent == "i")
+        #expect(close.keyEquivalentModifierMask == [.command, .option])
+    }
+
+    @Test func undockedWindowsOpenAtTheRememberedFrameAndRememberMoves() throws {
+        let h = Harness()
+        BrowserDevToolsLayoutStore(defaults: h.defaults).saveWindowFrame(CGRect(x: 5, y: 6, width: 700, height: 500))
+        h.open()
+        h.controller.perform(.dock(.window))
+        let window = try #require(h.windowBox.made.first)
+        #expect(h.windowBox.remembered.first == CGRect(x: 5, y: 6, width: 700, height: 500))
+        window.onFrameChange?(CGRect(x: 40, y: 50, width: 800, height: 600))
+        #expect(BrowserDevToolsLayoutStore(defaults: h.defaults).loadWindowFrame() == CGRect(x: 40, y: 50, width: 800, height: 600))
     }
 
     @Test func windowTitlesFollowThePage() {

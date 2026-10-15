@@ -47,6 +47,29 @@ extension ControlCommandCoordinator {
             ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
     }
 
+    /// `debug.browser.find` — drives and reads a browser panel's find bar
+    /// (`needle`, `action`: `next` | `previous` | `close`). A documented
+    /// passthrough like `debug.browser.favicon`: the app resolves the panel.
+    func debugBrowserFind(_ params: [String: JSONValue]) -> ControlCallResult {
+        debugContext?.controlDebugBrowserFind(params: params)
+            ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
+    }
+
+    /// `debug.browser.devtools` — moves a browser panel's in-pane DevTools
+    /// (`dock`: `bottom` | `left` | `right` | `window`) and reports their state.
+    /// Same passthrough shape as `debug.browser.find`.
+    func debugBrowserDevTools(_ params: [String: JSONValue]) -> ControlCallResult {
+        debugContext?.controlDebugBrowserDevTools(params: params)
+            ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
+    }
+
+    /// `debug.browser.context_menu` — right-clicks a Chromium page at `x`,`y` with trusted
+    /// input and records the menu instead of showing it; without `x` it returns the last one.
+    func debugBrowserContextMenu(_ params: [String: JSONValue]) -> ControlCallResult {
+        debugContext?.controlDebugBrowserContextMenu(params: params)
+            ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
+    }
+
     // MARK: - debug.right_sidebar.focus / debug.sidebar.visible
 
     /// `debug.right_sidebar.focus` — reveal and focus the right sidebar.

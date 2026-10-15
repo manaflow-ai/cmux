@@ -9,6 +9,7 @@
 #import <AppKit/AppKit.h>
 
 #include <algorithm>
+#include <set>
 
 #include "include/cef_command_ids.h"
 #include "shim_internal.h"
@@ -37,18 +38,43 @@ std::map<int, CefRefPtr<CefBrowser>>& devtools_browsers() {
   return map;
 }
 
+// Inspected browser ids whose DevTools should show the Console once the
+// frontend has loaded (the Show JavaScript Console command opened them).
+std::set<int>& pending_console() {
+  static std::set<int> set;
+  return set;
+}
+
+// The frontend's own embedder entry point, as Chrome's ShowConsolePanel
+// action calls it (DevToolsUIBindings::CallClientMethod("DevToolsAPI",
+// "showPanel", "console")): works for DevTools that are already open, where
+// IDC_DEV_TOOLS_CONSOLE does not apply to DevTools the host placed itself.
+void ShowConsolePanel(CefRefPtr<CefBrowser> devtools) {
+  if (CefRefPtr<CefFrame> frame = devtools ? devtools->GetMainFrame() : nullptr) {
+    frame->ExecuteJavaScript("window.DevToolsAPI && DevToolsAPI.showPanel('console')", frame->GetURL(), 0);
+  }
+}
+
 CefRefPtr<CefBrowser> DevToolsOf(int inspected) {
   auto& map = devtools_browsers();
   auto it = map.find(inspected);
   return it == map.end() ? nullptr : it->second;
 }
 
-class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler {
+class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler, public CefLoadHandler {
  public:
   DevToolsClient(int inspected, bool docked) : inspected_(inspected), docked_(docked) {}
 
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+  CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+
+  void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int) override {
+    if (!frame || !frame->IsMain() || pending_console().erase(inspected_) == 0) {
+      return;
+    }
+    ShowConsolePanel(browser);
+  }
 
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     auto& map = devtools_browsers();
@@ -76,6 +102,7 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
     auto it = map.find(inspected_);
     if (it != map.end() && it->second->IsSame(browser)) {
       map.erase(it);
+      pending_console().erase(inspected_);
     }
     Emit(CMUX_SHIM_DEVTOOLS_CLOSED, inspected_, 0, browser->GetIdentifier());
   }
@@ -124,6 +151,7 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
 
 void ForgetDevTools(int inspected) {
   placements().erase(inspected);
+  pending_console().erase(inspected);
 }
 
 }  // namespace cmux_shim
@@ -155,6 +183,13 @@ int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
       }
       return 1;
     case CMUX_SHIM_DEVTOOLS_CONSOLE:
+      if (CefRefPtr<CefBrowser> open = DevToolsOf(browser_id)) {
+        ShowConsolePanel(open);
+        open->GetHost()->SetFocus(true);
+        return 1;
+      }
+      pending_console().insert(browser_id);
+      [[fallthrough]];
     case CMUX_SHIM_DEVTOOLS_INSPECT: {
       // Chromium's own commands on the page's Browser (its active tab is
       // the page: the host activates the shown tab).

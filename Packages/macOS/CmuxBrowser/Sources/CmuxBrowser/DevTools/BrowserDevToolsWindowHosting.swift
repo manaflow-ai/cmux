@@ -8,6 +8,8 @@ public import AppKit
 public protocol BrowserDevToolsWindowHosting: AnyObject {
     /// Called when the user closes the window; the controller closes DevTools.
     var onClose: (() -> Void)? { get set }
+    /// Called when the user moved or resized the window, with its frame (to remember it).
+    var onFrameChange: ((CGRect) -> Void)? { get set }
     /// The window title.
     var title: String { get set }
     /// Moves `view` into the window, filling it.

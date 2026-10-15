@@ -9,11 +9,27 @@ public import AppKit
 public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting {
     /// Called when the user closes the window.
     public var onClose: (() -> Void)?
+    /// Called when the user moved or resized the window.
+    public var onFrameChange: ((CGRect) -> Void)?
+    private var frameObservers: [any NSObjectProtocol] = []
 
-    /// Creates a window over `owner` (inset), or centered on the main screen.
-    /// - Parameter owner: The cmux window the page shows in.
-    public convenience init(near owner: NSWindow?) {
-        self.init(contentRect: Self.frame(near: owner))
+    /// Creates a window beside `owner` (``BrowserDevToolsWindowPlacement``), or at `remembered`.
+    /// - Parameters:
+    ///   - owner: The cmux window the page shows in.
+    ///   - remembered: The frame the user last left the window at.
+    public convenience init(near owner: NSWindow?, remembered: CGRect? = nil) {
+        self.init(contentRect: Self.frame(near: owner, remembered: remembered))
+        // Moves, the end of a live resize, and resizes outside one (Zoom, a title bar double click).
+        for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification, NSWindow.didResizeNotification] {
+            let isResize = name == NSWindow.didResizeNotification
+            frameObservers.append(NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    guard let self else { return }
+                    if isResize, self.inLiveResize { return }
+                    self.onFrameChange?(self.frame)
+                }
+            })
+        }
     }
 
     private init(contentRect frame: CGRect) {
@@ -65,6 +81,9 @@ public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting 
 
     public func dismiss() {
         onClose = nil
+        onFrameChange = nil
+        for observer in frameObservers { NotificationCenter.default.removeObserver(observer) }
+        frameObservers = []
         orderOut(nil)
     }
 
@@ -76,16 +95,25 @@ public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting 
         onClose?()
     }
 
-    /// Where the window opens: over the cmux window inset by 40 points (AppKit screen
-    /// coordinates), or 900 x 600 centered on the main screen.
-    /// - Parameter window: The cmux window.
+    /// Where the window opens (AppKit screen coordinates): the remembered frame, else beside the
+    /// cmux window so it doesn't cover the page it inspects (``BrowserDevToolsWindowPlacement``).
+    /// - Parameters:
+    ///   - window: The cmux window.
+    ///   - remembered: The frame the user last left the window at.
     /// - Returns: The frame.
-    public static func frame(near window: NSWindow?) -> CGRect {
-        if let window {
-            let frame = window.frame.insetBy(dx: 40, dy: 40)
-            if frame.width >= 400, frame.height >= 300 { return frame }
+    public static func frame(near window: NSWindow?, remembered: CGRect? = nil) -> CGRect {
+        let ownerVisible = window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
+        // A remembered frame stays on the screen it was left on, not the cmux window's.
+        let visible = remembered.flatMap(Self.visibleFrame(mostOverlapping:)) ?? ownerVisible
+        return BrowserDevToolsWindowPlacement().frame(owner: window?.frame, visible: visible, remembered: remembered)
+    }
+
+    private static func visibleFrame(mostOverlapping rect: CGRect) -> CGRect? {
+        let overlaps = NSScreen.screens.map { screen -> (CGRect, CGFloat) in
+            let overlap = screen.frame.intersection(rect)
+            return (screen.visibleFrame, overlap.isNull ? 0 : overlap.width * overlap.height)
         }
-        let screen = window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
-        return CGRect(x: screen.midX - 450, y: screen.midY - 300, width: 900, height: 600)
+        guard let best = overlaps.max(by: { $0.1 < $1.1 }), best.1 > 0 else { return nil }
+        return best.0
     }
 }

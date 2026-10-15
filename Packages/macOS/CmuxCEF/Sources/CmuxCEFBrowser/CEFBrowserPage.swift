@@ -70,6 +70,8 @@ public final class CEFBrowserPage: BrowserPage {
             pageView: browser.hostView,
             layoutStore: devToolsLayoutStore
         )
+        // The undocked DevTools window is titled after the page ("Developer Tools – Example").
+        features.devTools.pageTitle = { [weak browser] in browser?.state.title ?? "" }
         browser.onEvent = { [weak self] event in
             self?.handle(event)
         }

@@ -130,6 +130,47 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         #expect(!session.hasPendingRequest)
     }
 
+    @Test func unchangedOrdinalsKeepTheLatestReportedOne() async {
+        let driver = FakeNativeFindDriver()
+        let session = BrowserNativeFindSession(driver: driver)
+        // Chromium reports -1 ("unchanged") in updates, including some final ones.
+        driver.onFind = { [weak session] call in
+            if call.findNext {
+                session?.receiveResult(count: 3, activeOrdinal: 2, isFinal: false)
+                session?.receiveResult(count: 3, activeOrdinal: -1, isFinal: true)
+            } else {
+                session?.receiveResult(count: 3, activeOrdinal: 1, isFinal: false)
+                session?.receiveResult(count: 3, activeOrdinal: -1, isFinal: true)
+            }
+        }
+        #expect(await session.search(needle: "findme") == BrowserFindMatchCount(total: 3, selected: 0))
+        #expect(await session.next() == BrowserFindMatchCount(total: 3, selected: 1))
+        driver.onFind = { [weak session] _ in session?.receiveResult(count: 3, activeOrdinal: -1, isFinal: true) }
+        // A step that reports no ordinal keeps the last answered one.
+        #expect(await session.next() == BrowserFindMatchCount(total: 3, selected: 1))
+    }
+
+    @Test func aNewSearchActivatesTheFirstMatchLikeChrome() async {
+        let driver = FakeNativeFindDriver()
+        let session = BrowserNativeFindSession(driver: driver)
+        // Chromium's new session reports matches but no active one; a step forward activates it.
+        driver.onFind = { [weak session] call in
+            session?.receiveResult(count: 3, activeOrdinal: call.findNext ? 1 : 0, isFinal: true)
+        }
+        #expect(await session.search(needle: "findme") == BrowserFindMatchCount(total: 3, selected: 0))
+        #expect(driver.calls.map(\.findNext) == [false, true])
+        #expect(await session.next() == BrowserFindMatchCount(total: 3, selected: 0))
+        #expect(driver.calls.map(\.findNext) == [false, true, true])
+    }
+
+    @Test func noMatchesNeedNoActivation() async {
+        let driver = FakeNativeFindDriver()
+        let session = BrowserNativeFindSession(driver: driver)
+        driver.onFind = { [weak session] _ in session?.receiveResult(count: 0, activeOrdinal: 0, isFinal: true) }
+        #expect(await session.search(needle: "zzz") == BrowserFindMatchCount(total: 0, selected: nil))
+        #expect(driver.calls.count == 1)
+    }
+
     @Test func matchCountMapsChromiumOrdinals() {
         #expect(BrowserNativeFindSession.matchCount(count: 0, activeOrdinal: 0) == BrowserFindMatchCount(total: 0, selected: nil))
         #expect(BrowserNativeFindSession.matchCount(count: -1, activeOrdinal: 3) == BrowserFindMatchCount(total: 0, selected: nil))

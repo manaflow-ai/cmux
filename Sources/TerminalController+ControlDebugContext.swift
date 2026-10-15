@@ -1,5 +1,7 @@
 import AppKit
+import CmuxBrowser
 import CmuxCanvasUI
+import CmuxCEFBrowser
 import CmuxControlSocket
 import CmuxSettings
 import Foundation
@@ -361,6 +363,122 @@ extension TerminalController: ControlDebugContext {
                 "has_favicon": pngData != nil,
                 "png_base64": pngData?.base64EncodedString() ?? "",
                 "current_url": v2OrNull(browserPanel.currentURL?.absoluteString)
+            ])
+        }
+        switch result {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(
+                code: code,
+                message: message,
+                data: data.flatMap { JSONValue(foundationObject: $0) }
+            )
+        }
+    }
+
+    func controlDebugBrowserFind(params: [String: JSONValue]) -> ControlCallResult {
+        let needle = params["needle"].flatMap { value -> String? in
+            if case let .string(text) = value { return text }
+            return nil
+        }
+        let action = params["action"].flatMap { value -> String? in
+            if case let .string(text) = value { return text }
+            return nil
+        }
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
+            if let needle {
+                if browserPanel.searchState == nil { browserPanel.startFind() }
+                browserPanel.searchState?.needle = needle
+            }
+            switch action {
+            case "next": browserPanel.findNext()
+            case "previous": browserPanel.findPrevious()
+            case "close": browserPanel.hideFind()
+            default: break
+            }
+            let state = browserPanel.searchState
+            return .ok([
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "engine": browserPanel.engineKind.rawValue,
+                "open": state != nil,
+                "needle": state?.needle ?? "",
+                "total": v2OrNull(state?.total.map { Int($0) }),
+                "selected": v2OrNull(state?.selected.map { Int($0) }),
+            ])
+        }
+        switch result {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(
+                code: code,
+                message: message,
+                data: data.flatMap { JSONValue(foundationObject: $0) }
+            )
+        }
+    }
+
+    func controlDebugBrowserContextMenu(params: [String: JSONValue]) -> ControlCallResult {
+        func number(_ key: String) -> Double? {
+            switch params[key] {
+            case let .int(value): Double(value)
+            case let .double(value): value
+            default: nil
+            }
+        }
+        let point = number("x").flatMap { x in number("y").map { CGPoint(x: x, y: $0) } }
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
+            guard let page = browserPanel.enginePage as? CEFBrowserPage else {
+                return .err(code: "unsupported", message: "Not a Chromium browser panel", data: nil)
+            }
+            if let point {
+                page.features.capturesNextContextMenu = true
+                Task { @MainActor in
+                    do {
+                        try await page.dispatchInput(.click(at: point, button: .right, clickCount: 1, modifiers: []))
+                    } catch {
+                        // No menu will come: don't swallow the next real right-click.
+                        page.features.capturesNextContextMenu = false
+                    }
+                }
+            }
+            return .ok([
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "pending": page.features.capturesNextContextMenu,
+                "rows": page.features.lastCapturedContextMenu ?? [],
+            ])
+        }
+        switch result {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(
+                code: code,
+                message: message,
+                data: data.flatMap { JSONValue(foundationObject: $0) }
+            )
+        }
+    }
+
+    func controlDebugBrowserDevTools(params: [String: JSONValue]) -> ControlCallResult {
+        let dock = params["dock"].flatMap { value -> BrowserDevToolsDock? in
+            if case let .string(text) = value { return BrowserDevToolsDock(rawValue: text) }
+            return nil
+        }
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
+            guard let devTools = browserPanel.engineDevTools else {
+                return .err(code: "unsupported", message: "This browser panel has no in-pane DevTools", data: nil)
+            }
+            if let dock { devTools.performDevTools(.dock(dock)) }
+            let state = devTools.devToolsState
+            return .ok([
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "open": state.isOpen,
+                "dock": state.dock.rawValue,
             ])
         }
         switch result {

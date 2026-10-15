@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxBrowser
 public import CmuxCEF
+import os
 
 /// DevTools, find, zoom and the context menu of one Chromium page, wired to the engine-neutral
 /// CmuxBrowser models. A CEF page owns one and forwards its shim events here.
@@ -26,6 +27,14 @@ public final class CEFPageFeatures {
     public let paneView: BrowserDevToolsPaneView
     /// Adds and runs cmux context menu rows; without one, Chromium's own rows show alone.
     public weak var contextMenuHost: (any BrowserContextMenuHosting)?
+    /// Debug and test hook: the next page context menu is recorded in
+    /// ``lastCapturedContextMenu`` and dismissed instead of shown (a shown menu would track the
+    /// pointer on the user's screen).
+    public var capturesNextContextMenu = false
+    /// The rows of the last captured context menu, as their titles ("-" for a separator,
+    /// "[x] " before a checked row, " >" after a submenu).
+    public private(set) var lastCapturedContextMenu: [String]?
+
     /// Rects of native UI over the page (find bar, notices), in ``paneView`` coordinates
     /// (``BrowserPageOcclusionHosting/pageOcclusionRects``).
     public var chromeOcclusionRects: [CGRect] = [] {
@@ -40,9 +49,13 @@ public final class CEFPageFeatures {
     private let pageHostView: CEFHostView
     /// Held here: the DevTools controller keeps its driver weakly.
     private let devToolsDriver: CEFDevToolsEngineDriver
+    private let logger = Logger(subsystem: "com.cmuxterm.app", category: "cef.features")
     private let composer = BrowserChromiumContextMenuComposer()
     private let presenter = BrowserContextMenuPresenter()
     private var frames: BrowserDevToolsLayoutFrames?
+    /// DevTools were open when the renderer crashed (Chromium closes them with it): they reopen
+    /// on the reloaded page, as Chrome reattaches DevTools.
+    private var reopensDevToolsAfterCrash = false
 
     /// Creates the features of one page.
     /// - Parameters:
@@ -56,7 +69,9 @@ public final class CEFPageFeatures {
         browserID: @escaping @MainActor () -> Int32?,
         pageView: CEFHostView,
         layoutStore: BrowserDevToolsLayoutStore,
-        makeWindow: @escaping (NSWindow?) -> any BrowserDevToolsWindowHosting = { BrowserDevToolsWindow(near: $0) }
+        makeWindow: @escaping (NSWindow?, CGRect?) -> any BrowserDevToolsWindowHosting = {
+            BrowserDevToolsWindow(near: $0, remembered: $1)
+        }
     ) {
         self.shim = shim
         self.browserID = browserID
@@ -83,6 +98,7 @@ public final class CEFPageFeatures {
         guard let id = browserID() else { return false }
         switch event {
         case .findResult(let browser, let count, let activeOrdinal, let isFinal) where browser == id:
+            logger.debug("find result browser=\(browser) count=\(count) active=\(activeOrdinal) final=\(isFinal)")
             nativeFind.receiveResult(count: count, activeOrdinal: activeOrdinal, isFinal: isFinal)
         case .devToolsWillOpen(let browser) where browser == id:
             devTools.engineWillOpenDevTools()
@@ -97,6 +113,16 @@ public final class CEFPageFeatures {
         case .loadStart(let browser, _, _) where browser == id:
             // A new document: the next search starts over.
             nativeFind.resetForNewDocument()
+            return false
+        case .renderTerminated(let browser, _, _, _) where browser == id:
+            if devTools.state.isOpen { reopensDevToolsAfterCrash = true }
+            return false
+        case .loadEnd(let browser, _) where browser == id:
+            // The first load after the crash decides; DevTools that survived stay as they are.
+            if reopensDevToolsAfterCrash {
+                reopensDevToolsAfterCrash = false
+                if !devTools.state.isOpen { devTools.perform(.show) }
+            }
             return false
         case .beforeClose(let browser) where browser == id:
             tearDown()
@@ -147,6 +173,16 @@ public final class CEFPageFeatures {
             hostGroups: host?.contextMenuHostGroups(for: target) ?? []
         )
         let shim = self.shim
+        if capturesNextContextMenu {
+            capturesNextContextMenu = false
+            let menu = presenter.makeMenu(entries, performHostAction: { _ in }, chooseEngineItem: { _ in })
+            lastCapturedContextMenu = menu.items.map { item in
+                if item.isSeparatorItem { return "-" }
+                return (item.state == .on ? "[x] " : "") + item.title + (item.submenu != nil ? " >" : "")
+            }
+            shim.contextMenuDone(token: token, commandID: -1)
+            return
+        }
         presenter.present(
             entries, at: location, in: pageHostView,
             performHostAction: { [weak host] action in host?.performContextMenuHostAction(action) },

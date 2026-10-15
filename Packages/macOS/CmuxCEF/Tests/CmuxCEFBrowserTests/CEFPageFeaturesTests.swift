@@ -80,6 +80,9 @@ private final class RecordingShim: CEFPageFeatureShim {
         #expect(frame.origin == .zero && frame.width == 801)
         #expect(features.handle(.devToolsOpened(browser: 7, devTools: 99, docked: true)))
         #expect(features.devTools.state == BrowserDevToolsState(isOpen: true, dock: .bottom))
+        // First report: the frontend's saved side, ignored; then a real choice moves the tools.
+        #expect(features.handle(.tab(.devToolsDockSide, browser: 7, window: 1, value: 3)))
+        #expect(features.devTools.state.dock == .bottom)
         #expect(features.handle(.tab(.devToolsDockSide, browser: 7, window: 1, value: 3)))
         #expect(features.devTools.state.dock == .right)
         features.devTools.perform(.toggle)
@@ -97,6 +100,22 @@ private final class RecordingShim: CEFPageFeatureShim {
             Issue.record("expected an own-window placement")
             return
         }
+    }
+
+    @Test func devToolsOpenAtACrashReopenOnTheReloadedPage() {
+        let shim = RecordingShim()
+        let (features, _, _) = makeFeatures(shim: shim)
+        features.handle(.devToolsWillOpen(browser: 7))
+        features.handle(.devToolsOpened(browser: 7, devTools: 99, docked: true))
+        features.handle(.renderTerminated(browser: 7, status: 2, code: 11, text: "crashed"))
+        features.handle(.devToolsClosed(browser: 7, devTools: 99))
+        let before = shim.calls.count
+        features.handle(.loadEnd(browser: 7, httpStatus: 200))
+        #expect(shim.calls.count == before + 1)
+        #expect(shim.calls.last == .devTools(7, CEFShimLibrary.DevToolsCommand.show.rawValue, 0, 0))
+        // Only once: the next load doesn't reopen closed DevTools.
+        features.handle(.loadEnd(browser: 7, httpStatus: 200))
+        #expect(shim.calls.count == before + 1)
     }
 
     @Test func otherBrowsersEventsAreIgnored() {

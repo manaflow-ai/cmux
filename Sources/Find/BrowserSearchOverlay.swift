@@ -110,9 +110,7 @@ struct BrowserSearchOverlay: View {
                 .safeHelp(String(localized: "search.close.help", defaultValue: "Close (Esc)"))
             }
             .padding(8)
-            .background(.background)
-            .clipShape(clipShape)
-            .shadow(radius: 4)
+            .findCardBackground(pageOverlays, cornerRadius: Self.cardCornerRadius)
             .onAppear {
 #if DEBUG
                 cmuxDebugLog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
@@ -126,8 +124,7 @@ struct BrowserSearchOverlay: View {
                     }
                 }
             )
-            // Notched hole: the page shows in the card's rounded corners (spec §0.9).
-            .browserPageOccluding(pageOverlays, id: "find", cornerRadius: 8)
+            .browserPageOccluding(pageOverlays, id: "find", cornerRadius: Self.cardCornerRadius)
             .padding(padding)
             .offset(dragOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)
@@ -152,9 +149,8 @@ struct BrowserSearchOverlay: View {
         }
     }
 
-    private var clipShape: some Shape {
-        RoundedRectangle(cornerRadius: 8)
-    }
+    /// The find card's corner radius; the Chromium page's hole is notched to match.
+    static let cardCornerRadius: CGFloat = 8
 
     enum Corner {
         case topLeft
@@ -430,5 +426,21 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         nsView.cmuxSelectionOwner = nil
         nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
+    }
+}
+
+private extension View {
+    /// The find card's background: unchanged over WebKit (no overlay coordinator); over a
+    /// Chromium page, where the card sits in a hole of the page, the shared overlay card style
+    /// (opaque fill and a hairline, design spec §0.9).
+    @ViewBuilder
+    func findCardBackground(_ pageOverlays: BrowserPageOverlayCoordinator?, cornerRadius: CGFloat) -> some View {
+        if let pageOverlays {
+            browserPageOverlayCard(pageOverlays, cornerRadius: cornerRadius, fill: Color(nsColor: .windowBackgroundColor))
+        } else {
+            background(.background)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                .shadow(radius: 4)
+        }
     }
 }
