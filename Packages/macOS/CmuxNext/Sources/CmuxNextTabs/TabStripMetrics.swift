@@ -105,8 +105,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         maxTabWidth = Metrics.tabMaxWidth
         chrome = MotionTabStrip(comfortable: Metrics.density == .comfortable).scaled(by: Metrics.scale(1))
         // Chrome crowding: every tab shrinks evenly to the active minimum, then the inactive ones to theirs.
-        minInactiveTabWidth = chrome.minInactiveWidth
-        pinnedTabWidth = chrome.pinnedWidth
+        // The minimums and the pinned width are settings (defaults: the shared tokens); min <= max.
+        pinnedTabWidth = Metrics.tabPinnedWidth
         compactTabWidth = TabTunables.compactTabWidth.value
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
         contentLeadingInset = Metrics.tabContentLeadingInset
@@ -118,8 +118,11 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
         badgeSize = TabTunables.badgeSize.value
-        // Never narrower than the active tab's icon and close button need (comfortable density).
-        minActiveTabWidth = max(chrome.minActiveWidth, contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset)
+        // Never narrower than the active tab's icon and close button need (comfortable density), never
+        // wider than the max; the inactive minimum never passes the active one.
+        let activeFloor = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+        minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor), maxTabWidth)
+        minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, minActiveTabWidth)
         closeMinContentsWidth = TabTunables.closeMinContentsWidth.value
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
