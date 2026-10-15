@@ -2027,6 +2027,17 @@ w("\r\x1b[2KSTREAMDONE\n")
         check("error" not in trust, f"acp.trust.set refused: {trust}")
         return proj
 
+    def _open_seed_any_tab(self):
+        """Opens the seed workspace on whatever tab it restores (an agent chat from an
+        earlier step is fine; the agent steps start from the tab grid)."""
+        self.back_to_list()
+        row = self.sim.wait(prefix=self.ws_name, kind="Button", timeout=30)
+        check(row, f"workspace {self.ws_name} not in the phone's list")
+        self.sim.tap_el(row)
+        check(self.sim.wait(label="Tabs", kind="Button", timeout=20) or self.sim.find(contains=" Tabs"),
+              "the seed workspace did not open")
+        time.sleep(1)
+
     def _face_id(self, match=True):
         sp = ["xcrun", "simctl", "spawn", self.sim.udid, "notifyutil"]
         subprocess.run(sp + ["-s", "com.apple.BiometricKit.enrollmentChanged", "1"], capture_output=True)
@@ -2073,7 +2084,7 @@ w("\r\x1b[2KSTREAMDONE\n")
         out_file = os.path.join(proj, "claude-shell.txt")
         if os.path.exists(out_file):
             os.remove(out_file)
-        self.open_seed_workspace()
+        self._open_seed_any_tab()
         self._face_id(match=None)
         video = os.path.join(self.out, f"claude-shell-{self.run_id}.mp4")
         s.record_start(video)
@@ -2142,7 +2153,7 @@ w("\r\x1b[2KSTREAMDONE\n")
             raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex makes model calls)")
         s = self.sim
         proj = self._agent_folder()
-        self.open_seed_workspace()
+        self._open_seed_any_tab()
         video = os.path.join(self.out, f"codex-chat-{self.run_id}.mp4")
         s.record_start(video)
         notes = []
