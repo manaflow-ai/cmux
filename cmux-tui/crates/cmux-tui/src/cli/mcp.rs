@@ -11,6 +11,7 @@
 //! (plans/cmux-next/mcp.md).
 
 mod action_tools;
+mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
@@ -441,6 +442,7 @@ impl<B: Backend> Server<B> {
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
+        tools.push(agent_events_tool::descriptor());
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -577,6 +579,9 @@ impl<B: Backend> Server<B> {
         if name == agent_wait_tool::NAME {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(agent_wait_tool::call(&self.backend, &arguments, progress));
+        }
+        if name == agent_events_tool::NAME {
+            return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments) {
