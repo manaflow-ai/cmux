@@ -186,8 +186,11 @@ final class TerminalThemeSetting {
         GhosttyRuntime.themeEdits = state.edits
         GhosttyRuntime.fontOverride = state.font
         let family = state.font.family?.trimmingCharacters(in: .whitespaces) ?? ""
+        let before = DesignSettings.shared.effectiveTerminalFontFamily
         DesignSettings.shared.terminalFontFamily = family.isEmpty ? nil : family
         GhosttyRuntime.backgroundOverride = state.background
         GhosttyRuntime.terminalBackgroundOverridden = state.terminalOverridden
+        // Pages that show code draw in the terminal's face (`WebTheme`): resend their theme.
+        if DesignSettings.shared.effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
     }
 }

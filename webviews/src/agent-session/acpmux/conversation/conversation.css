@@ -36,6 +36,9 @@
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
   --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
+     Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
+  --font-mono: var(--cv-mono);
 }
 /* A wider column on a wide pane (layout.json `chatWidth`, chatWidth.ts, cx-ncc.107): `wide` caps
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while

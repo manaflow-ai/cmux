@@ -94,9 +94,15 @@ public final class DesignSettings {
     public var statusIndicator = StatusIndicatorSettings()
     /// cmux's terminal font override (`terminal.fontFamily` in cmux.json),
     /// so chrome that imitates the terminal (the braille status indicator)
-    /// draws in it. Nil (no override; a font set only in the Ghostty config
-    /// is not read) uses the system monospaced font.
+    /// draws in it. Nil (no override) uses the system monospaced font there;
+    /// pages use `effectiveTerminalFontFamily`, which also reads the Ghostty config.
     public var terminalFontFamily: String?
+    /// The Ghostty config files' own `font-family` (`GhosttyConfigFontFamily`), the terminal's
+    /// face when cmux.json sets none.
+    public var terminalConfigFontFamily: String?
+    /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
+    /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
+    public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or
