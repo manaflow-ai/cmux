@@ -68,6 +68,23 @@ def pct(values, p):
     return round(v[min(len(v) - 1, int(round(p / 100 * (len(v) - 1))))], 1)
 
 
+def drop_misreads(samples, jump=500):
+    """Glass-to-glass samples in frame order without OCR misreads: a sample
+    more than `jump` ms above both neighbours is one misread digit of the
+    seconds (the 175127 and warm-e 1 to 5 s maxima: "07" read as "09",
+    "43" as "48"); a real stall raises a run of frames, not one."""
+    kept, dropped = [], 0
+    for i, d in enumerate(samples):
+        prev = samples[i - 1] if i > 0 else None
+        nxt = samples[i + 1] if i + 1 < len(samples) else None
+        neighbours = [n for n in (prev, nxt) if n is not None]
+        if neighbours and all(d - n > jump for n in neighbours):
+            dropped += 1
+            continue
+        kept.append(d)
+    return kept, dropped
+
+
 def ocr(paths):
     out = {}
     for i in range(0, len(paths), 200):
@@ -300,7 +317,8 @@ class Bench:
                     if -50 < leg < 5000:
                         input_legs.append(leg)
         summary = lambda v: {"n": len(v), "p50": pct(v, 50), "p90": pct(v, 90), "max": max(v) if v else None}
-        return {"carrier_seen": carriers, "g2g_ms": summary(g2g), "pacing": pacing,
+        g2g, misread = drop_misreads(g2g)
+        return {"carrier_seen": carriers, "g2g_ms": summary(g2g), "g2g_ocr_misreads": misread, "pacing": pacing,
                 "input_to_frame_ms": summary(inputs), "mac_input_to_frame_ms": summary(mac_inputs),
                 "tap_to_mac_ms": summary(input_legs), "video_frames": len(fr)}
 

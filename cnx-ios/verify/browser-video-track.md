@@ -538,8 +538,8 @@ Reading it:
   fps and no stall over 100 ms.
 - Clean paths: the three carriers are within noise of each other at about
   53 fps and a 15 to 45 ms p50. WireGuard RTP's higher p50 on `wg-track`
-  (44 ms) is likely its start on the WSS relay before it roams; the path
-  over time was not logged, so this is not proven.
+  (44 ms) is the first configuration after the browser host started, not
+  the lane (see "Why WireGuard RTP direct read 44 ms" below).
 - The WSS relay (TCP) is the slowest path for RTP: 44.5 fps, 39 ms p50.
 - Under 3 % loss the WebRTC track and WireGuard RTP behave alike (35 to
   40 fps, 25 ms p50, 20 ms jitter, no stall): both run the same NACK and
@@ -552,6 +552,109 @@ Reading it:
   label was not investigated.
 - One Mac, one simulator: loopback-network numbers through the real
   signaling, TURN and relay services, not cellular numbers.
+
+## Why WireGuard RTP direct read 44 ms in 175127, and the rerun (2026-10-14, `feat-cnx-ios-media-int`)
+
+In run 175127, WireGuard RTP direct read 44 ms at p50, against 14 ms for
+the channel over WireGuard. It was not slower. It was the first
+configuration measured after the browser host started, and the first
+stream after the host starts runs about 20 to 30 ms slower glass to glass
+on every carrier:
+
+| Run | First configuration | Its p50 | The same configuration later |
+| --- | --- | --- | --- |
+| 162551 | `track` | 47 ms | 16 ms (`171155/track`) |
+| 175127 | `wg-track` | 44 ms | 10 to 17 ms (below) |
+| `order-d` (no warm-up) | `wg-channel` | 31 ms | 12 to 18 ms (below) |
+
+Where the 30 ms is not:
+
+- **Not the lane.** During 175127's `wg-track`, hostd's media-lane report
+  read a TWCC feedback delay of 8 to 12 ms. That delay is a full round trip
+  from the sender core's stamp to the phone's TWCC interceptor and back. The
+  phone's overlay read 10 ms from capture to decode, while glass to glass
+  read 44 ms. Both carriers share everything after the TWCC interceptor (the
+  receiver core, cnx-ffi, the decoder, `DisplayImmediately`).
+- **Not the suspects named in the task.**
+  - The sender has no pacer: a frame's packets go back to back.
+  - cmux-wg's media class is unpaced and only drops packets older than
+    50 ms.
+  - The frame buffer releases a frame when its marker packet arrives. It
+    adds no playout delay and never waits for the next frame's packet.
+  - NACK acts only on a gap.
+  - The 25 ms TWCC interval feeds only the controller.
+- **Not identified.** The rig Mac app, the CEF host and the simulator all
+  start within seconds of the first measurement on a loaded laptop. The
+  host's first-second encode p95 was 36.7 ms; after that it was 4 to 9 ms.
+  The bench now streams 30 s unmeasured first (`--warmup`, the default).
+
+The 1 to 5 s glass-to-glass maxima, one per configuration, were OCR
+misreads of one seconds digit. In `warm-e/wg-track-relay` frame 249 the
+phone shows `59:43.245` and OCR read `59:48.225`. In `wg-track` frame 171,
+`59:07.823` was read as `59:09.823`. The analysis now drops a sample more
+than 500 ms above both neighbours (`g2g_ocr_misreads` counts them). A real
+stall raises a run of frames, not one.
+
+`wg-track-relay` was logged as `path=Direct` because the Mac reaches a
+relay-only phone by plain UDP to the phone's TURN relayed address. hostd
+could not tell that address from a direct one. `wg-init` now lists the
+phone's relayed endpoints (`relayed`, optional). A roam's endpoint
+announcement does the same. The Mac labels such a route `turn`, and hostd
+logs every later path change (`link path changed`). Older phones send no
+list and the label stays `direct`. Tests: `udp_to_the_peers_relayed_address_is_a_turn_path`,
+and `wireguard_roam_takes_a_fresh_turn_allocation` now checks the Mac's
+label before and after the roam (red, then green).
+
+### Rerun
+
+Run `warm-e` (evidence `verify/evidence/2026-10-14/browser-video-track/warm-e/`,
+local), on the same rig as 175127:
+
+- the `cnx-e2e-1bd377aa` app with the `feat-cnx-ios-wgmedia` hostd;
+- the fixed host (pin `2765fa17`);
+- the wgmedia Demo phone build in one simulator on this Mac, over the real
+  link;
+- `bench.html?scroll=6`, 30 s warm-up, then 12 s of streaming and 5 taps
+  per configuration;
+- each configuration's frames analysed (every second frame OCR'd), with
+  misreads dropped.
+
+The `-2` rows repeat a configuration at the end of the session.
+
+| Configuration | Path | Glass to glass p50 / p90 / max (ms) | fps | Frame interval p95 / max (ms) | Stalls > 100 ms | Jitter (ms) | Page tap to phone frame p50 / p90 (ms) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `wg-channel` (baseline) | WireGuard, direct | 12 / 28 / 211 | 54.1 | 33.3 / 36.7 | 0 | 5.8 | 90 / 98 |
+| `wg-channel-2` | WireGuard, direct | 18 / 34 / 108 | 54.9 | 33.3 / 35.0 | 0 | 6.5 | 58 / 89 |
+| `wg-track` | WireGuard RTP, direct | 13 / 29 / 46 | 54.9 | 33.3 / 35.0 | 0 | 6.0 | 89 / 91 |
+| `wg-track-2` | WireGuard RTP, direct | 17 / 25 / 225 | 55.5 | 31.7 / 35.0 | 0 | 6.6 | 48 / 79 |
+| `wg-track-relay` | WireGuard RTP, TURN only | 27 / 39 / 186 | 52.4 | 33.3 / 183.3 | 2 | 11.2 | 73 / 106 |
+| `wg-track-wss` | WireGuard RTP, WSS relay | 37 / 54 / 87 | 47.0 | 35.0 / 83.3 | 0 | 9.3 | 75 / 85 |
+| `wg-track-loss30` | WireGuard RTP, direct, 3 % drop | 21 / 55 / 101 | 39.0 | 66.7 / 85.0 | 0 | 19.3 | 62 / 78 |
+
+The cold run `order-d`, with no warm-up, has the same order of rows:
+
+| Row | Glass to glass p50 / p90 (ms) | fps |
+| --- | --- | --- |
+| `wg-channel` (first) | 31 / 40 | 52.3 |
+| `wg-track` | 10 / 26 | 52.0 |
+| `wg-track-relay` | 27 / 44 | 52.6 |
+| `wg-track-wss` | 46 / 79 | 44.6 |
+| `wg-track-loss30` | 29 / 64 | 38.0 |
+
+Reading it:
+
+- On a warm host, WireGuard RTP direct matches the channel over the same
+  tunnel within run-to-run noise (13 and 17 ms against 12 and 18 ms). It
+  needed no change to the lane.
+- Relay paths cost what their network costs: TURN about 27 ms and the WSS
+  relay about 37 ms at p50. The WSS relay drops to 47 fps.
+- Under 3 % loss, RTP keeps 39 fps with no stall over 100 ms. 175127 had
+  the same result (39.5 fps), against the channel's stalls.
+- Taps go through the simulator's touch injection (about 300 ms before the
+  page sees them). The page-to-phone leg above is 48 to 106 ms. That figure
+  rests on 3 to 4 taps per row and is noisy.
+- One Mac, one simulator: these are loopback-network numbers through the
+  real signaling, TURN and relay services, not cellular numbers.
 
 ## Live verification (2026-10-14): blocked by the Mac's browser host (resolved above)
 
