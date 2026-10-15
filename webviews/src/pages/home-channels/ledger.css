@@ -1065,9 +1065,17 @@
 /* ---------- Agent runs: an inline disclosure under a Chief's reply (no frame; its steps on an
    indented rail), the run sheet over the timeline ---------- */
 .lg-run {
+  /* The label's column (after the status mark) and the rail's place (under the first glyph). */
+  --lg-run-lead: 16px;
+  --lg-run-rail: 3px;
   container: lg-run / inline-size;
   margin: 2px 0 0;
   max-width: min(100%, 640px);
+}
+/* With the author's picture (16 px, then the mark): the rail under the picture's center. */
+.lg-run:has(> .lg-run-bar > .lg-run-toggle > .hc-avatar) {
+  --lg-run-lead: 42px;
+  --lg-run-rail: 7px;
 }
 .lg-run-bar {
   display: flex;
@@ -1145,17 +1153,18 @@
   }
 }
 .lg-run-title {
-  margin: -4px 0 4px 16px;
+  margin: -4px 0 4px var(--lg-run-lead);
   font-size: var(--text-detail);
   color: var(--page-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The rail: under the status mark's center, the steps indented from it. */
+/* The rail: under the first glyph's center, the steps in the label's column. */
 .lg-run-steps {
-  margin-inline-start: 3px;
-  padding: 0 0 4px 12px;
+  margin-inline-start: var(--lg-run-rail);
+  padding: 0 0 4px;
+  padding-inline-start: calc(var(--lg-run-lead) - var(--lg-run-rail) - 1px);
   border-inline-start: 1px solid var(--lg-line);
 }
 .lg-run-more {
@@ -1165,7 +1174,7 @@
 }
 .lg-run-error {
   margin: 0;
-  padding: 4px 0 0 16px;
+  padding: 4px 0 0 var(--lg-run-lead);
   font-size: var(--text-detail);
   color: var(--hc-danger);
   white-space: pre-wrap;
@@ -1238,7 +1247,7 @@
     order: 2;
     flex-basis: 100%;
     overflow: hidden;
-    padding: 0 0 6px 16px;
+    padding: 0 0 6px var(--lg-run-lead);
   }
   .lg-run-metas > .lg-run-meta:first-child::before {
     content: none;
