@@ -509,7 +509,9 @@ except (OSError, ValueError):
     # Leave it untouched rather than replacing it with an approval-only file.
     raise SystemExit(0)
 if not isinstance(config, dict):
-    config = {}
+    # A valid non-object is not a usable Claude config, but it is still user
+    # state; preserve it rather than replacing it with an approval-only file.
+    raise SystemExit(0)
 responses = config.get("customApiKeyResponses")
 if not isinstance(responses, dict):
     responses = {}
