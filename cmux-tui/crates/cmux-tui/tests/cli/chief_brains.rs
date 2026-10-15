@@ -52,11 +52,14 @@ fn v2(conn: &mut Conn, operation: &str, params: Value) -> Value {
     }
 }
 
-/// Waits (bounded) until `path` exists; its trimmed contents.
+/// Waits (bounded) until `path` exists and is not empty (a stub's `>>`
+/// creates the file before it writes); its trimmed contents.
 fn wait_file(path: &std::path::Path) -> String {
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
-        if let Ok(text) = fs::read_to_string(path) {
+        if let Ok(text) = fs::read_to_string(path)
+            && !text.trim().is_empty()
+        {
             return text.trim().to_owned();
         }
         std::thread::sleep(Duration::from_millis(25));
