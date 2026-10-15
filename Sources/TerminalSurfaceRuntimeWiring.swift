@@ -45,6 +45,16 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     let imageTransferPreparation: TerminalImageTransferPreparationService
     let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
 
+    init(
+        imageTransferPreparation: TerminalImageTransferPreparationService,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
+    ) {
+        self.imageTransferPreparation = imageTransferPreparation
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+            ?? AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
+    }
+
     @MainActor
     func makeSurfaceViews(
         initialFrame: NSRect
