@@ -62,6 +62,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
+    /// What the hover card says beyond the title and subtitle (Leo 2026-10-14).
+    public var hover = TabHoverFacts()
 
     public init(
         id: TabID,
