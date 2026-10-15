@@ -658,7 +658,7 @@ fn is_closed_list(plan: &RequestPlan) -> bool {
     )
 }
 
-fn print_success(value: &Value, output: OutputMode) -> i32 {
+pub(super) fn print_success(value: &Value, output: OutputMode) -> i32 {
     let result = match output {
         OutputMode::Quiet => Ok(()),
         OutputMode::Json => write_json_line(value),
