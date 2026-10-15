@@ -26,6 +26,8 @@ public struct BillingAccount: Sendable, Equatable, Codable {
     public let trial: BillingTrialOffer?
     /// True for cmux staff accounts; shows the Paywall Lab.
     public let staff: Bool
+    /// The server's pricing facts per plan id; empty when it sent none.
+    public let planFacts: [String: BillingPlanFacts]
 
     /// Creates an account value.
     /// - Parameters:
@@ -43,7 +45,8 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         products: [BillingProductReference],
         paywall: BillingPaywallConfig? = nil,
         trial: BillingTrialOffer? = nil,
-        staff: Bool = false
+        staff: Bool = false,
+        planFacts: [String: BillingPlanFacts] = [:]
     ) {
         self.appAccountToken = appAccountToken
         self.eligible = eligible
@@ -53,6 +56,7 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         self.paywall = paywall
         self.trial = trial
         self.staff = staff
+        self.planFacts = planFacts
     }
 
     enum CodingKeys: String, CodingKey {
@@ -64,6 +68,7 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         case paywall
         case trial
         case staff
+        case planFacts
     }
 
     /// Decodes the response; a missing `products` list (an ineligible
@@ -79,5 +84,6 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         paywall = try? container.decodeIfPresent(BillingPaywallConfig.self, forKey: .paywall)
         trial = try? container.decodeIfPresent(BillingTrialOffer.self, forKey: .trial)
         staff = (try? container.decodeIfPresent(Bool.self, forKey: .staff)) == true
+        planFacts = (try? container.decodeIfPresent([String: BillingPlanFacts].self, forKey: .planFacts)) ?? [:]
     }
 }

@@ -60,7 +60,11 @@ public struct MobilePaywallView: View {
 
     /// The session, fixed when the paywall first appears.
     @State private var context: BillingPaywallContext?
+    /// The configured default period; a plan sold in it starts there.
     @State private var period: BillingPeriod = .yearly
+    /// Each plan's own period choice. The period belongs to the plan, not
+    /// the screen: Max without a yearly product never shows a toggle.
+    @State private var planPeriods: [BillingPlanID: BillingPeriod] = [:]
     @State private var selectedPlan: BillingPlanID?
     @State private var showsAllPlans = false
     @State private var appearedAt: ContinuousClock.Instant?
@@ -118,7 +122,7 @@ public struct MobilePaywallView: View {
         .scrollBounceBehavior(.basedOnSize)
         .background(Color(.systemGroupedBackground))
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let context, let offer = selectedOffer, isShowingOffers, !isCompleted {
+            if let context, let offer = selectedOffer, isShowingOffers, !isCompleted, effectiveLayout != .specList {
                 MobilePaywallPurchaseBar(
                     offer: offer,
                     config: context.config,
@@ -139,12 +143,16 @@ public struct MobilePaywallView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: "xmark")
+                    if effectiveLayout == .specList {
+                        Text(L10n.string("mobile.billing.done", defaultValue: "Done"))
+                    } else {
+                        Image(systemName: "xmark")
+                    }
                 }
                 .accessibilityLabel(L10n.string("mobile.billing.paywall.close", defaultValue: "Close"))
                 .accessibilityIdentifier("BillingPaywallClose")
             }
-            if effectiveLayout == .planTabs, isShowingOffers {
+            if effectiveLayout.restoreAtTop, isShowingOffers {
                 ToolbarItem(placement: .primaryAction) {
                     Button(L10n.string("mobile.billing.restoreShort", defaultValue: "Restore")) {
                         guard preview == nil else { return }
@@ -187,7 +195,7 @@ public struct MobilePaywallView: View {
         guard !Task.isCancelled else { return }
         if let grant = billing.trial.grant {
             // Lead with the trial: select its plan and period.
-            period = grant.billingOffer.billingPeriod
+            planPeriods[grant.planID] = grant.billingOffer.billingPeriod
             selectedPlan = grant.planID
             reminderAllowed = await BillingTrialReminder.canRemind()
         }
@@ -196,6 +204,7 @@ public struct MobilePaywallView: View {
     private func apply(_ fixed: BillingPaywallContext) {
         context = fixed
         period = fixed.config.defaultBillingPeriod
+        planPeriods = [:]
         selectedPlan = nil
     }
 
@@ -212,7 +221,7 @@ public struct MobilePaywallView: View {
             offer: offer,
             limits: BillingTrialLimits(machines: 1, vcpus: 2, memoryGb: 4, vmHours: 20)
         )
-        period = .monthly
+        planPeriods[.pro] = .monthly
         selectedPlan = .pro
     }
 
@@ -289,9 +298,9 @@ public struct MobilePaywallView: View {
             if !config.bullets.isEmpty, effectiveLayout.showsBullets {
                 MobilePaywallBullets(bullets: config.bullets)
             }
-            if hasPeriodChoice, effectiveLayout.showsPeriodPicker {
+            if showsGlobalPeriodPicker {
                 MobilePaywallPeriodPicker(
-                    period: $period,
+                    period: Binding(get: { period }, set: { period = $0; planPeriods = [:] }),
                     savingsPercent: config.showYearlySavings ? offers.bestYearlySavingsPercent : nil
                 )
             }
@@ -321,7 +330,7 @@ public struct MobilePaywallView: View {
                         set: { selectedPlan = $0 }
                     ),
                     offers: periodOffers(for: selectedOffer?.planID ?? .pro),
-                    period: $period,
+                    period: periodBinding(for: selectedOffer?.planID ?? .pro),
                     savingsPercent: config.showYearlySavings
                         ? offers.yearlySavingsPercent(for: selectedOffer?.planID ?? .pro)
                         : nil
@@ -332,6 +341,30 @@ public struct MobilePaywallView: View {
                     offers: visibleOffers.filter { $0.planID == .pro || $0.planID == .max }.sorted { $0.planID < $1.planID },
                     selectedPlan: selectedOffer?.planID,
                     select: { selectedPlan = $0 }
+                )
+                if let plan = selectedOffer?.planID, plansWithBothPeriods.contains(plan) {
+                    MobilePaywallPeriodPicker(
+                        period: periodBinding(for: plan),
+                        savingsPercent: config.showYearlySavings ? offers.yearlySavingsPercent(for: plan) : nil
+                    )
+                }
+            case .specList:
+                MobilePaywallSpecList(
+                    rows: visibleOffers.map { offer in
+                        MobilePaywallSpecList.Row(
+                            offer: offer,
+                            facts: billing.planFacts(offer.planID),
+                            isCurrent: isCurrent(offer),
+                            trial: trial(for: offer),
+                            period: plansWithBothPeriods.contains(offer.planID) ? periodBinding(for: offer.planID) : nil
+                        )
+                    },
+                    isBusy: billing.purchase.isPurchasing,
+                    isPreview: preview != nil,
+                    buy: { offer in
+                        selectedPlan = offer.planID
+                        buy(offer, context: context)
+                    }
                 )
             case .trialTimeline:
                 if let grant = activeTrial {
@@ -387,7 +420,14 @@ public struct MobilePaywallView: View {
                 MobilePaywallTrialTerms(grant: trial)
                     .onAppear { reportTrialShown(trial, context: context) }
             }
-            MobilePaywallLegal(isBusy: billing.restore == .restoring || billing.purchase.isPurchasing, restore: {
+            if effectiveLayout == .specList, let statusMessage {
+                Text(statusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("BillingResult")
+            }
+            MobilePaywallLegal(showsRestore: !effectiveLayout.restoreAtTop, isBusy: billing.restore == .restoring || billing.purchase.isPurchasing, restore: {
                 guard preview == nil else { return }
                 Task { await billing.restorePurchases() }
             })
@@ -405,6 +445,11 @@ public struct MobilePaywallView: View {
                 ? offers.yearlySavingsPercent(for: offer.planID)
                 : nil,
             trial: trial(for: offer),
+            period: !showsGlobalPeriodPicker && plansWithBothPeriods.contains(offer.planID)
+                ? periodBinding(for: offer.planID)
+                : nil,
+            alternateOffer: offers.first { $0.planID == offer.planID && $0.billingPeriod != offer.billingPeriod },
+            alternateSavingsPercent: config.showYearlySavings ? offers.yearlySavingsPercent(for: offer.planID) : nil,
             select: { selectedPlan = offer.planID }
         )
     }
@@ -479,10 +524,35 @@ public struct MobilePaywallView: View {
         return currentApplePlan == offer.planID
     }
 
-    private var hasPeriodChoice: Bool {
-        Dictionary(grouping: offers, by: \.planID).values.contains { offers in
-            Set(offers.map(\.billingPeriod)).count > 1
-        }
+    /// The plans sold both monthly and yearly.
+    private var plansWithBothPeriods: Set<BillingPlanID> {
+        Set(Dictionary(grouping: offers, by: \.planID).filter { Set($0.value.map(\.billingPeriod)).count > 1 }.keys)
+    }
+
+    /// One Monthly/Yearly control for the whole screen, only when every paid
+    /// plan on it has both periods; otherwise each plan carries its own.
+    private var showsGlobalPeriodPicker: Bool {
+        guard effectiveLayout.showsPeriodPicker else { return false }
+        let paid = Set(offers.map(\.planID)).subtracting([.free])
+        return !paid.isEmpty && paid.isSubset(of: plansWithBothPeriods)
+    }
+
+    /// The period a plan shows: its own choice, else the configured default
+    /// when the plan is sold in it, else the period it is sold in.
+    private func periodFor(_ plan: BillingPlanID) -> BillingPeriod {
+        if let chosen = planPeriods[plan] { return chosen }
+        let sold = Set(offers.filter { $0.planID == plan }.map(\.billingPeriod))
+        return sold.contains(period) || sold.isEmpty ? period : (sold.first ?? period)
+    }
+
+    private func periodBinding(for plan: BillingPlanID) -> Binding<BillingPeriod> {
+        Binding(
+            get: { periodFor(plan) },
+            set: { newValue in
+                planPeriods[plan] = newValue
+                selectedPlan = plan
+            }
+        )
     }
 
     /// One offer per plan: the chosen period when the plan has it, else the
@@ -491,12 +561,12 @@ public struct MobilePaywallView: View {
     private var visibleOffers: [BillingOffer] {
         var byPlan: [BillingPlanID: BillingOffer] = [:]
         for offer in offers {
-            if let existing = byPlan[offer.planID], existing.billingPeriod == period { continue }
+            if let existing = byPlan[offer.planID], existing.billingPeriod == periodFor(offer.planID) { continue }
             byPlan[offer.planID] = offer
         }
         if let grant = activeTrial {
             let trialOffer = grant.billingOffer
-            if trialOffer.billingPeriod == period || byPlan[grant.planID] == nil {
+            if trialOffer.billingPeriod == periodFor(grant.planID) || byPlan[grant.planID] == nil {
                 byPlan[grant.planID] = trialOffer
             }
         }
@@ -614,7 +684,7 @@ extension BillingPaywallLayout {
     var showsPeriodPicker: Bool {
         switch self {
         case .cards, .comparison, .focus: true
-        case .checklist, .planTabs, .hero, .trialTimeline: false
+        case .checklist, .planTabs, .hero, .trialTimeline, .specList: false
         }
     }
 
@@ -622,8 +692,16 @@ extension BillingPaywallLayout {
     /// shows them as its benefit rows).
     var showsBullets: Bool {
         switch self {
-        case .hero, .checklist: false
+        case .hero, .checklist, .specList: false
         default: true
+        }
+    }
+
+    /// Layouts with Restore at the top right instead of the bottom row.
+    var restoreAtTop: Bool {
+        switch self {
+        case .planTabs, .hero: true
+        default: false
         }
     }
 }

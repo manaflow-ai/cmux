@@ -113,7 +113,7 @@ struct MobilePaywallPlanTabs: View {
                     } icon: {
                         Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
                     }
-                    .font(.subheadline)
+                    .font(.body)
                 }
             }
             HStack(spacing: 12) {
@@ -204,13 +204,13 @@ struct MobilePaywallHeroHeader: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
             Text(verbatim: headline)
-                .font(.largeTitle.bold())
+                .font(.title2.bold())
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             if !subheadline.isEmpty {
                 Text(verbatim: subheadline)
-                    .font(.body)
+                    .font(.callout)
                     .foregroundStyle(.white.opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -226,6 +226,7 @@ struct MobilePaywallHeroHeader: View {
             )
         }
         .environment(\.colorScheme, .dark)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
 
@@ -306,7 +307,7 @@ struct MobilePaywallHeroBenefits: View {
                         .frame(width: 28)
                         .foregroundStyle(.secondary)
                     Text(verbatim: benefit.text)
-                        .font(.subheadline.weight(.medium))
+                        .font(.body)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                     Image(systemName: "checkmark")
@@ -444,6 +445,129 @@ struct MobilePaywallTrialTimeline: View {
             .padding(.bottom, isLast ? 0 : 14)
             .accessibilityElement(children: .combine)
         }
+    }
+}
+
+/// The `specList` layout: one inset row per plan, its compute specs as the
+/// title, its price on the right, and its own Subscribe button.
+struct MobilePaywallSpecList: View {
+    struct Row: Identifiable {
+        let offer: BillingOffer
+        let facts: BillingPlanFacts?
+        let isCurrent: Bool
+        let trial: BillingTrialGrant?
+        let period: Binding<BillingPeriod>?
+        var id: String { offer.planID.rawValue }
+    }
+
+    let rows: [Row]
+    let isBusy: Bool
+    let isPreview: Bool
+    let buy: (BillingOffer) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                rowView(row)
+                    .padding(16)
+                if index < rows.count - 1 {
+                    Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1).padding(.leading, 16)
+                }
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityIdentifier("BillingPaywallSpecList")
+    }
+
+    private func rowView(_ row: Row) -> some View {
+        let name = BillingPlanCopy(planID: row.offer.planID).name
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title(name: name, facts: row.facts))
+                        .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail = detail(row.facts) {
+                        Label {
+                            Text(detail)
+                        } icon: {
+                            Image(systemName: "cpu")
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(BillingPriceCopy.price(row.offer))
+                        .font(.headline)
+                        .monospacedDigit()
+                    if let monthly = row.offer.product.monthlyEquivalentDisplayPrice {
+                        Text(String(
+                            format: L10n.string("mobile.billing.planTabs.perMonth", defaultValue: "%@/month"),
+                            monthly
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    }
+                }
+            }
+            if let period = row.period {
+                MobilePaywallPeriodPicker(period: period, savingsPercent: nil)
+            }
+            if row.isCurrent {
+                Text(L10n.string("mobile.billing.currentPlan", defaultValue: "Current plan"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            } else {
+                Button {
+                    buy(row.offer)
+                } label: {
+                    Text(row.trial == nil
+                        ? L10n.string("mobile.billing.offer.subscribe", defaultValue: "Subscribe")
+                        : L10n.string("mobile.billing.trial.cta", defaultValue: "Start Free Trial"))
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                }
+                .buttonStyle(MobilePaywallPrimaryButtonStyle())
+                .disabled(isBusy || isPreview)
+                .accessibilityIdentifier("BillingSpecListBuy.\(row.offer.planID.rawValue)")
+            }
+        }
+    }
+
+    /// "Pro — 20 vCPUs · 40 GB RAM".
+    private func title(name: String, facts: BillingPlanFacts?) -> String {
+        guard let vcpus = facts?.vcpus, let memory = facts?.memoryGb else { return name }
+        return String(
+            format: L10n.string("mobile.billing.specList.title", defaultValue: "%1$@ — %2$lld vCPUs · %3$lld GB RAM"),
+            name,
+            Int64(vcpus),
+            Int64(memory)
+        )
+    }
+
+    /// "Shared by up to 5 machines", or "1 machine · 40 VM-hours a month".
+    private func detail(_ facts: BillingPlanFacts?) -> String? {
+        guard let machines = facts?.machines else { return nil }
+        var parts: [String] = []
+        if machines == 1 {
+            parts.append(L10n.string("mobile.billing.specList.oneMachine", defaultValue: "1 machine"))
+        } else {
+            parts.append(String(
+                format: L10n.string("mobile.billing.specList.sharedBy", defaultValue: "Shared by up to %lld machines"),
+                Int64(machines)
+            ))
+        }
+        if let hours = facts?.vmHoursPerMonth {
+            parts.append(String(
+                format: L10n.string("mobile.billing.specList.hours", defaultValue: "VM-hours a month: %lld"),
+                Int64(hours)
+            ))
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

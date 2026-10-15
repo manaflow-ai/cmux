@@ -21,6 +21,9 @@ public enum BillingPaywallLayout: String, Sendable, Equatable, Hashable, Codable
     /// A trial timeline (today, the reminder, the first charge). Shown only
     /// with a granted free trial; otherwise the paywall shows ``cards``.
     case trialTimeline
+    /// An inset list of plans by compute specs, each row with its price and
+    /// its own Subscribe button.
+    case specList
 }
 
 /// What the purchase button says.
@@ -155,7 +158,7 @@ public struct BillingPaywallConfig: Sendable, Equatable, Hashable, Codable {
         subheadline: "Run coding agents on fast cloud machines and reach them from your iPhone and your Mac.",
         bullets: [],
         highlightedPlanID: .pro,
-        defaultBillingPeriod: .yearly,
+        defaultBillingPeriod: .monthly,
         ctaStyle: .price,
         showYearlySavings: true
     )!

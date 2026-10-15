@@ -173,6 +173,12 @@ public final class BillingModel {
         return account.eligible && account.currentPlan.planID != .max
     }
 
+    /// A plan's compute facts: the server's, else the published built-in
+    /// ones.
+    public func planFacts(_ plan: BillingPlanID) -> BillingPlanFacts? {
+        account.account?.planFacts[plan.rawValue] ?? BillingPlanFacts.builtIn[plan]
+    }
+
     /// Records that the plans screen appeared.
     /// - Parameter entryPoint: Where the screen was opened from.
     public func paywallViewed(entryPoint: BillingEntryPoint) {

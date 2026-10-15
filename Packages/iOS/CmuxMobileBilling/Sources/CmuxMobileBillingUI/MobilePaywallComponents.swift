@@ -37,10 +37,12 @@ enum BillingPriceCopy {
         guard let limits else { return nil }
         var parts: [String] = []
         if let machines = limits.machines {
-            parts.append(String(
-                format: L10n.string("mobile.billing.trial.limit.machines", defaultValue: "Cloud VMs at a time: %lld"),
-                Int64(machines)
-            ))
+            parts.append(machines == 1
+                ? L10n.string("mobile.billing.trial.limit.oneMachine", defaultValue: "1 Cloud VM")
+                : String(
+                    format: L10n.string("mobile.billing.trial.limit.machines", defaultValue: "Cloud VMs at a time: %lld"),
+                    Int64(machines)
+                ))
         }
         if let vcpus = limits.vcpus, let memory = limits.memoryGb {
             parts.append(String(
@@ -63,9 +65,15 @@ enum BillingPriceCopy {
 struct MobilePaywallHeader: View {
     let config: BillingPaywallConfig
     let entryPoint: BillingEntryPoint
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // At accessibility sizes the header collapses (no icon, two lines of
+        // subheadline) so prices and the button stay above the fold; its
+        // display text is capped while terms and prices scale fully.
+        let large = dynamicTypeSize.isAccessibilitySize
+        VStack(alignment: .leading, spacing: 8) {
+            if !large {
             Image(systemName: "cloud.fill")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Color(.systemBackground))
@@ -73,25 +81,29 @@ struct MobilePaywallHeader: View {
                 .background(Color.primary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .accessibilityHidden(true)
                 .padding(.bottom, 6)
+            }
             // Verbatim: server text is plain, never Markdown.
             Text(verbatim: config.headline(for: entryPoint))
-                .font(.title.bold())
+                .font(.title2.bold())
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("BillingPaywallHeadline")
             if !config.subheadline.isEmpty {
                 Text(verbatim: config.subheadline)
-                    .font(.body)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(large ? 2 : nil)
+                    .fixedSize(horizontal: false, vertical: !large)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
 
 /// The configuration's selling points.
 struct MobilePaywallBullets: View {
+    // Bullets read as body text.
     let bullets: [String]
 
     var body: some View {
@@ -105,7 +117,7 @@ struct MobilePaywallBullets: View {
                         .font(.footnote.weight(.bold))
                         .foregroundStyle(.secondary)
                 }
-                .font(.subheadline)
+                .font(.body)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -189,12 +201,21 @@ struct MobilePaywallPlanCard: View {
     let isCurrent: Bool
     let savingsPercent: Int?
     let trial: BillingTrialGrant?
+    /// This plan's own Monthly/Yearly choice; nil when the plan is sold in
+    /// one period. The period belongs to the plan, not the screen.
+    var period: Binding<BillingPeriod>? = nil
+    /// The same plan in its other period, offered as a secondary line
+    /// ("or $699.99/year, save 22%").
+    var alternateOffer: BillingOffer? = nil
+    /// The alternate's saving when it is the yearly product.
+    var alternateSavingsPercent: Int? = nil
     let select: () -> Void
 
     var body: some View {
         let copy = BillingPlanCopy(planID: offer.planID)
-        Button(action: select) {
-            VStack(alignment: .leading, spacing: style == .compact ? 4 : 10) {
+        // Not a Button: the card holds its own period picker, which a
+        // button label would swallow.
+        VStack(alignment: .leading, spacing: style == .compact ? 4 : 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(copy.name)
                         .font(style == .hero ? .title2.bold() : .headline)
@@ -234,6 +255,26 @@ struct MobilePaywallPlanCard: View {
                     }
                     .padding(.top, 2)
                 }
+                if let period, let alternateOffer {
+                    Button {
+                        period.wrappedValue = alternateOffer.billingPeriod
+                        select()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(alternateLine(alternateOffer))
+                                .monospacedDigit()
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background(Color.primary.opacity(0.06), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                    .accessibilityIdentifier("BillingOfferAlternatePeriod.\(offer.planID.rawValue)")
+                }
             }
             .padding(style == .hero ? 20 : 16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -249,10 +290,26 @@ struct MobilePaywallPlanCard: View {
                     )
             }
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .onTapGesture(perform: select)
+            .accessibilityElement(children: .contain)
+            .accessibilityAction(named: Text(copy.name), select)
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("BillingOfferCard.\(offer.planID.rawValue)")
+    }
+
+    /// "or $699.99/year, save 22%", or "or $74.99/month".
+    private func alternateLine(_ alternate: BillingOffer) -> String {
+        if alternate.billingPeriod == .yearly, let alternateSavingsPercent {
+            return String(
+                format: L10n.string("mobile.billing.paywall.orYearlySave", defaultValue: "or %1$@, save %2$lld%%"),
+                BillingPriceCopy.price(alternate),
+                Int64(alternateSavingsPercent)
+            )
+        }
+        return String(
+            format: L10n.string("mobile.billing.paywall.orPrice", defaultValue: "or %@"),
+            BillingPriceCopy.price(alternate)
+        )
     }
 
     private var priceLabel: some View {
@@ -409,6 +466,8 @@ struct MobilePaywallTrialTerms: View {
 
 /// Restore Purchases, Terms, Privacy and the auto-renewal disclosure.
 struct MobilePaywallLegal: View {
+    /// False where the layout puts Restore at the top right.
+    var showsRestore = true
     let isBusy: Bool
     let restore: () -> Void
 
@@ -438,9 +497,11 @@ struct MobilePaywallLegal: View {
 
     @ViewBuilder
     private var links: some View {
-        Button(L10n.string("mobile.billing.restore", defaultValue: "Restore Purchases"), action: restore)
-            .disabled(isBusy)
-            .accessibilityIdentifier("BillingRestore")
+        if showsRestore {
+            Button(L10n.string("mobile.billing.restore", defaultValue: "Restore Purchases"), action: restore)
+                .disabled(isBusy)
+                .accessibilityIdentifier("BillingRestore")
+        }
         Link(L10n.string("mobile.billing.terms", defaultValue: "Terms of Use"), destination: Self.termsURL)
         Link(L10n.string("mobile.billing.privacy", defaultValue: "Privacy Policy"), destination: Self.privacyURL)
     }
@@ -517,7 +578,8 @@ struct MobilePaywallPurchaseBar: View {
         .padding(.top, 12)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
-        .background(.bar)
+        // Opaque, so content scrolled under the bar never shows through.
+        .background(Color(.systemGroupedBackground))
         .overlay(alignment: .top) {
             Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
         }
