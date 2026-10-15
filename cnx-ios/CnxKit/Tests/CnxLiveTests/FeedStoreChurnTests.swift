@@ -82,9 +82,27 @@ import Testing
         #expect(store.needsYouCount == 0)
     }
 
+    /// An event read before and reported again by the Mac (unread) is marked
+    /// read on the way in, and the stored list and the save see the read copy.
+    @Test func reReportedReadEventIsReadInTheListAndTheSave() {
+        let url = FileManager.default.temporaryDirectory.appending(path: "feed-read-\(UUID().uuidString).json")
+        let marks = FeedReadMarks(url: url)
+        defer { marks.remove() }
+        marks.save(["a"])
+        let store = FeedStore(items: [], readMarks: marks)
+        var saved: [[FeedItem]] = []
+        store.onItemsChange = { saved.append($0) }
+        store.mergeHistory([Self.item("a")])
+        #expect(store.visibleItems.first?.isRead == true)
+        #expect(store.items.first?.isRead == true)
+        #expect(saved.count == 1)
+        #expect(saved.last?.first?.isRead == true)
+    }
+
     @Test func archiveSavesInBackgroundAndRemoveWinsOverQueuedWrites() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "feed-archive-\(UUID().uuidString).json")
         let archive = FeedArchive(url: url)
+        defer { archive.remove() }
         archive.saveInBackground([Self.item("a"), Self.item("b", ago: 1)])
         #expect(archive.load().map(\.id) == ["a", "b"])
         for index in 0..<20 { archive.saveInBackground([Self.item("x\(index)")]) }

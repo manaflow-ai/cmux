@@ -75,9 +75,10 @@ import QuartzCore
 
 /// G-04: an in-app CADisplayLink frame-interval recorder with signposts, for
 /// timing claims that do not depend on screen-recording timing (laptop load
-/// makes recordings unreliable). DEBUG and Demo builds turn it on with the
-/// `CNX_FRAMELOG=1` environment variable (`SIMCTL_CHILD_CNX_FRAMELOG=1`); it
-/// costs nothing when off. Each `begin`/`end` pair is one window: the
+/// makes recordings unreliable). Builds compiled with DEBUG (Debug, and the
+/// Demo configuration with its DEBUG condition) turn it on with the
+/// `CNX_FRAMELOG=1` environment variable (`SIMCTL_CHILD_CNX_FRAMELOG=1`).
+/// Production compiles it but it is always off and costs nothing. Each `begin`/`end` pair is one window: the
 /// summary goes to the `dev.cmux.cnx` `frames` log (`FRAMELOG <line>`) and, as
 /// JSON lines, to `Library/Caches/framelog.jsonl` in the app container.
 /// Each frame is also an `OSSignposter` event (`frame`, with its interval),

@@ -11,7 +11,13 @@ public struct DaemonTree: Sendable {
         public var host: String?
     }
 
+    /// The workspaces the phone lists (Workspaces rows, search, counts).
     public var workspaces: [Workspace]
+    /// The Mac's home workspace (`kind` "home"), never listed: the Mac shows it
+    /// as its sidebar's Home item, not a workspace row. Its tabs stay in the
+    /// tree (surfaces, agent bindings, markers) so an agent working there still
+    /// reaches the Feed (`places`).
+    public var homeWorkspaces: [Workspace] = []
     /// Agent tabs by app tab id.
     public var agentTabs: [String: AgentBinding]
     /// The daemon surface id behind each app tab id (`s<surface>`).
@@ -60,13 +66,14 @@ public struct DaemonTree: Sendable {
         var markers: [Int: NotificationMarker] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
+        var home: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
             // The Mac's home workspace (`kind` "home", `workspace-kind-v1`) is what
             // its sidebar's Home item shows, not a workspace row (`SidebarMapping`
-            // filters it the same way). The phone has its own Home tab, so nothing
-            // of it (row, tabs, surfaces, unread markers) reaches the phone.
-            // Matched by kind, never by name: a renamed home stays out.
-            if ws["kind"] as? String == Self.homeKind { continue }
+            // filters it the same way). The phone has its own Home tab, so it is
+            // never a Workspaces row (`homeWorkspaces`). Matched by kind, never by
+            // name: a renamed home stays out, a workspace named "Home" stays in.
+            let isHome = ws["kind"] as? String == Self.homeKind
             let key = (ws["key"] as? String) ?? (ws["id"] as? Int).map { "w\($0)" } ?? UUID().uuidString
             var tabs: [WorkspaceTab] = []
             var activeTab: [String: Any]?
@@ -114,7 +121,7 @@ public struct DaemonTree: Sendable {
             let activeTabID = (activeTab?["surface"] as? Int).map(Self.tabID(surface:)).flatMap { id in
                 tabs.contains { $0.id == id } ? id : nil
             }
-            result.append(Workspace(
+            let workspace = Workspace(
                 id: key,
                 macID: macID,
                 title: title,
@@ -130,9 +137,11 @@ public struct DaemonTree: Sendable {
                 hasActivityTime: activityAt != nil,
                 focusOrder: focusOrder,
                 activeTabID: activeTabID
-            ))
+            )
+            if isHome { home.append(workspace) } else { result.append(workspace) }
         }
         workspaces = result
+        homeWorkspaces = home
         self.agentTabs = agentTabs
         self.surfaces = surfaces
         self.directories = directories

@@ -1186,7 +1186,7 @@ public final class LiveCoordinator {
 
     private func place(sessionID: String) -> LiveFeed.Place? {
         guard let tree else { return nil }
-        for workspace in tree.workspaces {
+        for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs where tree.agentTabs[tab.id]?.session == sessionID {
                 return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title)
             }

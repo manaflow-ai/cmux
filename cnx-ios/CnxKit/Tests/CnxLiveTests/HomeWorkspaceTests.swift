@@ -29,11 +29,21 @@ import Testing
     @Test func homeKindIsNotAWorkspace() throws {
         let tree = try DaemonTree(reply: Self.reply, macID: "mac")
         #expect(tree.workspaces.map(\.id) == ["ws-1", "ws-named-home"])
-        // Nothing of the home workspace leaks through the tree's other maps either.
-        #expect(tree.surfaces["s11"] == nil)
-        #expect(tree.notificationMarkers[11] == nil)
-        #expect(tree.panes["ws-home"] == nil)
-        #expect(tree.directories["s11"] == nil)
+        #expect(tree.homeWorkspaces.map(\.id) == ["ws-home", "ws-renamed-home"])
+        // Its terminals stay known: an agent working there still reaches the Feed.
+        #expect(tree.surfaces["s11"] == 11)
+    }
+
+    /// The Mac's home terminal is not a Workspaces row, but Codex working in it
+    /// still reports to the phone's Feed (the Mac shows it under its Home item).
+    @Test @MainActor func anAgentInTheHomeWorkspaceStillReachesTheFeed() async {
+        let daemon = TerminalFeedTests.FakeDaemon()
+        daemon.rows = [TerminalFeedTests.row("ntf_h", "Codex finished", surface: 11, at: 1_000_000)]
+        let (store, feed) = TerminalFeedTests.make(daemon)
+        feed.treeChanged(try! DaemonTree(reply: Self.reply, macID: "mac"), macID: "mac", connection: TerminalFeedTests.connection)
+        await TerminalFeedTests.settle { !store.items.isEmpty }
+        #expect(store.items.map(\.id) == [TerminalFeed.itemID(macID: "mac", entry: "ntf_h")])
+        #expect(store.items.first?.workspaceID == "ws-home")
     }
 
     @Test func olderDaemonsWithoutKindKeepEveryWorkspace() throws {

@@ -7,7 +7,9 @@ import Observation
 /// Launch settings for the Feed stress rig, from the environment
 /// (`SIMCTL_CHILD_<NAME>` on a simulator):
 /// - `CNX_FEED_STRESS=N`: replace the Feed with N generated events (markdown,
-///   code blocks, tables, quotes, math, open asks).
+///   code blocks, tables, quotes, math, open asks). On live data they merge
+///   under the Mac's events and are saved in that account's Feed archive on
+///   this device: use a test install (sign out, or delete the app, to clear).
 /// - `CNX_FEED_STRESS_LIVE=HZ`: live traffic while the rig runs: new events on
 ///   top, re-merged events with changed text (the terminal ledger), and reads,
 ///   HZ changes per second, each saved with `FeedArchive` as live mode does.
