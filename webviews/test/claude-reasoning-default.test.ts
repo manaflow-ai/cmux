@@ -33,7 +33,7 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {

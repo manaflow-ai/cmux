@@ -80,7 +80,7 @@ export function FileHeader({
       }}
     >
       <FileIcon path={path} />
-      <span className="file-header-path selectable" title={previousPath == null ? path : `${previousPath} → ${path}`}>
+      <span className="file-header-path selectable">
         {previousPath != null ? (
           <span className="file-header-previous">
             <bdi>{previousPath}</bdi>
@@ -100,12 +100,8 @@ export function FileHeader({
       <span className="file-header-spacer" />
       <DiffHeaderMetadata fileDiff={fileDiff} label={label} />
       <span className="file-header-stats" aria-label={label("diffStats")}>
-        <span className="file-header-additions" title={label("additions")}>
-          +{stats.added}
-        </span>
-        <span className="file-header-deletions" title={label("deletions")}>
-          -{stats.deleted}
-        </span>
+        <span className="file-header-additions">+{stats.added}</span>
+        <span className="file-header-deletions">-{stats.deleted}</span>
       </span>
       {stage ? (
         <button
@@ -186,7 +182,6 @@ function FileReviewControls({
         <button
           type="button"
           className="file-review-load"
-          title={reason === "generated" ? label("generatedFile") : label("largeDiff")}
           onClick={(event) => {
             event.stopPropagation();
             onLoadDiff();
