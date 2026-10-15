@@ -57,8 +57,8 @@ public final class TabModel: Identifiable {
     /// The device a browser tab emulates, as the daemon resolved it
     /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
     public internal(set) var emulation: JSONValue?
-    /// Whether the tab fits a 16:9 desktop layout (`extra.emulation.mode == "fit"`, browser-fit-v1).
-    public var fitsDesktop: Bool { emulation?["mode"]?.stringValue == "fit" }
+    /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
+    public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []

@@ -8,6 +8,7 @@ Behaviour per prompt text:
   "slow"       -> streams three chunks with delays, honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
+  "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
@@ -15,6 +16,7 @@ Behaviour per prompt text:
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
 advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
+Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -159,6 +161,19 @@ def codex_prompt(rid, params):
             return
         codex_turns[sid] = [rid]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "turn: " + text}})
+    # "slow-stop": the turn runs until session/cancel (bounded), then takes 5 s
+    # to stop; a prompt in that time joins it and is answered for it.
+    if text == "slow-stop":
+        for _ in range(600):
+            if sid in cancelled:
+                break
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        time.sleep(5)
+        with lock:
+            ids = codex_turns.pop(sid)
+        send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "cancelled"}})
+        return
     # The turn runs until a joined prompt arrives (bounded), then a moment.
     for _ in range(300):
         with lock:
@@ -542,6 +557,14 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "deaf-to-cancel" streams "running" and never takes a cancel: an agent
+    # that is idle as far as it knows while acpmux's turn is still open.
+    if text == "deaf-to-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        time.sleep(20)
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "answer-then-exit" answers, then the agent exits between turns.
     if text == "answer-then-exit":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "answered"}})
@@ -620,7 +643,11 @@ def main():
                       "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]}
             if m == "session/new":
                 sessions += 1
-                send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}})
+                result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}
+                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too.
+                if os.environ.get("FAKE_PICKER_MODES") == "1":
+                    result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
+                send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
             elif m == "session/set_model":
@@ -698,6 +725,9 @@ def main():
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
+            # FAKE_PLAN_MODE=1: opencode's modes, "build" and a "plan" that runs bash.
+            if os.environ.get("FAKE_PLAN_MODE") == "1":
+                result["modes"] = {"currentModeId": "build", "availableModes": [{"id": "build", "name": "Build"}, {"id": "plan", "name": "Plan"}]}
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
@@ -738,6 +768,10 @@ def main():
             sessions += 1
             send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
         elif m == "session/set_mode":
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
