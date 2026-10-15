@@ -1873,10 +1873,36 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 return surface.screenText()
             }
             let top = scrollbar.offset, last = surface.grid.rows - 1
+            // Rows outside the ones the surface holds (a selection the edge
+            // autoscroll carried across the scrollback): Ghostty clamps an
+            // exact point to its grid, so read the whole screen once (G-14).
+            if start.row < top || end.row > top + last {
+                return surface.screenRows()?.text(from: start, to: end)
+            }
             let from = TerminalCellPoint(row: min(max(0, start.row - top), last), column: start.row < top ? 0 : start.column)
             let to = TerminalCellPoint(row: min(max(0, end.row - top), last), column: end.row - top > last ? columns - 1 : end.column)
             return surface.viewportText(from: from, to: to)
         }
+        selection.visibleBand = { [weak self] in
+            guard let self else { return 0...0 }
+            let top = scrollView.adjustedContentInset.top
+            return top...max(top, scrollView.bounds.height - scrollView.adjustedContentInset.bottom)
+        }
+        selection.offsetRange = { [weak self] in
+            guard let self else { return 0...0 }
+            let lower = -scrollView.contentInset.top
+            return lower...max(lower, maxOffsetY)
+        }
+        // The page reads while the selection scrolls it, like a finger drag.
+        selection.autoscrollBegan = { [weak self] in
+            guard let self else { return }
+            fling?.stop()
+            fling = nil
+            placesFromReport = false
+            restoredMark = nil
+            scroll.began()
+        }
+        selection.autoscrollEnded = { [weak self] in self?.settleScroll() }
         selection.install(in: scrollView)
         if let press = selection.longPress {
             press.addTarget(self, action: #selector(selectionPressChanged(_:)))

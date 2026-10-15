@@ -38,3 +38,15 @@ import Testing
         #expect(screen.text(from: P(row: 2500, column: 0), to: P(row: 2501, column: 52)) == "#0002500\n#0002501")
     }
 }
+
+extension TerminalScreenRowsTests {
+    @Test func aOneMegabyteLineAlignsInLinearTime() {
+        // line1m: one line of 1 MiB wrapped at 53 columns (19,785 rows).
+        let line = String(repeating: "abcdefghij", count: 104_858)
+        let bytes = Array(line.utf8)
+        let rows = stride(from: 0, to: bytes.count, by: 53).map { String(decoding: bytes[$0..<min($0 + 53, bytes.count)], as: UTF8.self) }
+        let screen = TerminalScreenRows(rectangle: rows.joined(separator: "\n") + "\n$ ", logical: line + "\n$ ", columns: 53)
+        #expect(screen.wraps.filter { $0 }.count == rows.count - 1)
+        #expect(screen.text(from: TerminalCellPoint(row: 10_000, column: 0), to: TerminalCellPoint(row: 10_000, column: 4)) == "abcde")
+    }
+}

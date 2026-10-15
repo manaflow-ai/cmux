@@ -233,6 +233,29 @@ final class TerminalSurfaceView: UIView {
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
+    /// Every row of the screen, numbered like the scrollbar, with its soft
+    /// wraps (`TerminalScreenRows`): a rectangle read (one line per row) and
+    /// the plain read (wrapped rows joined). Whole-screen reads are not
+    /// clamped to the grid like an exact point's y. Takes the surface lock
+    /// twice: on demand only (a Copy).
+    func screenRows() -> TerminalScreenRows? {
+        guard let surface else { return nil }
+        func read(rectangle: Bool) -> String? {
+            let selection = ghostty_selection_s(
+                top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+                bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+                rectangle: rectangle
+            )
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+            defer { ghostty_surface_free_text(surface, &text) }
+            guard let pointer = text.text, text.text_len > 0 else { return "" }
+            return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+        }
+        guard let rectangle = read(rectangle: true), let logical = read(rectangle: false) else { return nil }
+        return TerminalScreenRows(rectangle: rectangle, logical: logical, columns: grid.columns)
+    }
+
     /// The grid's padding inside the surface (points): where cell (0, 0) starts.
     var gridPadding: CGPoint {
         guard let surface else { return .zero }

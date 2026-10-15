@@ -20,6 +20,14 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     var documentRows: () -> Range<Int> = { 0..<0 }
     /// Selection is off (a TUI on the alternate screen draws its own).
     var isEnabled: () -> Bool = { true }
+    /// The visible rows, in the scroll view's frame (between the top bar and
+    /// the composer), and the offsets the page may scroll to: a finger near
+    /// either edge scrolls the page so the selection reaches rows off screen.
+    var visibleBand: () -> ClosedRange<CGFloat> = { 0...0 }
+    var offsetRange: () -> ClosedRange<CGFloat> = { 0...0 }
+    /// The page is about to scroll for the selection, and has stopped.
+    var autoscrollBegan: () -> Void = {}
+    var autoscrollEnded: () -> Void = {}
 
     private(set) var selection: TerminalTextSelection? {
         didSet { if selection != oldValue { redraw() } }
@@ -32,6 +40,13 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     private var menu: UIEditMenuInteraction?
     private(set) var longPress: UILongPressGestureRecognizer?
     private var dragging: TerminalTextSelection.Handle?
+    /// Edge autoscroll (G-14): the finger in the scroll view's frame, the
+    /// part being moved (a handle, or the long press's head), the display link.
+    private let autoscroll = TerminalSelectionAutoscroll()
+    private var autoscrollFinger: CGPoint?
+    private var autoscrollMovesHead = false
+    private var autoscrollLink: CADisplayLink?
+    private var autoscrollLastTime: CFTimeInterval = 0
 
     func install(in scrollView: UIScrollView) {
         self.scrollView = scrollView
@@ -63,6 +78,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     }
 
     func clear() {
+        stopAutoscroll()
         guard selection != nil else { return }
         selection = nil
         menu?.dismissMenu()
@@ -119,8 +135,12 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
             guard var current = selection, let cell = cellAt(point) else { return }
             current.head = cell
             selection = current
+            trackAutoscroll(finger: point, movesHead: true)
         case .ended:
+            stopAutoscroll()
             showMenu()
+        case .cancelled, .failed:
+            stopAutoscroll()
         default:
             break
         }
@@ -143,11 +163,67 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
                 dragging = current.headHandle
                 selection = current
             }
+            if pan.state != .ended { trackAutoscroll(finger: point, movesHead: false) }
         }
         if [.ended, .cancelled, .failed].contains(pan.state) {
+            stopAutoscroll()
             dragging = nil
             showMenu()
         }
+    }
+
+    // MARK: Edge autoscroll
+
+    /// The finger moved to `contentPoint` (scroll view content): near the top
+    /// or bottom of the visible rows the page scrolls, every display frame,
+    /// and the moving end follows the cell under the still finger.
+    private func trackAutoscroll(finger contentPoint: CGPoint, movesHead: Bool) {
+        guard let scrollView else { return }
+        let framePoint = CGPoint(x: contentPoint.x, y: contentPoint.y - scrollView.contentOffset.y)
+        autoscrollFinger = framePoint
+        autoscrollMovesHead = movesHead
+        let band = visibleBand()
+        let velocity = autoscroll.velocity(fingerY: framePoint.y, visibleTop: band.lowerBound, visibleBottom: band.upperBound)
+        if velocity == 0 {
+            stopAutoscroll()
+            return
+        }
+        guard autoscrollLink == nil else { return }
+        autoscrollBegan()
+        let link = CADisplayLink(target: self, selector: #selector(autoscrollTick(_:)))
+        link.add(to: .main, forMode: .common)
+        autoscrollLink = link
+        autoscrollLastTime = 0
+    }
+
+    private func stopAutoscroll() {
+        autoscrollFinger = nil
+        guard let link = autoscrollLink else { return }
+        link.invalidate()
+        autoscrollLink = nil
+        autoscrollEnded()
+    }
+
+    @objc private func autoscrollTick(_ link: CADisplayLink) {
+        guard let scrollView, let finger = autoscrollFinger, var current = selection else { return stopAutoscroll() }
+        let dt = autoscrollLastTime == 0 ? link.duration : link.timestamp - autoscrollLastTime
+        autoscrollLastTime = link.timestamp
+        let band = visibleBand()
+        let velocity = autoscroll.velocity(fingerY: finger.y, visibleTop: band.lowerBound, visibleBottom: band.upperBound)
+        let y = autoscroll.step(offset: scrollView.contentOffset.y, velocity: velocity, dt: min(dt, 0.05), range: offsetRange())
+        guard velocity != 0, abs(y - scrollView.contentOffset.y) > 0.01 else { return }
+        scrollView.contentOffset.y = y
+        // The finger stays still while the rows move under it.
+        var point = CGPoint(x: finger.x, y: finger.y + y)
+        if !autoscrollMovesHead, let handle = dragging { point.y += handle == .start ? 10 : -10 }
+        guard let cell = cellAt(point) else { return }
+        if autoscrollMovesHead {
+            current.head = cell
+        } else if let handle = dragging {
+            current.move(handle, to: cell)
+            dragging = current.headHandle
+        }
+        selection = current
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
