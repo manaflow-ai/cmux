@@ -9,6 +9,7 @@
 
 import { IOS_PAYWALL_CONTROL_VARIANT, IOS_PAYWALL_EXPERIMENT } from "./iosPaywallV1";
 import { validateIosPaywallPayload, type ValidationResult } from "./validator";
+import { WEB_PRICING_V1_DEFINITION } from "../pricingExperiment/webPricingV1";
 
 /** A count over people exposed to the experiment, after their first exposure. */
 export type ExperimentMetric = {
@@ -98,8 +99,11 @@ export const IOS_PAYWALL_V1: ExperimentDefinition = {
   validatePayload: (payload, variant) => validateIosPaywallPayload(payload, IOS_PAYWALL_EXPERIMENT, variant),
 };
 
+/** cmux.com/pricing (services/billing/pricingExperiment/webPricingV1.ts). */
+export const WEB_PRICING_V1: ExperimentDefinition = { ...WEB_PRICING_V1_DEFINITION, policy: DEFAULT_EXPERIMENT_POLICY };
+
 /** Every experiment the optimizer manages, in run order. */
-export const PAYWALL_EXPERIMENTS: readonly ExperimentDefinition[] = [IOS_PAYWALL_V1];
+export const PAYWALL_EXPERIMENTS: readonly ExperimentDefinition[] = [IOS_PAYWALL_V1, WEB_PRICING_V1];
 
 export function experimentDefinition(key: string): ExperimentDefinition | null {
   return PAYWALL_EXPERIMENTS.find((experiment) => experiment.key === key) ?? null;

@@ -8,6 +8,7 @@ import { markAnalyticsCaptureBuffered, posthog } from "../lib/posthog-client";
 import {
   STACK_AUTH_CHANGED_EVENT,
   STACK_IDENTITY_STORAGE_KEY,
+  syncInternalUserProperty,
   syncStackAnalyticsIdentity,
   type StackAnalyticsIdentity,
 } from "../../services/analytics/stackIdentity";
@@ -147,7 +148,7 @@ function PageviewTracker() {
           return;
         }
         const payload = await response.json() as {
-          user?: { id?: unknown; plan?: unknown } | null;
+          user?: { id?: unknown; plan?: unknown; internal?: unknown } | null;
         };
         if (controller.signal.aborted || currentGeneration !== generation) return;
         let identity: StackAnalyticsIdentity | null;
@@ -162,10 +163,11 @@ function PageviewTracker() {
             recoverAsAnonymous(!hadAuthenticatedIdentity);
             return;
           }
-          identity = { id: payload.user.id, plan };
+          identity = { id: payload.user.id, plan, internal: payload.user.internal === true };
         }
         posthog.set_config({ before_send: (event) => event });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
+        syncInternalUserProperty(posthog, identity);
         const identityUnchanged = !hadAuthenticatedIdentity
           || identity?.id === previousPostHogUserId;
         flushBufferedCaptures(identityUnchanged);

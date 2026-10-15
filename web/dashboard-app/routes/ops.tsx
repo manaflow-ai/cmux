@@ -1,8 +1,9 @@
 import { createRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { isRefusal } from "../lib/refusal";
-import { cloudVmHealthQuery } from "../queries/ops";
+import { cloudVmHealthQuery, paywallLabQuery } from "../queries/ops";
 import { CloudVmHealthFrame, CloudVmHealthRouteError } from "../screens/ops/cloud-vm-health-frame";
+import { PaywallLabFrame, PaywallLabRouteError } from "../screens/ops/paywall-lab-frame";
 import { shellRoute } from "./root";
 
 /** Staff-only: the admin gate's 403 (and any 404) is a page that does not exist. */
@@ -25,4 +26,18 @@ const cloudVmHealthRoute = createRoute({
   component: lazyRouteComponent(() => import("../screens/ops/cloud-vm-health"), "CloudVmHealthScreen"),
 });
 
-export const opsRoutes = [cloudVmHealthRoute] as const;
+const paywallLabRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/dashboard/ops/paywall-lab",
+  loader: ({ context }) =>
+    context.queryClient.ensureQueryData(paywallLabQuery).catch(notFoundForNonStaff),
+  pendingComponent: () => (
+    <PaywallLabFrame>
+      <DashboardSectionSkeleton variant="table" columns={7} rows={4} />
+    </PaywallLabFrame>
+  ),
+  errorComponent: PaywallLabRouteError,
+  component: lazyRouteComponent(() => import("../screens/ops/paywall-lab"), "PaywallLabScreen"),
+});
+
+export const opsRoutes = [cloudVmHealthRoute, paywallLabRoute] as const;

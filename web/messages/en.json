@@ -7384,6 +7384,76 @@
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
   },
+  "opsPaywallLab": {
+    "eyebrow": "Staff · Growth",
+    "title": "Paywall Lab",
+    "description": "Every paywall and pricing experiment, rendered as users see it, with traffic, exposures, conversions and the optimizer's change log. The optimizer runs once a day.",
+    "empty": "No experiments are registered.",
+    "platform": {
+      "web": "Web",
+      "ios": "iOS"
+    },
+    "flag": {
+      "live": "Running",
+      "paused": "Paused: everyone sees control",
+      "missing": "Flag not created: everyone sees control",
+      "unavailable": "Flag state unavailable",
+      "unconfigured": "Flag API key not configured"
+    },
+    "pause": "Pause experiment",
+    "resume": "Resume experiment",
+    "pauseConfirm": "Pause {experiment}? Every visitor gets {control} within a minute. The traffic split is kept for resume.",
+    "resumeConfirm": "Resume {experiment}? The flag's traffic split applies again.",
+    "toggleFailed": "The flag did not change. Try again or change it in the analytics console.",
+    "lastRun": "Last optimizer run: {time}",
+    "noRun": "No optimizer run yet. The table shows the seed split.",
+    "halted": "Halted: no traffic changes until a person explains the cause.",
+    "srmTested": "Sample ratio check: p = {p}{mismatch, select, true { (mismatch)} other {}}",
+    "srmNotTested": "Sample ratio check not run: {reason}",
+    "report": "Daily report (Markdown)",
+    "noReport": "No daily report yet",
+    "primary": "Primary metric: {label}",
+    "trialNone": "Trial metrics: no trial product is on sale, so there are no trial counts yet.",
+    "trialAvailable": "Trial metrics: shown as secondary metrics when an experiment defines them.",
+    "reasonsTitle": "Optimizer decision",
+    "column": {
+      "variant": "Variant",
+      "status": "Status",
+      "traffic": "Traffic",
+      "next": "Proposed",
+      "exposed": "Exposed",
+      "converted": "Converted",
+      "rate": "Rate",
+      "pBest": "P(best)"
+    },
+    "status": {
+      "live": "Live",
+      "retired": "Retired"
+    },
+    "invalidCopy": "Invalid copy: this arm serves control",
+    "previewsTitle": "Variants as users see them",
+    "webPreviewNote": "Rendered with the cmux.com/pricing components for a signed-out visitor. Prices and plans never vary.",
+    "iosPreviewNote": "A web rendering of the iOS paywall layout. The app shows App Store prices. No simulator capture is attached yet.",
+    "changeLogTitle": "Change log",
+    "changeLogEmpty": "No changes yet.",
+    "changeColumn": {
+      "when": "When",
+      "kind": "Change",
+      "variant": "Variant",
+      "reason": "Why",
+      "actor": "By"
+    },
+    "ios": {
+      "recommended": "Recommended",
+      "seeAllPlans": "See all plans",
+      "ctaAction": "Continue with {plan}",
+      "ctaPrice": "Subscribe for the App Store price",
+      "yearlySavings": "Yearly savings shown",
+      "yearly": "Yearly",
+      "monthly": "Monthly",
+      "appStorePrice": "App Store price"
+    }
+  },
   "opsCloudVmHealth": {
     "eyebrow": "Staff · Operations",
     "title": "VM Health",

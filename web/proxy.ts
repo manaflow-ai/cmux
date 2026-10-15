@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextFetchEvent, type NextRequest, NextResponse } from "next/server";
 import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
@@ -25,14 +25,15 @@ import {
   VM_REFLECTION_ALIAS_HEADER,
   VM_REFLECTION_ALIAS_VALUE,
 } from "./services/coderouter/vmGuestEnv";
+import { withWebPricingExperiment } from "./services/billing/pricingExperiment/proxy";
 
 const localeSet = new Set<string>(routing.locales);
 
-export default function middleware(incomingRequest: NextRequest) {
-  return responseWithInternalRewrite(routeRequest(incomingRequest), incomingRequest);
+export default function middleware(incomingRequest: NextRequest, event?: NextFetchEvent) {
+  return responseWithInternalRewrite(routeRequest(incomingRequest, event), incomingRequest);
 }
 
-function routeRequest(incomingRequest: NextRequest) {
+function routeRequest(incomingRequest: NextRequest, event?: NextFetchEvent) {
   const request = requestWithOrigin(incomingRequest);
   const dashboardReturnPath = dashboardReturnPathForRequest(
     request.nextUrl.pathname,
@@ -94,6 +95,9 @@ function routeRequest(incomingRequest: NextRequest) {
       headers,
     });
   }
+  // After the prefetch rebuild, so a prefetch pins the same variant the
+  // later navigation renders.
+  response = withWebPricingExperiment(request, response, event);
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,

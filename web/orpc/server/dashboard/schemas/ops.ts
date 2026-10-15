@@ -119,3 +119,94 @@ export const cloudVmHealthSchema = z.object({
 
 export type CloudVmHealth = z.output<typeof cloudVmHealthSchema>;
 export type CloudVmHealthReport = z.output<typeof reportSchema>;
+
+const webPricingPresentationSchema = z.object({
+  headline: nullableString,
+  subheadline: nullableString,
+  highlightedPlanId: z.enum(["pro", "max"]).nullable(),
+  highlightLabel: nullableString,
+  defaultBillingPeriod: z.enum(["year", "month"]),
+  yearlyNote: nullableString,
+});
+
+const iosPaywallConfigSchema = z.object({
+  experiment: z.string(),
+  variant: z.string(),
+  layout: z.enum(["cards", "comparison", "focus"]),
+  headline: z.string(),
+  subheadline: z.string(),
+  bullets: z.array(z.string()),
+  highlightedPlanId: z.enum(["pro", "max"]).nullable(),
+  defaultBillingPeriod: z.enum(["yearly", "monthly"]),
+  ctaStyle: z.enum(["price", "action"]),
+  showYearlySavings: z.boolean(),
+});
+
+const labVariantSchema = z.object({
+  variant: z.string(),
+  name: nullableString,
+  hypothesis: nullableString,
+  status: z.enum(["live", "retired"]),
+  trafficPercent: z.number(),
+  proposedTrafficPercent: nullableNumber,
+  exposures: nullableNumber,
+  conversions: nullableNumber,
+  probabilityBest: nullableNumber,
+  secondary: z.record(z.string(), z.number()),
+  guardrails: z.record(z.string(), z.number()),
+  payloadErrors: z.array(z.string()),
+  preview: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("web"), presentation: webPricingPresentationSchema }),
+    z.object({ kind: z.literal("ios"), config: iosPaywallConfigSchema }),
+  ]).nullable(),
+});
+
+const labMetricSchema = z.object({ key: z.string(), label: z.string() });
+
+const labExperimentSchema = z.object({
+  key: z.string(),
+  platform: z.string(),
+  controlVariant: z.string(),
+  flagState: z.enum(["live", "paused", "missing", "unavailable", "unconfigured"]),
+  source: z.enum(["optimizer_run", "seed"]),
+  lastRunAt: nullableString,
+  halted: z.boolean(),
+  reasons: z.array(z.string()),
+  hasReport: z.boolean(),
+  srm: z.object({ tested: z.boolean(), pValue: nullableNumber, mismatch: z.boolean(), note: nullableString }),
+  allocationSince: nullableString,
+  primaryLabel: z.string(),
+  secondaryMetrics: z.array(labMetricSchema),
+  guardrailMetrics: z.array(labMetricSchema),
+  variants: z.array(labVariantSchema),
+  changeLog: z.array(z.object({
+    changedAt: z.string(),
+    kind: z.string(),
+    variant: nullableString,
+    reason: z.string(),
+    actor: z.string(),
+    details: z.record(z.string(), z.unknown()).nullable(),
+  })),
+});
+
+/** `GET /api/admin/paywall-lab`: every paywall and pricing experiment, staff only. */
+export const paywallLabSchema = z.object({
+  generatedAt: z.string(),
+  trialAvailable: z.boolean(),
+  vaultEnabled: z.boolean(),
+  experiments: z.array(labExperimentSchema),
+});
+
+export const paywallLabPauseInputSchema = z.object({
+  experiment: z.string().min(1).max(64),
+  paused: z.boolean(),
+});
+
+export const paywallLabPauseSchema = z.object({
+  ok: z.literal(true),
+  flagState: z.enum(["live", "paused"]),
+});
+
+export type PaywallLab = z.output<typeof paywallLabSchema>;
+export type PaywallLabExperiment = z.output<typeof labExperimentSchema>;
+export type PaywallLabVariant = z.output<typeof labVariantSchema>;

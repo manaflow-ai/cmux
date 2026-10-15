@@ -14,6 +14,7 @@ import {
   type CheckoutAttribution,
 } from "./checkoutAttribution";
 import { planItem } from "../billing/subscriptionItems";
+import { checkoutTaggingProperties } from "../billing/pricingExperiment/checkoutTagging";
 
 const CAPTURE_TIMEOUT_MS = 2_000;
 
@@ -86,6 +87,8 @@ export async function captureBillingCheckoutStarted(
     readonly billingInterval: "month" | "year";
     /** Where the checkout link was opened from (page, app button, channel). */
     readonly attribution: CheckoutAttribution;
+    /** The session metadata: its experiment and account-kind tags become properties. */
+    readonly tagging?: Record<string, string | null | undefined>;
     /** False when checkout minted an anonymous Stack user for a signed-out visitor. */
     readonly signedIn: boolean;
     /** True when the principal already had a Stripe customer (lapsed or canceled). */
@@ -109,6 +112,7 @@ export async function captureBillingCheckoutStarted(
       signed_in: input.signedIn,
       existing_stripe_customer: input.existingStripeCustomer,
       ...checkoutAttributionProperties(input.attribution),
+      ...checkoutTaggingProperties(input.tagging),
     },
   }, postHogFetch);
 }
@@ -202,6 +206,7 @@ function checkoutCompletedEvent(
       stripe_subscription_id: stringId(session.subscription),
       stripe_customer_id: stringId(session.customer),
       ...checkoutAttributionProperties(attribution),
+      ...checkoutTaggingProperties(session.metadata),
       $set: { billing_plan: plan, billing_customer_type: subject.scope },
       $set_once: firstPaidCheckoutPersonProperties(attribution, paidAt),
     },
@@ -226,6 +231,7 @@ function checkoutExpiredEvent(
       stripe_checkout_session_id: session.id,
       stripe_customer_id: stringId(session.customer),
       ...checkoutAttributionProperties(attribution),
+      ...checkoutTaggingProperties(session.metadata),
     },
   };
 }
@@ -250,6 +256,7 @@ function subscriptionEvent(
       stripe_subscription_id: subscription.id,
       stripe_customer_id: stringId(subscription.customer),
       ...checkoutAttributionProperties(attribution),
+      ...checkoutTaggingProperties(subscription.metadata),
     },
   };
 }

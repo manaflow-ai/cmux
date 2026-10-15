@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import { isAdminUser } from "../../../../services/admin/access";
 
 
 type IdentityRouteDependencies = {
@@ -9,6 +10,8 @@ type IdentityRouteDependencies = {
     readonly id: string;
     readonly isAnonymous: boolean;
     readonly clientReadOnlyMetadata?: unknown;
+    readonly primaryEmail?: string | null;
+    readonly primaryEmailVerified?: boolean;
   } | null>;
 };
 
@@ -44,8 +47,14 @@ export function makeAnalyticsIdentityHandler(
     }
     // Stack anonymous checkout users must not replace PostHog's browser-level
     // anonymous identity. They become canonical only after account conversion.
+    // `internal` marks a verified company account, so experiment and funnel
+    // counts can exclude staff traffic. It is sent only when true.
     return identityResponse(user && !user.isAnonymous
-      ? { id: user.id, plan: analyticsPlan(user.clientReadOnlyMetadata) }
+      ? {
+          id: user.id,
+          plan: analyticsPlan(user.clientReadOnlyMetadata),
+          ...(isAdminUser(user) ? { internal: true as const } : {}),
+        }
       : null);
   };
 }
@@ -62,6 +71,7 @@ function identityResponse(
   user: {
     readonly id: string;
     readonly plan: "free" | "go" | "pro" | "max" | "team";
+    readonly internal?: true;
   } | null,
 ): NextResponse {
   return NextResponse.json(

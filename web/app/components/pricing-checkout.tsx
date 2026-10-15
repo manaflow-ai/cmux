@@ -18,23 +18,53 @@ import {
 import { withExternalBrowserIntent } from "../lib/billing";
 import { vaultSignInHref } from "../lib/vault-auth";
 import type { PricingActionSize } from "./pricing-shared";
+import {
+  exposureEventProperties,
+  pricingExposure,
+  syncPricingExperimentProperties,
+  type PricingExperimentAssignment,
+} from "./pricing-experiment-exposure";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
 type PricingPlan = "go" | "pro" | "max" | "team";
 
-/** Pricing-view analytics remain active when there is no billing-period control. */
+/**
+ * Pricing-view analytics remain active when there is no billing-period control.
+ * On the public page the view is also the `web-pricing-v1` exposure: the
+ * rendered variant is reported as PostHog's `$feature_flag_called` and
+ * registered as `$feature/web-pricing-v1`, so the CTA, interval and checkout
+ * events that follow carry it.
+ */
 export function PricingView({
   children,
   surface,
+  experiment,
 }: {
   children: ReactNode;
   surface: PricingSurface;
+  /** The variant this page renders; omitted on surfaces outside the experiment. */
+  experiment?: PricingExperimentAssignment;
 }) {
   const capturedView = useRef(false);
+  const experimentKey = experiment?.experiment;
+  const variant = experiment?.variant;
   useEffect(() => {
     if (capturedView.current) return;
     capturedView.current = true;
+    let experimentProperties: Record<string, string> = {};
+    if (experimentKey && variant) {
+      const assignment = { experiment: experimentKey, variant };
+      const exposure = pricingExposure(assignment, {
+        cookies: document.cookie,
+        pathname: window.location.pathname,
+      });
+      experimentProperties = syncPricingExperimentProperties(posthog, assignment, exposure);
+      if (exposure) {
+        posthog.capture("$feature_flag_called", exposureEventProperties(exposure, window.location.hostname));
+      }
+    }
     posthog.capture("cmuxterm_pricing_viewed", {
+      ...experimentProperties,
       surface,
       interval: "month",
       currency: "usd",
@@ -45,7 +75,7 @@ export function PricingView({
       team_monthly_equivalent_usd: TEAM_PRICING_USD.month.monthlyEquivalent,
       team_discount_percent: 0,
     });
-  }, [surface]);
+  }, [surface, experimentKey, variant]);
   return children;
 }
 
@@ -114,6 +144,8 @@ export function PricingCheckoutButton({
         properties: {
           location,
           plan,
+          plan_id: plan,
+          billing_period: plan === "pro" || plan === "max" ? interval : "month",
           checkout: !requiresSignIn,
           auth_required: requiresSignIn,
           interval: plan === "pro" || plan === "max" ? interval : "month",

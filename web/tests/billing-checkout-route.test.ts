@@ -562,6 +562,7 @@ describe("billing checkout route", () => {
       plan: "pro",
       billingInterval: "month",
       attribution: expect.objectContaining({ source: "unknown", client: "web" }),
+      tagging: expect.any(Object),
       signedIn: true,
       existingStripeCustomer: false,
     });
@@ -682,9 +683,44 @@ describe("billing checkout route", () => {
         utmContent: null,
         utmTerm: null,
       },
+      tagging: expect.any(Object),
       signedIn: true,
       existingStripeCustomer: false,
     });
+  });
+
+  test("tags the checkout with the visitor's pricing experiment and account kind", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, primaryEmail: "staff@manaflow.ai", primaryEmailVerified: true }];
+
+    await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&interval=year&cmux_experiment=forged", {
+        headers: { cookie: "cmux_wp1=highlight-pro; cmux_wp1_live=1" },
+      }),
+    );
+
+    const tags = { cmuxExperiment: "web-pricing-v1", cmuxExperimentVariant: "highlight-pro", cmuxAccountKind: "internal" };
+    expect(createdStripeSessions[0]).toMatchObject({
+      metadata: expect.objectContaining(tags),
+      subscription_data: { metadata: expect.objectContaining(tags) },
+    });
+  });
+
+  test("leaves the checkout untagged outside a running experiment", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+
+    // A pin without the live cookie is a paused or finished experiment.
+    await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&interval=year", {
+        headers: { cookie: "cmux_wp1=highlight-pro" },
+      }),
+    );
+
+    const metadata = (createdStripeSessions[0] as { metadata: Record<string, string> }).metadata;
+    expect(metadata.cmuxExperiment).toBeUndefined();
+    expect(metadata.cmuxExperimentVariant).toBeUndefined();
+    expect(metadata.cmuxAccountKind).toBeUndefined();
   });
 
   test("creates a monthly Max checkout", async () => {
@@ -955,6 +991,7 @@ describe("billing checkout route", () => {
       plan: "team",
       billingInterval: "month",
       attribution: expect.objectContaining({ source: "unknown", client: "web" }),
+      tagging: expect.any(Object),
       signedIn: true,
       existingStripeCustomer: false,
     });

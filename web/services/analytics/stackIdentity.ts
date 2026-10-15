@@ -3,6 +3,8 @@ export const STACK_IDENTITY_STORAGE_KEY = "cmux.posthog.stack-user-id";
 export type StackAnalyticsIdentity = {
   readonly id: string;
   readonly plan: "free" | "pro" | "team";
+  /** A verified company account; its events are excluded from experiment counts. */
+  readonly internal?: boolean;
 };
 
 type PostHogIdentityClient = {
@@ -64,6 +66,22 @@ export function syncStackAnalyticsIdentity(
   if (previousUserId) {
     posthog.reset();
     storage.removeItem(STACK_IDENTITY_STORAGE_KEY);
+  }
+}
+
+/**
+ * Registers `is_internal_user` on every later event of a company account and
+ * clears it otherwise, so pricing-experiment and funnel queries can exclude
+ * staff traffic with one property filter.
+ */
+export function syncInternalUserProperty(
+  posthog: Pick<PostHogIdentityClient, "register"> & { unregister(property: string): void },
+  identity: StackAnalyticsIdentity | null,
+): void {
+  if (identity?.internal === true) {
+    posthog.register({ is_internal_user: true });
+  } else {
+    posthog.unregister("is_internal_user");
   }
 }
 
