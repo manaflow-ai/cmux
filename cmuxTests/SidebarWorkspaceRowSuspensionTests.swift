@@ -176,7 +176,8 @@ struct SidebarWorkspaceRowSuspensionTests {
             onEndChecklistItemEdit: onEndChecklistItemEdit,
             applyTodoStatus: { _ in },
             hideTodoStatus: {},
-            commitRename: onCommitRename
+            commitRename: onCommitRename,
+            focusAgentSurface: { _ in }
         )
     }
 
