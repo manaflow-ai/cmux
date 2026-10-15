@@ -404,6 +404,9 @@ struct TabOverview: View {
                         // During the zoom to the grid a tap is kept and opens the
                         // card once the grid has settled (Safari queues it).
                         // Selecting: a tap toggles the card.
+                        #if DEBUG
+                        MainStallTrace.mark("card tap grid=\(gridInteractive) swipe=\(swipeInteractive)")
+                        #endif
                         if selecting { tabs.toggleSelected(tab.id) }
                         else if gridInteractive { onSelect(tab.id) } else if swipeInteractive { onQueueSelect(tab.id) }
                     },

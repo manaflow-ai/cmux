@@ -1027,6 +1027,9 @@ struct BrowserScreen: View {
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
     private func openOverview() {
+        #if DEBUG
+        MainStallTrace.mark("openOverview")
+        #endif
         // A (+) start page in flight has no tab to zoom out of yet.
         guard !creatingTab || zoomState.phase != .page else { return }
         if zoomState.phase == .page {
