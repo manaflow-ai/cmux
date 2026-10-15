@@ -7,6 +7,7 @@ import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
 import type { HostDO } from "./host-do.ts"
+import type { HandDO } from "./hand-do.ts"
 import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
 import type { CloudDO } from "./cloud-do.ts"
@@ -52,6 +53,14 @@ export interface Env {
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
   readonly HOST_DO: DurableObjectNamespace<HostDO>
+  /** Chief hands (hand-do.ts): one object per installed hand (`h:<hand>`) and one index per owner (`owner:<user>`). */
+  readonly HAND_DO: DurableObjectNamespace<HandDO>
+  /** "1": Cloud requests may reach a `mac` profile hand. Off until the Mac hand trust post (#13742) is confirmed. */
+  readonly HANDS_MAC_ENABLED?: string
+  /** Base URL of the published acpmux files the hand installer downloads (default https://files.cmux.com/cmux-tui). */
+  readonly HAND_RELEASE_BASE?: string
+  /** The cmux-tui commit whose acpmux the installer installs (its manifest.json lists the SHA-256 of each file). */
+  readonly HAND_RELEASE_COMMIT?: string
   /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
   readonly WIRE_TICKET_DO: DurableObjectNamespace<WireTicketDO>
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
@@ -133,7 +142,7 @@ export interface Env {
   readonly CHIEF_CREDITS_TOPUP_USD?: string
   /** Optional payment-service product id for the top-up line (else an inline "cmux Cloud credits" line). */
   readonly CHIEF_CREDITS_PRODUCT?: string
-  /** "mysql": the team meters mirror credits to the billing database through PS_MYSQL (credits-mirror.ts). Off otherwise. */
+  /** "mysql": the team meters mirror credits to the billing database through PS_MYSQL (credits-mirror.ts); on by default on development; "off" stops it. */
   readonly CREDITS_MIRROR?: string
   /** Dogfood grant (credits-admin.ts): comma list of team_ or user_ ids, the USD per entry, and the round (raise to grant again). */
   readonly CHIEF_CREDITS_DOGFOOD?: string

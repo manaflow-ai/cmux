@@ -18,21 +18,30 @@ public struct StackSymbolicator: Sendable {
         self.map = map
     }
 
-    /// One frame per address, in order. Resolves symbols; call off the main
+    /// One frame per address, in order, the first being where the thread
+    /// was and the rest return addresses. Resolves symbols; call off the main
     /// thread.
+    ///
+    /// A return address is the instruction after its call, which is the next
+    /// function's first one after a call to a function that never returns, so
+    /// frames after the first resolve `address - 1`, the call itself. Each
+    /// frame still reports its address, and offsets count from it.
     public func frames(for addresses: [UInt]) -> [HangFrame] {
         let executable = _dyld_get_image_header(0).map { UnsafeRawPointer($0) }
-        return addresses.map { address in
+        return addresses.enumerated().map { index, address in
             var info = Dl_info()
-            guard let pointer = UnsafeRawPointer(bitPattern: address), dladdr(pointer, &info) != 0 else {
+            let lookup = index == 0 || address == 0 ? address : address &- 1
+            guard let pointer = UnsafeRawPointer(bitPattern: lookup), dladdr(pointer, &info) != 0 else {
                 return HangFrame(address: address, image: nil, symbol: nil, offset: 0)
             }
             let image = info.dli_fname.map { (String(cString: $0) as NSString).lastPathComponent }
             let imageOffset = info.dli_fbase.map { address &- UInt(bitPattern: $0) }
-            if let map, let imageOffset, info.dli_fbase.map(UnsafeRawPointer.init) == executable,
-               let function = map.function(at: imageOffset) {
+            let lookupOffset = info.dli_fbase.map { lookup &- UInt(bitPattern: $0) }
+            if let map, let imageOffset, let lookupOffset, info.dli_fbase.map(UnsafeRawPointer.init) == executable,
+               let function = map.function(at: lookupOffset) {
+                // The offset into the function, counted from the reported address.
                 return HangFrame(address: address, image: image, symbol: Self.demangle(function.name),
-                                 offset: function.offset, imageOffset: imageOffset)
+                                 offset: function.offset &+ (address &- lookup), imageOffset: imageOffset)
             }
             let symbol = info.dli_sname.map { Self.demangle(String(cString: $0)) }
             let base = info.dli_saddr.map { UInt(bitPattern: $0) } ?? address

@@ -52,6 +52,7 @@ public final class SettingsApplier {
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
+        if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }

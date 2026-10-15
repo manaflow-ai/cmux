@@ -13,9 +13,12 @@ struct Draft: Equatable {
 struct ConversationUIState: Equatable {
     var draft = Draft()
     var typing: [ID] = []
-    /// cmux: the host's notice, MessagesLab's system row under the newest message (nil: none).
-    var notice: String?
+    /// cmux: the host's notice, MessagesLab's system row under the newest message (nil: none). Its own field:
+    /// upstream's `notice` (ask 9, `.setNotice`) is the host status line, which Home does not set yet.
+    var cmuxNotice: String?
     var openThread: PartRef?
+    /// The host's quiet status line under the transcript (HostHooks.swift, ask 9; `.setNotice`); nil: no line.
+    var notice: String?
     /// `offset`: points scrolled up from the bottom (0 when pinned).
     var scroll = Scroll()
     struct Scroll: Equatable { var pinnedToBottom = true; var offset: CGFloat = 0 }
@@ -82,6 +85,8 @@ enum Action {
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
     /// estimate correction (no motion; the first visible row keeps its place).
     case remeasureCustom([ID], animated: Bool)
+    /// The host's status line under the transcript (ask 9): its text, nil to take it away (HostHooks.swift).
+    case setNotice(String?)
 }
 
 enum Reducer {
@@ -202,13 +207,15 @@ enum Reducer {
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .custom(part) } }
         case .remeasureCustom:
             break
+        case let .setNotice(text):
+            s.ui.notice = text
         case let .cmuxSetAttachment(id, a):  // cmux
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
                   let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
             else { break } // cmux: checked
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
         case let .cmuxNotice(text):  // cmux
-            s.ui.notice = text
+            s.ui.cmuxNotice = text
         }
         return nil
     }

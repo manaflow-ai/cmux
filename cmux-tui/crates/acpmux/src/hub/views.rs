@@ -230,6 +230,8 @@ impl Hub {
             // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
             tools: m.tools.rows.iter().map(Into::into).collect(),
             tools_mutable: m.tools.mutable,
+            // The MCP servers the harness reported loaded (cx-ncc.105), never guessed from config.
+            mcp_servers: crate::protocol::session::McpServerSummary::loaded(&m.tools.rows),
             tags: live_tags(&m),
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,

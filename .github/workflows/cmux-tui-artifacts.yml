@@ -1090,7 +1090,12 @@ jobs:
     # these tests gate the nightly-next promotion, so they never wait for the
     # shared side pool. Clearing the variable rolls it back. The fork gate
     # stays first (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+    # vars.CI_NEXT_DAEMON_POOL, when set, takes that same slot ahead of the
+    # promote pool. One mini serves CI_NEXT_PROMOTE_POOL, so these tests
+    # queued an hour behind the Release compile and promotion stalled
+    # (2026-10-15); a separate pool keeps promotion's two halves from queuing
+    # behind each other. Clearing it restores the shared promote pool.
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS

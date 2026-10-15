@@ -137,6 +137,14 @@ extension HomeStore {
         case .draft(let update):
             if draftBook.apply(update) { drafts = draftBook.live }
         default:
+            // A new post ends its author's typing: the owner sends no typing-off after a post (home-inbox-v1).
+            // An update of a known message (edit, retraction, reaction, answer) keeps it.
+            if case .message(let message, _) = event, message.editedAt == nil, message.retractedAt == nil,
+               typing[message.conversation]?.contains(message.author) == true,
+               mirror.message(clientID: message.clientMessageID, in: message.conversation) == nil {
+                typing[message.conversation]?.remove(message.author)
+                if typing[message.conversation]?.isEmpty == true { typing[message.conversation] = nil }
+            }
             let outcome = mirror.apply(event)
             switch event {
             case .inbox(let snapshot): confirm(snapshot.conversations.map(\.id))

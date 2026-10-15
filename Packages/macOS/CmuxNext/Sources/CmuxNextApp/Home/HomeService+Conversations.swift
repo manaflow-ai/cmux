@@ -8,7 +8,7 @@ import Foundation
 extension HomeService {
     var composer: HomeComposer {
         let store = homeStore
-        return HomeComposer { op in try await store.perform(op) }
+        return HomeComposer(perform: { op in try await store.perform(op) }, describe: { RefusalStrings.describe($0) })
     }
 
     /// The people New Message offers: team members, then people of the
@@ -75,7 +75,7 @@ extension HomeService {
         let store = homeStore
         let auth = services.cloud.auth
         let source = HomeSidebarSource(
-            store: HomePinStore(),
+            store: HomePinStore(), inbox: homeInbox,
             account: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },

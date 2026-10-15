@@ -104,6 +104,9 @@ public final class WindowMaterialView: NSView {
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
 
+    /// The layer of the tint over the desktop while it shows (`debug.themes`).
+    var shownTintLayer: CALayer? { tintView.isHidden ? nil : tintView.layer }
+
     /// The theme tint laid over glass while the window is not key: Liquid
     /// Glass drops its `tintColor` then and draws the system's grey, so the
     /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
@@ -215,7 +218,16 @@ public final class WindowMaterialView: NSView {
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
-        tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+        let tint = shows ? color.cgColor : nil
+        if let layer = tintView.layer, layer.backgroundColor != tint {
+            // The tint over the desktop blends like the opaque sheet (appearance.colorTransition).
+            if tint != nil, layer.backgroundColor != nil, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: tint)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = tint
+            }
+        }
         updateInactiveTint()
     }
 

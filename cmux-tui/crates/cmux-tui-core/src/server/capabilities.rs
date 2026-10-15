@@ -57,6 +57,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
     }
+    if crate::chief_brains::taken().is_some() {
+        capabilities.push(chief_control::CAPABILITY);
+    }
     #[cfg(debug_assertions)]
     capabilities
         .retain(|capability| !test_hidden_capabilities().iter().any(|hidden| hidden == capability));

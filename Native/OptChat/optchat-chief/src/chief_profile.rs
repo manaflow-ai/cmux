@@ -936,10 +936,6 @@ Tell the person plainly that the new Chief exists but will not answer until its 
             "Its brain did NOT start: agents are turned off in this build session. Tell the \
 person plainly that the new Chief exists but will not answer here."
         }
-        (Some("not_started"), Some("supervisor_starting")) => {
-            "Its brain did not start yet: the brain supervisor is still starting. Tell the \
-person it should answer shortly, and that you cannot confirm it yet."
-        }
         (Some("not_started"), Some("unconfirmed")) => {
             "Whether its brain started is not confirmed yet (the supervisor was busy). Tell \
 the person it may answer soon, and do not promise it."

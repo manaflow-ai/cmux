@@ -1101,6 +1101,31 @@
       ],
       "type": "object"
     },
+    "McpServerStatus": {
+      "description": "`failed` also for one that waits on a sign-in (Claude Code `needs-auth`).",
+      "enum": [
+        "connected",
+        "failed",
+        "pending"
+      ],
+      "type": "string"
+    },
+    "McpServerSummary": {
+      "description": "One MCP server a harness loaded (`SessionSummary::mcp_servers`).",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/McpServerStatus"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "type": "object"
+    },
     "MessageRole": {
       "enum": [
         "agent",
@@ -1712,6 +1737,16 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "mcpServers": {
+          "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
+          "items": {
+            "$ref": "#/types/McpServerSummary"
+          },
+          "type": [
+            "array",
+            "null"
           ]
         },
         "model": {

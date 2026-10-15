@@ -120,8 +120,9 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar)
+            for await (all, archived, _, _, _, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
+                 sidebar.ownerRows)
             }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)

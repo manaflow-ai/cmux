@@ -259,9 +259,14 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     return { allowed: spent + open < limitMicros, spent_usd: Math.round(spent) / 1_000_000 }
   }
 
-  /** The credits mirror to the billing database is on here (CREDITS_MIRROR=mysql and the PS_MYSQL binding). */
+  /**
+   * The credits mirror to the billing database is on here: the PS_MYSQL binding, and CREDITS_MIRROR
+   * "mysql" or the development environment (its Vitess branch has the tables; no var change is needed
+   * there, so a skipped development deploy cannot leave the deploy's vars guard stuck). "off" stops it.
+   */
   private mirrorOn(): boolean {
-    return this.env.CREDITS_MIRROR === "mysql" && this.env.PS_MYSQL !== undefined
+    if (this.env.PS_MYSQL === undefined || this.env.CREDITS_MIRROR === "off") return false
+    return this.env.CREDITS_MIRROR === "mysql" || this.env.ENVIRONMENT === "development"
   }
 
   private scheduleMirror(): void {

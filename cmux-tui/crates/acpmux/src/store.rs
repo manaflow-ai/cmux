@@ -288,6 +288,11 @@ pub struct ToolRow {
     pub enabled: bool,
     /// `_acpmux/set_tools` can turn it on or off in this chat.
     pub can_toggle: bool,
+    /// An MCP server's status in the harness's own word (Claude Code's
+    /// `connected`, `failed`, `pending`, `needs-auth`, `disabled`), as its
+    /// last report gave it; none for a server no harness reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 impl SessionMeta {

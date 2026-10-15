@@ -186,7 +186,7 @@ fn daemon_shutdown_stops_its_router_before_it_exits() {
     let mut daemon = start_daemon(&dir);
     let (pid, _held) = router(&dir);
     assert!(alive(pid));
-    cli_shutdown(&dir, &[]);
+    cli_shutdown(&dir, &["--end-agents"]);
     wait_exit(&mut daemon, Duration::from_secs(15));
     // The daemon reaps the router it started before it exits: the pid is
     // gone now, with no wait (a leaked router would live on with parent pid 1).
@@ -255,7 +255,7 @@ async fn a_kept_agent_keeps_its_router_and_the_next_daemon_adopts_it() {
     drop(rpc);
 
     // Ending every agent ends the router too.
-    cli_shutdown(&dir, &[]);
+    cli_shutdown(&dir, &["--end-agents"]);
     wait_exit(&mut second, Duration::from_secs(15));
     assert!(gone_within(host_pid, Duration::from_secs(10)), "the agent host outlived the shutdown");
     assert!(gone_within(router_pid, Duration::from_secs(10)), "the router outlived its last agent");

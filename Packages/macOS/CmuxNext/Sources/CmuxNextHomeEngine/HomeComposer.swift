@@ -1,5 +1,5 @@
-import CmuxHomeCore
-import CmuxNextHome
+public import CmuxHomeCore
+public import CmuxNextHome
 import Foundation
 
 /// New Message and Invite as Home ops (home-messaging.md 4.1 and 16.10),
@@ -9,10 +9,18 @@ import Foundation
 /// address; a verified team domain is the owner's call). The owner's
 /// refusals become outcomes the sheet can say.
 @MainActor
-struct HomeComposer {
+public struct HomeComposer {
     var perform: @MainActor (HomeOp) async throws -> HomeOpResult
+    /// Text for an error that is no owner refusal (the app's refusal wording).
+    var describe: @MainActor (any Error) -> String
 
-    func start(_ recipients: [HomeRecipient], title: String) async -> HomeComposeOutcome {
+    public init(perform: @escaping @MainActor (HomeOp) async throws -> HomeOpResult,
+                describe: @escaping @MainActor (any Error) -> String) {
+        self.perform = perform
+        self.describe = describe
+    }
+
+    public func start(_ recipients: [HomeRecipient], title: String) async -> HomeComposeOutcome {
         var people: [HomeContact] = []
         var addresses: [ContactAddress] = []
         for recipient in recipients {
@@ -37,25 +45,25 @@ struct HomeComposer {
             guard let conversation = result.conversation else { return .refused("") }
             return .opened(conversation)
         } catch {
-            return Self.outcome(for: error, naming: naming)
+            return outcome(for: error, naming: naming)
         }
     }
 
     /// Invite to cmux-next: a DM invite to the address (the owner sends the
     /// email; on staging only to its allow list).
-    func invite(_ address: ContactAddress) async -> HomeComposeOutcome {
+    public func invite(_ address: ContactAddress) async -> HomeComposeOutcome {
         guard address.isEmail else { return .invalidAddress(address.description) }
         do {
             let result = try await perform(.invite(contact: address))
             return .invited(result.conversation)
         } catch {
-            return Self.outcome(for: error, naming: address.description)
+            return outcome(for: error, naming: address.description)
         }
     }
 
     /// The owner's refusal as the sheet says it.
-    static func outcome(for error: any Error, naming: String) -> HomeComposeOutcome {
-        guard let rejection = error as? HomeRejection else { return .refused(RefusalStrings.describe(error)) }
+    func outcome(for error: any Error, naming: String) -> HomeComposeOutcome {
+        guard let rejection = error as? HomeRejection else { return .refused(describe(error)) }
         switch rejection {
         case .rateLimited: return .rateLimited
         case .ownerUnreachable: return .offline

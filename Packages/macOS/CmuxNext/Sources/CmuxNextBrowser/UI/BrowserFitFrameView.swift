@@ -34,7 +34,6 @@ public final class BrowserFitFrameView: NSView {
     private let note = NSTextField(labelWithString: Strings.explain)
     private let choose = NSButton(title: "", target: nil, action: nil)
     private let off = NSButton(title: Strings.turnOff, target: nil, action: nil)
-    private let row = NSStackView()
 
     init() {
         super.init(frame: .zero)
@@ -42,7 +41,6 @@ public final class BrowserFitFrameView: NSView {
         for field in [label, note] {
             field.font = .systemFont(ofSize: 11)
             field.lineBreakMode = .byTruncatingTail
-            field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
         label.toolTip = Strings.explain
         for button in [choose, off] {
@@ -55,10 +53,7 @@ public final class BrowserFitFrameView: NSView {
         choose.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 8, weight: .semibold))
         off.action = #selector(turnOff)
-        row.orientation = .horizontal
-        row.spacing = 10
-        row.setViews([label, note, choose, off], in: .center)
-        addSubview(row)
+        for view in [label, note, choose, off] { addSubview(view) }
         applyColors()
     }
 
@@ -76,13 +71,19 @@ public final class BrowserFitFrameView: NSView {
         tabID = emulation?.tabID
         value = emulation?.fit?.value ?? ""
         label.stringValue = text
-        if note.isHidden != !Self.explains { note.isHidden = !Self.explains; needsLayout = true }
-        if changed {
-            choose.title = Strings.title(value)
+        note.isHidden = !Self.explains
+        let title = Strings.title(value)
+        if choose.attributedTitle.string != title {
+            // Set as an attributed title every time it differs (a plain title would drop the muted color).
+            choose.title = title
             applyColors()
-            needsDisplay = true
             needsLayout = true
         }
+        if changed {
+            applyColors()
+            needsDisplay = true
+        }
+        layoutBar()
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -118,12 +119,30 @@ public final class BrowserFitFrameView: NSView {
 
     override public func layout() {
         super.layout()
-        // The bar fills the strip under the page, centered on the page.
+        layoutBar()
+    }
+
+    /// The bar in the strip under the page, centered on the page: status, explanation, fit menu, Turn Off.
+    /// In a narrow pane the explanation shrinks first (hidden under 60 pt), then the status; the controls keep their size.
+    private func layoutBar() {
         let strip = CGRect(x: bounds.minX + 8, y: bounds.minY, width: max(0, bounds.width - 16), height: max(0, presented.minY - bounds.minY))
-        let fitting = row.fittingSize
-        let width = min(strip.width, fitting.width)
-        row.frame = CGRect(x: (presented.width > 0 ? presented.midX : strip.midX) - width / 2, y: strip.midY - fitting.height / 2,
-                           width: width, height: fitting.height).intersection(strip.isEmpty ? bounds : strip)
+        let spacing: CGFloat = 10
+        for view in [label, note, choose, off] { view.sizeToFit() }
+        let controls = choose.frame.width + off.frame.width + spacing
+        let labelWidth = max(0, min(label.frame.width, strip.width - controls - spacing))
+        var noteWidth = !Self.explains ? 0 : min(note.frame.width, strip.width - controls - labelWidth - 2 * spacing)
+        if noteWidth < 60 { noteWidth = 0 }
+        let pieces: [(NSView, CGFloat)] = [(label, labelWidth), (note, noteWidth), (choose, choose.frame.width), (off, off.frame.width)]
+        let total = pieces.filter { $0.1 > 0 }.reduce(-spacing) { $0 + $1.1 + spacing }
+        let center = presented.width > 0 ? presented.midX : strip.midX
+        var x = min(max(strip.minX, center - total / 2), max(strip.minX, strip.maxX - total))
+        for (view, width) in pieces {
+            view.isHidden = width <= 0 || (view === note && !Self.explains)
+            guard width > 0 else { continue }
+            let height = view.frame.height
+            view.frame = CGRect(x: x.rounded(), y: (strip.midY - height / 2).rounded(), width: width, height: height)
+            x += width + spacing
+        }
     }
 
     // MARK: Commands

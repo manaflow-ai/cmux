@@ -10,7 +10,7 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -417,6 +420,7 @@
+@@ -424,6 +427,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -18,17 +18,17 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -927,11 +931,11 @@
+@@ -940,11 +944,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
--            TextDraw.line(ph, font: ComposeView.font, color: NSColor(white: 123 / 255, alpha: 1), x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
+-            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholderInk, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
 +            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholder, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
          }.cgImage
          placeholderLayer.contentsScale = fmt.scale
          waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
--            NSColor(white: 144 / 255, alpha: 1).setFill()
-+            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
+-            Fixture.waveformInk.setFill()
++            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above); the see-through ink without a theme
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
