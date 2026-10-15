@@ -58,6 +58,81 @@ const SCROLL_SCRIPT = `(() => {
   post();
 })()`;
 
+const FOCUS_BINDING = "__cmuxNextFocus";
+/**
+ * Reports which element has focus (browser.focus) on every focus change and
+ * after every tap, so the phone raises its keyboard for an editable element
+ * (as Safari does) and drops it when focus leaves one. Runs in every frame;
+ * a frame's report covers its own document.
+ */
+export const FOCUS_SCRIPT = `(() => {
+  if (window.__cmuxNextFocusHooked) return;
+  window.__cmuxNextFocusHooked = true;
+  const TEXT_TYPES = new Set(["", "text", "search", "url", "tel", "email", "password", "number"]);
+  let lastInput = 0;
+  let queued = false;
+  const state = () => {
+    let el = document.activeElement;
+    while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+    if (!el || el === document.body || el === document.documentElement) return { editable: false };
+    if (el.tagName === "IFRAME" || el.tagName === "FRAME") return null; // the frame reports itself
+    const tag = el.tagName;
+    const type = tag === "INPUT" ? (el.getAttribute("type") || "").toLowerCase() : "";
+    const editable =
+      (tag === "INPUT" && TEXT_TYPES.has(type) && !el.readOnly && !el.disabled) ||
+      (tag === "TEXTAREA" && !el.readOnly && !el.disabled) ||
+      el.isContentEditable === true;
+    if (!editable) return { editable: false };
+    return {
+      editable: true,
+      multiline: tag !== "INPUT",
+      inputType: tag === "INPUT" ? (type || "text") : undefined,
+      inputMode: el.getAttribute("inputmode") || undefined,
+      enterKeyHint: el.getAttribute("enterkeyhint") || undefined,
+    };
+  };
+  const post = () => {
+    queued = false;
+    const s = state();
+    if (!s) return;
+    s.userInitiated = performance.now() - lastInput < 1000;
+    try { ${FOCUS_BINDING}(JSON.stringify(s)); } catch {}
+  };
+  const queue = () => { if (!queued) { queued = true; setTimeout(post, 0); } };
+  const input = () => { lastInput = performance.now(); };
+  for (const type of ["touchstart", "touchend", "pointerdown", "mousedown", "keydown"]) addEventListener(type, input, { capture: true, passive: true });
+  for (const type of ["touchend", "click"]) addEventListener(type, queue, { capture: true, passive: true });
+  addEventListener("focusin", queue, true);
+  addEventListener("focusout", queue, true);
+})()`;
+
+/** Parsed `__cmuxNextFocus` payload, forwarded as the `browser.focus` event. */
+export function parseFocusPayload(payload: string): {
+  editable: boolean;
+  multiline?: boolean;
+  inputType?: string;
+  inputMode?: string;
+  enterKeyHint?: string;
+  userInitiated?: boolean;
+} | null {
+  let v: any;
+  try {
+    v = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== "object" || typeof v.editable !== "boolean") return null;
+  const out: ReturnType<typeof parseFocusPayload> = { editable: v.editable };
+  if (v.editable) {
+    out!.multiline = v.multiline === true;
+    for (const k of ["inputType", "inputMode", "enterKeyHint"] as const) {
+      if (typeof v[k] === "string" && v[k].length > 0 && v[k].length < 32) out![k] = v[k];
+    }
+  }
+  if (typeof v.userInitiated === "boolean") out!.userInitiated = v.userInitiated;
+  return out;
+}
+
 interface Cast {
   session: ClientSession;
   streamId: number;
@@ -81,6 +156,7 @@ interface Cast {
   echoPending?: boolean;
   scrollScriptId?: string;
   visibilityScriptId?: string;
+  focusScriptId?: string;
 }
 
 interface TabState {
@@ -400,6 +476,12 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
           this.setHidden(t, params.payload === "hidden");
           return;
         }
+        if (params.name === FOCUS_BINDING && typeof params.payload === "string") {
+          const focus = parseFocusPayload(params.payload);
+          const cast = t.cast;
+          if (focus && cast?.session.open) cast.session.sendEvent("browser.focus", { tabId: t.tab.id, streamId: cast.streamId, ...focus });
+          return;
+        }
         if (params.name === SCROLL_BINDING && typeof params.payload === "string") {
           const [x, y] = params.payload.split(",").map(Number);
           if (Number.isFinite(x) && Number.isFinite(y)) t.scroll = { x: x!, y: y! };
@@ -582,6 +664,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         // The Mac user's tab: stream it as the Mac shows it.
         await this.installVisibilityReporter(cdp, sid, cast);
         if (cast.meta) await this.installScrollReporter(cdp, sid, cast);
+        await this.installFocusReporter(cdp, sid, cast);
         await this.startCast(cdp, sid, cast);
         return { streamId: cast.streamId, tab: { ...t.tab } };
       }
@@ -594,6 +677,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       const reload = await this.applyUserAgent(cdp, t, sid, cast.mobile, reloadForMode);
       await this.installVisibilityReporter(cdp, sid, cast);
       if (cast.meta) await this.installScrollReporter(cdp, sid, cast);
+      await this.installFocusReporter(cdp, sid, cast);
       await this.startCast(cdp, sid, cast);
       // A document loaded with the other user agent keeps its layout until
       // it reloads (desktop Wikipedia at 1120 CSS px on a phone).
@@ -713,6 +797,16 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     await cdp.send("Runtime.evaluate", { expression: SCROLL_SCRIPT }, sid).catch(() => {});
   }
 
+  /** Reports focus of editable elements through a binding (browser.focus). */
+  private async installFocusReporter(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
+    await cdp.send("Runtime.addBinding", { name: FOCUS_BINDING }, sid).catch(() => {});
+    const r = await cdp
+      .send<{ identifier?: string }>("Page.addScriptToEvaluateOnNewDocument", { source: FOCUS_SCRIPT }, sid)
+      .catch(() => null);
+    cast.focusScriptId = r?.identifier;
+    await cdp.send("Runtime.evaluate", { expression: FOCUS_SCRIPT }, sid).catch(() => {});
+  }
+
   private async startCast(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
     cast.settledAt = undefined;
     // A page that is not repainting produces no screencast frame: the settle
@@ -741,6 +835,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     await cdp.send("Page.stopScreencast", {}, sid).catch(() => {});
     if (cast?.scrollScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.scrollScriptId }, sid).catch(() => {});
     if (cast?.meta) await cdp.send("Runtime.removeBinding", { name: SCROLL_BINDING }, sid).catch(() => {});
+    if (cast?.focusScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.focusScriptId }, sid).catch(() => {});
+    if (cast) await cdp.send("Runtime.removeBinding", { name: FOCUS_BINDING }, sid).catch(() => {});
     // The Mac's tabs keep their visibility watch (macVisible) for the layout.
     if (this.mirroring) return; // nothing was overridden on the Mac's tab
     if (cast?.visibilityScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.visibilityScriptId }, sid).catch(() => {});

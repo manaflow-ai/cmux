@@ -223,6 +223,15 @@ Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, a
 - `browser.screenshot {tabId}` -> `{dataBase64}` (tab overview thumbnail, jpeg)
 - events: `browser.tab {tab}`, `browser.closed {tabId}`, `browser.detached {streamId, tabId, reason:"displaced"}`
   (another client attached the same tab; this client's stream ended)
+- event `browser.focus {tabId, streamId, editable, multiline?, inputType?, inputMode?, enterKeyHint?, userInitiated?}`:
+  sent only to the client that owns the tab's stream, on every focus change in the page (any frame)
+  and after every tap. `editable` is true for a text-like `<input>` (text, search, url, tel, email,
+  password, number), a `<textarea>` or a contenteditable element that is not read-only or disabled;
+  `multiline` is false only for `<input>`. `inputType`, `inputMode` and `enterKeyHint` echo the
+  element's `type`, `inputmode` and `enterkeyhint`. `userInitiated` is true when touch, pointer or
+  key input reached the page within the last second. The phone raises its keyboard when the user's
+  own tap focused an editable element (as Safari does) and lowers it when `editable` turns false.
+  Older phones ignore the topic.
 
 With `browser.mac.v1` (host bridged to the cmux-next app):
 - `browser.macStatus {}` -> `MacStatus`; event `browser.macStatus` (MacStatus) on change.
