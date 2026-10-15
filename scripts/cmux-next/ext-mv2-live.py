@@ -744,7 +744,9 @@ def phase_ublock(args):
         shot = job.window_shot("builtin-extensions-menu", popups=True)
         job.call("debug.extensions.menu", {"dismiss": True})
         note = [i for i in state.get("items", []) if isinstance(i, dict) and str(i.get("identifier", "")).endswith(".builtInAdBlocker")]
-        job.row("builtin: Extensions menu says uBlock Origin (full) is built in", bool(note), {"note": note, "shot": shot, "open": state.get("open")})
+        want = getattr(main, "menu_note", None) or "present"
+        job.row(f"menu: the built-in line is {want} (built-in copy {'loaded' if want == 'present' else 'skipped'})",
+                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "shot": shot, "open": state.get("open")})
 
     def dashboard():
         """Automation may not open extension pages as tabs; a person's tab is
@@ -769,7 +771,7 @@ def phase_ublock(args):
                            ("ublock: ready", ready), ("ublock: network", network),
                            ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
-                           *([] if args.ubo else [("builtin: menu note", menu_note)]),
+                           *([("menu note", menu_note)] if not args.ubo or args.menu_note else []),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
 
@@ -789,9 +791,12 @@ def main():
     parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
     parser.add_argument("--label", help="artifact folder name (default: the phase)")
+    parser.add_argument("--menu-note", choices=["present", "absent"],
+                        help="check the Extensions menu's built-in line (default: present for builtin)")
     parser.add_argument("--config", default="{}", help="cmux.json the app starts with, e.g. {\"browser\": {\"builtInAdBlocker\": false}}")
     args = parser.parse_args()
     Job.config = args.config
+    main.menu_note = args.menu_note
     if args.phase == "ublock" and not args.ubo:
         parser.error("--ubo is required")
     if args.phase == "builtin":

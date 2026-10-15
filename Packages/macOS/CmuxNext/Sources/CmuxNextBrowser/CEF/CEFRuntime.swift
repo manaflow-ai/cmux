@@ -312,7 +312,7 @@ final class CEFRuntime {
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
-                .folders(resources: Bundle.main.resourceURL)
+                .folders(resources: Bundle.main.resourceURL, profiles: storage.root)
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
