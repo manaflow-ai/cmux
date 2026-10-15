@@ -81,7 +81,7 @@ public actor ChiefConversationOwner {
     /// - Parameters:
     ///   - home: The Chief home; its directories are created.
     ///   - brain: Runs each turn.
-    ///   - userDisplayName: The user's name; nil uses `NSFullUserName()`, or "You" when that is empty.
+    ///   - userDisplayName: The user's name; nil uses `NSFullUserName()`, or "You" (localized) when that is empty.
     ///   - now: The clock for message times (tests pass a fixed one).
     ///   - context: Builds each turn's prompt, working directory and environment.
     /// - Throws: A file system error when the home's directories cannot be created. A

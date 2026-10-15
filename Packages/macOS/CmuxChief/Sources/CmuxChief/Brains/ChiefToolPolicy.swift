@@ -213,11 +213,12 @@ enum ChiefToolPolicy {
             let key = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
             guard valueFlags.contains(key) else { return false }
             if !arg.contains("=") {
-                guard index < args.count else { return false }
+                // A value that looks like a flag could be parsed as one (`--name --command x`).
+                guard index < args.count, !args[index].hasPrefix("-") else { return false }
                 index += 1
             }
         }
-        return true
+        return !args.contains(where: cmuxWordAsks)
     }
 
     /// `sort` with only ordering flags: GNU sort takes any unambiguous
@@ -523,12 +524,14 @@ enum ChiefToolPolicy {
 /// well-known stores, not every secret on disk.
 struct ChiefSensitivePaths {
     private let home: String
+    private let homePath: String
     private let roots: [String]
     private let searchCovers: [String]
 
     init(home: String) {
-        let home = Self.resolve(home) ?? home
-        self.home = home.lowercased()
+        homePath = home
+        let home = (Self.resolve(home, home: home) ?? home).lowercased()
+        self.home = home
         let underHome = [
             ".ssh", ".aws", ".gnupg", ".config/gh", ".config/gcloud", ".azure", ".docker", ".kube",
             "library/keychains", "library/cookies", "library/safari", "library/containers/com.apple.safari",
@@ -537,9 +540,10 @@ struct ChiefSensitivePaths {
             "library/application support/arc", "library/application support/chromium",
             "library/application support/vivaldi", "library/application support/com.operasoftware.opera",
         ]
-        roots = underHome.map { self.home + "/" + $0 } + ["/library/keychains"]
+        let roots = underHome.map { home + "/" + $0 } + ["/library/keychains"]
+        self.roots = roots
         // Folders a search must not cover: each sensitive root, plus `~/.cmux` (auth files inside).
-        searchCovers = roots + [self.home + "/.cmux"]
+        searchCovers = roots + [home + "/.cmux"]
     }
 
     /// Whether `Read` of `path` runs without asking.
@@ -568,12 +572,13 @@ struct ChiefSensitivePaths {
     }
 
     private func resolved(_ path: String) -> String? {
-        Self.resolve(path).map { $0.lowercased() }
+        Self.resolve(path, home: homePath).map { $0.lowercased() }
     }
 
-    /// `path` absolute, with `~` expanded, `.`/`..` removed and symlinks resolved; nil when relative.
-    private static func resolve(_ path: String) -> String? {
-        let expanded = (path as NSString).expandingTildeInPath
+    /// `path` absolute, with `~` expanded to `home`, `.`/`..` removed and symlinks resolved; nil
+    /// when relative (`~user` included).
+    private static func resolve(_ path: String, home: String) -> String? {
+        let expanded = path == "~" ? home : path.hasPrefix("~/") ? home + path.dropFirst() : path
         guard expanded.hasPrefix("/") else { return nil }
         let resolved = URL(fileURLWithPath: expanded).standardizedFileURL.resolvingSymlinksInPath().path
         return resolved.count > 1 && resolved.hasSuffix("/") ? String(resolved.dropLast()) : resolved

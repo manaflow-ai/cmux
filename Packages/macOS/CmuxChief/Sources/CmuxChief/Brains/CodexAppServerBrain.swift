@@ -232,7 +232,7 @@ actor CodexConversation {
         }
         let result = try await call("thread/start", CodexAppServerBrain.threadParams(configuration, request: request, resume: nil))
         guard let thread = result["thread"]?["id"]?.string else {
-            throw ChiefBrainError.protocolError("Codex started a thread without an id.")
+            throw ChiefBrainError.protocolError(ChiefText.codexNoThread)
         }
         parser.threadID = thread
         lastThread = thread
@@ -240,7 +240,7 @@ actor CodexConversation {
     }
 
     private func call(_ method: String, _ params: ChiefJSON) async throws -> ChiefJSON {
-        guard let process else { throw ChiefBrainError.protocolError("Codex is not running.") }
+        guard let process else { throw ChiefBrainError.protocolError(ChiefText.codexNotRunning) }
         nextID += 1
         let id = nextID
         return try await withCheckedThrowingContinuation { waiter in
@@ -248,7 +248,7 @@ actor CodexConversation {
             // Queued, not written: a later EPIPE means the process died, and
             // `processEnded` fails every pending call.
             if !process.write(CodexAppServerParser.request(id: id, method: method, params: params).line) {
-                pending.removeValue(forKey: id)?.resume(throwing: ChiefBrainError.protocolError("Codex stopped before \(method)."))
+                pending.removeValue(forKey: id)?.resume(throwing: ChiefBrainError.protocolError(ChiefText.codexStopped(before: method)))
             }
         }
     }
@@ -289,7 +289,7 @@ actor CodexConversation {
         process = nil
         approvals = [:]
         let detail = child.stderrText
-        let message = detail.isEmpty ? "Codex exited unexpectedly." : "Codex exited: \(ChiefToolPolicy.truncate(detail, to: 600))"
+        let message = detail.isEmpty ? ChiefText.codexExitedUnexpectedly : ChiefText.codexExited(ChiefToolPolicy.truncate(detail, to: 600))
         let waiters = pending
         pending = [:]
         for waiter in waiters.values { waiter.resume(throwing: ChiefBrainError.protocolError(message)) }

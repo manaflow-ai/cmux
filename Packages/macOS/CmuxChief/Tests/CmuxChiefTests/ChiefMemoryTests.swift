@@ -72,13 +72,58 @@ import Testing
             try memory.add(String(repeating: "a", count: ChiefMemory.maxFactBytes + 1), source: "cli")
         }
         #expect(throws: ChiefMemoryError.looksLikeSecret) {
-            try memory.add("token is ghp_abcdefghijklmnopqrstuvwxyz0123456789", source: "cli")
+            try memory.add("token is " + "ghp" + "_" + "abcdefghijklmnopqrstuvwxyz0123456789", source: "cli")
         }
         #expect(throws: ChiefMemoryError.looksLikeSecret) {
             try memory.add("db is postgres://admin:hunter22@db.internal/app", source: "cli")
         }
         #expect(memory.facts().isEmpty)
         #expect(!ChiefMemory.looksLikeSecret("Uses the password manager for shared logins"))
+    }
+
+    /// Secrets the earlier filter let through (PR 21063 review), plus the ones it caught.
+    static let secrets: [String] = [
+        "AWS_SECRET_ACCESS_KEY=" + "fixture/fixture/fixture/fixture000000",
+        "export GITHUB_TOKEN=abcdef1234567890",
+        "MY_API_KEY=abcdef123456",
+        "my-api-key: abcdef123456",
+        "DB_PASSWORD=\"hunter2hunter2\"",
+        "STRIPE_PRIVATE_KEY = abcdef123456",
+        "aws access_key: AKIAIOSFODNN7EXAMPLE",
+        "stripe key " + "sk_" + "live_" + "0000fixture0000fixture00",
+        "test key " + "rk_" + "test_" + "0000fixture0000fixture00",
+        "npm" + "_" + "abcdefghijklmnopqrstuvwxyz0123456789",
+        "gitlab " + "glp" + "at-" + "abcdefghij0123456789",
+        "token " + "ghp" + "_" + "abcdefghijklmnopqrstuvwxyz0123456789",
+        "GITHUB_TOKEN_" + "ghp" + "_" + "abcdefghijklmnopqrstuv",
+        "slack " + "xox" + "b-" + "1234567890-abcdefghij",
+        "key AKIAIOSFODNN7EXAMPLE",
+        "KEY_AKIAIOSFODNN7EXAMPLE",
+        "temporary ASIAIOSFODNN7EXAMPLE",
+        "-----BEGIN OPENSSH PRIVATE KEY----- b3BlbnNzaC1rZXk",
+        "-----BEGIN RSA PRIVATE KEY-----",
+        "-----BEGIN PRIVATE KEY-----",
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+        "sk-proj-abcdefghijklmnopqrstuvwxyz",
+        "db is postgres://admin:hunter22@db.internal/app",
+    ]
+
+    static let notSecrets: [String] = [
+        "Uses the password manager for shared logins",
+        "Rotates tokens every month",
+        "Prefers API keys stored in 1Password",
+        "Machine brave-otter is for builds",
+        "Secrets live in the team vault",
+    ]
+
+    @Test(arguments: secrets)
+    func catchesSecret(text: String) {
+        #expect(ChiefMemory.looksLikeSecret(text), "\(text)")
+    }
+
+    @Test(arguments: notSecrets)
+    func keepsOrdinaryFacts(text: String) {
+        #expect(!ChiefMemory.looksLikeSecret(text), "\(text)")
     }
 
     @Test func onDiskLineMatchesTheSharedFormat() throws {

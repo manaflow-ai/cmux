@@ -148,6 +148,46 @@ import Testing
         #expect(ChiefRows.alwaysAllowWords("cmux tree | head") == nil)
     }
 
+    /// (command, rule offered): ChiefApprovalCardTests.ruleCases in CmuxChief has the same table; change both.
+    static let alwaysAllowCases: [(String, [String]?)] = [
+        ("cmux tree --all", ["cmux", "tree"]),
+        ("git push origin main", ["git", "push"]),
+        ("cmux workspace rename workspace:2 --title API", ["cmux", "workspace"]),
+        ("cmux chief dispatch --agent codex --name fix", ["cmux", "chief", "dispatch"]),
+        ("cmux close-workspace --workspace workspace:2", nil),
+        ("cmux kill-pane --pane pane:2", nil),
+        ("cmux clear-notifications", nil),
+        ("cmux workspace close workspace:2", nil),
+        ("cmux tree --force", nil),
+        ("cmux tree --force=true", nil),
+        ("cmux workspace create --command id", nil),
+        ("cmux send --workspace workspace:2 hi", nil),
+        ("cmux send-key --workspace workspace:2 enter", nil),
+        ("cmux vm exec brave-otter -- id", nil),
+        ("cmux vm run brave-otter id", nil),
+        ("cmux vm ls", nil),
+        ("cmux vm new --detach", nil),
+        ("cmux chief approve", nil),
+        ("cmux chief send hi", nil),
+        ("cmux chief memory add fact", nil),
+        ("cmux chief", nil),
+        ("cmux browser eval 1", nil),
+        ("cmux new-workspace --name x", nil),
+        ("cmux rpc workspace.close", nil),
+        ("bash -c ls", nil), ("sh script", nil), ("zsh -lc x", nil), ("python script.py", nil), ("python3 -m http", nil),
+        ("node app.js", nil), ("ruby x.rb", nil), ("perl x.pl", nil), ("npx something", nil), ("make all", nil),
+        ("npm exec foo", nil), ("npm run build", nil), ("git config user.email", nil), ("env cmux tree", nil),
+        ("rm -rf build", nil), ("ls", nil),
+        ("cmux tree --all 2>&1 | head -100", nil), ("cmux clo{s,}e-workspace", nil), ("cmux tree *", nil),
+        ("cmux tree ~", nil), ("git diff --output=x", nil),
+    ]
+
+    @Test(arguments: alwaysAllowCases.indices)
+    func alwaysAllowOffers(index: Int) {
+        let (command, rule) = Self.alwaysAllowCases[index]
+        #expect(ChiefRows.alwaysAllowWords(command) == rule, "\(command)")
+    }
+
     @Test func aHostedWorkPartIsNeverFolded() {
         let card = MessagePart.work(WorkRef(session: "ws", host: "brave-otter", title: "Ready", status: .done))
         let items = [Self.item(1, [Self.work("t1", "cmux tree")]), Self.item(2, [card])]

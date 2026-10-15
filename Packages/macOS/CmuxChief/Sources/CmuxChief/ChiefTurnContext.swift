@@ -12,6 +12,11 @@ public struct ChiefTurnContext: Sendable, Equatable {
     public var environment: [String: String]
     /// The engine that answers, recorded in the turn's ``ChiefTurnStats``; nil when unknown.
     public var engine: ChiefTurnEngine?
+    /// Text the owner prepends to this turn's user text, nil for none: a
+    /// `<memory-update>` block when memory changed since the brain session
+    /// started (``ChiefMemoryFreshness``), since the system prompt only
+    /// reaches a brain when its session starts.
+    public var turnPreamble: String?
 
     /// Creates a context.
     ///
@@ -20,12 +25,22 @@ public struct ChiefTurnContext: Sendable, Equatable {
     ///   - workingDirectory: The process's working directory.
     ///   - environment: Extra process environment; empty by default.
     ///   - engine: The engine that answers, for the turn's stats; nil by default.
+    ///   - turnPreamble: Text to prepend to the user text; nil by default.
     public init(systemPrompt: String, workingDirectory: URL, environment: [String: String] = [:],
-                engine: ChiefTurnEngine? = nil) {
+                engine: ChiefTurnEngine? = nil, turnPreamble: String? = nil) {
         self.systemPrompt = systemPrompt
         self.workingDirectory = workingDirectory
         self.environment = environment
         self.engine = engine
+        self.turnPreamble = turnPreamble
+    }
+
+    /// `userText` with ``turnPreamble`` before it, separated by a blank line.
+    public func userText(_ userText: String) -> String {
+        guard let preamble = turnPreamble?.trimmingCharacters(in: .whitespacesAndNewlines), !preamble.isEmpty else {
+            return userText
+        }
+        return preamble + "\n\n" + userText
     }
 }
 

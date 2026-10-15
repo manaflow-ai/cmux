@@ -331,11 +331,12 @@ import Testing
         #expect(await ChiefFixture.eventually {
             (try? await owner.snapshot(of: conversation, tail: 10).messages.count) == 2
         })
+        let card = try #require(await owner.pendingApproval(in: conversation))
         await #expect(throws: HomeRejection.invalid("invalid_choice")) {
-            try await owner.answerApproval(conversation: self.conversation, request: "perm-1", choice: "Maybe")
+            try await owner.answerApproval(conversation: self.conversation, message: card.message, part: card.part, choice: "Maybe")
         }
-        try await owner.answerApproval(conversation: conversation, request: "perm-1", choice: "Allow")
-        #expect(await brain.log.approvals.map { $0.choice } == ["Allow"])
+        try await owner.answerApproval(conversation: conversation, message: card.message, part: card.part, choice: "Allow")
+        #expect(await brain.log.approvals.map { "\($0.id):\($0.choice)" } == ["perm-1:Allow"])
         let message = try await owner.snapshot(of: conversation, tail: 10).messages[1]
         guard case .approval(let ref) = message.parts.first else { Issue.record("no approval part"); return }
         #expect(ref.decided == "Allow")

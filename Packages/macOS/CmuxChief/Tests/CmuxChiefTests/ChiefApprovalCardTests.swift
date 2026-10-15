@@ -40,8 +40,9 @@ import Testing
         #expect(messages.count == 2)
         let card = try #require(messages.last)
         guard case .approval(let ref) = card.parts.first, card.parts.count == 1 else { Issue.record("no approval part"); return }
-        #expect(ref.request == "perm-1")
-        #expect(await owner.pendingApproval(in: conversation)?.request == "perm-1")
+        // The card's id is the brain's id in the turn's namespace; the brain hears its own id.
+        #expect(ref.request.hasSuffix(":perm-1") && ref.request != "perm-1")
+        #expect(await owner.pendingApproval(in: conversation) == .init(message: card.id, part: 0, ref: ref))
 
         // No typing dots under a card that waits for the user.
         let events = await recorder.events
@@ -118,6 +119,82 @@ import Testing
         #expect(ChiefAllowRules.prefix(for: "ls") == nil)
         #expect(ChiefAllowRules.command(inPrompt: "Run `cmux tree --all`?") == "cmux tree --all")
         #expect(ChiefAllowRules.command(inPrompt: "Allow Edit README.md?") == nil)
+    }
+
+    /// (command, rule offered). Home's card has the same table (ChiefRowsTests.alwaysAllowCases); change both.
+    static let ruleCases: [(String, [String]?)] = [
+        ("cmux tree --all", ["cmux", "tree"]),
+        ("git push origin main", ["git", "push"]),
+        ("cmux workspace rename workspace:2 --title API", ["cmux", "workspace"]),
+        ("cmux chief dispatch --agent codex --name fix", ["cmux", "chief", "dispatch"]),
+        // destructive cmux verbs, by word, prefix or value
+        ("cmux close-workspace --workspace workspace:2", nil),
+        ("cmux kill-pane --pane pane:2", nil),
+        ("cmux clear-notifications", nil),
+        ("cmux workspace close workspace:2", nil),
+        ("cmux tree --force", nil),
+        ("cmux tree --force=true", nil),
+        ("cmux workspace create --command id", nil),
+        // cmux groups that run commands, type or answer for the user
+        ("cmux send --workspace workspace:2 hi", nil),
+        ("cmux send-key --workspace workspace:2 enter", nil),
+        ("cmux vm exec brave-otter -- id", nil),
+        ("cmux vm run brave-otter id", nil),
+        ("cmux vm ls", nil),
+        ("cmux vm new --detach", nil),
+        ("cmux chief approve", nil),
+        ("cmux chief send hi", nil),
+        ("cmux chief memory add fact", nil),
+        ("cmux chief", nil),
+        ("cmux browser eval 1", nil),
+        ("cmux new-workspace --name x", nil),
+        ("cmux rpc workspace.close", nil),
+        // shells, interpreters, runners
+        ("bash -c ls", nil), ("sh script", nil), ("zsh -lc x", nil), ("python script.py", nil), ("python3 -m http", nil),
+        ("node app.js", nil), ("ruby x.rb", nil), ("perl x.pl", nil), ("npx something", nil), ("make all", nil),
+        ("npm exec foo", nil), ("npm run build", nil), ("git config user.email", nil), ("env cmux tree", nil),
+        ("rm -rf build", nil), ("ls", nil),
+        // syntax the rule cannot see through
+        ("cmux tree --all 2>&1 | head -100", nil), ("cmux clo{s,}e-workspace", nil), ("cmux tree *", nil),
+        ("cmux tree ~", nil), ("git diff --output=x", nil),
+    ]
+
+    @Test(arguments: ruleCases.indices)
+    func ruleOffers(index: Int) {
+        let (command, rule) = Self.ruleCases[index]
+        #expect(ChiefAllowRules.prefix(for: command) == rule, "\(command)")
+    }
+
+    @Test func aRuleNeverCoversADestructiveCallOrAnotherGroupVerb() throws {
+        let rules = ChiefAllowRules()
+        #expect(try rules.add(command: "cmux workspace rename workspace:2 --title x") == ["cmux", "workspace"])
+        #expect(try rules.add(command: "cmux chief dispatch --agent codex") == ["cmux", "chief", "dispatch"])
+        #expect(rules.allows(["cmux", "workspace", "select", "workspace:2"]))
+        #expect(rules.allows(["cmux", "chief", "dispatch", "--name", "x"]))
+        for words in [
+            ["cmux", "workspace", "close", "workspace:2"], ["cmux", "workspace", "create", "--command", "id"],
+            ["cmux", "workspace", "rename", "--force=true"], ["cmux", "workspace", "kill-all"],
+            ["cmux", "chief", "approve"], ["cmux", "chief", "send", "hi"], ["cmux", "chief", "memory", "add", "x"],
+        ] {
+            #expect(!rules.allows(words), "\(words)")
+        }
+    }
+
+    @Test func ineligibleRulesOnDiskAreIgnored() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-rules-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root)
+        try FileManager.default.createDirectory(at: home.stateDirectory, withIntermediateDirectories: true)
+        let stored = #"{"rules":[["cmux","vm"],["cmux","send"],["bash","-c"],["cmux","chief"],["git","config"],["cmux","tree"]]}"#
+        try Data(stored.utf8).write(to: home.stateDirectory.appendingPathComponent("allow-rules.json"))
+        let rules = ChiefAllowRules()
+        rules.load(home)
+        #expect(!rules.allows(["cmux", "vm", "exec", "m", "--", "id"]))
+        #expect(!rules.allows(["cmux", "send", "hi"]))
+        #expect(!rules.allows(["bash", "-c", "id"]))
+        #expect(!rules.allows(["cmux", "chief", "approve"]))
+        #expect(!rules.allows(["git", "config", "core.pager", "sh"]))
+        #expect(rules.allows(["cmux", "tree", "--all"]))
     }
 }
 

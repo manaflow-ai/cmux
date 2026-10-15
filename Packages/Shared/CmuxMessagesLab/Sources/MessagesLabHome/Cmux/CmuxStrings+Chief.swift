@@ -6,6 +6,28 @@ extension CmuxStrings {
     static func toolRunning(_ command: String) -> String {
         String(localized: "home.tool.running", defaultValue: "Running \(command)", table: "CmuxHome", bundle: .module)
     }
+    /// Tool titles the owner stores in English ("Read <path>"), in the user's language.
+    static func toolRead(_ path: String) -> String {
+        String(localized: "home.tool.read", defaultValue: "Read \(path)", table: "CmuxHome", bundle: .module)
+    }
+    static func toolWrite(_ path: String) -> String {
+        String(localized: "home.tool.write", defaultValue: "Write \(path)", table: "CmuxHome", bundle: .module)
+    }
+    static func toolEdit(_ path: String) -> String {
+        String(localized: "home.tool.edit", defaultValue: "Edit \(path)", table: "CmuxHome", bundle: .module)
+    }
+    static func toolSearch(_ pattern: String) -> String {
+        String(localized: "home.tool.search", defaultValue: "Search \(pattern)", table: "CmuxHome", bundle: .module)
+    }
+    static func toolSearchWeb(_ query: String) -> String {
+        String(localized: "home.tool.searchWeb", defaultValue: "Search the web: \(query)", table: "CmuxHome", bundle: .module)
+    }
+    static func toolFetch(_ url: String) -> String {
+        String(localized: "home.tool.fetch", defaultValue: "Fetch \(url)", table: "CmuxHome", bundle: .module)
+    }
+    static var toolFindTools: String {
+        String(localized: "home.tool.findTools", defaultValue: "Find tools", table: "CmuxHome", bundle: .module)
+    }
     /// A finished command: "Ran cmux tree --all".
     static func toolRan(_ command: String) -> String {
         String(localized: "home.tool.ran", defaultValue: "Ran \(command)", table: "CmuxHome", bundle: .module)
@@ -46,6 +68,19 @@ extension CmuxStrings {
     }
     static var approvalDenied: String {
         String(localized: "home.approval.denied", defaultValue: "Denied", table: "CmuxHome", bundle: .module)
+    }
+    /// The decided state of a card whose turn ended with an earlier run of the app
+    /// (the owner's `ChiefConversationOwner.approvalExpired`).
+    static var approvalExpired: String {
+        String(localized: "home.approval.expired", defaultValue: "Expired", table: "CmuxHome", bundle: .module)
+    }
+    /// A command approval's prompt (the owner stores "Run `<command>`?").
+    static func approvalRunPrompt(_ command: String) -> String {
+        String(localized: "home.approval.prompt.run", defaultValue: "Run `\(command)`?", table: "CmuxHome", bundle: .module)
+    }
+    /// Another tool's approval prompt (the owner stores "Allow <tool title>?").
+    static func approvalAllowPrompt(_ title: String) -> String {
+        String(localized: "home.approval.prompt.allow", defaultValue: "Allow \(title)?", table: "CmuxHome", bundle: .module)
     }
     /// The decided state for an option other than Allow or Deny.
     static func approvalChose(_ option: String) -> String {

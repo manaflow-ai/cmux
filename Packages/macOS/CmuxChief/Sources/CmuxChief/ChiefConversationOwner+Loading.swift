@@ -46,7 +46,7 @@ extension ChiefConversationOwner {
     static func participants(userDisplayName: String?) -> (me: Participant, chief: Participant) {
         let fullName = userDisplayName ?? NSFullUserName()
         let name = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let user = Participant(id: userID, kind: .human, displayName: name.isEmpty ? "You" : name)
+        let user = Participant(id: userID, kind: .human, displayName: name.isEmpty ? ChiefText.you : name)
         let defaultChief = Participant(id: chiefID, kind: .agent, displayName: "Chief", agentClass: .chief, ownerUser: userID)
         return (user, defaultChief)
     }

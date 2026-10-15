@@ -136,7 +136,7 @@ final class ChiefToolRowView: NSView {
         setAccessibilityIdentifier("ChiefToolRow")
         // The full list (and each call's detail) in the tooltip; Copy writes the same lines.
         toolTip = tools.calls.map { call in
-            [call.title, call.detail].compactMap { $0 }.joined(separator: "\n")
+            [ChiefRows.displayTitle(call.title), call.detail].compactMap { $0 }.joined(separator: "\n")
         }.joined(separator: "\n\n")
         rebuild()
     }
@@ -168,7 +168,8 @@ final class ChiefToolRowView: NSView {
         let (plain, code) = kind == .described ? ("", call.title) : kind.split(call.title)
         // "Ran %@": the localized frame around the command (word order is the language's).
         let token = "\u{1}"
-        let frame = kind == .command ? (call.state == .running ? CmuxStrings.toolRunning(token) : CmuxStrings.toolRan(token)) : plain + token
+        let frame = kind == .command ? (call.state == .running ? CmuxStrings.toolRunning(token) : CmuxStrings.toolRan(token))
+            : kind.localizedFrame(token) ?? plain + token
         let pieces = frame.components(separatedBy: token)
         let before = pieces.first ?? "", after = pieces.dropFirst().joined(separator: token)
         func build(_ shown: String) -> NSAttributedString {

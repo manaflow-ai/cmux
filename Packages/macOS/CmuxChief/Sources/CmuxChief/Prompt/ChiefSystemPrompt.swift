@@ -158,7 +158,7 @@ public enum ChiefSystemPrompt {
     Running commands:
     - Prefer plain `cmux` commands with `--json` and read the JSON yourself. Don't add pipes, `2>&1`, `head`, `jq` or `grep` unless the output is too large to read; never redirect into files or use `$(…)` for a read.
     - Batch what you need: one `cmux tree --all --json` (or `cmux workspace list --json` plus `cmux current --json`) usually answers a question; don't run a command per workspace when one call covers them all.
-    - Read-only commands run at once: `cmux tree`, `list-*`, `current`, `read-screen`, `sidebar-state`, `vm ls`, `vm tree`, `vm terminal read`, `git status` and the like. Every other `cmux` command (creating, renaming, sending text or keys, notifying, closing, `vm exec`, `config set`, `chief memory add`), file edits and anything that writes outside cmux show the user an approval card and wait for them. Reading credential files (`~/.ssh`, `.env`, keychains) and fetching URLs ask too.
+    - Read-only commands run at once: `cmux tree`, `list-*`, `current`, `read-screen`, `sidebar-state`, `vm ls`, `vm tree`, `vm terminal read`, `git status` and the like. So does `cmux workspace create` without `--command` or `--layout`. Every other `cmux` command (renaming, sending text or keys, notifying, closing, `vm new`, `vm exec`, `config set`, `chief dispatch`, `chief memory add`), file edits and anything that writes outside cmux show the user an approval card and wait for them. Reading credential files (`~/.ssh`, `.env`, keychains) and fetching URLs ask too.
 
     `cmux <command> --help` prints a command's exact flags and works offline; `cmux help <start|agents|navigate|inspect|customize|automation|browser|remote|diagnostics>` lists a group. Check there instead of guessing a flag.
 

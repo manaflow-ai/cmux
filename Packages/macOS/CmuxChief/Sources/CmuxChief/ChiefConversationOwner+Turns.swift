@@ -56,7 +56,8 @@ extension ChiefConversationOwner {
         let context = await contextProvider(input)
         guard isCurrent(turnID, conversation), !Task.isCancelled else { return }
         running[conversation]?.engine = context.engine
-        let request = ChiefTurnRequest(conversation: conversation, resumeSession: input.resumeSession, userText: turn.text,
+        let request = ChiefTurnRequest(conversation: conversation, resumeSession: input.resumeSession,
+                                       userText: context.userText(turn.text), // memory updates since the session began
                                        attachmentPaths: turn.attachmentPaths, replyContext: turn.replyContext,
                                        systemPrompt: context.systemPrompt, workingDirectory: context.workingDirectory,
                                        environment: context.environment)
@@ -422,6 +423,6 @@ extension ChiefConversationOwner {
 
     /// The text of the Chief message a failed turn posts.
     static func failureText(_ error: String) -> String {
-        "Chief could not finish this reply: \(error)\nSend your message again to retry."
+        ChiefText.turnFailed(error)
     }
 }

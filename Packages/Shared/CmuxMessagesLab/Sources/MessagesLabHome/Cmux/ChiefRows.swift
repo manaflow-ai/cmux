@@ -207,6 +207,9 @@ enum ChiefRows {
         "close-", "kill-", "clear-", "send-", "delete-", "remove-", "--force", "--yes", "--command", "--eval",
     ]
 
+    /// The decided value of an expired card (ChiefConversationOwner.approvalExpired in CmuxChief, the same id).
+    static let expiredDecision = "expired"
+
     static func grants(_ option: String) -> Bool {
         ["allow", "approve", "yes", "run", "allow once"].contains(option.lowercased())
     }
@@ -261,6 +264,22 @@ enum ChiefRows {
             case .file(let verb): return verb == "Read " ? "doc.text" : "pencil"
             case .search: return "magnifyingglass"
             case .fetch: return "globe"
+            }
+        }
+
+        /// The title in the user's language around `code` ("Read %@"), nil for a
+        /// command or a description (shown as the owner wrote it).
+        func localizedFrame(_ code: String) -> String? {
+            switch self {
+            case .command, .described: return nil
+            case .file(let verb):
+                return verb == "Read " ? CmuxStrings.toolRead(code) : verb == "Write " ? CmuxStrings.toolWrite(code)
+                    : CmuxStrings.toolEdit(code)
+            case .search(let verb):
+                if verb.isEmpty { return CmuxStrings.toolFindTools }
+                return verb == "Search the web: " ? CmuxStrings.toolSearchWeb(code) : CmuxStrings.toolSearch(code)
+            case .fetch:
+                return CmuxStrings.toolFetch(code)
             }
         }
 
@@ -362,7 +381,23 @@ enum ChiefRows {
 
     /// Copy, VoiceOver and the preview: one line per call.
     static func plainText(_ tools: Tools) -> String {
-        tools.calls.map(\.title).joined(separator: "\n")
+        tools.calls.map { displayTitle($0.title) }.joined(separator: "\n")
+    }
+
+    /// A tool title as the user reads it: the owner's English verbs ("Read <path>") in the user's language.
+    static func displayTitle(_ title: String) -> String {
+        let kind = ToolKind(title: title)
+        return kind.localizedFrame(kind.split(title).code) ?? title
+    }
+
+    /// An approval prompt as the user reads it: the owner stores "Run `<command>`?" and
+    /// "Allow <tool title>?" in English (it parses them); other prompts show as written.
+    static func displayPrompt(_ prompt: String) -> String {
+        if let command = command(inPrompt: prompt) { return CmuxStrings.approvalRunPrompt(command) }
+        if prompt.hasPrefix("Allow "), prompt.hasSuffix("?"), prompt.count > "Allow ?".count {
+            return CmuxStrings.approvalAllowPrompt(displayTitle(String(prompt.dropFirst("Allow ".count).dropLast())))
+        }
+        return prompt
     }
 
     /// The row's one line: a run's count, or the call itself.
@@ -374,7 +409,7 @@ enum ChiefRows {
 
     /// A call's line as text ("Ran cmux tree --all", "Read Sources/App.swift").
     static func lineText(_ call: ToolCall) -> String {
-        guard call.kind == .command else { return call.title }
+        guard call.kind == .command else { return displayTitle(call.title) }
         return call.state == .running ? CmuxStrings.toolRunning(call.title) : CmuxStrings.toolRan(call.title)
     }
 
@@ -393,6 +428,8 @@ enum ChiefRows {
 
     /// The decided receipt's text: "Allowed: <command>", "Denied", or the chosen option.
     static func decidedLabel(_ choice: String, command: String? = nil) -> String {
+        // The owner's id for a card nobody can answer any more (ChiefConversationOwner.approvalExpired).
+        if choice == expiredDecision { return CmuxStrings.approvalExpired }
         if grants(choice) { return command.map(CmuxStrings.approvalAllowedCommand) ?? CmuxStrings.approvalAllowed }
         if refuses(choice) { return CmuxStrings.approvalDenied }
         return CmuxStrings.approvalChose(choice)

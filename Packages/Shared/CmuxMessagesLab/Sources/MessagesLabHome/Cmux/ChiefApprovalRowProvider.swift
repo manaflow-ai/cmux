@@ -68,7 +68,7 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
         }
         if let command = a.command { return NSAttributedString(string: command, attributes: attrs(codeFont)) }
         let out = NSMutableAttributedString()
-        for (text, code) in ChiefRows.promptRuns(a.prompt) {
+        for (text, code) in ChiefRows.promptRuns(ChiefRows.displayPrompt(a.prompt)) {
             out.append(NSAttributedString(string: text, attributes: attrs(code ? HomeFonts.code : Fixture.bodyFont)))
         }
         return out
@@ -144,7 +144,7 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
 
     func plainText(_ part: CustomPart) -> String? {
         guard let a = part.decode(ChiefRows.Approval.self) else { return nil }
-        guard let decided = a.decided else { return a.prompt }
+        guard let decided = a.decided else { return ChiefRows.displayPrompt(a.prompt) }
         return ChiefRows.decidedLabel(decided, command: a.command)
     }
 }
@@ -189,10 +189,10 @@ final class ChiefApprovalCardView: NSView {
         let rebuilt = approval?.request != a.request || approval?.options != a.options || approval?.isPending != a.isPending
         approval = a
         self.context = context
-        setAccessibilityLabel(a.isPending ? ChiefRows.caption(a) + ": " + (a.command ?? a.prompt)
+        setAccessibilityLabel(a.isPending ? ChiefRows.caption(a) + ": " + (a.command ?? ChiefRows.displayPrompt(a.prompt))
                                           : a.decided.map { ChiefRows.decidedLabel($0, command: a.command) })
         setAccessibilityRole(a.isPending ? .group : .staticText)
-        toolTip = a.isPending ? nil : a.prompt
+        toolTip = a.isPending ? nil : ChiefRows.displayPrompt(a.prompt)
         if rebuilt {
             removeButtons()
             if a.isPending {

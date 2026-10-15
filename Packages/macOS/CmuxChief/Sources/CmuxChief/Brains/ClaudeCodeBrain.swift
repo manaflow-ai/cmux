@@ -226,7 +226,7 @@ actor ClaudeConversation {
         // Queued, not written: a later EPIPE means the process died, and
         // `processEnded` reports it with stderr (and may retry a broken resume).
         if process?.write(line) != true {
-            end(.failed("Claude Code stopped before it read the message."))
+            end(.failed(ChiefText.claudeStoppedBeforeReading))
         }
     }
 
@@ -341,7 +341,7 @@ actor ClaudeConversation {
         guard continuation != nil else { return }
         let detail = child.stderrText
         if retryFreshSession(after: detail) { return }
-        end(.failed(detail.isEmpty ? "Claude Code exited unexpectedly." : "Claude Code exited: \(ChiefToolPolicy.truncate(detail, to: 600))"))
+        end(.failed(detail.isEmpty ? ChiefText.claudeExitedUnexpectedly : ChiefText.claudeExited(ChiefToolPolicy.truncate(detail, to: 600))))
     }
 
     func respond(toApproval id: String, allow: Bool) {
@@ -411,7 +411,7 @@ public enum ChiefBrainError: Error, Sendable, Equatable, CustomStringConvertible
     public var description: String {
         switch self {
         case .missingExecutable(let name):
-            return "Could not find `\(name)` on PATH. Install it or set its path in Chief settings."
+            return ChiefText.missingExecutable(name)
         case .protocolError(let message):
             return message
         }

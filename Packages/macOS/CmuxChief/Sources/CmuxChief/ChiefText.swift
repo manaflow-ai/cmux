@@ -29,7 +29,7 @@ enum ChiefText {
                bundle: .module)
     }
 
-    static var claudeExited: String {
+    static var claudeExitedUnexpectedly: String {
         String(localized: "chief.brain.claude.exited", defaultValue: "Claude Code exited unexpectedly.", bundle: .module)
     }
 
@@ -42,7 +42,7 @@ enum ChiefText {
                defaultValue: "Claude Code stopped before it read the message.", bundle: .module)
     }
 
-    static var codexExited: String {
+    static var codexExitedUnexpectedly: String {
         String(localized: "chief.brain.codex.exited", defaultValue: "Codex exited unexpectedly.", bundle: .module)
     }
 

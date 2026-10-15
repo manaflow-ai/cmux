@@ -40,6 +40,11 @@ import Testing
         "cmux list-workspaces | sort -nr -k2 | head",
         "cmux list-workspaces | sort -t: -k 2,2n --reverse",
         "git log HEAD~3 --oneline",
+        // workspace create without a command (the lead's call: one card only when it runs something)
+        "cmux workspace create --name Build",
+        "cmux workspace create --name Build --cwd /Users/me/src/app --description 'API work' --json",
+        "cmux workspace create --name=Build --focus false",
+        "cmux workspace create --name Build --no-focus --group group:1",
         // the dogfood command that used to ask
         "cmux tree --all 2>&1 | head -100",
         "cmux tree --all 2>/dev/null | head -100",
@@ -111,7 +116,20 @@ import Testing
         // cmux writes ask now (deny by default)
         "cmux notify --title hi",
         "cmux workspace create --name Build --cwd ~/src/app --command 'codex --yolo'",
-        "cmux workspace create --name Build",
+        "cmux workspace create --name Build --command 'codex --yolo'",
+        "cmux workspace create --name Build --command=id",
+        "cmux workspace create --name Build --layout '{}'",
+        "cmux workspace create --name Build --focus true",
+        "cmux workspace create --name Build --focus",
+        "cmux workspace create --name --command x",
+        "cmux workspace create --name close",
+        "cmux workspace create Build",
+        "cmux new-workspace --name Build",
+        // machine creation costs money; dispatch is one meaningful card
+        "cmux vm new --detach",
+        "cmux cloud new --size 8g",
+        "cmux vm fork brave-otter",
+        "cmux chief dispatch --agent codex --name fix 'fix the bug'",
         "cmux workspace rename workspace:2 --title \"API server\"",
         "cmux workspace env workspace:2",
         "cmux workspace status set auto",
