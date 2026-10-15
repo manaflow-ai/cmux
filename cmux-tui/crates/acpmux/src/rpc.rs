@@ -221,6 +221,8 @@ pub mod method {
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
+    pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
