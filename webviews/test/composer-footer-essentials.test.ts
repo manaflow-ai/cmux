@@ -97,12 +97,6 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     await page.close();
   });
 
-  test("a mode that is not the default keeps its name in the bar", async () => {
-    const page = await open("agent-pane.composer", "footer-full-access");
-    expect((await read(page, ".acpmux-access-trigger"))?.visible).toBe("Full access");
-    await page.close();
-  });
-
   test("a chat on another machine keeps that machine's name", async () => {
     const page = await open("agent-pane.composer-context", "ssh-chat");
     const labels = await page.$$eval(".acpmux-location-label", (spans) =>

@@ -77,6 +77,42 @@
   border: 0;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
+/* The opt-in slider (Debug Settings agent.reasoningSlider): wide enough for Faster, Smarter and the
+   recommended line; the title row names the level the thumb sits on. */
+.acpmux-effort-menu:has(.acpmux-effort-slider) {
+  width: min(232px, calc(100vw - 24px));
+}
+.acpmux-effort-slider {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  padding: 0 8px 6px;
+}
+.acpmux-effort-slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.acpmux-effort-slider-head .ui-menu-group-label {
+  padding-inline: 0;
+}
+.acpmux-effort-slider-level {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-control);
+  color: var(--agent-text);
+  white-space: nowrap;
+}
+.acpmux-effort-slider .acpmux-effort-track {
+  margin-top: 8px;
+}
+/* The menu keeps a row's highlight when focus moves to the slider (a keyboard open, Up from the
+   first speed row): one focus at a time, so a row reads highlighted only while it has focus. */
+.acpmux-effort-menu:has(.acpmux-effort-range:focus) .ui-menu-item.acpmux-effort-item[data-highlighted] {
+  background: none;
+}
 .acpmux-effort-track {
   --acpmux-effort-inset: calc(13px * var(--cmux-interface-scale, 1));
   position: relative;

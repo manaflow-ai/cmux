@@ -11,19 +11,31 @@ import CmuxNextDesign
 /// the composer footer's right-click shows it again. `showDictation`: the dictation mic beside Send
 /// in every composer (a chat's and the New Tab page's); its right-click hides it, Settings shows it
 /// again. A bad value is the default plus a diagnostic.
+///
+/// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
+/// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
+/// same `composer` event, so the reasoning menu draws its stepped slider instead of the levels.
 public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let showContextUsagePath = ["agentPane", "showContextUsage"]
     public static let showDictationPath = ["agentPane", "showDictation"]
 
     public var showContextUsage = true
     public var showDictation = true
+    /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
+    public var reasoningSlider = false
 
     public init() {}
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation}`.
-    public var pageValue: JSONValue { ["showContextUsage": .bool(showContextUsage), "showDictation": .bool(showDictation)] }
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, reasoningSlider}`.
+    public var pageValue: JSONValue {
+        [
+            "showContextUsage": .bool(showContextUsage),
+            "showDictation": .bool(showDictation),
+            "reasoningSlider": .bool(reasoningSlider)
+        ]
+    }
 
     /// Checked against its schema row, so the parser and the Settings window agree.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> AgentPaneComposerSetting {

@@ -1,10 +1,12 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextSettings
 import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`,
-/// `agentPane.editedFiles.*`, `agentPane.showContextUsage` and `diff.colors`. Each change reaches every open view; a new view gets the current
+/// `agentPane.editedFiles.*`, `agentPane.showContextUsage`, `diff.colors` and the Debug Settings
+/// toggle `agent.reasoningSlider`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
@@ -17,6 +19,7 @@ final class AgentPanePageSettings {
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
+    private var reasoningSliderObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
@@ -52,7 +55,18 @@ final class AgentPanePageSettings {
         composerObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
+                // The reasoning slider is the Debug Settings toggle's, not cmux.json's.
+                let reasoningSlider = composer.reasoningSlider
                 composer = value
+                composer.reasoningSlider = reasoningSlider
+                push()
+            }
+        }
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        reasoningSliderObservation = Task { [weak self] in
+            for await on in ObservationStream({ AgentPaneTunables.reasoningSlider.value }) {
+                guard let self else { return }
+                composer.reasoningSlider = on
                 push()
             }
         }

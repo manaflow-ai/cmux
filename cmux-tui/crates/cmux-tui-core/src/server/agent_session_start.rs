@@ -340,8 +340,12 @@ fn run(
     result
 }
 
-/// A link to acpmux, starting it once when nothing listens.
-pub(super) fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
+/// A link to acpmux, starting it once when nothing listens (also an
+/// `agent-update-apply`, `agent_update.rs`).
+pub(in crate::server) fn connect(
+    mux: &Mux,
+    socket: &std::path::Path,
+) -> Result<Arc<AcpmuxLink>, Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok(link);
@@ -355,6 +359,24 @@ pub(super) fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxL
     }
     starter().map_err(|_| Refusal::AcpmuxUnavailable)?;
     open().map_err(|_| Refusal::AcpmuxUnavailable)
+}
+
+/// Runs `restart` (an acpmux handoff, `agent_update.rs`: the running acpmux
+/// stopped, this binary's started) under the start lock, so no start here
+/// runs while acpmux is down; then a link to the acpmux that answers. A failed
+/// restart still connects once (another process may have started acpmux),
+/// and is logged.
+pub(in crate::server) fn restart_with(
+    mux: &Mux,
+    socket: &std::path::Path,
+    restart: impl FnOnce() -> Result<(), String>,
+) -> Option<Arc<AcpmuxLink>> {
+    let starts = &mux.control_clients.agent_sessions.starts;
+    let _one_start = starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());
+    if let Err(error) = restart() {
+        eprintln!("cmux-tui: acpmux handoff for an agent update failed: {error}");
+    }
+    AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
 fn start_and_bind(
