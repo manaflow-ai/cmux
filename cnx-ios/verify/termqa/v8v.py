@@ -29,6 +29,27 @@ def _rec_start_logged(name):
 
 tq.rec_start = _rec_start_logged
 
+# The rig's `--tap-style simulator` tap started hanging for 25 s on every call at 03:50
+# (round 8); the automatic style still works. Try the rig's style briefly, then automatic.
+import subprocess as _sp
+import time as _time
+from sim import Sim as _Sim
+
+
+def _tap(self, x, y):
+    t = _time.time()
+    for style, to in (("simulator", 6), ("automatic", 30)):
+        try:
+            _sp.run(["axe", "tap", "--udid", self.udid, "-x", f"{x:.1f}", "-y", f"{y:.1f}", "--tap-style", style],
+                    capture_output=True, text=True, timeout=to)
+            return t
+        except _sp.TimeoutExpired:
+            continue
+    raise RuntimeError(f"tap {x},{y} failed in both styles")
+
+
+_Sim.tap = _tap
+
 if __name__ == "__main__":
     mod = importlib.import_module(sys.argv[1])
     sys.argv = [sys.argv[1] + ".py"] + sys.argv[2:]

@@ -82,3 +82,185 @@ in `e2e-t2` at the cap (17739 rows, pruned to 16853 every ~21 s). 150 s each, no
 - T-SCROLL-09 says the first frame after the tap is the start of the animation or the bottom, with
   0 foreign frames. A black frame is neither: **FAIL (noticeable, systematic)**. Under the brief's
   "> 1 frame" rule it passes.
+- **Fresh Codex tab** (`wt-cxjump1`, W-T): + → New Terminal, `codex …` and a 900-line prompt, all
+  typed on the phone. 10 jumps while Codex streamed: **0 black frames** (source-frame scan,
+  460 s). Two `a fling reached the bottom` lines came at 03:20:02/12 while the transcript was
+  still shorter than the page (`offset -62, bottom -62`); that is a legitimate end, not a snap.
+- **Total: 123 jumps, 0 black for more than one frame; 48 one-frame blacks, all at the cap.**
+
+### 1c. Two quick drops (V6-4, T-LIFE-08)
+
+`v8v_drop.py`: a GEN loop typed on the phone streams through the whole run; two hostd kills 3.4 s
+apart (`read2`, `follow2`) or one (`read1`).
+
+| Run | Path | Mode | Video black | Frame log blank > 1 frame | Replays | `[unknown surface]` on screen |
+| --- | --- | --- | --- | --- | --- | --- |
+| gd-drop-read2a | G-D | reading, 2 kills | 0 | 0 | 1 `reattach` | 0 (4 log-only attach retries) |
+| gd-drop-read1 | G-D | reading, 1 kill | 0 | 0 | 1 | 0 |
+| gd-drop-follow2 | G-D | following, 2 kills | 0 | 2 runs of 2 (not visible) | 2 (one per link-up) | 0 |
+| wt-drop-read2 | W-T | reading, 2 kills | 0 | 0 | 1 | 0 |
+| wt-drop-follow2 | W-T | following, 2 kills | 0 | 4 runs of 2-3 (not visible) | 1 | 0 |
+
+- **V6-4 is fixed in these runs: 0 black frames after two quick drops on both transports**
+  (round 6: black for 60 s+ on W-T). T-LIFE-08: **PASS (n = 5)**.
+- `LinkError(code: "attach", message: "unknown surface 17")` appears 3-7 times per drop in the app
+  log (attach retries while the Mac restarts); none reached the screen (screenshots
+  `*-after.jpg`).
+
+### 1d. A fling just before a tap
+
+- `gd-jump*` odd trips tap Jump 0.2 s after the last of 2 flings: 16 such taps, 0 black runs over
+  one frame; 2 one-frame blacks.
+- `wt-fling1`: each Jump tap 0.5 s after a fling: 65 taps, 37 one-frame blacks, none longer.
+
+### The `blank` flag
+
+The frame log's per-frame `blank` (rows the presented frame does not cover) fired 752 times in
+`wt-hold1` (19 runs of 2-3 frames) and 101 times in `gd-jump2`, while the video in the same windows
+shows full rows (`verify8v/` sheets for `wt-drop-follow2` 20.6 s and `wt-hold1` 102.9 s). It also
+fired 2-frame runs during the key-bar ^C / keyboard show at the end of the runs. Either the flag
+over-reports (for example a sliver of an uncovered row at the edge), or the uncovered rows are not
+visible. It is not usable as acceptance evidence as it stands; the video verdicts above are.
+
+## Claim 2: no fling snaps to the bottom at a prune (V5-2, T-SCROLL-04)
+
+- Flings toward older history during output at the cap: gd-jump1 64, gd-jump2 64 (~100 rows/s),
+  wt-fling1 65 from the live bottom (~250 rows/s, the page pruned 39 times during the run and
+  28 times while reading). **About 193 flings.**
+- `a fling reached the bottom`: **0** in the cap runs. After each of the 65 `wt-fling1` flings the
+  Jump button was present 0.5 s later (no snap). `verify8v/wt-fling1-result.json`.
+- **PASS.**
+
+## Claim 3: reading position after drops at the cap (V2-3, T-LIFE-09, T-LIFE-15)
+
+Top visible row id (OCR) just before the first kill and 12 s after the reattach, with output
+arriving through the drop:
+
+| Run | Path | Before | After | Off by | App log |
+| --- | --- | --- | --- | --- | --- |
+| gd-drop-read1 (1 kill, no prune) | G-D | GEN-3060 | GEN-3285 | **225 rows lower** | `reading mark row 15301 of 17439` → `restored row 15301 -> 15526 of 17664` |
+| gd-drop-read2a (2 kills, a prune) | G-D | GEN-6802 | GEN-7158 | **356 rows lower** | `16065 of 17685` → `15534 of 17154` |
+| wt-drop-read2 (2 kills, a prune) | W-T | GEN-1405 | GEN-1793 | **~388 rows lower** | `15277 of 17585` → `14778 of 17086` |
+
+- In each case the phone moved the mark by the change in total rows (+225, −531, −499), which
+  counts the rows that arrived during the drop as a shift of the anchor. The page lands that many
+  rows lower. The single-drop case did not even involve a prune: total grew 17439 → 17664, the
+  anchor row (15301) did not move on the Mac, and the phone moved it to 15526.
+- This is the limit `qa-round-8.md` itself states for the V2-3 fix ("more than about 110 rows during
+  the drop pushes the old end out of the active area"), hit by an ordinary 100 rows/s stream.
+- T-LIFE-09 (reading: same top row id ± 0): **FAIL, disruptive, 3 of 3 on both transports.**
+  T-LIFE-15: **FAIL** for the same reason on W-T.
+- Following after drops (`follow2`, both paths): back at the live bottom (GEN advancing, Jump
+  hidden) 12 s after; following resumes: PASS (timing invalid).
+
+## Claim 4: bottom pin after the draft shrinks (V6-1)
+
+`v8v_pin.py` (W-T, tab e2e-t2): `seq 1 300; printf '\e[7m%*s\e[0m' $COLUMNS ''; read x` typed on the
+phone, so a reverse-video bar is the last row. A 6-line draft is pasted into the composer
+(not sent), then shrunk by holding delete. Pixels by `v6pin.py` on each screenshot (bar bottom vs
+the first non-background row under it); the app's `pin:` log was not used.
+
+| Step | Keyboard | Composer field h (pt) | Bar bottom (pt) | First row below (pt) | Gap (pt) | Bar h (pt) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 line | up | 36 | 458 | 458 | **0.0** | 16 |
+| 6 lines | up | 136 | 358 | 358 | **0.0** | 16 |
+| shrunk to 5 | up | 124 | 370 | 370 | **0.0** | 16 |
+| shrunk to 5 | down | 124 | 648 | 648 | **0.0** | 16 |
+| shrunk to 5, +5 s | down | 124 | 648 | 648 | **0.0** | 16 |
+| shrunk to 2 | up | 58 | 436 | 436 | **0.0** | 16 |
+| shrunk to 2 | down | 58 | 714 | 714 | **0.0** | 16 |
+| shrunk to 2, +5 s | down | 58 | 714 | 714 | **0.0** | 16 |
+
+- The bar's bottom tracks the composer card in every shrink, keyboard up and down: gap 0 pt,
+  bar a full 16 pt row (no overlap). The shrinks were 6 → 5 → 2 lines (delete-hold steps are
+  coarse), which covers round 6's failing 6 → 5 case and a large shrink. **V6-1 / T-SIZE-07:
+  PASS.** Shots: `verify8v/wt-pin-*.jpg`, numbers `wt-pin-pin.json`.
+- `pin.sh` (Demo terminal, not the real link, growth only): the app's log reports gap 0.0 at
+  1-6 lines (`verify8v/pinsh-demo.txt`). It has no bar, so no pixel check; informative only.
+
+## Claim 5: `clear`
+
+- On the rig's zsh, `clear` (typed on the phone, e2e-t2) also clears the scrollback (E3). The Mac
+  then has one row (the bar/prompt) at row 0. The phone shows that row at the top of the page and
+  blank black down to the composer (`verify8v/wt-clear-e3-kbup.jpg`, `wt-clear-e3-kbdown.jpg`:
+  ~380 pt of blank between the last row and the composer).
+- This matches the Mac's screen and T-REND-09 (no blank rows above row 0). It does not match the
+  claim as briefed ("the prompt sits directly above the composer, with no blank page"); with no
+  history above, the prompt cannot sit on the composer without blank rows above it. **Verdict:
+  claim as briefed FAIL; ACCEPTANCE rows T-REND-09/T-REND-10 PASS for this case.** The case the
+  implementer fixed (`clear` that keeps history) was not run separately.
+
+## Claim 6: a new tab does not make the open tab replay (V5-4)
+
+- Grid → + → New Terminal (`newtab1`, W-T), with e2e-t1 the last open tab. App log: only
+  `surface 24: mirror reset cause=attach size=53x42` (the new surface). No reset or
+  `resized-event` on any other surface. **PASS (n = 1).** `verify8v/newtab1.log.gz`.
+- `+ → New Terminal` → `codex …` started a working Codex (`newtab-codex-start.jpg`): T-TABS-06
+  correctness PASS.
+- The Mac still lists e2e-t1 at 39 rows while every other tab is 42 (`terminal list`); the
+  "53x42 asked, 39 overruled" state of round 6 persists for t1.
+
+## Claim 7: no 370 ms freeze every 3 s while following
+
+Frame log while following a stream, hands off (`v8v_fl.py`):
+
+| Run | Frames | Frames > 100 ms | Longest 5 (ms) | Spacing of the > 100 ms frames |
+| --- | --- | --- | --- | --- |
+| gd-hold1 | 9030 | 10 | 214, 164, 158, 157, 156 | **every 15.1-15.5 s** (5.3, 20.8, 35.9, 51.1 … 142.0 s) |
+| wt-hold1 | 8971 | 11 | 162, 156, 155, 152, 150 | **every 10.6-15.5 s**, mostly 15.1-15.2 s |
+
+- The 370 ms frame every 3 s is gone. **Claim PASS.**
+- **New (noticeable, timing INVALID under load 15-95):** a 150-214 ms frame every ~15.1 s while
+  output streams. The period equals `TerminalFrameSaveSchedule`'s maximum wait: `saveFrameSoon`
+  waits for output to pause, at most 15 s, then renders `controller?.snapshot(hidingCursor:)` on
+  the main thread. Under continuous output the save always fires at the 15 s cap. The frame log's
+  `work_ms` for those frames is 0-0.6 ms, so the save is outside the measured work, and T-SCROLL-06 /
+  load cell (9) numbers from the frame log understate it. It needs a valid-load rerun, but the
+  period is load-independent evidence of the cause.
+
+## Claim 8: grid cards, D11, V5-5
+
+- **V5-6 / T-TABS-01, active card:** the active card shows the live bottom with the prompt and
+  cursor (`grid-open-1.jpg`, e2e-t2; `grid-while-streaming.jpg`, e2e-t2 at GEN-387 while the loop
+  streamed; `v55-grid-before-close`, the Codex tab's bottom). **PASS** for the active card.
+- **Inactive card stale (T-TABS-01, noticeable):** at the first grid open after my install and
+  launch, the e2e-t1 card showed old Codex output (forest items 86-107) while the Mac's t1 showed
+  rivers item 700 and the prompt (`grid-open-1.jpg`, `mac-t1-screen-0317.txt`). Opening t1 showed the
+  right screen (`t1-open-8s.jpg`). After a relaunch the cards were right (`d5-grid-after-relaunch.jpg`).
+  The stale card is a saved frame from an earlier session that the grid showed as current.
+- **D5 / T-TABS-02:** relaunch, grid: all 4 cards show content. **PASS.**
+- **D11 / T-LIFE-06 (saved frame after a kill):** `simctl terminate` + launch (`d11-relaunch.mp4`).
+  The saved dark frame is under the system launch cross-fade (`d11-handoff-light-skeleton.jpg`),
+  then a dimmed saved frame with "Connecting…", then live, with 0 black source frames.
+  - No cursor block in the saved frame. **But the character under the cursor is gone too:** the
+    saved frame reads `› sk Codex to do anything` where the live frame reads `› Ask …` with the
+    cursor on `A` (polish: hiding the cursor also hides its cell's glyph).
+  - **PASS with that polish item.** Timing not judged (load).
+- **V5-5 (closing a tab ends its Mac session): FAIL.** + → New Terminal created
+  `term_7b24c2dea0cf7caeaa3f49e8b403e768` on the Mac. Closing its card on the phone (the card's ×,
+  no confirmation shown, an idle shell) removed it from the grid (4 tabs), but the Mac still listed
+  it as `running` 10 s later (03:30:24) and 50 s later (03:31:13, after an app relaunch in
+  between). It was gone at the next check, 04:01:31 (`events.jsonl` `v55_close`, `v55_recheck`).
+  So the Mac session ends late (somewhere between 50 s and 31 min), not at the close.
+  T-TABS-08 ("the Mac's tab closes too ≤ 2 s"): **FAIL.**
+
+## Claim 9: text selection (G-14, T-SEL-01)
+
+On e2e-t1 (real Codex transcript, W-T then G-D):
+
+- **Long-press selects a word:** long-press on `Science` → Copy → pasteboard `Science`. **PASS.**
+- **Handles extend the selection:** long-press `Satellites` (row 684), then a drag from the word's
+  end into row 685 → Copy → `Satellites map seasonal flood extents.\n  685. Laser scans reveal channel
+  geometry.` That equals the Mac's two rows. **PASS (1 of 1).**
+- **Select All + Copy across scrollback:** 35,262 bytes, 1,118 lines, from `Earlier messages are
+  available — press ctrl + t to` / `34. Karst streams…` to the composer prompt. The Mac's
+  `history read` for t1 starts with the same rows. **PASS.** `verify8v/sel-select-all-pasteboard.txt`.
+- **Tap clears:** after a tap on the page the edit menu is gone and the text is not dimmed
+  (`sel3-after-tap-clear*.jpg`). **PASS.**
+- **New (noticeable): the selection is nearly invisible.** Selected text is drawn dimmer (grey on
+  black) with no highlight colour, and the handles are not visible. Where the handles sit they
+  black out parts of neighbouring glyphs: `683. Drones` shows as `Ͻrones` and `scans` loses a
+  letter while a selection is up (`sel-word-then-handle.png`, `sel-longpress-crop.png`). A user
+  cannot see what is selected or where to grab.
+- T-SEL-01 asks for 10 of 10 exact selections; this run has 3. T-SEL-02 (selection holds while
+  output streams) was not run. **T-SEL-01: not enough samples; functional checks pass.**
