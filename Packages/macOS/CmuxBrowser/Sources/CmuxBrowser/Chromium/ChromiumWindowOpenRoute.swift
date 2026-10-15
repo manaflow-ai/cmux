@@ -59,12 +59,16 @@ public enum ChromiumWindowOpenRoute: Equatable, Sendable {
     ///   - userGesture: A click or key caused the request, not a script.
     ///   - hasOpener: A page asked (0 means Chromium's own UI or an extension).
     ///   - hasURL: The request names a page.
+    ///   - fromContextMenu: The person chose "Open Link in New Tab" in the
+    ///     page's context menu. That tab opens focused, as on WebKit (design
+    ///     decision 18, spec §0.1); Cmd-click and middle-click stay background.
     public static func route(
         disposition: ChromiumWindowOpenDisposition,
         hasWindowFeatures: Bool,
         userGesture: Bool,
         hasOpener: Bool,
-        hasURL: Bool
+        hasURL: Bool,
+        fromContextMenu: Bool = false
     ) -> ChromiumWindowOpenRoute {
         switch disposition {
         case .offTheRecord:
@@ -81,7 +85,7 @@ public enum ChromiumWindowOpenRoute: Equatable, Sendable {
             if hasWindowFeatures, hasOpener, !userGesture { return .popupWindow }
             return .newTab(focus: true)
         case .newBackgroundTab:
-            return .newTab(focus: false)
+            return .newTab(focus: fromContextMenu)
         case .newForegroundTab, .singletonTab, .switchToTab, .newSplitView, .newPictureInPicture, .unknown:
             return .newTab(focus: true)
         case .currentTab:

@@ -137,7 +137,19 @@ public final class CEFPageFeatures {
         }
     }
 
+    /// The person chose "Open Link in New Tab" in this page's context menu
+    /// and Chromium has not opened that tab yet.
+    private var contextMenuChoseNewTab = false
+
+    /// Whether the new tab Chromium is opening now comes from the context
+    /// menu's "Open Link in New Tab"; reading it clears it.
+    public func takeContextMenuNewTab() -> Bool {
+        defer { contextMenuChoseNewTab = false }
+        return contextMenuChoseNewTab
+    }
+
     private func showContextMenu(token: Int32, at location: CGPoint, itemsJSON: String, paramsJSON: String) {
+        contextMenuChoseNewTab = false
         let target = BrowserContextMenuTarget(chromiumParamsJSON: paramsJSON)
         let host = contextMenuHost
         let entries = composer.compose(
@@ -150,7 +162,11 @@ public final class CEFPageFeatures {
         presenter.present(
             entries, at: location, in: pageHostView,
             performHostAction: { [weak host] action in host?.performContextMenuHostAction(action) },
-            completion: { id in shim.contextMenuDone(token: token, commandID: Int32(clamping: id ?? -1)) }
+            completion: { [weak self] id in
+                // The tab Chromium is about to open for this choice opens focused (decision 18).
+                self?.contextMenuChoseNewTab = id == BrowserChromiumContextMenuCommand.openLinkInNewTab.rawValue
+                shim.contextMenuDone(token: token, commandID: Int32(clamping: id ?? -1))
+            }
         )
     }
 }
