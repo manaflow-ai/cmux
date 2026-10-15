@@ -152,7 +152,7 @@ fn open(
 /// An http(s) URL with a host and no credentials (the guest URL opener's
 /// rule, url_open.rs, plus invisible characters and user info: a link must
 /// look like the page it opens).
-fn is_web_url(raw: &str) -> bool {
+pub(crate) fn is_web_url(raw: &str) -> bool {
     raw.len() <= MAX_URL_BYTES
         && !raw.chars().any(|c| c.is_control() || c.is_whitespace() || is_invisible_format(c))
         && url::Url::parse(raw).is_ok_and(|url| {
