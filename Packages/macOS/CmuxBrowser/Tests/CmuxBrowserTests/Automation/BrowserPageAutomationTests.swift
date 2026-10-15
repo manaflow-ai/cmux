@@ -8,12 +8,22 @@ import WebKit
 /// A Chromium page stand-in: answers DevTools methods from canned replies
 /// and records every call, like the CEF page over the shim.
 @MainActor
-private final class ScriptedChromiumPage: BrowserPage {
+private final class ScriptedChromiumPage: BrowserPage, BrowserPageHiddenCapturing {
     var isClosed = false
     private(set) var calls: [(method: String, params: [String: Any])] = []
     private(set) var evaluations: [(script: String, isAsync: Bool, world: BrowserPageScriptWorld)] = []
     private var replies: [String: [Result<String, BrowserEngineError>]] = [:]
     var evaluationResult: Result<NSNumber?, BrowserEngineError> = .success(nil)
+    /// Nesting of `withContentVisibleForCapture` (hidden-page captures).
+    private(set) var visibleForCaptureDepth = 0
+    /// DevTools methods sent while the page was visible for a capture.
+    private(set) var visibleForCaptureMethods: [String] = []
+
+    func withContentVisibleForCapture<T>(_ body: () async throws -> T) async rethrows -> T {
+        visibleForCaptureDepth += 1
+        defer { visibleForCaptureDepth -= 1 }
+        return try await body()
+    }
 
     func reply(_ method: String, _ result: Result<String, BrowserEngineError>) {
         replies[method, default: []].append(result)
@@ -63,6 +73,7 @@ private final class ScriptedChromiumPage: BrowserPage {
         if isClosed { throw BrowserEngineError.pageClosed }
         let decoded = params.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
         calls.append((method, decoded))
+        if visibleForCaptureDepth > 0 { visibleForCaptureMethods.append(method) }
         guard var queue = replies[method], !queue.isEmpty else { return Data("{}".utf8) }
         let next = queue.removeFirst()
         replies[method] = queue
@@ -125,6 +136,10 @@ struct ChromiumBrowserPageAutomationTests {
 
         #expect(try await BrowserPageAutomation(page: page).captureViewportPNG() == png)
         #expect(page.calls.first?.params["format"] as? String == "png")
+        // The capture ran with the page made visible to its engine (a hidden
+        // page draws no frames), and the page is hidden again afterwards.
+        #expect(page.visibleForCaptureMethods == ["Page.captureScreenshot"])
+        #expect(page.visibleForCaptureDepth == 0)
     }
 
     @Test("Cookies read from Network.getAllCookies keep host-only and session semantics")
