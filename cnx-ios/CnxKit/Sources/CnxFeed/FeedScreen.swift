@@ -61,6 +61,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     }
                     .scrollTargetLayout()
                 }
+                #if DEBUG
+                .background { if FeedStressRig.shared.config.autoscrollPasses != nil { EnclosingScrollViewProbe { FeedScreenRig.scroller.attach($0) } } }
+                #endif
             }
             .scrollPosition($position)
             // An inline reply's keyboard comes down with a downward drag, as
@@ -68,6 +71,13 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .scrollDismissesKeyboard(.interactively)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
+                #if DEBUG
+                // G-04: a finger-driven scroll is one frame-interval window (CNX_FRAMELOG=1).
+                if FeedStressRig.shared.config.autoscrollPasses == nil {
+                    if phase == .interacting { FrameIntervalLog.shared.begin("feed-scroll") }
+                    if phase == .idle { FrameIntervalLog.shared.end() }
+                }
+                #endif
             }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 60 } action: { _, top in
@@ -92,6 +102,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .agentChatDestinations()
         }
         .onAppear {
+            #if DEBUG
+            FeedStressRig.shared.start(store: store)
+            #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
                       let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else { return }
@@ -283,6 +296,13 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
     #endif
 }
+#if DEBUG
+@MainActor
+enum FeedScreenRig {
+    static let scroller = FeedAutoScroller(config: FeedStressRig.shared.config)
+}
+#endif
+
 /// "Marked done" with Undo for a few seconds after a Done swipe (Mail's undo bar).
 private struct DoneUndoBar: View {
     let store: FeedStore
