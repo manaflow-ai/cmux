@@ -28,6 +28,7 @@ options:
 settings:
   base:
     CNX_TAG: ""
+    CNX_SOURCE_COMMIT: ""
     CNX_DISPLAY_NAME: cmux
     # The cnx-ios-api base URL baked into Info.plist (CNXAPIBase). DEBUG
     # builds fall back to the dev Worker when it is empty; a non-DEBUG build
@@ -150,6 +151,9 @@ targets:
         CNXTag: $(CNX_TAG)
         CNXAPIBase: $(CNX_API_BASE)
         CNXCloudAPIBase: $(CNX_CLOUD_API_BASE)
+        # The commit an archive was built from (testflight-build.sh sets it;
+        # --from-archive refuses an archive of another commit).
+        CNXSourceCommit: $(CNX_SOURCE_COMMIT)
         CNXPush: $(CNX_PUSH)
         CNXAppleSignIn: $(CNX_APPLE_SIGN_IN)
         CFBundleShortVersionString: $(MARKETING_VERSION)

@@ -59,6 +59,8 @@ asc_key_id=RUML2V4CW7
 asc_issuer=94d76068-119d-45cd-8700-86eb7a1a6235
 profile_name=${CNX_PROFILE_NAME:-cmux Internal Distribution}
 prod_stack_project=9790718f-14cd-4f7e-824d-eaf527a82b82
+# The production Cloud service (Cloud Chief); same Stack project as above.
+cloud_api_base=https://cloud-api.cmux.dev
 config=TestFlight
 
 ref=HEAD marketing="" build_number="" internal_only=false allow_backend_down=0
@@ -227,6 +229,13 @@ Import one of their .p12 files into the login keychain (see verify/testflight-re
   echo "profile $profile_uuid, identity $identity"
 fi
 
+if [[ -n "$from_archive" ]]; then
+  built_from=$(plutil -extract CNXSourceCommit raw "$from_archive/Products/Applications/CnxApp.app/Info.plist" 2>/dev/null || true)
+  [[ "$built_from" == "$sha" ]] || die "$from_archive was built from '${built_from:-unknown}', not $sha (--ref)"
+  case "$from_archive/" in
+    "$out/"*|"$work/"*) ditto "$from_archive" "$private/CnxApp.xcarchive"; from_archive="$private/CnxApp.xcarchive" ;;
+  esac
+fi
 rm -rf "$out" "$work"
 mkdir -p "$out/logs" "$work/src" "$cache"
 if [[ -n "$from_archive" ]]; then
@@ -271,7 +280,7 @@ args=(-project CnxApp.xcodeproj -scheme CnxApp -configuration "$config"
       -destination 'generic/platform=iOS' -archivePath "$archive"
       -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$cache/spm"
       MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
-      CNX_PROD_API_BASE="$api_base")
+      CNX_PROD_API_BASE="$api_base" CNX_SOURCE_COMMIT="$sha")
 if [[ $unsigned == 1 ]]; then
   args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=$team)
 else
@@ -292,6 +301,8 @@ check_app() {  # <CnxApp.app>
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")
   [[ "$(plutil -extract CFBundleDisplayName raw "$info")" == "$app_name" ]] || bad+=("CFBundleDisplayName")
   [[ "$(plutil -extract CNXAPIBase raw "$info")" == "$api_base" ]] || bad+=("CNXAPIBase")
+  [[ "$(plutil -extract CNXCloudAPIBase raw "$info" 2>/dev/null)" == "$cloud_api_base" ]] || bad+=("CNXCloudAPIBase (want $cloud_api_base)")
+  [[ "$(plutil -extract CNXSourceCommit raw "$info" 2>/dev/null)" == "$sha" ]] || bad+=("CNXSourceCommit (want $sha)")
   [[ "$(plutil -extract ITSAppUsesNonExemptEncryption raw "$info")" == true ]] || bad+=("ITSAppUsesNonExemptEncryption")
   local k; for k in NSCameraUsageDescription NSPhotoLibraryUsageDescription NSPhotoLibraryAddUsageDescription \
       NSMicrophoneUsageDescription NSLocalNetworkUsageDescription UILaunchScreen; do
