@@ -338,6 +338,17 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main-compose .hc-tray-item.done").length === 2);
       },
     },
+    "composer-menu": {
+      note: "Right-click in the composer: its own menu (Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention), never WebKit's. The gallery has no app host, so the edits are off.",
+      props: { select: "c-chief" },
+      play: async (ctx) => {
+        const field = ".lg-main-compose .hc-composer-field";
+        await ctx.waitFor(() => ctx.document.querySelector(field));
+        await ctx.contextMenu({ selector: field });
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Paste as Plain Text" }));
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Attach Files…" }));
+      },
+    },
     "row-menu": {
       note: "Right-click a list row: Pin, Mark as Read (it has unread messages) and Copy Link, on the popup layer.",
       props: { select: "c-chief" },

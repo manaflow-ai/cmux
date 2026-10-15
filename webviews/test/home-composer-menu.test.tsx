@@ -119,7 +119,11 @@ test("a right-click in the composer opens its own menu, and its edits run in the
   expect(off(t("composer.menu.copy"))).toBe(true);
   expect(off(t("composer.menu.paste"))).toBe(false);
 
-  await act(async () => menuItems().find((item) => item.textContent === t("composer.menu.paste"))!.click());
+  await act(async () =>
+    menuItems()
+      .find((item) => item.textContent === t("composer.menu.paste"))!
+      .click(),
+  );
   expect(ran).toEqual(["paste"]);
   expect(document.querySelector('[role="menu"]')).toBeNull();
 });
@@ -132,6 +136,10 @@ test("Attach Files… opens the file chooser, and a page with no host keeps the 
   await rightClickField(container);
   const paste = menuItems().find((item) => item.textContent === t("composer.menu.paste")) as HTMLButtonElement;
   expect(paste.disabled).toBe(true);
-  await act(async () => menuItems().find((item) => item.textContent === t("composer.menu.attachFiles"))!.click());
+  await act(async () =>
+    menuItems()
+      .find((item) => item.textContent === t("composer.menu.attachFiles"))!
+      .click(),
+  );
   expect(chose).toBe(1);
 });
