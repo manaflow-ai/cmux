@@ -78,7 +78,7 @@ export function useSessionRail({
         title={t("rail.toggle")}
         onClick={toggle}
       >
-        <Icon name="view.list" size={15} />
+        <Icon name="pane.split.right" size={15} />
       </button>
     ),
     rail: shown ? (
