@@ -937,11 +937,15 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
+        var latestCustomTitle: String?
 
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let isMeta = (obj["isMeta"] as? Bool) ?? false
+            if let name = claudeCustomTitle(from: obj) {
+                latestCustomTitle = name
+            }
             if let lineType = obj["type"] as? String,
                lineType == "user" || lineType == "assistant" {
                 out.headMessageLines += 1
@@ -984,6 +988,9 @@ final class SessionIndexStore: ObservableObject {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let type = obj["type"] as? String
+            if let name = claudeCustomTitle(from: obj) {
+                latestCustomTitle = name
+            }
             if type == "pr-link", let number = obj["prNumber"] as? Int,
                let url = obj["prUrl"] as? String {
                 out.pr = PullRequestLink(
@@ -1004,11 +1011,27 @@ final class SessionIndexStore: ObservableObject {
                 out.model = model
             }
         }
+        // Claude Code writes a `custom-title` line when the session is named and
+        // again on every rename, so the last one seen is the current name. A
+        // name outranks the first prompt, which is all `/login` or a
+        // continuation preamble would otherwise show. An empty name clears it.
+        if let latestCustomTitle, !latestCustomTitle.isEmpty {
+            out.title = latestCustomTitle
+        }
         // Strip the [1m] suffix some Claude internal model IDs carry (claude-opus-4-7[1m]).
         if let m = out.model, let bracket = m.firstIndex(of: "[") {
             out.model = String(m[..<bracket])
         }
         return out
+    }
+
+    /// The name carried by a Claude Code `custom-title` transcript line
+    /// (`{"type":"custom-title","customTitle":"…","sessionId":"…"}`), trimmed.
+    /// Nil for any other line; empty when the line clears the name.
+    nonisolated private static func claudeCustomTitle(from object: [String: Any]) -> String? {
+        guard (object["type"] as? String) == "custom-title",
+              let title = object["customTitle"] as? String else { return nil }
+        return title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Returns a usable user-prompt string from a Codex `user_message` /
