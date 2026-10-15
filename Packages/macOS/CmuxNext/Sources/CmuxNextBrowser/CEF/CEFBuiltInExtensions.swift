@@ -22,13 +22,26 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     /// and turning the setting off would then drop it. The person's copy wins.
     func folders(resources: URL?, profiles: URL? = nil,
                  fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String] {
-        guard adBlockerEnabled, let resources else { return [] }
+        plan(resources: resources, profiles: profiles, fileExists: fileExists).folders
+    }
+
+    /// What Chromium starts with: the folders to load, and whether unpacked
+    /// extensions stay enabled without developer mode (the built-in copy
+    /// loads, or the person has their own unpacked copy of it).
+    struct Plan: Equatable, Sendable {
+        var folders: [String]
+        var keepsUnpackedEnabled: Bool
+    }
+
+    func plan(resources: URL?, profiles: URL?,
+              fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> Plan {
+        let person = profiles.map { Self.personAdBlocker(profiles: $0) } ?? nil
+        guard adBlockerEnabled, person == nil, let resources else { return Plan(folders: [], keepsUnpackedEnabled: person == 4) }
         let manifest = resources.appendingPathComponent(Self.adBlockerFolder).appendingPathComponent("manifest.json").path
         let folder = resources.appendingPathComponent(Self.adBlockerFolder).path
         // Chromium splits --load-extension on commas.
-        guard fileExists(manifest), !folder.contains(",") else { return [] }
-        if let profiles, Self.personInstalledAdBlocker(profiles: profiles) { return [] }
-        return [folder]
+        guard fileExists(manifest), !folder.contains(",") else { return Plan(folders: [], keepsUnpackedEnabled: false) }
+        return Plan(folders: [folder], keepsUnpackedEnabled: true)
     }
 
     /// True when a Chromium profile under `profiles` holds a uBlock Origin the
@@ -38,7 +51,12 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     /// not a cmux app's built-in folder (an installed copy has a relative path
     /// under Extensions/; a copy the person loaded unpacked, its own folder).
     static func personInstalledAdBlocker(profiles: URL, fileManager: FileManager = .default) -> Bool {
-        guard let children = try? fileManager.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil) else { return false }
+        personAdBlocker(profiles: profiles, fileManager: fileManager) != nil
+    }
+
+    /// The Chromium location of the person's uBlock Origin (4 = unpacked), or nil.
+    static func personAdBlocker(profiles: URL, fileManager: FileManager = .default) -> Int? {
+        guard let children = try? fileManager.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil) else { return nil }
         let id = Data(adBlockerID.utf8)
         for profile in children where profile.lastPathComponent.hasPrefix("Profile-") || profile.lastPathComponent == "Default" {
             for name in ["Secure Preferences", "Preferences"] {
@@ -48,10 +66,10 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
                       let entry = settings[adBlockerID] as? [String: Any] else { continue }
                 let path = entry["path"] as? String ?? ""
                 let location = (entry["location"] as? NSNumber)?.intValue ?? 0
-                if !path.isEmpty, ![5, 8, 10].contains(location), !isBuiltInPath(path) { return true }
+                if !path.isEmpty, ![5, 8, 10].contains(location), !isBuiltInPath(path) { return location }
             }
         }
-        return false
+        return nil
     }
 
     /// A built-in copy's recorded path: some cmux app bundle's
