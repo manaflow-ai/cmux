@@ -22,6 +22,7 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
 };
 
+export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
 
@@ -67,6 +68,10 @@ export type AcpmuxRow = {
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
+  /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
+  /// the step it is on ends), then `landed`; `stopped` was sent now to an agent that cannot steer,
+  /// which stopped the turn and ran it next.
+  steer?: "waiting" | "landed" | "stopped";
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
@@ -252,7 +257,10 @@ export type AcpmuxSnapshot = {
   canHandoff?: boolean;
   handoff?: HandoffClientState;
   permissionGroups?: PermissionClientState;
-  queue: { id: string; prompt: string }[];
+  /// Prompts waiting behind the running turn, in order. `next`: sent now (⌘Return on an agent that
+  /// cannot steer): it stops the running turn and runs next, so it reads as a steer, not a queued
+  /// prompt (acpmux `queue_order` with `next`).
+  queue: QueuedPrompt[];
   permission?: AcpmuxPermission;
   secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness

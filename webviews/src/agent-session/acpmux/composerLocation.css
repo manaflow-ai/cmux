@@ -1,30 +1,34 @@
 /* The location strip (ComposerContext.tsx, hq#1957 composer location strip): folder · computer on
-   the left, the branch on the right, in a tab on the composer card's top edge. The card holds one
-   controls row; the strip is not a second row inside it. The strip's fill and edge are the card's,
-   so the two read as one surface: its sides and top draw the card's hairline, its bottom edge is
-   the card's top edge, and its top corners take a small radius. It is inset from the card's sides
-   by the card's corner radius, so it stands on the card's straight edge. It has one fixed height,
+   the left, the branch on the right, as the card's full-width head. The card holds one controls
+   row; the strip is not a second row inside it. The strip's fill and edge are the card's, so the
+   two read as one surface: its sides and top draw the card's hairline, its bottom edge is the
+   card's top edge, and its top corners take the card's radius (--acpmux-strip-radius) while the
+   card's top corners square off under it. It spans the column like every other block in the chat
+   (Leo 2026-10-14: inserted blocks share the column's edges), its controls inset by their own
+   padding. It has one fixed height,
    with a project or without, while the host's name loads and after, so nothing under it moves.
    Queued prompts stack above it (.acpmux-composer-queue), never over it. A control is a plain text
    button (no bezel, no fill, no weight change); hover and an open menu lay the bar's own wash under
    it, and keyboard focus draws a ring in the theme's text color. */
-.acpmux-composer-strip {
+/* The strip's height is the composer's, so the card's rim can reach up around it (below). */
+.acpmux-composer,
+.nt-composer {
   --acpmux-strip-height: 30px;
+}
+.acpmux-composer-strip {
   position: relative;
   display: flex;
   align-items: stretch;
   min-width: 0;
   height: var(--acpmux-strip-height);
-  margin: 0 var(--acpmux-strip-inset, 18px);
+  margin: 0;
+  /* The strip spans the card; its controls sit in by --acpmux-strip-inset (below). */
+  padding: 0 var(--acpmux-strip-inset, 3px);
   box-sizing: border-box;
-  border-radius: 10px 10px 0 0;
+  border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0;
   /* The card's solid surface (composerStates.css), so the strip and the card are one fill. */
   background: var(--acpmux-composer-surface);
-  --acpmux-strip-edge: var(--acpmux-composer-edge);
-  box-shadow:
-    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge),
-    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+  /* No rim of its own: the card's rim goes around the strip and the card as one (below). */
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
@@ -34,27 +38,12 @@
 }
 /* The chat composer's strip (design panel, compact composer): its first and last marks line up
    with the card's content, the folder icon over the prompt's first letter and the branch chevron
-   over the prompt's last column, so nothing in the strip reads as a stray indent. That puts it
-   9 px in from the card's sides, inside the card's 18 px corner, where the corner has dropped
-   2.4 px from the top edge; a foot of the strip's own fill and sides covers that drop, so the strip
-   still stands on the card. The queue (above) and the seam (below) follow the same inset. */
+   over the prompt's last column, so nothing in the strip reads as a stray indent. The strip itself
+   spans the card as its full-width head (one rim goes round both); its controls sit 9 px in from
+   its sides, which puts the marks over the prompt's edges. */
 .acpmux-composer {
   --acpmux-strip-inset: 9px;
   --acpmux-strip-pad: 1.5px;
-}
-.acpmux-composer > .acpmux-composer-strip { z-index: var(--layer-raised, 1); }
-.acpmux-composer > .acpmux-composer-strip::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 2.5px;
-  background: inherit;
-  box-shadow:
-    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
-  pointer-events: none;
 }
 .acpmux-composer-context {
   display: flex;
@@ -527,42 +516,63 @@
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }
 
-/* The seam: under the strip the card draws its rim (--acpmux-card-ring, resting or focused) on a
-   layer that leaves out the stretch the strip stands on, so the strip and the card read as one
-   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+/* One rim around the strip and the card: the card draws its rim (--acpmux-card-ring, resting,
+   focused, shell or borders none) on a layer that reaches up over the strip, its top corners the
+   strip's radius. Two rims, the strip's and the card's, broke at the join (half a pixel of mask at
+   1x) and took two tones once the card had focus (live captures, 2026-10-14). The card's top
+   corners square off under the strip. */
+.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box,
+.nt-screen .nt-composer:has(.acpmux-composer-strip) .nt-box {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box,
 .nt-composer:has(.acpmux-composer-strip) .nt-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box::before,
 .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  inset: calc(-1 * var(--acpmux-strip-height)) 0 0;
+  border-top-left-radius: var(--acpmux-strip-radius, 18px);
+  border-top-right-radius: var(--acpmux-strip-radius, 18px);
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
   box-shadow: var(--acpmux-card-ring);
   pointer-events: none;
-  --acpmux-seam: linear-gradient(#000 0 0) 50% 0 / calc(100% - 2 * var(--acpmux-strip-inset, 18px) - 1px) 2px no-repeat;
-  -webkit-mask: linear-gradient(#000 0 0), var(--acpmux-seam);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0), var(--acpmux-seam);
-  mask-composite: exclude;
+}
+
+/* After a chat's first send there is no strip (#20869): a queue stands right on the card, and the
+   rim layer stays on the card. */
+.acpmux-composer:not(:has(> .acpmux-composer-strip)) > .acpmux-composer-box::before {
+  top: 0;
 }
 
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
 .acpmux-composer-strip .acpmux-location-button,
 .acpmux-composer-strip .acpmux-location-readonly { height: 22px; }
-/* Queued prompts (ComposerQueue.tsx) stack right above the strip at its insets, so the queue, the
-   strip and the card read as one tab over the card; the strip's top corners square off under the
-   queue and its top hairline gives way to the queue's sides. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
-  margin: 0 var(--acpmux-strip-inset, 18px);
+/* Queued prompts (ComposerQueue.tsx) stack right above the strip, or the card when there is no
+   strip, at the column's edges, so the queue, the strip and the card read as one surface; the queue
+   takes the rounded top corners, what is under it squares off and its top hairline gives way to the
+   queue's sides. */
+.acpmux-composer > .acpmux-composer-queue {
+  border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0;
 }
 .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;
-  box-shadow:
-    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+}
+/* Under the queue the rim's top edge gives way to the queue's sides: the rim leaves out its top
+   line, all but one hairline at each side (the mask keeps whole device pixels at 1x and 2x). */
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box::before {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  --acpmux-seam: linear-gradient(#000 0 0) 50% 0 / calc(100% - 2 * var(--cmux-hairline, .5px))
+    calc(2 * var(--cmux-hairline, .5px)) no-repeat;
+  -webkit-mask: linear-gradient(#000 0 0), var(--acpmux-seam);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0), var(--acpmux-seam);
+  mask-composite: exclude;
 }
 
 /* The top strip's Debug variants (agentPane.debug.topStripStyle, DEV and NIGHTLY; the app sets
