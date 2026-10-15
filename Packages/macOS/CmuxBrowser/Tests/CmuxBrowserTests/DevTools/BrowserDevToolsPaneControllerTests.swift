@@ -35,7 +35,7 @@ private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
 
 @MainActor
 @Suite struct BrowserDevToolsPaneControllerTests {
-    private struct Harness {
+    @MainActor private struct Harness {
         let engine = FakeDevToolsEngine()
         let pane = BrowserDevToolsPaneView(pageView: NSView())
         let hostWindow = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1001, height: 801), styleMask: [.titled], backing: .buffered, defer: true)

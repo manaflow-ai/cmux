@@ -19,6 +19,13 @@ let package = Package(
             name: "CmuxCEF",
             targets: ["CmuxCEF"]
         ),
+        .library(
+            name: "CmuxCEFBrowser",
+            targets: ["CmuxCEFBrowser"]
+        ),
+    ],
+    dependencies: [
+        .package(path: "../CmuxBrowser"),
     ],
     targets: [
         .target(
@@ -27,6 +34,33 @@ let package = Package(
             // (CEFShimABI, scripts/cef/build-cef-shim.sh).
             resources: [
                 .copy("Shim/cmux_cef_shim.h"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        // The Chromium engine behind CmuxBrowser's engine-neutral page protocols. CmuxCEF itself
+        // has no CmuxBrowser dependency.
+        .target(
+            name: "CmuxCEFBrowser",
+            dependencies: [
+                "CmuxCEF",
+                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxCEFBrowserTests",
+            dependencies: [
+                "CmuxCEF",
+                "CmuxCEFBrowser",
+                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
