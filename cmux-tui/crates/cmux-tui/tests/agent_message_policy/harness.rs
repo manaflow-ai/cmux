@@ -41,6 +41,8 @@ type Sessions = Arc<Mutex<HashMap<String, String>>>;
 struct FakeAcpmux {
     /// `_acpmux/info` requests answered.
     lookups: AtomicU64,
+    /// The session id of every `_acpmux/info` request, in order.
+    looked_up: Mutex<Vec<String>>,
     /// The params of every `session/prompt`, in order.
     prompts: Mutex<Vec<Value>>,
     /// The params of every `_acpmux/prompt_withdraw`, in order.
@@ -48,7 +50,8 @@ struct FakeAcpmux {
     /// Session id -> the withdraw outcome it answers (`unsent`,
     /// `retracted`, `too_late`), `refuse:<reason>` for a refusal, or
     /// `hang-up` to close the connection unanswered; a session without one
-    /// answers `withdraw.not_found`.
+    /// answers `withdraw.not_found`, and one the fake does not run answers,
+    /// as acpmux does, `no session matches …`.
     outcomes: Mutex<HashMap<String, String>>,
     /// Sessions whose prompts wait, unanswered, until their gate opens.
     gates: Mutex<std::collections::HashSet<String>>,
@@ -225,6 +228,16 @@ impl Daemon {
     /// How many `_acpmux/info` requests the fake acpmux has answered.
     pub fn acpmux_lookups(&self) -> u64 {
         self.fake.lookups.load(Ordering::SeqCst)
+    }
+
+    /// How many `_acpmux/info` requests named `session`.
+    pub fn lookups_of(&self, session: &str) -> usize {
+        self.fake.looked_up.lock().unwrap().iter().filter(|s| *s == session).count()
+    }
+
+    /// The fake acpmux no longer runs `session` (it ended).
+    pub fn end_session(&self, session: &str) {
+        self.sessions.lock().unwrap().remove(session);
     }
 
     /// The params of every prompt the fake acpmux took, in order.
@@ -583,6 +596,7 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
         let reply = match (request["method"].as_str(), workspace) {
             (Some("_acpmux/info"), workspace) => {
                 fake.lookups.fetch_add(1, Ordering::SeqCst);
+                fake.looked_up.lock().unwrap().push(session.to_owned());
                 match workspace {
                     Some(workspace) => json!({"jsonrpc": "2.0", "id": id, "result":
                         {"sessionId": session, "sessionEnv": {"CMUX_WORKSPACE_ID": workspace}}}),
@@ -625,7 +639,7 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
                 }
                 json!({"jsonrpc": "2.0", "id": id, "result": {"stopReason": "end_turn"}})
             }
-            (Some("_acpmux/prompt_withdraw"), _) => {
+            (Some("_acpmux/prompt_withdraw"), workspace) => {
                 fake.withdrawals.lock().unwrap().push(params.clone());
                 let mut held = fake.withdraw_gates.lock().unwrap();
                 while held.contains(session) {
@@ -635,6 +649,9 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
                 let msg_id = params["msgId"].clone();
                 let outcome = fake.outcomes.lock().unwrap().get(session).cloned();
                 match outcome.as_deref() {
+                    // acpmux's session lookup (`Hub::resolve`), with no `data`.
+                    _ if workspace.is_none() => json!({"jsonrpc": "2.0", "id": id, "error":
+                        {"code": -32002, "message": format!("no session matches {session:?}")}}),
                     Some("hang-up") => return,
                     Some(refusal) if refusal.starts_with("refuse:") => {
                         let reason = refusal.trim_start_matches("refuse:");
