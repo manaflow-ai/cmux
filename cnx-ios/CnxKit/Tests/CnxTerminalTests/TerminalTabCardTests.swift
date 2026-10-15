@@ -55,4 +55,13 @@ import Testing
         // A short image is not moved.
         #expect(TerminalCardCrop(width: 402, imageHeight: 300).imageTop == 0)
     }
+
+    /// V5-6 (round 7): the band under the composer is the page's toolbar
+    /// inset, blank in a snapshot; the card ends at the composer instead.
+    @Test func theCardEndsAtTheComposerNotTheToolbarBand() {
+        let crop = TerminalCardCrop(width: 402, imageHeight: 874, bottomTrim: 82)
+        #expect(abs(crop.imageTop - (crop.visibleHeight - (874 - 82))) < 0.01)
+        // Never past the image's top.
+        #expect(TerminalCardCrop(width: 402, imageHeight: 500, bottomTrim: 82).imageTop == 0)
+    }
 }
