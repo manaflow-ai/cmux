@@ -437,11 +437,6 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
   return [status, ...rows];
 }
 
-/// The Debug toggle `agentPane.debug.codexToolRuns` (off by default), which the app sets on
-/// `<html>` as `data-codex-tool-runs` before the page loads (AgentPaneTunables.swift).
-export const codexToolRuns = () =>
-  typeof document !== "undefined" && document.documentElement.dataset.codexToolRuns === "on";
-
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text
 /// followed settles into its summary line, as in an open "Worked for"; the run in flight
 /// (`inFlight`) shows only its newest call, so its line replaces itself instead of growing into a

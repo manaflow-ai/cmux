@@ -22,6 +22,8 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   shadow: "--agent-shadow",
   palette: null,
   borders: null,
+  chatWidth: null,
+  codexToolRuns: null,
   motion: null,
 };
 
