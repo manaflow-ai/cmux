@@ -327,7 +327,7 @@ struct CloudSidebarSurfaceRegressionTests {
             $0.id == CloudTreeNodeBuilder.nodeID(resource: terminalID)
         }, "detaching a terminal preserves its process in the machine pool")
         #expect(catalog.cloudStates[machine]?.workspaces.count == 2)
-        #expect(CloudTreeNodeBuilder.flattened(visibilityNodes(catalog.snapshot)).contains {
+        #expect(!CloudTreeNodeBuilder.flattened(visibilityNodes(catalog.snapshot)).contains {
             $0.id == CloudTreeNodeBuilder.nodeID(workspacesPlaceholder: machine)
         })
 

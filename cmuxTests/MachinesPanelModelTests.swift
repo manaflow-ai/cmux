@@ -471,8 +471,8 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        // One machine, many workspaces: the Workspaces group leads (nonempty workspace
-        // pointers), then Ports, VNC Displays (one row per screen), and last, its own
+        // One machine, many workspaces: the Workspaces group leads (including empty
+        // drop targets), then Ports, VNC Displays (one row per screen), and last, its own
         // section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
