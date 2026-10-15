@@ -73,6 +73,9 @@
       <FileRef
          location = "group:CmuxTheme">
       </FileRef>
+      <FileRef
+         location = "group:CmuxVNC">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"

@@ -39,7 +39,7 @@ struct RemotePaneColors: Equatable {
     func dot(for path: RemotePath?) -> NSColor {
         switch path {
         case .direct: success
-        case .viaCloudRegion, .relayed: attention
+        case .viaCloudRegion, .relayed, .compatibility: attention
         case nil: textTertiary
         }
     }

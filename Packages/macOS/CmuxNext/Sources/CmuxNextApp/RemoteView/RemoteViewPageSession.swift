@@ -8,6 +8,8 @@ import CmuxNextRemoteView
 /// host (`local`, `localhost`, 127.0.0.0/8) streams from a real `cmux.rd/1`
 /// host only when `RemoteViewDebugRdHost` is opted in by environment (an SSH
 /// tunnel to a Linux `cmux-rd host`); otherwise it shows "not available".
+/// A record with `via=vnc` streams from an RFB compatibility host through
+/// `RemoteVNCSession` (`mock` is then the loopback VNC demo desktop).
 @MainActor
 final class RemoteViewPageSession {
     /// The host name that opens the test desktop.
@@ -18,6 +20,8 @@ final class RemoteViewPageSession {
     private let source: any RemoteViewStreamSource
     /// The real host's source and how to make a new transport; nil for the mock.
     private let rd: (source: RemoteRdDebugSource, make: () -> RemoteRdStreamTransport?)?
+    /// The VNC compatibility session; nil for the mock and rd hosts.
+    private let vnc: RemoteVNCSession?
     /// The current transport already connected once (it cannot connect again).
     private var rdUsed = false
     /// The person pressed Stop: only Reconnect starts a new session, never showing the tab again.
@@ -29,6 +33,7 @@ final class RemoteViewPageSession {
         let source = MockRemoteStreamSource(status: Self.mockStatus)
         self.source = source
         rd = nil
+        vnc = nil
         pane = RemoteDesktopPane(hostName: record.host, source: source, inputSink: MockRemoteInputSink(host: source),
                                  initialMode: record.mode)
         pane.handlers.stop = { [weak source] in source?.end(.stoppedByViewer) }
@@ -48,6 +53,7 @@ final class RemoteViewPageSession {
         let rdSource = RemoteRdDebugSource(first)
         source = rdSource
         rd = (rdSource, make)
+        vnc = nil
         pane = RemoteDesktopPane(hostName: record.host, source: rdSource,
                                  inputSink: RemoteRdDebugInputSink(source: rdSource), initialMode: record.mode)
         pane.handlers.stop = { [weak self] in
@@ -57,6 +63,29 @@ final class RemoteViewPageSession {
         pane.handlers.reconnect = { [weak self] in self?.reconnect() }
         pane.handlers.close = closeTab
         pane.upstreamControl = rdSource
+    }
+
+    /// An RFB compatibility host: decoded frames, fitted to the pane, on the
+    /// layer-contents presenter (the Metal presenter is for YUV video).
+    private init(vncRecord record: RemoteViewTabRecord, port: UInt16, closeTab: @escaping @MainActor () -> Void) {
+        let vnc = RemoteVNCSession(record: record, port: port)
+        self.vnc = vnc
+        source = vnc.source
+        rd = nil
+        pane = RemoteDesktopPane(hostName: record.host, source: vnc.source, inputSink: RemoteVNCInputSink(source: vnc.source),
+                                 presenter: .layerContents, initialMode: record.mode, scaling: .fit)
+        pane.handlers.stop = { [weak self] in
+            self?.rdStopped = true
+            vnc.stop()
+        }
+        pane.handlers.reconnect = { [weak self] in
+            self?.rdStopped = false
+            vnc.reconnect(in: self?.pane.view.window)
+        }
+        pane.handlers.close = { [weak vnc] in
+            vnc?.close()
+            closeTab()
+        }
     }
 
     /// Reconnect on an ended session: a new transport, a new subscription.
@@ -89,8 +118,11 @@ final class RemoteViewPageSession {
     func debugState() async -> JSONValue {
         let stats = await pane.decodeStats()
         let state = pane.state
+        let vncInfo = vnc?.source.serverInfo
         return .object([
-            "source": .string(rd == nil ? "mock" : "rd"),
+            "source": .string(vnc != nil ? "vnc" : (rd == nil ? "mock" : "rd")),
+            "vnc_server": vncInfo.map { .string("\($0.name) \($0.width)x\($0.height) security \($0.securityType)") } ?? .null,
+            "frame_pixels": .string("\(Int(pane.framePixels.width))x\(Int(pane.framePixels.height))"),
             "host": .string(state.hostName),
             "state": .string(String(describing: state.sessionState)),
             "visible": .bool(visible),
@@ -107,6 +139,11 @@ final class RemoteViewPageSession {
     func resume() {
         guard !visible else { return }
         visible = true
+        if let vnc {
+            pane.start()
+            if !rdStopped { vnc.connect() }
+            return
+        }
         guard rd != nil else {
             pane.start()
             source.requestKeyframe()
@@ -122,6 +159,7 @@ final class RemoteViewPageSession {
         guard visible else { return }
         visible = false
         pane.stop()
+        vnc?.stop()
         // A hidden or closed tab ends its rd session: the host stops streaming to it.
         rd?.source.transport.stop()
     }
@@ -137,6 +175,7 @@ final class RemoteViewPageSession {
     static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
+        if let port = record.vncPort { return RemoteViewPageSession(vncRecord: record, port: port, closeTab: closeTab) }
         if record.host.lowercased() == mockHost { return RemoteViewPageSession(record: record, closeTab: closeTab) }
         guard RemoteViewTabPolicy().isLoopback(record.host), let host = RemoteViewDebugRdHost(),
               let first = host.transport(for: record) else { return nil }

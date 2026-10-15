@@ -79,6 +79,8 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
+//   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; the App adapts it to the pane
+//     as a RemoteViewFrameSource for `via=vnc` records; remote-desktop.md 12)
 //   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
 //     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
 //   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
@@ -154,6 +156,8 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
+        .package(path: "../../Shared/CmuxVNC"),
         // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
         // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
         .package(path: "../../Shared/CmuxSentryTelemetry"),
@@ -224,6 +228,9 @@ let package = Package(
                 "CmuxNextHistory",
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
+                .product(name: "CmuxVNC", package: "CmuxVNC"),
+                // The loopback VNC test desktop behind `cmux://remote-view?host=mock&via=vnc` (DEBUG).
+                .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
                 "CmuxNextRemoteBrowser",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
@@ -929,7 +936,8 @@ let package = Package(
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.
-                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],
+                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
+                           .product(name: "CmuxVNC", package: "CmuxVNC")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
