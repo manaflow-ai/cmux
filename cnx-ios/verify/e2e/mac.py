@@ -110,6 +110,7 @@ class Mac:
         # the phones this hidden rig app trusts without the person-only Allow prompt.
         self.pairing_seed = os.path.join(rig_dir, "config", "iphone-pairing-seed.json")
         self.pid = None
+        self.launch_env = {}
         self._bundle = None
         self._tag = None
 
@@ -212,7 +213,17 @@ class Mac:
     def launch(self, timeout=90):
         t0 = time.time()
         if not self.main_pids():
-            subprocess.run(["open", "-g", "-j", "-n", self.app], check=True)
+            # CNX_E2E_RB_HOST: a cmux-remote-browser-host.app (with its own CEF) the rig
+            # app starts instead of the one it bundles (LocalRemoteBrowserHostLocator's
+            # CMUX_NEXT_RB_HOST). Passed at launch, not in Info.plist: a changed bundle
+            # is a new ad hoc identity, and the app's Keychain items from the last run
+            # then wait on a prompt nobody sees (cnx-hostd never starts).
+            # launch_env (for example CNX_VIDEO_DROP_PERMILLE, which the app hands to
+            # cnx-hostd) goes the same way.
+            rb_host = os.environ.get("CNX_E2E_RB_HOST", "")
+            env = dict(self.launch_env, **({"CMUX_NEXT_RB_HOST": rb_host} if rb_host else {}))
+            flags = [x for k, v in env.items() for x in ("--env", f"{k}={v}")]
+            subprocess.run(["open", "-g", "-j", "-n", *flags, self.app], check=True)
         deadline = time.time() + timeout
         while time.time() < deadline:
             pids = self.main_pids()

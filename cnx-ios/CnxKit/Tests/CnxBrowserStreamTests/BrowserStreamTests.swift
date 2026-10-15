@@ -39,6 +39,13 @@ import Testing
         #expect((open["screen"] as? [String: Any])?["css_width"] as? Int == 402)
     }
 
+    @Test func theOverlayNamesTheMediaLanesCarrier() {
+        #expect(BrowserStreamStats.carrier(videoTrack: true, transport: .webRTC) == "track")
+        #expect(BrowserStreamStats.carrier(videoTrack: true, transport: .wireGuard) == "wg-rtp")
+        #expect(BrowserStreamStats.carrier(videoTrack: false, transport: .wireGuard) == "channel")
+        #expect(BrowserStreamStats().videoCarrier == "channel")
+    }
+
     @Test func inputEventsMatchTheRbSchema() {
         let wire = RemoteBrowserWire()
         let down = object(wire.pointer("down", x: 10, y: 20, buttons: 1))

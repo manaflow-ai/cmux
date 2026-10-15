@@ -116,7 +116,13 @@ with 4001 `moved`.
   own user; a missing `fromUserId` is refused with `bye {reason:"not_admitted"}`.
   where `P.kind` is one of
   - `webrtc-offer` `{sdp}`, `webrtc-answer` `{sdp}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`
-  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP}`, `wg-resp` `{publicKey, endpoints, overlayIP}`
+  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?}`, `wg-resp` `{publicKey, endpoints, overlayIP, lanes?}`.
+    `relayed` (optional) lists which of the phone's endpoints are its TURN
+    relayed addresses. The Mac sends plain UDP to them like any endpoint,
+    and labels such a route `turn`, not `direct`. A roam's endpoint
+    announcement inside the tunnel (`{"t":"endpoints", generation,
+    endpoints, relayed?}`) carries the new allocation's address the same
+    way. Older peers omit it, and the label stays `direct`.
   - `bye` `{reason}`
 - relay for WireGuard when no direct UDP path: binary frames
   `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]`; the DO
@@ -252,6 +258,47 @@ channel its own SCTP stream:
   because the daemon gives geometry authority to the attaching client.
   Output, attach streams, `acpmux` and `file` stay bulk.
 
+### Media lane (`video`; added 2026-10-14, backward compatible)
+
+Browser video as RTP beside the link's reliable streams
+(verify/browser-video-track.md). One lane per link carries one H.264 stream
+from the Mac to the phone; a `browser` channel claims it (below).
+
+- **Negotiation.** The phone lists `"video"` in its first signal's `lanes`
+  (`webrtc-offer` or `wg-init`); the Mac lists it back in its answer only
+  when it attached a sender. Either side without it (an older phone, an older
+  Mac, `CNX_VIDEO_LANE=0`) leaves the lane out and browser video stays on the
+  `browser` channel. No other negotiation happens, and a WireGuard roam
+  changes nothing.
+- **The stream.** H.264 (RFC 6184: STAP-A for the parameter sets, FU-A),
+  payload type 102, 90 kHz clock, the host's capture time as the RTP
+  timestamp. The transport-wide sequence number extension
+  (`draft-holmer-rmcat-transport-wide-cc-extensions-01`) on every packet.
+  RTCP back: generic NACK (resent at most 3 times, 40 ms apart), PLI and FIR
+  (the Mac makes a keyframe at most every 250 ms), TWCC feedback every 25 ms,
+  sender and receiver reports.
+- **WebRTC carrier.** A video track on the link's own peer connection: the
+  phone's offer has one `recvonly` H.264 m-line with `nack`, `nack pli`,
+  `ccm fir` and `transport-cc`; the Mac adds a `sendonly` track before it
+  applies the offer. SRTP as usual.
+- **WireGuard carrier.** RTP and RTCP as plain UDP datagrams inside the
+  tunnel, between overlay port 7422 on both sides (next to the link's TCP
+  7420 and the roaming messages' UDP 7421), with no SRTP, ICE or DTLS
+  (WireGuard authenticates and encrypts every datagram). RTCP is told from
+  RTP by the second byte (192 to 223, RFC 5761). The SDP-less parameters are
+  fixed: payload type 102, TWCC extension id 1, the Mac's SSRC `0x636e7876`.
+  A datagram from another overlay address, or RTP from another SSRC, is
+  dropped. The Mac binds its port before it answers, the phone before it
+  opens the link stream. RTP payloads are at most 1196 bytes, so a packet
+  with its header and room for three extensions stays within the 1232-byte
+  datagram limit of the 1280-byte tunnel; nothing is fragmented. In cmux-wg's
+  scheduler RTP is `Media` (dropped after 50 ms in the send queue) and RTCP
+  `Interactive`.
+- **Roaming.** After a network change on either side (its own roam, or an
+  endpoint announcement on 7421 from the peer) the phone sends a PLI and the
+  Mac's sender resets its congestion baseline; the lane's port, keys and
+  parameters stay.
+
 Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
 (default deny; anything else is refused with `close {code:"unknown_service"}`):
 
@@ -296,6 +343,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   `{"type":"browser_failed","request","reason"}`. It reports
   `{"type":"browser_gone","tab"}` when a host exits, and hostd asks
   `{"type":"browser_stop","tab"}` to stop one.
+  `"video":"track"` (with the media lane): the page's main video stream
+  rides the link's media lane instead of the channel, on either carrier;
+  rd control, input, clock probes and secondary surfaces stay on the
+  channel. A newer `browser` channel that asks for the lane takes it, and the
+  older tab's video returns to its channel with a keyframe. A hostd without
+  the lane, or an older one, ignores the field and streams on the channel.
+  `"video_tag": N` (u32, random per channel): hostd appends it to each of
+  this tab's lane access units as an H.264 SEI NAL unit after the slices
+  (user data unregistered, UUID `cnx-video-tag-v1` in ASCII, then N as 8
+  lowercase hex digits, then the stop bit `0x80`; no byte is zero, so no
+  emulation prevention). The phone keeps a lane frame only when it carries
+  its own channel's tag, strips the SEI before decoding, and starts at its
+  first keyframe; it never learns when the lane switched tabs otherwise.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -312,6 +372,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   build bundles a browser host (Release builds ship none yet). A host that
   says `removal-v1` without it refuses `browser` with `no_browser_host`, and
   the phone hides New Browser Tab for that Mac.
+  `browser-video-track-v1`: the host honors `browser {"video":"track"}`
+  (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or

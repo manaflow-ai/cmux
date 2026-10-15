@@ -11,6 +11,7 @@ pub mod api;
 pub mod dial;
 pub mod frame;
 pub mod link;
+pub mod media;
 pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
