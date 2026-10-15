@@ -1,33 +1,154 @@
-//! The one way a test starts the real `acpmux` binary (cx-s8wux).
+//! The hermetic test environment of the acpmux tests (cx-s8wux, cx-s8wux.1).
 //!
 //! A test process has the host's whole environment. On a fleet host its PATH
 //! holds real agent CLIs (codex, claude, gemini, opencode) with real
-//! accounts: a daemon started with that environment discovers them and runs
-//! live model probes, prewarms, sign-in checks and CLI auto-updates
-//! (cx-w014j: a host codex ran a test's fake login shell). Every `acpmux`
-//! process a test starts gets this environment instead:
+//! accounts: a daemon started with that environment, or a hub run in the
+//! test process, discovers them and runs live model probes, prewarms,
+//! sign-in checks and CLI auto-updates (cx-w014j: a host codex ran a test's
+//! fake login shell; cx-fylng). So:
 //!
-//! - nothing from the host (`env_clear`);
+//! 1. Every test process runs hermetic. A test file includes this module and
+//!    names its process in the crate root:
+//!    `const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();`
+//!    (or `Process::deny()`); without that constant the file does not build.
+//!    Before `main`, the process starts itself again with the environment
+//!    below and its own arguments ([`enter`]), so a hub, a store or an agent
+//!    it starts in process never sees the host's PATH or HOME.
+//! 2. Every `acpmux` process a test starts gets the same environment from
+//!    [`acpmux`], [`command`] or [`apply`], on its own scratch directory.
+//!
+//! The environment:
+//!
+//! - nothing from the host (`env_clear`), except the test-runner variables
+//!   in [`PASS`] and what a process lists with [`Process::keep`];
 //! - `PATH`: a private directory with links to the named host tools
 //!   (`python3` always, for the stand-in agents and fake shells), then the
 //!   system directories. No real agent CLI can be found on it;
-//! - `HOME`: `<scratch>/home` (not made here), under the scratch directory
-//!   the test passes. Never the scratch directory itself: tests use that as
-//!   the daemon's home or a chat's folder, and the daemon refuses to start an
+//! - `HOME`: `<scratch>/home`, under the scratch directory of the process or
+//!   the test. Never the scratch directory itself: tests use that as the
+//!   daemon's home or a chat's folder, and the daemon refuses to start an
 //!   agent in the user's home folder unless a person picks it;
 //! - `TMPDIR`: the test process's temp directory (macOS: the per-user one);
-//! - `ACPMUX_AGENT_LAUNCH=deny`: the daemon starts no agent at all
-//!   (cx-9ettq). A test that drives a stand-in agent (fake_agent.py,
-//!   fake_claude.py) opts out with [`Agents::StandIn`]; it keeps the bare
-//!   PATH, so only its stand-in can start.
+//! - `ACPMUX_AGENT_LAUNCH=deny`: no agent starts at all (cx-9ettq). A test
+//!   that drives a stand-in agent (fake_agent.py, fake_claude.py) opts out
+//!   with [`Agents::StandIn`]; it keeps the bare PATH, so only its stand-in
+//!   can start.
 //!
 //! A test sets anything else it needs with `.env(...)` after this.
-//! `tests/hermetic_daemon_guard.rs` refuses a test file that names the
-//! binary (`CARGO_BIN_EXE_acpmux`) anywhere but here.
+//! `tests/hermetic_daemon_guard.rs` refuses a test file that does not
+//! include this module, or that names the binary (`CARGO_BIN_EXE_acpmux`)
+//! anywhere but here.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// How a test process runs: see the module text. The crate root of every
+/// test file defines `const HERMETIC: daemon_env::Process`.
+#[derive(Clone, Copy, Debug)]
+pub struct Process {
+    agents: Agents,
+    keep: &'static [&'static str],
+}
+
+impl Process {
+    /// No agent starts in this process or in a daemon it starts without a
+    /// choice of its own.
+    pub const fn deny() -> Self {
+        Self { agents: Agents::Deny, keep: &[] }
+    }
+
+    /// The process starts its own stand-in agents (a hub run in process).
+    pub const fn stand_in() -> Self {
+        Self { agents: Agents::StandIn, keep: &[] }
+    }
+
+    /// Host variables this process truly needs, kept as they are (each one
+    /// named with its reason where the constant is defined).
+    pub const fn keep(self, keep: &'static [&'static str]) -> Self {
+        Self { keep, ..self }
+    }
+}
+
+/// Test-runner variables every hermetic process keeps: they hold no
+/// credential and no PATH, and the harness or a test reads them.
+pub const PASS: &[&str] = &[
+    "RUST_BACKTRACE",
+    "RUST_LIB_BACKTRACE",
+    "RUST_LOG",
+    "RUST_MIN_STACK",
+    "RUST_TEST_THREADS",
+    "RUST_TEST_NOCAPTURE",
+    "RUST_TEST_TIME_UNIT",
+    "RUST_TEST_TIME_INTEGRATION",
+    "LLVM_PROFILE_FILE",
+    "CARGO_MANIFEST_DIR",
+    "CARGO_TARGET_TMPDIR",
+    // `peer_transport` asks for a non-loopback address only on CI.
+    "CI",
+];
+
+/// Set in the hermetic process, so it does not start itself again.
+const ENTERED: &str = "ACPMUX_TEST_HERMETIC";
+
+/// Runs before `main` in every test binary that includes this module, with
+/// the crate root's `HERMETIC`. `argv` comes from the loader (glibc and
+/// macOS pass it to initializers), because std may not have read it yet.
+#[cfg(unix)]
+#[used]
+#[cfg_attr(target_os = "linux", unsafe(link_section = ".init_array"))]
+#[cfg_attr(target_vendor = "apple", unsafe(link_section = "__DATA,__mod_init_func"))]
+static ENTER_HERMETIC: extern "C" fn(i32, *const *const std::ffi::c_char) = {
+    extern "C" fn init(argc: i32, argv: *const *const std::ffi::c_char) {
+        let args = if argv.is_null() {
+            std::env::args_os().collect()
+        } else {
+            (0..argc.max(0) as usize)
+                .map(|i| {
+                    // SAFETY: the loader's argv holds argc valid C strings.
+                    let arg = unsafe { std::ffi::CStr::from_ptr(*argv.add(i)) };
+                    std::os::unix::ffi::OsStrExt::as_bytes(arg).to_vec()
+                })
+                .map(|b| std::os::unix::ffi::OsStringExt::from_vec(b))
+                .collect()
+        };
+        enter(super::HERMETIC, args);
+    }
+    init
+};
+
+/// Windows runs no re-start (no stand-in agents, and its tests start the
+/// daemon through [`apply`]); the constant is still required.
+#[cfg(windows)]
+const _: Process = super::HERMETIC;
+
+/// Starts this process again (same pid, same arguments) with the hermetic
+/// environment, unless it already runs with it.
+#[cfg(unix)]
+pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
+    use std::os::unix::process::CommandExt;
+    if std::env::var_os(ENTERED).is_some() {
+        return;
+    }
+    let scratch = std::env::temp_dir().join(format!("amx-proc-{}", std::process::id()));
+    std::fs::create_dir_all(home(&scratch)).unwrap();
+    let mut env = vars(&scratch, process.agents, &[]);
+    for key in PASS.iter().chain(process.keep) {
+        if let Ok(value) = std::env::var(key) {
+            env.retain(|(k, _)| k != key);
+            env.push(((*key).to_owned(), value));
+        }
+    }
+    env.push((ENTERED.into(), "1".into()));
+    let exe = std::env::current_exe().expect("the test binary's path");
+    let mut args = args.into_iter();
+    let mut cmd = Command::new(&exe);
+    if let Some(arg0) = args.next() {
+        cmd.arg0(arg0);
+    }
+    let err = cmd.args(args).env_clear().envs(env).exec();
+    panic!("start {} again with the hermetic environment: {err}", exe.display());
+}
 
 /// The binary under test. Only for values (a path a daemon passes on, an
 /// agent host launcher); start a process with [`acpmux`] or [`command`].
