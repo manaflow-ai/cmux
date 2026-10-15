@@ -84,6 +84,7 @@ enum WorkspaceCreation {
                 key, createWorkspace: { created = try await connection.createWorkspace(name: name, key: key) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
+                    DebugTimings.markLaunch("spawn.workspace_created")
                     return try await firstTab(created)
                 },
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
