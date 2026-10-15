@@ -1,0 +1,175 @@
+//! The Home list rows (`home-inbox-v1`) over a real headless daemon's
+//! WebSocket (the Channels page path; the native Messages view reads the same
+//! command on the Unix socket): a Chief's direct conversation shows the Chief's
+//! current registry name and its live state, a direct conversation and a
+//! later titled one with the same participant are `direct` and `channel`,
+//! unread counts follow the read cursor and the person's own last message, the
+//! person's pins come first and a marked conversation says so.
+
+use std::io::{BufRead, BufReader};
+
+use serde_json::{Value, json};
+
+use super::conversation_tree::{TOKEN, Ws, ws_addr};
+use super::*;
+
+fn person() -> Value {
+    json!({"id": "user_local", "kind": "human", "display_name": "Tester"})
+}
+
+fn create(page: &mut Ws, key: &str, title: &str, others: Value) -> String {
+    let mut participants = vec![person()];
+    participants.extend(others.as_array().unwrap().iter().cloned());
+    page.request(
+        "conversation-create",
+        json!({"idempotency_key": key, "title": title, "participants": participants}),
+    )["conversation"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+fn row(inbox: &Value, id: &str) -> Value {
+    inbox["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("{id} has no row: {inbox}"))
+        .clone()
+}
+
+fn order(inbox: &Value) -> Vec<String> {
+    inbox["rows"].as_array().unwrap().iter().map(|row| row["id"].as_str().unwrap().to_owned()).collect()
+}
+
+/// A JSON-lines client of the daemon's Unix socket.
+struct Unix {
+    reader: BufReader<Box<dyn transport::Stream>>,
+    writer: Box<dyn transport::Stream>,
+    next: u64,
+}
+
+impl Unix {
+    fn open(socket: &std::path::Path) -> Self {
+        let stream = transport::connect(socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        let writer = stream.try_clone_box().unwrap();
+        Self { reader: BufReader::new(stream), writer, next: 1 }
+    }
+
+    fn request(&mut self, cmd: &str, params: Value) -> Value {
+        let id = self.next;
+        self.next += 1;
+        let mut body = params.as_object().cloned().unwrap_or_default();
+        body.insert("id".into(), json!(id));
+        body.insert("cmd".into(), json!(cmd));
+        writeln!(self.writer, "{}", Value::Object(body)).unwrap();
+        loop {
+            let mut line = String::new();
+            assert!(self.reader.read_line(&mut line).unwrap() > 0, "daemon closed the connection");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value.get("event").is_none() && value["id"] == id {
+                assert_eq!(value["ok"], true, "{cmd} failed: {value}");
+                return value["data"].clone();
+            }
+        }
+    }
+}
+
+#[test]
+fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order() {
+    let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
+    let server = HeadlessServer::start_with_config("home-inbox", Some(&config));
+    let mut page = Ws::open(&ws_addr(&server));
+    let identity = page.request("identify", json!({}));
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|value| value == "home-inbox-v1"),
+        "{identity}"
+    );
+    page.request("subscribe", json!({}));
+
+    let mux = json!({"id": "agent_mux", "kind": "agent", "display_name": "Chief", "agent_class": "mux"});
+    let builder = json!({"id": "agent_builder", "kind": "agent", "display_name": "Builder"});
+    let docs = json!({"id": "agent_docs", "kind": "agent", "display_name": "Docs"});
+    // Made in this order (created_at ascending).
+    let chief = create(&mut page, "inbox-chief", "Chief", json!([mux]));
+    let direct = create(&mut page, "inbox-direct", "Builder", json!([builder]));
+    let room = create(&mut page, "inbox-room", "builder room", json!([builder]));
+    let release = create(&mut page, "inbox-release", "release", json!([mux, builder, docs]));
+
+    // The person renames the Chief (its registry record): the row follows.
+    let renamed = page.v2("chief.profile.update", json!({"chief": "agent_mux", "display_name": "Release Chief"}));
+    assert_eq!(renamed["ok"], true, "{renamed}");
+
+    // The Chief writes in its direct conversation on its own bound connection.
+    let mut home = Unix::open(&server.socket);
+    let token = home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut agent = Unix::open(&server.socket);
+    agent.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
+    agent.request(
+        "conversation-op",
+        json!({"conversation": chief, "idempotency_key": "chief-1", "op": {
+            "kind": "message.send", "client_msg_id": "chief-1",
+            "parts": [{"type": "text", "text": "Release notes are ready for review."}]}}),
+    );
+    // The person writes last in release: nothing unread there.
+    page.sent(&release, "release-1", None, None);
+
+    let inbox = page.request("home-inbox", json!({}));
+    assert_eq!(inbox["me"], "user_local", "{inbox}");
+    let chief_row = row(&inbox, &chief);
+    assert_eq!(chief_row["kind"], "chief", "{chief_row}");
+    assert_eq!(chief_row["name"], "Release Chief", "{chief_row}");
+    assert_eq!(chief_row["chief"], "agent_mux", "{chief_row}");
+    assert_eq!(chief_row["chief_state"], "idle", "{chief_row}");
+    assert_eq!(chief_row["unread"], 1, "{chief_row}");
+    assert_eq!(chief_row["preview"], "Release notes are ready for review.", "{chief_row}");
+    assert_eq!(chief_row["last_author"], "agent_mux", "{chief_row}");
+    assert_eq!(row(&inbox, &direct)["kind"], "direct", "{inbox}");
+    assert_eq!(row(&inbox, &direct)["name"], "Builder", "{inbox}");
+    assert!(row(&inbox, &direct).get("chief_state").is_none(), "{inbox}");
+    // A later titled conversation with the same one participant is a channel.
+    assert_eq!(row(&inbox, &room)["kind"], "channel", "{inbox}");
+    let release_row = row(&inbox, &release);
+    assert_eq!(release_row["kind"], "channel", "{release_row}");
+    assert_eq!(release_row["unread"], 0, "{release_row}");
+    // Newest activity first: release (my message), then the Chief's message,
+    // then the conversations with no message by their update.
+    let ids = order(&inbox);
+    assert_eq!(&ids[..2], &[release.clone(), chief.clone()], "{inbox}");
+
+    // The Chief types: it works now.
+    agent.request("conversation-typing", json!({"conversation": chief, "on": true}));
+    let typing = page.request("home-inbox", json!({}));
+    assert_eq!(row(&typing, &chief)["chief_state"], "working", "{typing}");
+    agent.request("conversation-typing", json!({"conversation": chief, "on": false}));
+
+    // My pins come first in my order; a marked conversation says so.
+    page.request(
+        "conversation-inbox-op",
+        json!({"conversation": room, "op": {"kind": "inbox.pin", "pinned": true, "position": 2}}),
+    );
+    page.request(
+        "conversation-inbox-op",
+        json!({"conversation": direct, "op": {"kind": "inbox.pin", "pinned": true, "position": 1}}),
+    );
+    page.request(
+        "conversation-inbox-op",
+        json!({"conversation": release, "op": {"kind": "inbox.mark_unread", "unread": true}}),
+    );
+    let pinned = page.request("home-inbox", json!({}));
+    assert_eq!(&order(&pinned)[..4], &[direct.clone(), room.clone(), release.clone(), chief.clone()], "{pinned}");
+    assert_eq!(row(&pinned, &direct)["pinned"], true, "{pinned}");
+    assert_eq!(row(&pinned, &direct)["pin_position"], 1, "{pinned}");
+    assert_eq!(row(&pinned, &release)["marked_unread"], true, "{pinned}");
+    assert_eq!(row(&pinned, &chief)["pinned"], false, "{pinned}");
+    assert_eq!(row(&pinned, &chief)["chief_state"], "idle", "{pinned}");
+
+    // The same rows on the Unix socket (the native view's path).
+    let native = home.request("home-inbox", json!({}));
+    assert_eq!(native["rows"], pinned["rows"], "{native}");
+}

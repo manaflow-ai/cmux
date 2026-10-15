@@ -3685,6 +3685,8 @@ mod command_history;
 #[cfg(unix)]
 #[path = "cli/conversation_inbox_state.rs"]
 mod conversation_inbox_state;
+#[path = "cli/home_inbox.rs"]
+mod home_inbox;
 #[cfg(unix)]
 #[path = "cli/conversation_person_credentials.rs"]
 mod conversation_person_credentials;
