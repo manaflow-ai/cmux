@@ -38,6 +38,14 @@ extension TerminalController {
         }
 
         return v2BrowserWithPanel(params: params) { workspaceId, surfaceId, panel in
+            if let enginePage = panel.automationEnginePage {
+                return v2BrowserViewportSetEngine(
+                    enginePage,
+                    viewport: requestedViewport,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
             let layout: BrowserViewportLayout
             switch panel.setAutomationViewport(requestedViewport) {
             case .success(let appliedLayout):
@@ -62,6 +70,56 @@ extension TerminalController {
                 "presentation": layout.mode == .emulated ? "aspect_fit" : "native",
             ])
         }
+    }
+
+    /// `browser.viewport.set` on a page that emulates its own viewport
+    /// (Chromium device metrics): the page lays out at exactly the requested
+    /// CSS size while the pane keeps its size, like WebKit's emulated mode.
+    ///
+    /// This method runs on the main actor, which must not wait for the engine,
+    /// so the override is sent without waiting for its reply. DevTools handles
+    /// one page's commands in order, so a later screenshot or script sees the
+    /// new viewport.
+    private func v2BrowserViewportSetEngine(
+        _ page: any BrowserPage,
+        viewport: BrowserViewport?,
+        workspaceId: UUID,
+        surfaceId: UUID
+    ) -> V2CallResult {
+        let automation = BrowserPageAutomation(page: page)
+        guard automation.supportsViewportOverride else {
+            return .err(
+                code: "not_supported",
+                message: BrowserAutomationPageError.unsupported("viewport emulation").message,
+                data: ["surface_id": surfaceId.uuidString]
+            )
+        }
+        let width = viewport.map { Int($0.width) }
+        let height = viewport.map { Int($0.height) }
+        Task { @MainActor in
+            do {
+                try await automation.setViewportOverride(width: width, height: height)
+            } catch {
+#if DEBUG
+                cmuxDebugLog("browser.viewport.engine.failed surface=\(surfaceId.uuidString.prefix(5)) error=\(error)")
+#endif
+            }
+        }
+        var payload: [String: Any] = [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "mode": viewport == nil ? "native" : "emulated",
+            "exact": true,
+            "pane_resized": false,
+            "presentation": viewport == nil ? "native" : "device_metrics",
+        ]
+        if let width, let height {
+            payload["width"] = width
+            payload["height"] = height
+        }
+        return .ok(payload)
     }
 
     func v2BrowserAutomationViewportError(

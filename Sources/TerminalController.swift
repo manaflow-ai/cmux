@@ -7013,7 +7013,8 @@ class TerminalController {
                 "url": panel.currentURL?.absoluteString ?? "",
                 "focused": panel.id == focusedPanelId,
                 "pane_id": v2OrNull(paneId?.id.uuidString),
-                "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id)
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id),
+                "engine": panel.automationEngineKind.rawValue
             ]
         }
         return [
@@ -7293,6 +7294,11 @@ class TerminalController {
         timeout: TimeInterval = 3.0,
         reason: String = "automation-js"
     ) -> Bool {
+        // A non-WebKit engine page owns its own document lifecycle; its scripts
+        // run against whatever document it has, as cmux Next's do.
+        if v2MainSync({ browserPanel.automationEnginePage }) != nil {
+            return true
+        }
         let expectedWebViewIdentifier = ObjectIdentifier(webView)
         var readinessTask: Task<Void, Never>?
         let outcome: BrowserAutomationDocumentReadinessOutcome? = v2AwaitCallback(timeout: timeout) { finish in
@@ -7333,6 +7339,17 @@ class TerminalController {
         requiresPageWorld: Bool = false,
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
+        if let enginePage = v2MainSync({ browserPanel.automationEnginePage }) {
+            return v2RunEngineBrowserJavaScript(
+                enginePage,
+                surfaceId: surfaceId,
+                script: script,
+                timeout: timeout,
+                useEval: useEval,
+                requiresPageWorld: requiresPageWorld,
+                onIsolatedWorldFallback: onIsolatedWorldFallback
+            )
+        }
         guard v2EnsureBrowserDocumentLoaded(
             webView,
             browserPanel: browserPanel,
@@ -7422,19 +7439,90 @@ class TerminalController {
         case .failure(let message):
             return .failure(message)
         case .success(let value):
-            guard let dict = value as? [String: Any],
-                  let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
-                return .success(value)
-            }
+            return v2UnwrapBrowserEvalEnvelope(value)
+        }
+    }
 
-            switch type {
-            case Self.v2BrowserEvalEnvelopeTypeUndefined:
-                return .success(v2BrowserUndefinedSentinel)
-            case Self.v2BrowserEvalEnvelopeTypeValue:
-                return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
-            default:
-                return .success(value)
+    /// The value an evaluation script's result envelope carries.
+    private nonisolated func v2UnwrapBrowserEvalEnvelope(_ value: Any?) -> V2JavaScriptResult {
+        guard let dict = value as? [String: Any],
+              let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
+            return .success(value)
+        }
+
+        switch type {
+        case Self.v2BrowserEvalEnvelopeTypeUndefined:
+            return .success(v2BrowserUndefinedSentinel)
+        case Self.v2BrowserEvalEnvelopeTypeValue:
+            return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
+        default:
+            return .success(value)
+        }
+    }
+
+    /// `v2RunBrowserJavaScript` for a panel that does not render with WebKit:
+    /// the same evaluation script, frame targeting, CSP isolated-world fallback
+    /// and result envelope, evaluated through the panel's engine page.
+    private nonisolated func v2RunEngineBrowserJavaScript(
+        _ page: any BrowserPage,
+        surfaceId: UUID,
+        script: String,
+        timeout: TimeInterval,
+        useEval: Bool,
+        requiresPageWorld: Bool,
+        onIsolatedWorldFallback: (() -> Void)?
+    ) -> V2JavaScriptResult {
+        let asyncFunctionBody = v2BrowserControl.evaluationScript(
+            script: script,
+            useEval: useEval,
+            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        )
+        let evaluate: (BrowserPageScriptWorld) -> BrowserJavaScriptEvaluationResult = { world in
+            let outcome: BrowserJavaScriptEvaluationResult? = self.v2AwaitEnginePage(timeout: timeout) {
+                do {
+                    let value = try await BrowserPageAutomation(page: page).evaluate(
+                        asyncFunctionBody,
+                        form: .asyncFunctionBody,
+                        world: world
+                    )
+                    return .success(value)
+                } catch {
+                    return .failure(TerminalController.v2EngineAutomationMessage(error))
+                }
             }
+            return outcome ?? .timedOut
+        }
+
+        var rawResult = evaluate(.page)
+        // Same rule as the WebKit path: retry in an isolated world only when page CSP
+        // blocked eval, so an ordinary failure never runs a script's side effects twice.
+        if !requiresPageWorld,
+           case .failure(let pageMessage) = rawResult,
+           v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage) {
+            let isolatedResult = evaluate(.automation)
+            switch isolatedResult {
+            case .success:
+                rawResult = isolatedResult
+                onIsolatedWorldFallback?()
+            case .failure(let isolatedMessage):
+                if isolatedMessage != pageMessage {
+                    rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
+                }
+            case .timedOut:
+                rawResult = .timedOut
+            }
+        }
+
+        switch rawResult {
+        case .success(let value):
+            return v2UnwrapBrowserEvalEnvelope(value)
+        case .failure(let message):
+            return .failure(message)
+        case .timedOut:
+            return .failure(String(
+                localized: "browser.automation.error.javaScriptTimedOut",
+                defaultValue: "Timed out waiting for JavaScript result"
+            ))
         }
     }
 
@@ -7699,6 +7787,14 @@ class TerminalController {
             preferredProfileID = nil
         }
 
+        let requestedEngine = v2BrowserRequestedEngine(params)
+        if let error = requestedEngine.error {
+            return error
+        }
+        if let refusal = v2BrowserEngineRefusal(requestedEngine.engine) {
+            return refusal
+        }
+
         if BrowserAvailabilitySettings.isDisabled() {
             if let profileSelector {
                 return .err(
@@ -7911,6 +8007,7 @@ class TerminalController {
                     "show_omnibar": placement.panel.isOmnibarVisible,
                     "transparent_background": transparentBackground,
                     "bypass_remote_proxy": bypassRemoteProxy,
+                    "engine": placement.panel.automationEngineKind.rawValue,
                 ]
             )
             if focus,
@@ -8746,7 +8843,9 @@ class TerminalController {
                 message: "Wait condition could not be evaluated: \(message)",
                 data: [
                     "timeout_ms": timeoutMs,
-                    "url": v2MainSync { webView.url?.absoluteString ?? "about:blank" },
+                    "url": v2MainSync {
+                        (browserPanel.automationEnginePage?.state.url ?? webView.url)?.absoluteString ?? "about:blank"
+                    },
                     "hint": "Verify the page loaded with 'cmux browser <surface> get url' before waiting"
                 ]
             )
@@ -9052,6 +9151,18 @@ class TerminalController {
             }
             return v2BrowserWithPanelContext(params: params) { ctx in
                 MainActor.assumeIsolated {
+                    // Engine pages deliver keys asynchronously; the socket's async
+                    // keyboard path handles them, never this main-thread adapter.
+                    guard ctx.browserPanel.automationEnginePage == nil else {
+                        return .err(
+                            code: "invalid_dispatch",
+                            message: String(
+                                localized: "cli.browser.error.operationFailed",
+                                defaultValue: "Browser operation failed"
+                            ),
+                            data: ["surface_id": ctx.surfaceId.uuidString]
+                        )
+                    }
                     guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
                             ctx.webView.backForwardList.currentItem != nil else {
                         return .err(
@@ -9094,6 +9205,28 @@ class TerminalController {
         // that have no macOS virtual-key representation.
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
+            // A non-WebKit engine delivers any key value as trusted input, so the
+            // synthetic DOM-event compatibility path is WebKit-only.
+            if let enginePage = v2MainSync({ ctx.browserPanel.automationEnginePage }) {
+                let outcome: Result<Void, any Error>? = v2AwaitEnginePage(timeout: 5.0) {
+                    do {
+                        try await BrowserPageAutomation(page: enginePage).dispatchKey(event, action: action, modifiers: [])
+                        return .success(())
+                    } catch {
+                        return .failure(error)
+                    }
+                }
+                switch outcome {
+                case nil:
+                    return v2EngineAutomationTimeout(surfaceId: surfaceId)
+                case .failure(let error):
+                    return v2EngineAutomationError(error, surfaceId: surfaceId)
+                case .success:
+                    var payload = v2BrowserPanelFields(ctx)
+                    v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+                    return .ok(payload)
+                }
+            }
             let script = v2BrowserControl.keyboardScript(action: action, event: event)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
@@ -9257,6 +9390,23 @@ class TerminalController {
         }
 
         let timingBudget = BrowserScreenshotTimingBudget()
+        if let enginePage = v2MainSync({ browserPanel.automationEnginePage }) {
+            let capture: Result<Data, any Error>? = v2AwaitEnginePage(timeout: timingBudget.socketResponseTimeout) {
+                do {
+                    return .success(try await BrowserPageAutomation(page: enginePage).captureViewportPNG())
+                } catch {
+                    return .failure(error)
+                }
+            }
+            switch capture {
+            case nil:
+                return .err(code: "timeout", message: BrowserScreenshotError.automationTimedOut.localizedDescription, data: nil)
+            case .failure(let error):
+                return v2EngineAutomationError(error, surfaceId: surfaceId)
+            case .success(let data):
+                return v2BrowserScreenshotResult(workspaceId: workspaceId, surfaceId: surfaceId, imageData: data)
+            }
+        }
         guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(
             browserPanel,
             timeout: timingBudget.socketResponseTimeout
@@ -9280,7 +9430,16 @@ class TerminalController {
             )
             return .err(code: "timeout", message: message, data: nil)
         }
+        return v2BrowserScreenshotResult(workspaceId: workspaceId, surfaceId: surfaceId, imageData: imageData)
+    }
 
+    /// The `browser.screenshot` result for captured PNG bytes, also written to a
+    /// temporary file when possible.
+    private nonisolated func v2BrowserScreenshotResult(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        imageData: Data
+    ) -> V2CallResult {
         var result: [String: Any] = [
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
@@ -9982,6 +10141,14 @@ class TerminalController {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             browserPanel.suppressOmnibarAutofocus(for: 1.0)
 
+            // A non-WebKit engine focuses its own page view (this command has
+            // explicit focus intent).
+            if let enginePage = browserPanel.automationEnginePage {
+                result = enginePage.setFocused(true)
+                    ? .ok(["focused": true])
+                    : .err(code: "internal_error", message: "Focus did not move into web view", data: nil)
+                return
+            }
             let webView = browserPanel.webView
             guard let window = webView.window else {
                 result = .err(code: "invalid_state", message: "WebView is not in a window", data: nil)
@@ -10016,7 +10183,7 @@ class TerminalController {
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
             let browserPanel = context.browserPanel
-            let webView = browserPanel.webView
+            let webView: NSView = browserPanel.automationEnginePage?.contentView ?? browserPanel.webView
             guard let window = webView.window,
                   let fr = window.firstResponder as? NSView else {
                 focused = false
@@ -10872,34 +11039,71 @@ class TerminalController {
         return out
     }
 
-    private nonisolated func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.getAllCookies { items in
-                    finish(items)
+    /// The cookie jar of a browser surface: WebKit's data store, or the
+    /// surface's engine page (Chromium keeps cookies behind DevTools).
+    private enum V2BrowserCookieJar {
+        case webKit(WKHTTPCookieStore)
+        case engine(any BrowserPage)
+    }
+
+    /// Main actor only (callers read it inside `v2MainSync`).
+    private func v2BrowserCookieJar(_ ctx: V2BrowserPanelContext) -> V2BrowserCookieJar {
+        if let page = ctx.browserPanel.automationEnginePage {
+            return .engine(page)
+        }
+        return .webKit(ctx.webView.configuration.websiteDataStore.httpCookieStore)
+    }
+
+    private nonisolated func v2BrowserCookieStoreAll(_ jar: V2BrowserCookieJar, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
+        switch jar {
+        case .engine(let page):
+            let cookies: [HTTPCookie]?? = v2AwaitEnginePage(timeout: timeout) {
+                try? await BrowserPageAutomation(page: page).allCookies()
+            }
+            return cookies ?? nil
+        case .webKit(let store):
+            return v2AwaitCallback(timeout: timeout) { finish in
+                v2MainSync {
+                    store.getAllCookies { items in
+                        finish(items)
+                    }
                 }
             }
         }
     }
 
-    private nonisolated func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.setCookie(cookie) {
-                    finish(true)
+    private nonisolated func v2BrowserCookieStoreSet(_ jar: V2BrowserCookieJar, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+        switch jar {
+        case .engine(let page):
+            return v2AwaitEnginePage(timeout: timeout) {
+                (try? await BrowserPageAutomation(page: page).setCookie(cookie)) != nil
+            } ?? false
+        case .webKit(let store):
+            return v2AwaitCallback(timeout: timeout) { finish in
+                v2MainSync {
+                    store.setCookie(cookie) {
+                        finish(true)
+                    }
                 }
-            }
-        } ?? false
+            } ?? false
+        }
     }
 
-    private nonisolated func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.delete(cookie) {
-                    finish(true)
+    private nonisolated func v2BrowserCookieStoreDelete(_ jar: V2BrowserCookieJar, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+        switch jar {
+        case .engine(let page):
+            return v2AwaitEnginePage(timeout: timeout) {
+                (try? await BrowserPageAutomation(page: page).deleteCookie(cookie)) != nil
+            } ?? false
+        case .webKit(let store):
+            return v2AwaitCallback(timeout: timeout) { finish in
+                v2MainSync {
+                    store.delete(cookie) {
+                        finish(true)
+                    }
                 }
-            }
-        } ?? false
+            } ?? false
+        }
     }
 
     private nonisolated func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
@@ -10945,7 +11149,7 @@ class TerminalController {
     private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let store = v2MainSync {
-                ctx.webView.configuration.websiteDataStore.httpCookieStore
+                v2BrowserCookieJar(ctx)
             }
             guard let cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
@@ -10971,7 +11175,7 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let cookieContext = v2MainSync {
                 (
-                    store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
+                    store: v2BrowserCookieJar(ctx),
                     fallbackURL: ctx.browserPanel.currentURL
                 )
             }
@@ -11017,7 +11221,7 @@ class TerminalController {
     private nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let store = v2MainSync {
-                ctx.webView.configuration.websiteDataStore.httpCookieStore
+                v2BrowserCookieJar(ctx)
             }
             let clearRequiresScopeMessage = String(
                 localized: "cli.browser.cookies.clearRequiresScope",
@@ -11268,6 +11472,13 @@ class TerminalController {
 
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap(Self.browserAutomationURL(from:))
+        let requestedEngine = v2BrowserRequestedEngine(params)
+        if let error = requestedEngine.error {
+            return error
+        }
+        if let refusal = v2BrowserEngineRefusal(requestedEngine.engine) {
+            return refusal
+        }
         guard BrowserAvailabilitySettings.isEnabled() else {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -11323,7 +11534,8 @@ class TerminalController {
                     "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
                     "surface_id": panel.id.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                    "url": panel.currentURL?.absoluteString ?? ""
+                    "url": panel.currentURL?.absoluteString ?? "",
+                    "engine": panel.automationEngineKind.rawValue
                 ])
                 return
             }
@@ -11359,7 +11571,8 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                "url": panel.currentURL?.absoluteString ?? ""
+                "url": panel.currentURL?.absoluteString ?? "",
+                "engine": panel.automationEngineKind.rawValue
             ])
         }
         return result
@@ -11691,7 +11904,7 @@ class TerminalController {
             }
 
             let store = v2MainSync {
-                ctx.webView.configuration.websiteDataStore.httpCookieStore
+                v2BrowserCookieJar(ctx)
             }
             let cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
             let stateSnapshot = v2MainSync {
@@ -11744,7 +11957,7 @@ class TerminalController {
                 .flatMap { $0.isEmpty ? nil : URL(string: $0) }
             let context = v2MainSync {
                 (
-                    store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
+                    store: v2BrowserCookieJar(ctx),
                     fallbackURL: targetURL ?? ctx.browserPanel.currentURL,
                     browserPanel: ctx.browserPanel,
                     webView: ctx.webView
