@@ -498,6 +498,24 @@ while True:
                   "content": "Command moved to the background with ID: m1"}]}})
             send({"type": "system", "subtype": "task_notification", "task_id": "m1", "status": "completed",
                   "output_file": "", "summary": "Build finished"})
+        # "bg-output: PATH": a background shell whose output Claude Code writes to PATH (its
+        # output_file), unless PATH is already there (a test's FIFO); "bg-output-end: PATH"
+        # writes its last line there and ends it.
+        if said.startswith("bg-output: "):
+            path = said[len("bg-output: "):]
+            if not os.path.exists(path):
+                with open(path, "w") as f:
+                    f.write("".join("line %d\n" % i for i in range(100)))
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_out", "name": "Bash",
+                  "input": {"command": "npm run dev", "run_in_background": True}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "o1", "tool_use_id": "toolu_out",
+                  "description": "npm run dev", "task_type": "local_bash", "output_file": path})
+        if said.startswith("bg-output-end: "):
+            path = said[len("bg-output-end: "):]
+            with open(path, "a") as f:
+                f.write("done\n")
+            send({"type": "system", "subtype": "task_notification", "task_id": "o1", "tool_use_id": "toolu_out",
+                  "status": "completed", "output_file": path, "summary": "Server stopped"})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",
