@@ -10,14 +10,15 @@ public import Foundation
 /// should not overlap"): every DEV and staging build, keyed by its bundle
 /// id, has its own home, so it never starts, stops or reads another build's
 /// brain, acpmux, tools socket or memory, and its quit stops only its own
-/// Chief. NIGHTLY (`com.cmuxterm.app.nightly`, and cmux NEXT's
-/// `com.cmuxterm.app.nightly.cmux-next`), Lawrence's daily Chief, keeps the
-/// home all builds shared before (`~/.cmux/chief/<account>`) where it is:
-/// nothing is moved or copied, so its memory and history stay as they are.
-/// Release and RC, which run no Chief, keep that path too (their Home shows
-/// it; the `cmux chief` CLI in their terminals reaches NIGHTLY's Chief as
-/// before). A DEV build's home starts empty and never imports the old
-/// per-tag Chiefs (`ChiefMigration` runs only for a shared home).
+/// Chief. NIGHTLY (`com.cmuxterm.app.nightly` only), Lawrence's daily
+/// Chief, keeps the home all builds shared before (`~/.cmux/chief/<account>`)
+/// where it is: nothing is moved or copied, so its memory and history stay
+/// as they are. Every other build (DEV, staging, cmux NEXT's
+/// `com.cmuxterm.app.nightly.cmux-next`, RC, release) has its own home, so
+/// two NIGHTLY identities that run at the same time never share one Chief.
+/// A build's own home starts empty and never imports the old per-tag Chiefs
+/// (`ChiefMigration` runs only for NIGHTLY's home, after its one-time
+/// backup, `ChiefAdoption`).
 ///
 /// Resolution, first match wins:
 /// 1. `CMUX_NEXT_CHIEF_HOME` (or the older `CMUX_NEXT_MUX_HOME`): that
@@ -29,11 +30,10 @@ public import Foundation
 ///    `CMUX_NEXT_NO_ACTIVATE=1`, test window placement, showcase):
 ///    `~/.cmux/chief/isolated/<tag>`, so automation never reads or writes the
 ///    user's real Chief.
-/// 4. A DEV or staging build (`com.cmuxterm.app.debug[.<tag>]`,
-///    `com.cmuxterm.app.staging[.<tag>]`): `~/.cmux/chief/<bundle id>`, with
-///    `.<account>` appended for an account other than `default`. Any other
-///    build (NIGHTLY first): `~/.cmux/chief/<account>` (the account from
-///    `CMUX_NEXT_CHIEF_ACCOUNT`, else `default`). A DEBUG build may name
+/// 4. Every build but NIGHTLY: `~/.cmux/chief/<bundle id>`, with
+///    `.<account>` appended for an account other than `default`. NIGHTLY
+///    (and a process without a bundle id): `~/.cmux/chief/<account>` (the
+///    account from `CMUX_NEXT_CHIEF_ACCOUNT`, else `default`). A DEBUG build may name
 ///    another bundle id in `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
 ///
 /// Builds from before one Chief per build still resolve
@@ -52,21 +52,31 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// The bundle id this home belongs to (rules 2 and 4), nil for rules 1 and 3.
     public var buildID: String? = nil
 
-    /// Whether `bundleID` gets a Chief home of its own: DEV and staging builds.
+    /// The one build that keeps the shared home, `~/.cmux/chief/<account>`.
+    public static let nightlyBundleID = "com.cmuxterm.app.nightly"
+
+    /// Whether `bundleID` gets a Chief home of its own: every build but
+    /// NIGHTLY, so two identities that run at the same time (NIGHTLY and
+    /// cmux NEXT's `com.cmuxterm.app.nightly.cmux-next`, RC, release) never
+    /// share one Chief.
     public static func hasOwnHome(bundleID: String?) -> Bool {
-        guard let bundleID else { return false }
-        return ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"].contains { bundleID == $0 || bundleID.hasPrefix($0 + ".") }
+        guard let bundleID, !bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return bundleID != nightlyBundleID
     }
 
     /// Whether this home may take in the old per-tag Chiefs (`ChiefMigration`):
-    /// only a shared home (rule 1, or NIGHTLY's), never a DEV build's own.
-    public var importsOldChiefs: Bool { !isolated && !Self.hasOwnHome(bundleID: buildID) }
+    /// only NIGHTLY's (per-build isolation S6, cx-is1kf.7), never a build's
+    /// own home, an explicit test home (rule 1) or a home of no bundle.
+    public var importsOldChiefs: Bool { !isolated && buildID == Self.nightlyBundleID }
 
     /// `--mux-home` of the brain host: OptChat memory under `optchat/`,
     /// the single-writer host lock at `state/host.lock`.
     public var muxHome: URL { root }
     /// `CMUX_TUI_STATE_DIR` of the Chief's conversation owner.
     public var daemonStateDirectory: URL { root.appendingPathComponent("tui", isDirectory: true) }
+    /// Written by `cmux chief shutdown` (cmux-tui `cli/chief/shutdown.rs`):
+    /// while it is there the app starts no brain on its own, only when asked.
+    var shutdownMarker: URL { root.appendingPathComponent("state/shutdown") }
     /// While a turn waits for the compactor: how far it is (optchat-chief settle_status.rs).
     var settleStatusFile: URL { root.appendingPathComponent("state/settle.json") }
     /// `ACPMUX_HOME` of the Chief's turn, compactor and subagent sessions.

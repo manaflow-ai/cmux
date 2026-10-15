@@ -51,6 +51,10 @@ impl ResourceOperation {
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
                 | Self::ChiefEngineGet
+                | Self::ChiefProfileList
+                | Self::ChiefProfileGet
+                | Self::ChiefProfileAvatarGet
+                | Self::ParticipantAvatarGet
                 | Self::CredentialVerify
                 | Self::CredentialMint
                 | Self::ConversationList
@@ -102,6 +106,7 @@ impl ResourceOperation {
                 | Self::KeybindingsGet
                 | Self::BrowserDevicesList
                 | Self::SidebarLayoutGet
+                | Self::SidebarGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::RoomList

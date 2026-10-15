@@ -13,6 +13,7 @@ Runs on cmux-lawrence-2 (GUI host), never on the laptop.
 Usage: home-compose-repro.py --tag <tag> --out DIR
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -106,7 +107,7 @@ try:
 finally:
     rpc("action.run", {"id": "quitEndSessions"})
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
+    acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     with open(os.path.join(opts.out, "steps.json"), "w") as handle:

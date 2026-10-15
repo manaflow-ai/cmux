@@ -583,6 +583,23 @@
       "title" : "Borders",
       "type" : "string"
     },
+    "appearance.chromeStyle" : {
+      "default" : "default",
+      "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
+      "enum" : [
+        "default",
+        "card",
+        "card-outlined",
+        "flat",
+        "flat-sidebar-line",
+        "bare",
+        "panes",
+        "two-tone",
+        "floating"
+      ],
+      "title" : "Window Style",
+      "type" : "string"
+    },
     "appearance.density" : {
       "default" : "compact",
       "description" : "appearance.density",
@@ -1402,6 +1419,12 @@
       "title" : "Width",
       "type" : "number"
     },
+    "freeModel.enabled" : {
+      "default" : true,
+      "description" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits.",
+      "title" : "Free AI Model Without Sign-In",
+      "type" : "boolean"
+    },
     "history.closed.maxAgeDays" : {
       "default" : 0,
       "description" : "Each machine deletes closed items that are older. 0 keeps them however old they are.",
@@ -1436,6 +1459,12 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "labs.classicHome" : {
+      "default" : false,
+      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+      "title" : "Classic Home",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -2063,9 +2092,10 @@
     },
     "sidebar.density" : {
       "default" : "compact",
-      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "description" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
       "enum" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "title" : "Sidebar Density",
@@ -2501,7 +2531,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.notification" : {
-      "default" : true,
+      "default" : false,
       "description" : "The text of the workspace's newest unread notification.",
       "title" : "Latest Notification",
       "type" : "boolean"
@@ -2818,6 +2848,28 @@
       "minimum" : 4,
       "title" : "Font Size",
       "type" : "number"
+    },
+    "ui.animations.bounce" : {
+      "default" : "none",
+      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
+      "enum" : [
+        "none",
+        "subtle"
+      ],
+      "title" : "Animation Bounce",
+      "type" : "string"
+    },
+    "ui.animations.newTab" : {
+      "default" : true,
+      "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
+      "title" : "Animate New Tabs",
+      "type" : "boolean"
+    },
+    "ui.animations.newWorkspace" : {
+      "default" : false,
+      "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
+      "title" : "Animate New Workspaces",
+      "type" : "boolean"
     },
     "ui.animationSpeed" : {
       "default" : "fast",

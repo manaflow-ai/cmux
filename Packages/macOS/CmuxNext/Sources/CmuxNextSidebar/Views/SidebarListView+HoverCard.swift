@@ -23,7 +23,10 @@ extension SidebarListView {
     /// have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil, !model.isPlaceholder(id) else { return nil }
+              // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
+              // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
+              case .workspace(let id)? = displayed.row(at: point.y)?.key, let row = workspaces[id],
+              row.rowState != .placeholder else { return nil }
         return id
     }
     /// The row's frame on screen, nil when it is not laid out.
@@ -52,6 +55,12 @@ extension SidebarView {
     public var hoverCards: HoverCardCoordinator {
         get { list.hoverCards }
         set { list.hoverCards = newValue }
+    }
+
+    /// The user's customization: its hover card replaces the built-in one (cx-swovq.1).
+    public var customization: (any SidebarCustomization)? {
+        get { list.hoverCard.customization }
+        set { list.hoverCard.customization = newValue }
     }
 
     /// True while the workspace hover card samples resources.

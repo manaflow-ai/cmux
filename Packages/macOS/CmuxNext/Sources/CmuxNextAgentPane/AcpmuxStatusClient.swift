@@ -11,6 +11,8 @@ nonisolated enum AcpmuxStatusClient {
         case closed
         case rpc(String)
         case noWebSocket
+        /// The daemon on the socket runs from another acpmux home (another app's or tag's).
+        case otherHome(String)
     }
 
     /// The endpoint of the daemon listening on `socketPath`. Throws
@@ -44,11 +46,14 @@ nonisolated enum AcpmuxStatusClient {
         return AgentPanePastTurn.turns(result: result)
     }
 
-    /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
-    /// running for the next daemon. With `endAgents` (Quit Everything) they
-    /// end, except the agents of `keepSessions`.
-    @concurrent static func shutdown(socketPath: String, endAgents: Bool = false, keepSessions: [String] = [],
+    /// `_acpmux/shutdown` to the daemon of `home`: it stops; agents under agent hosts keep
+    /// running for the next daemon. With `endAgents` (Quit Everything) they end, except the
+    /// agents of `keepSessions`. A daemon of another acpmux home on the socket belongs to
+    /// another app or tag and is never stopped: `.otherHome`.
+    @concurrent static func shutdown(socketPath: String, home: URL, endAgents: Bool = false, keepSessions: [String] = [],
                                      deadline: Duration = .seconds(2)) async throws {
+        let running = try await status(socketPath: socketPath, deadline: deadline)
+        guard running.serves(home: home) else { throw Failure.otherHome(running.home ?? "") }
         let params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
         _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
     }
@@ -228,14 +233,17 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     /// `ACPMUX_CHIEF_MUX_HOME` of the daemon's own environment (acpmux
     /// `config/chief_builtins.rs`); nil when unset or from an older daemon.
     var chiefMuxHome: String?
+    /// The daemon's `ACPMUX_HOME`; nil from a daemon that does not report it.
+    var home: String?
 
     init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
-         chiefMuxHome: String? = nil) {
+         chiefMuxHome: String? = nil, home: String? = nil) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
         self.chiefMuxHome = chiefMuxHome
+        self.home = home
     }
 
     init(_ result: [String: Any]) {
@@ -244,6 +252,16 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
         agentHosts = (result["agentHosts"] as? Bool) ?? false
         chiefMuxHome = result["chiefMuxHome"] as? String
+        home = result["home"] as? String
+    }
+
+    /// Whether the daemon runs from `home`. One of another home on this app's socket (an
+    /// inherited or mistyped `ACPMUX_SOCKET`) is another app's or tag's: never hand it off,
+    /// stop it or use it. A daemon that does not report its home is taken at its socket's word.
+    func serves(home expected: URL) -> Bool {
+        guard let home, !home.isEmpty else { return true }
+        func canonical(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        return canonical(URL(fileURLWithPath: home, isDirectory: true)) == canonical(expected)
     }
 
     /// The WebSocket endpoint; `.noWebSocket` when the listener failed to bind.

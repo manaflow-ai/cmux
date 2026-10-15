@@ -677,6 +677,14 @@ impl ClientRegistry {
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
+                    || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
+                    || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
+                    // No placement restatement on `session.events`
+                    // (state/placement_shift.rs).
+                    || capability == crate::state::placement_shift::CAPABILITY
+                    || capability == crate::state::sidebar_doc_store::CAPABILITY
+                    || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
+                    || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
@@ -867,6 +875,19 @@ impl ClientRegistry {
                     .collect(),
             })
             .collect()
+    }
+
+    /// Whether a connected client that is not a page declared `capability`
+    /// (for `frontend-browser-tabs-v1`: a frontend that renders browser
+    /// tabs, the cmux app, is attached to this session). A page relay or a
+    /// page's WebSocket renders no tabs, so its declaration never counts.
+    pub(crate) fn any_client_supports(&self, capability: &str) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.values().any(|record| {
+            record.origin.role != crate::request_origin::HelloRole::PageRelay
+                && record.origin.page.is_none()
+                && record.capabilities.contains(capability)
+        })
     }
 
     pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {

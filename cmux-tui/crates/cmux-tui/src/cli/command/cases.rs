@@ -208,6 +208,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
         (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
         (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
+        (
+            vec!["workspace", WORKSPACE, "open-url", "--url", "https://example.com/docs"],
+            "workspace.open_url",
+        ),
         (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
         (
             vec![
@@ -623,13 +627,17 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "--body",
                 "tests passed",
                 "--level",
-                "success",
+                "info",
                 "--terminal",
                 TERMINAL,
             ],
             "notification.create",
         ),
         (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
+        (
+            vec!["agent", "message", "release", "msg_1", "--recipient", TERMINAL, "--approve"],
+            "agent.message.release",
+        ),
         (
             vec![
                 "agent",

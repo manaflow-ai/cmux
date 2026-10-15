@@ -51,21 +51,27 @@ extension LayoutRootView {
         let inset = paneZone ? 0 : DropOverlayTunables.floatingInset.resolve(Metrics.space2)
         if highlight.show(rect, region: region, zone: DropOverlayZone(hit.target), text: LayoutStrings.label(for: hit.target),
                           inset: inset, cornerRadius: radius, pointer: convert(locationInWindow, from: nil),
-                          animated: canAnimate) { driver.start() }
+                          animated: canAnimate, companions: hit.companions.map { convert($0, from: view) }) { driver.start() }
         return hit.target
     }
 
-    /// Shows the drop outline on `screenRect` (a tab strip's insert slot):
-    /// the same overlay as the pane zones, so the outline moves between
-    /// them. Nothing is hit-tested; the strip owns that target.
+    /// Marks a tab strip's insert slot (`screenRect`, the gap the strip
+    /// opens for the dragged tab) with classic's caret: a 2 pt accent bar,
+    /// 20 pt tall, on the gap's leading edge, where the tab will start; the
+    /// drag ghost sits in the gap itself and would hide a centered caret
+    /// (DESIGN.md (c)6, proof 2026-10-14). The same
+    /// overlay as the pane zones, so it moves between them. Nothing is
+    /// hit-tested; the strip owns that target, and the ghost still lands on
+    /// the slot (`tabDragHighlightOnScreen`).
     public func showTabDragOutline(screenRect: CGRect) {
         guard let window else { return }
-        let rect = convert(window.convertFromScreen(screenRect), from: nil)
+        let slot = convert(window.convertFromScreen(screenRect), from: nil)
         tabDragHighlightOnScreen = screenRect
         tabDropHit = nil
-        let radius = min(context.style.panelCornerRadius, rect.height / 2)
-        if highlight.show(rect, region: rect, zone: .center, text: "", inset: 0, cornerRadius: radius,
-                          pointer: CGPoint(x: rect.midX, y: rect.midY), animated: canAnimate, fills: false) { driver.start() }
+        let height = min(20, slot.height)
+        let caret = CGRect(x: slot.minX - 2, y: slot.midY - height / 2, width: 2, height: height)
+        if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
+                          pointer: CGPoint(x: caret.midX, y: caret.midY), animated: canAnimate, fills: false) { driver.start() }
     }
 
     /// Hides the drop highlight `updateTabDrag` showed, for a zone the App

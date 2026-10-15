@@ -52,7 +52,7 @@ public struct WindowTitlebar {
     /// A mouse-down on an empty titlebar area: a double-click runs the
     /// user's action, any other press moves the window with the pointer.
     /// One press runs once: a press on a view that handles its own titlebar
-    /// row (the sidebar header) also reaches the window's `sendEvent`, and a
+    /// row (Home's header strip) also reaches the window's `sendEvent`, and a
     /// second zoom put the window back where it was (Leo, cosmic-gray 2026-10-13).
     public static func handleMouseDown(_ event: NSEvent, in window: NSWindow?) {
         let press = (event.windowNumber, event.timestamp, event.clickCount)
@@ -83,7 +83,8 @@ public struct WindowTitlebar {
     /// pills center on the traffic lights' line (never more than `gutter`;
     /// `PaneChromeMetrics.cardTop`).
     public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat) -> CGFloat {
-        guard minimal, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
+        // Floating panes keep the one even gap at the top too.
+        guard minimal, !Metrics.floatingPanes, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
         let centerFromTop = root.bounds.maxY - root.convert(lights, from: nil).midY
         return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
     }

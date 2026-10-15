@@ -7,6 +7,10 @@ use super::queue::PromptRun;
 use super::*;
 use std::sync::atomic::Ordering;
 
+// `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
+#[path = "withdraw.rs"]
+mod withdraw;
+
 /// The stricter of two controls: an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {
@@ -95,6 +99,8 @@ impl Hub {
                 blocks,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
+                // The person rewrote it: it is no longer the sender's message.
+                provenance: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone())
@@ -161,6 +167,7 @@ impl Hub {
                     blocks: q.run.blocks.clone(),
                     control,
                     trust_gate: q.run.trust_gate,
+                    provenance: q.run.provenance.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

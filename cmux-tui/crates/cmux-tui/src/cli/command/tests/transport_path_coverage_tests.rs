@@ -76,6 +76,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "session.journal.subscribe",
         ),
+        // A turn-start hook's prompt rides beside the event as live_prompt (memory only, never
+        // journaled: the event itself carries the prompt redacted).
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "UserPromptSubmit",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"fix the parser"}"#,
+            ],
+            "session.journal.append",
+        ),
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
         (
@@ -152,6 +170,28 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.hide"
                         | "palette_usage.forget"
                         | "sidebar_layout.update"
+                        // The sidebar document (sidebar-doc-v1) is the app's
+                        // too; the CLI sets only a section's scroll and row
+                        // limit (`sidebar section-scroll`, `section-max-rows`,
+                        // both sidebar.section.update with a partial patch).
+                        | "sidebar.adopt"
+                        | "sidebar.apply"
+                        | "sidebar.get"
+                        | "sidebar.group.create"
+                        | "sidebar.group.ungroup"
+                        | "sidebar.group.update"
+                        | "sidebar.item.add"
+                        | "sidebar.item.remove"
+                        | "sidebar.item.remove_ref"
+                        | "sidebar.item.update"
+                        | "sidebar.move"
+                        | "sidebar.pin"
+                        | "sidebar.reset"
+                        | "sidebar.section.add"
+                        | "sidebar.section.move"
+                        | "sidebar.section.remove"
+                        | "sidebar.section.update"
+                        | "sidebar.unpin"
                         // The project list is the app's and its importers'
                         // (plans/cmux-next/projects.md); no CLI verb yet.
                         | "project.list"
@@ -187,6 +227,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // `cmux chief list|new|adopt|edit|delete` send these
+                        // (cli/chief/registry.rs), outside the noun grammar.
+                        | "chief.profile.list"
+                        | "chief.profile.get"
+                        | "chief.profile.create"
+                        | "chief.profile.adopt"
+                        | "chief.profile.update"
+                        | "chief.profile.delete"
+                        | "chief.profile.avatar.set"
+                        | "chief.profile.avatar.get"
+                        // `cmux avatar set|get` and the Channels page send these.
+                        | "participant.avatar.set"
+                        | "participant.avatar.get"
                         // Launch credentials: acpmux and owners call these
                         // on the socket; an agent never mints or rotates.
                         | "credential.verify"

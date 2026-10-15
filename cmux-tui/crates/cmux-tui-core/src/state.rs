@@ -14,6 +14,9 @@ pub(crate) mod agent_folder;
 #[cfg(test)]
 mod agent_folder_tests;
 pub(crate) mod agent_home_moves;
+pub(crate) mod agent_message_policy;
+pub(crate) mod agent_message_release;
+pub(crate) mod agent_message_schema;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
@@ -31,6 +34,7 @@ pub(crate) mod closed_history_store;
 mod closed_history_tests;
 #[cfg(test)]
 mod closed_relaunch_tests;
+mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
@@ -66,6 +70,7 @@ pub(crate) mod palette_usage_store;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
+pub(crate) mod placement_shift;
 mod prelude;
 pub(crate) mod project_sources;
 pub(crate) mod project_watch;
@@ -84,6 +89,10 @@ pub(crate) mod router;
 mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+pub(crate) mod sidebar_doc_legacy;
+pub(crate) mod sidebar_doc_ops;
+pub(crate) mod sidebar_doc_store;
+pub(crate) mod sidebar_doc_sync;
 #[cfg(test)]
 mod tab_changed_pin_tests;
 pub(crate) use cmux_layout_reducer::sidebar_layout;

@@ -122,6 +122,10 @@ impl RemoteSession {
     }
 
     pub(super) fn handle_line(self: &Arc<Self>, value: Value) {
+        if value.get("protocol").is_some() {
+            self.handle_protocol2_line(value);
+            return;
+        }
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
         let event = value.get("event").and_then(Value::as_str);
         if event.is_some_and(|event| !self.accepts_event_in_surface_scope(event, &value)) {
@@ -411,6 +415,7 @@ impl RemoteSession {
                         .get("since_ms")
                         .and_then(Value::as_u64)
                         .unwrap_or(updated_at_ms),
+                    last_prompt: value.get("last_prompt").and_then(Value::as_str).map(Arc::from),
                 };
                 {
                     let retired_surfaces = self.retired_surfaces.lock().unwrap();
@@ -436,7 +441,8 @@ impl RemoteSession {
                     // already fail closed for a known-exited surface.
                     self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
-                    self.emit(MuxEvent::SurfaceExited(id));
+                    let end = value.get("end").filter(|end| !end.is_null()).cloned();
+                    self.emit(MuxEvent::SurfaceExited(id, end.map(Arc::new)));
                 }
             }
             Some("title-changed") => {

@@ -29,6 +29,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rustls",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -986,6 +987,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-local-auth",
  "fs4",
  "futures-util",
@@ -1540,6 +1542,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-agent-pane-policy",
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-config",

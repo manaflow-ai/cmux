@@ -74,6 +74,12 @@ public final class SidebarView: NSView {
     private var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     private var lastState: RenderState?
+    /// The sections the list showed at the last render (for the space slide and the provisional check).
+    private var lastSections: [SidebarSection] = []
+    /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
+    var bandsDirty = true
+    /// The size the bands were laid out for (app sections take a share of the height).
+    private var bandsSize: CGSize?
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
@@ -136,10 +142,11 @@ public final class SidebarView: NSView {
     /// injects one per window. Without it, app sections draw nothing.
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
-            appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
+            appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
+            bandsDirty = true
             needsLayout = true
         }
     }
@@ -265,7 +272,10 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
-        updateBands()
+        if bandsDirty || bandsSize != b.size {
+            (bandsDirty, bandsSize) = (false, b.size)
+            updateBands()
+        }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
         // From the bottom up (R112/R114): the pinned footer section (the
@@ -287,13 +297,8 @@ public final class SidebarView: NSView {
 
     // MARK: Titlebar row
 
-    /// The header row beside the traffic lights is titlebar: it moves the
-    /// window, and a double-click zooms or minimizes (the user's macOS
-    /// setting). Its buttons take their own clicks.
-    override public func mouseDown(with event: NSEvent) {
-        guard convert(event.locationInWindow, from: nil).y < titlebarHeight else { return super.mouseDown(with: event) }
-        WindowTitlebar.handleMouseDown(event, in: window)
-    }
+    // The header row beside the traffic lights is titlebar: the window moves
+    // it and runs the double-click action (`titlebarPress`, below).
 
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -311,7 +316,9 @@ public final class SidebarView: NSView {
     /// Everything the list renders. Emitting a value type lets the list
     /// skip reloads when an unrelated model property changes.
     private struct RenderState: Hashable, Sendable {
-        var sections: [SidebarSection]
+        /// `SidebarModel.sectionsRevision`: a structural change, compared
+        /// instead of every row (a row content change patches its row).
+        var sectionsRevision: UInt64
         var selection: Set<WorkspaceID>
         var selected: SidebarItem?
         var profiles: [SidebarProfile]
@@ -331,37 +338,37 @@ public final class SidebarView: NSView {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var cards: SidebarBottomCards
+        init(_ model: SidebarModel, _ design: DesignSettings) {
+            sectionsRevision = model.observedSectionsRevision
+            selection = model.selection
+            selected = model.selectedItem
+            profiles = model.profiles
+            activeProfile = model.activeProfileID
+            filter = model.filterText
+            layout = model.layout
+            itemInfo = model.resolvedItemInfo
+            transientTopItems = model.transientTopItems
+            collapsedSections = model.collapsedLayoutSections
+            look = SidebarSectionTunables.currentLook
+            drawsLines = Borders.drawsLines
+            preferences = design.sidebarSections
+            suppressedApps = model.suppressedApps
+            metrics = .standard
+            fontSize = Typography.body.pointSize
+            titlebarHeight = Metrics.titlebarHeight
+            cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
+        }
     }
 
     private func observe() {
         let model = model, design = design
         observation = Task { [weak self] in
-            for await state in ObservationStream({
-                RenderState(
-                    sections: model.sections,
-                    selection: model.selection,
-                    selected: model.selectedItem,
-                    profiles: model.profiles,
-                    activeProfile: model.activeProfileID,
-                    filter: model.filterText,
-                    layout: model.layout,
-                    itemInfo: model.resolvedItemInfo,
-                    transientTopItems: model.transientTopItems,
-                    collapsedSections: model.collapsedLayoutSections,
-                    look: SidebarSectionTunables.currentLook,
-                    drawsLines: Borders.drawsLines,
-                    preferences: design.sidebarSections,
-                    suppressedApps: model.suppressedApps,
-                    metrics: .standard,
-                    fontSize: Typography.body.pointSize,
-                    titlebarHeight: Metrics.titlebarHeight,
-                    cards: SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-                )
-            }) {
-                self?.render(state)
-            }
+            for await state in ObservationStream({ RenderState(model, design) }) { self?.render(state) }
         }
     }
+
+    /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
+    public func renderNow() { render(RenderState(model, design)) }
 
     private func render(_ state: RenderState) {
         guard state != lastState else { return }
@@ -373,10 +380,10 @@ public final class SidebarView: NSView {
             || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
-        let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
+        let listChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.selection != state.selection
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences)
-        let previous = lastState?.sections
+        let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
@@ -386,16 +393,29 @@ public final class SidebarView: NSView {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
             } else {
-                list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
+                list.reload(animated: Self.animatesReload(from: previous, to: model.sections))
             }
+            lastSections = model.sections
         }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
-        if chromeChanged || profilesChanged { needsLayout = true }
+        if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
     }
 
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !((old ?? []) + new).contains(where: \.hasProvisionalRows)
+    }
+}
+
+// The header row beside the traffic lights is titlebar: a press there moves the
+// window and a double-click runs the user's action, both from the window's one
+// decision (`TitlebarDragPolicy`). The + button and the accessory take their own.
+extension SidebarView: TitlebarPressDeciding {
+    public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
+        let point = convert(windowPoint, from: nil)
+        guard point.y < titlebarHeight else { return .staysPut }
+        let controls = [newButton as NSView?, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }

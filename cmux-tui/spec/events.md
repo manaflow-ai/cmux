@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -45,8 +45,13 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
+| `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+| `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
+| `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
+| `chief-changed` | subscribe | `chief` | protocol 12 additive extension; capability `chief-events-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
 | `cloud-inbox-changed` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-inbox-reset` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-subscription-state` | subscribe | `scope`, `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
@@ -533,6 +538,85 @@ WebSocket connection while the app holds the lease.
 published for `conversation-typing` to trusted local connections and (with
 `ws-conversations-v1`) authenticated WebSocket connections. Ephemeral:
 never stored or replayed.
+
+### conversation-inbox-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-inbox-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+
+`object{event:"conversation-inbox-changed", conversation:string, participant:string, pinned:bool, pin_position?:uint64, marked_unread:bool}`,
+published after a `conversation-inbox-op` commit, only to the connections
+whose principal is `participant` (the person's own clients; an agent never
+sees the person's pins). Not a conversation change: it carries no `rev` and
+never reaches `conversation.events` or the remote relay.
+
+### conversation-run-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-run-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-runs-v1` |
+
+`object{event:"conversation-run-changed", conversation:string, run:Run, steps:[Step]}`,
+published after a `conversation-run-append` commit (the run after the append
+and the steps it wrote; see `commands.md`), only to trusted local connections
+that echoed `conversation-runs-v1` in `set-client-info`. Not a conversation
+change: it carries no conversation `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### participant-avatar-changed
+
+| Field | Value |
+| --- | --- |
+| event | `participant-avatar-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `participant-avatars-v1` |
+
+`object{event:"participant-avatar-changed", participant:string, avatar:AvatarRef|null}`
+(`AvatarRef = object{sha256, media_type, bytes}`), published after a committed
+`participant.avatar.set` or `chief.profile.avatar.set` change, only to trusted
+local connections that echoed `participant-avatars-v1` in `set-client-info`.
+A client reads the bytes with `participant.avatar.get` (once per `sha256`). Not
+a conversation change: it carries no conversation or `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### chief-changed
+
+| Field | Value |
+| --- | --- |
+| event | `chief-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-events-v1` |
+
+`object{event:"chief-changed", chief:string, change:"created"|"updated"|"deleted"}`,
+published after a committed `chief.profile.create`, `chief.profile.update`,
+`chief.profile.avatar.set` (also through `participant.avatar.set`) or
+`chief.profile.delete` (a replayed request, and an edit that leaves the
+Chief's `rev` as it was, publish nothing), only to the person's own trusted
+local connections (acting as `user_local`; never a bound agent or Chief) that
+echoed `chief-events-v1` in `set-client-info`, including the Channels page on
+its page-bound credential. A client
+reads the record with `chief.profile.get` or `chief.profile.list`. Home and
+the Channels page redraw their Chiefs on it instead of polling. Not a
+conversation change: it carries no conversation or `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### cloud-conversation-run-changed
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-run-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
+
+`object{event:"cloud-conversation-run-changed", conversation:string, run:Run, steps:[Step], account?:string}`,
+a Cloud Chief's run change in a subscribed Cloud conversation (the owner's
+`conversation-run-changed` frame), only to the person's connections that
+echoed `conversation-runs-v1`. Never replayed.
 
 ### terminal-registry-changed
 
@@ -1582,9 +1666,13 @@ object{
   session:string|null,
   agent?:string|null,
   updated_at_ms:uint64,
-  since_ms?:uint64
+  since_ms?:uint64,
+  last_prompt?:string|null
 }
 ```
+
+`last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
+`list-agents`).
 
 Meaning: The current agent state for a surface changed. `agent` is the
 adapter identity when the producer knows it. `since_ms` is when the agent

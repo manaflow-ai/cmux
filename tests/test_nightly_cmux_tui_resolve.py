@@ -63,9 +63,12 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # apply to them (the recovered build carries its own, from its manifest).
 # publish-nightly-identity-legacy builds nothing either: it downloads the cmux NEXT
 # DMG publish-nightly released and re-signs that build as cmux NIGHTLY with this
-# run's tools (cx-x7hwx).
+# run's tools (cx-x7hwx). legacy-identity-target checks out only to run
+# scripts/ci/nightly-next-legacy-target.py, which compares the two published
+# feeds to pick that build; it builds and ships nothing.
 exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
-          "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly-identity-legacy"}
+          "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly-identity-legacy",
+          "legacy-identity-target"}
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"

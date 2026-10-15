@@ -8260,127 +8260,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Group to New Window"
+            "value": "Move to New Window"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループを新規ウインドウに移動"
+            "value": "新規ウインドウに移動"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "نقل المجموعة إلى نافذة جديدة"
+            "state": "translated",
+            "value": "نقل إلى نافذة جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Premjesti grupu u novi prozor"
+            "value": "Premjesti u novi prozor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flyt gruppe til nyt vindue"
+            "value": "Flyt til nyt vindue"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruppe in neues Fenster bewegen"
+            "state": "translated",
+            "value": "In neues Fenster bewegen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover el grupo a una ventana nueva"
+            "state": "translated",
+            "value": "Mover a una ventana nueva"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Déplacer le groupe dans une nouvelle fenêtre"
+            "state": "translated",
+            "value": "Déplacer dans une nouvelle fenêtre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sposta il gruppo in una nuova finestra"
+            "value": "Sposta in una nuova finestra"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្លាស់ទីក្រុមទៅបង្អួចថ្មី"
+            "value": "ផ្លាស់ទីទៅបង្អួចថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹을 새 윈도우로 이동"
+            "state": "translated",
+            "value": "새 윈도우로 이동"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flytt gruppen til nytt vindu"
+            "value": "Flytt til nytt vindu"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przenieś grupę do nowego okna"
+            "value": "Przenieś do nowego okna"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mover grupo para nova janela"
+            "value": "Mover para nova janela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переместить группу в новое окно"
+            "value": "Переместить в новое окно"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ย้ายกลุ่มไปยังหน้าต่างใหม่"
+            "value": "ย้ายไปยังหน้าต่างใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grubu yeni pencereye taşı"
+            "value": "Yeni Pencereye Taşı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемістити групу в нове вікно"
+            "value": "Перемістити в нове вікно"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chuyển nhóm sang cửa sổ mới"
+            "value": "Chuyển sang cửa sổ mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "将组移到新窗口"
+            "state": "translated",
+            "value": "移到新窗口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "將群組移到新視窗"
+            "state": "translated",
+            "value": "移到新視窗"
           }
         }
       }
@@ -12573,6 +12573,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "取消固定工作區"
+          }
+        }
+      }
+    },
+    "sidebar.hoverCard.customError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom card error: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムカードのエラー: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خطأ في البطاقة المخصصة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Greška prilagođene kartice: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fejl i tilpasset kort: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fehler in der eigenen Karte: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Error de la tarjeta personalizada: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erreur de la carte personnalisée : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Errore della scheda personalizzata: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំហុសកាតផ្ទាល់ខ្លួន: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자 지정 카드 오류: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Feil i tilpasset kort: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Błąd własnej karty: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erro no cartão personalizado: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ошибка пользовательской карточки: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อผิดพลาดของการ์ดที่กำหนดเอง: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel kart hatası: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помилка власної картки: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lỗi thẻ tùy chỉnh: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义卡片错误：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂卡片錯誤：%@"
           }
         }
       }
