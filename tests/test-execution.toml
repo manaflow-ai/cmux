@@ -96,6 +96,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_browser_engine_cli.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_workspace_mutation_arguments.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -1781,4 +1786,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_daily_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_engine_bench.py"
 lane = "linux-guard"

@@ -1008,6 +1008,7 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
         }
         _ = parseBrowserMemorySaverSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
+        parseBrowserEngineSetting(section, sourcePath: sourcePath, snapshot: &snapshot)
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 

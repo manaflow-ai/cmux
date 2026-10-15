@@ -180,12 +180,14 @@ combination exceeds WKWebView render limits.
 
 ## Limits (WKWebView)
 
-Trace/screencast recording, network route interception/mocking, and low-level
-raw input injection return `not_supported`; they depend on Chrome/CDP-only APIs.
-Use `click`, `fill`, `press`, `scroll`, `wait`, and `snapshot` instead.
+Trace/screencast recording, network route interception/mocking, and touch
+input return `not_supported`; they depend on Chrome/CDP-only APIs. Use `click`,
+`fill`, `press`, `scroll`, `wait`, and `snapshot` instead.
 `geolocation <lat> <lon>` and `offline true|false` work: pages get the given
 position without a permission prompt, and offline mode blocks http(s) and
-ws(s) loads and reports `navigator.onLine === false`.
+ws(s) loads and reports `navigator.onLine === false`. `input mouse` and
+`input keyboard` work and send trusted native events (see the commands
+reference).
 
 ## Troubleshooting `js_error`
 

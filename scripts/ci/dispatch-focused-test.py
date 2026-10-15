@@ -989,6 +989,13 @@ def main() -> int:
         help="JSON dogfood tour for cmuxUITests/DogfoodScenarioUITests (the default test with this flag); "
         "see skills/cmux-testing/references/dogfood-scenarios.md. Combine with --frames to get its screenshots",
     )
+    parser.add_argument(
+        "--browser-engine",
+        choices=("webkit", "chromium"),
+        help="browser engine the app under test uses for browser panels (default: the app's configured "
+        "engine). Runs of different engines do not share or cancel each other, so the already-failed and "
+        "already-running guards are skipped as they are for --scenario",
+    )
     parser.add_argument("--timeout", type=positive_integer, default=120, help="per-test timeout in seconds (default: 120)")
     parser.add_argument("--job-timeout", type=positive_integer, default=45, help="job timeout in minutes, including compilation (default: 45)")
     parser.add_argument("--workflow-ref", help="workflow-definition branch/tag (default: repository default branch)")
@@ -1037,6 +1044,10 @@ def main() -> int:
         args.force = True
     elif not args.test_filter:
         parser.error("name a test_filter, or pass --scenario")
+    if args.browser_engine:
+        # A run's title does not name its engine, so the guards that attach to
+        # or refuse on an earlier run of these selectors cannot tell engines apart.
+        args.force = True
     for entry in args.test_filter:
         if not SELECTOR.fullmatch(entry):
             parser.error(
@@ -1063,6 +1074,14 @@ def main() -> int:
         parser.error("test_filter entries must all target cmuxTests or all target cmuxUITests")
     test_target = targets.pop()
     test_filter = ",".join(args.test_filter)
+    if args.browser_engine and test_target != "cmuxUITests":
+        parser.error("--browser-engine takes UI selectors; it sets the engine of the app a UI test launches")
+    if args.browser_engine == "chromium":
+        # test-e2e.yml compiles a Chromium run itself, embedding the engine;
+        # no product CI compiled has it, so waiting for or adopting one is waste.
+        if args.adopt_only:
+            parser.error("--browser-engine chromium compiles its own product; it cannot take --adopt-only")
+        args.full_build = True
     if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
         parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
     if args.adopt_main and not args.adopt_only:
@@ -1137,6 +1156,8 @@ def main() -> int:
         group_length = len(f"e2e-{label}-{commit}-{test_filter}")
         if scenario_b64:
             group_length += len(f"-{uuid.uuid4().hex}")  # the dispatch id scenario runs add
+        if args.browser_engine:
+            group_length += len(f"-{args.browser_engine}")
         if group_length > MAX_CONCURRENCY_GROUP:
             parser.error(
                 f"these selectors make a {group_length}-character concurrency group, over "
@@ -1307,6 +1328,8 @@ def main() -> int:
         fields["runner"] = args.runner
     if scenario_b64:
         fields["dogfood_scenario"] = scenario_b64
+    if args.browser_engine:
+        fields["browser_engine"] = args.browser_engine
     if args.adopt_only:
         # test-e2e.yml fails before compiling if its reuse step still misses.
         fields["require_adopted_product"] = "true"

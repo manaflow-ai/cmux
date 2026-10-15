@@ -1,5 +1,5 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
+run-name: ${{ inputs.test_filter }} on ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}${{ inputs.browser_engine == 'chromium' && ' {chromium}' || '' }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
@@ -37,6 +37,15 @@ on:
         required: false
         default: true
         type: boolean
+      browser_engine:
+        description: "Browser engine for browser panels under test (default keeps the app's configured engine; chromium falls back to WebKit when the build has no CEF)"
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - webkit
+          - chromium
       runner:
         description: "Runner OS (auto follows MACOS_RUNNER_TESTS; on the 6vcpu macOS 26 default it takes the pool pull request CI would: an owned Mac with a free slot when CI_PR_POOL_OWNED is 1, else 12vcpu while it has headroom, else 6vcpu; glaeda-* are the owned Macs and record no video)"
         required: false
@@ -58,7 +67,7 @@ on:
 # scenario run adds its dispatch id: agents dispatch several tours of one
 # commit at once, and each must not cancel the others.
 concurrency:
-  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}${{ inputs.dogfood_scenario && format('-{0}', inputs.dispatch_id) || '' }}
+  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}${{ inputs.dogfood_scenario && format('-{0}', inputs.dispatch_id) || '' }}${{ (inputs.browser_engine == 'webkit' || inputs.browser_engine == 'chromium') && format('-{0}', inputs.browser_engine) || '' }}
   cancel-in-progress: true
 
 # This lane checks out and compiles a dispatcher-chosen ref, so it should hold
@@ -428,8 +437,10 @@ jobs:
           persist-credentials: false
 
       # A seed dispatch exists to compile, and never adopts a product.
+      # A Chromium run compiles its own product (it embeds the engine), so
+      # no other dispatch's compile helps it.
       - name: Wait for an earlier compile of this revision
-        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') && inputs.browser_engine != 'chromium' }}
         env:
           GH_TOKEN: ${{ github.token }}
           TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
@@ -483,6 +494,21 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
     steps:
+      # A Chromium run embeds the CEF engine (scripts/cef/embed-cef.sh skips it
+      # under CI=true otherwise). The product contract hashes CMUX_EMBED_CEF,
+      # so a Chromium product never answers a WebKit run and the reverse.
+      # Other runs never set it, so their build settings are unchanged.
+      - name: Embed the Chromium engine in a Chromium run
+        if: ${{ inputs.browser_engine == 'chromium' }}
+        env:
+          REQUIRE_ADOPTED: ${{ inputs.require_adopted_product }}
+        run: |
+          if [ "$REQUIRE_ADOPTED" = true ]; then
+            echo "::error::a Chromium run compiles its own product; require_adopted_product cannot be set with it"
+            exit 1
+          fi
+          echo "CMUX_EMBED_CEF=1" >> "$GITHUB_ENV"
+
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
@@ -623,6 +649,7 @@ jobs:
       # starts on a root other than the one its product was compiled at.
       - name: Reuse a compiled product instead of building one
         id: reuse
+        if: ${{ inputs.browser_engine != 'chromium' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -897,6 +924,46 @@ jobs:
           esac
           rm -rf -- "$CMUX_DERIVED_DATA_PATH"
           mkdir -p "$CMUX_DERIVED_DATA_PATH"
+
+      # The Embed CEF build phase reads the engine from the ensure-cef cache
+      # and has no credential. Fill the cache here from the private R2 bucket
+      # with the read-only key, which only the next step receives. The tested
+      # ref may be any commit, so the key goes to ensure-cef.sh and its
+      # manifest from this workflow's own revision, never the tested tree.
+      - name: Check out the trusted CEF fetch script
+        if: ${{ inputs.browser_engine == 'chromium' && steps.reuse.outputs.hit != 'true' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .cef-trusted
+          sparse-checkout: scripts/cef
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Fetch the Chromium engine for a Chromium run
+        if: ${{ inputs.browser_engine == 'chromium' && steps.reuse.outputs.hit != 'true' }}
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          # A runner's own ~/.secrets file is never a source here.
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+        run: |
+          set -euo pipefail
+          trusted=.cef-trusted/scripts/cef
+          if [ ! -x "$trusted/ensure-cef.sh" ]; then
+            echo "::error::this workflow's revision has no scripts/cef/ensure-cef.sh; dispatch with a --workflow-ref that has it (cef-classic/integration)"
+            exit 1
+          fi
+          if [ ! -f scripts/cef/cef-manifest.json ]; then
+            echo "::error::the tested revision has no scripts/cef, so it cannot embed the Chromium engine"
+            exit 1
+          fi
+          if ! cmp -s "$trusted/cef-manifest.json" scripts/cef/cef-manifest.json; then
+            echo "::warning::the tested revision pins another CEF than this workflow's revision; its Embed CEF phase may not find the engine in the cache"
+          fi
+          cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN "$trusted/ensure-cef.sh")"
+          echo "Chromium engine cached at $cef_dir; the Embed CEF phase embeds it"
 
       - name: Build the app-host and UI test product
         id: compile
@@ -1186,6 +1253,7 @@ jobs:
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
           dogfood-scenario: ${{ inputs.dogfood_scenario }}
+          browser-engine: ${{ inputs.browser_engine }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ steps.upload-product.outputs.artifact-id }}
@@ -1406,6 +1474,7 @@ jobs:
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
           dogfood-scenario: ${{ inputs.dogfood_scenario }}
+          browser-engine: ${{ inputs.browser_engine }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ needs.build.outputs.artifact_id }}

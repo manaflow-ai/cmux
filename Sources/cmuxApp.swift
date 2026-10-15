@@ -695,6 +695,11 @@ struct cmuxApp: App {
                     Button("Cloud Tree Style Gallery…") {
                         CloudTreeStyleGalleryWindowController.shared.show()
                     }
+#if DEBUG
+                    Button("Chromium Page…") {
+                        ChromiumDebugWindowController.shared.show()
+                    }
+#endif
                     Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
                         AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
                     }
@@ -1775,6 +1780,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.spinnerGallery",
+    "cmux.chromiumDebug",
     "cmux.cloudTreeStyleGallery",
     "cmux.cloudSidebarDebugLab",
     "cmux.backgroundDebug",

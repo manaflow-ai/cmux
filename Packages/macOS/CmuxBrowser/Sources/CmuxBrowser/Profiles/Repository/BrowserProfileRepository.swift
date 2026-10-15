@@ -37,6 +37,7 @@ public final class BrowserProfileRepository {
 
     private var dataStores: [UUID: AnyObject] = [:]
     private var historyStores: [UUID: any BrowserProfileHistoryStore] = [:]
+    private var engineStores: [any BrowserProfileEngineStoreManaging] = []
 
     /// Creates the repository and synchronously loads persisted state.
     /// - Parameters:
@@ -187,6 +188,9 @@ public final class BrowserProfileRepository {
             defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
         }
         persist()
+        for store in engineStores {
+            store.profileWasDeleted(id)
+        }
         if let historyDirectoryURL {
             let remover = fileRemover
             Task.detached(priority: .utility) {
@@ -209,11 +213,25 @@ public final class BrowserProfileRepository {
         if let historyURL {
             await fileRemover.removeItemIfExists(at: historyURL)
         }
+        var engineDataKinds: [String] = []
+        for store in engineStores {
+            let engine = store.engineName
+            engineDataKinds += await store.clearAllData(forProfileID: id).map { "\(engine).\($0)" }
+        }
         return BrowserProfileClearOutcome(
             profile: profile,
             clearedWebsiteDataTypes: dataTypes.sorted(),
-            clearedHistory: true
+            clearedHistory: true,
+            clearedEngineDataKinds: engineDataKinds.sorted()
         )
+    }
+
+    /// Adds another engine's per-profile store (the Chromium engine's), so
+    /// clearing or deleting a profile also clears or removes that engine's data.
+    /// - Parameter store: The engine store; adding the same instance twice is a no-op.
+    public func addEngineStore(_ store: any BrowserProfileEngineStoreManaging) {
+        guard !engineStores.contains(where: { $0 === store }) else { return }
+        engineStores.append(store)
     }
 
     /// Records a profile as last-used and persists the selection.

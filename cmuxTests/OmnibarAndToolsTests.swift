@@ -1116,6 +1116,51 @@ final class BrowserOmnibarFieldEditorResolutionTests: XCTestCase {
 
 
 final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
+    func testChromiumInternalPageCompletionsRankAboveTheTypedPartialAddress() throws {
+        let completions = ChromiumPageRoute.completions(for: "chrome://ex", allowsChromiumSchemes: true)
+        let results = buildOmnibarSuggestions(
+            query: "chrome://ex",
+            engineName: "Google",
+            historyEntries: [],
+            openTabMatches: [],
+            remoteQueries: [],
+            resolvedURL: BrowserURLResolver(allowsChromiumSchemes: true).navigableURL(from: "chrome://ex"),
+            internalPageCompletions: completions,
+            limit: 8
+        )
+        XCTAssertEqual(results.first?.completion, "chrome://extensions/")
+        let first = try XCTUnwrap(results.first)
+        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "chrome://ex", suggestion: first))
+    }
+
+    func testNormalAddressRankingIsUnchangedWithoutInternalPageCompletions() {
+        let resolved = BrowserURLResolver(allowsChromiumSchemes: true).navigableURL(from: "example.com")
+        let withDefault = buildOmnibarSuggestions(
+            query: "example.com", engineName: "Google", historyEntries: [], openTabMatches: [],
+            remoteQueries: [], resolvedURL: resolved, limit: 8
+        )
+        let withEmpty = buildOmnibarSuggestions(
+            query: "example.com", engineName: "Google", historyEntries: [], openTabMatches: [],
+            remoteQueries: [], resolvedURL: resolved, internalPageCompletions: [], limit: 8
+        )
+        XCTAssertEqual(withDefault.map(\.completion), withEmpty.map(\.completion))
+        XCTAssertEqual(withEmpty.first?.completion, "https://example.com")
+    }
+
+    func testWebKitPanelsGetNoInternalPageCompletions() {
+        let results = buildOmnibarSuggestions(
+            query: "chrome://ex",
+            engineName: "Google",
+            historyEntries: [],
+            openTabMatches: [],
+            remoteQueries: [],
+            resolvedURL: BrowserURLResolver().navigableURL(from: "chrome://ex"),
+            internalPageCompletions: ChromiumPageRoute.completions(for: "chrome://ex", allowsChromiumSchemes: false),
+            limit: 8
+        )
+        XCTAssertFalse(results.contains { $0.completion.hasPrefix("chrome://") })
+    }
+
     func testMergeRemoteSuggestionsInsertsBelowSearchAndDedupes() {
         let now = Date()
         let entries: [BrowserHistoryStore.Entry] = [

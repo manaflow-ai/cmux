@@ -58,5 +58,68 @@ struct BrowserChromeMetrics: Equatable {
     /// Square hit target of the back/forward/reload buttons. Base `26`.
     var buttonHitSize: CGFloat { scaled(26) }
 
+    /// Inset of the Chromium permission prompt bar from the page edges. Base `8`.
+    var promptBarInset: CGFloat { scaled(8) }
+
+    /// Narrowest the permission prompt bar gets (a narrower page narrows it further). Base `320`.
+    var promptBarMinWidth: CGFloat { scaled(320) }
+
+    /// Widest the permission prompt bar gets. Base `480`.
+    var promptBarMaxWidth: CGFloat { scaled(480) }
+
+    /// Corner radius of the permission prompt bar (matches the omnibar). Base `10`.
+    var promptBarCornerRadius: CGFloat { scaled(10) }
+
+    /// Padding inside the permission prompt bar. Base `10`.
+    var promptBarPadding: CGFloat { scaled(10) }
+
+    /// Point size of the permission prompt bar's capability glyph. Base `14`.
+    var promptBarIconFontSize: CGFloat { scaled(14) }
+
+    /// Point size of the permission prompt bar's message. Base `13`.
+    var promptBarMessageFontSize: CGFloat { scaled(13) }
+
+    /// Point size of the permission prompt bar's button titles. Base `12`.
+    var promptBarButtonFontSize: CGFloat { scaled(12) }
+
+    /// Shadow radius under the permission prompt bar. Base `6`.
+    var promptBarShadowRadius: CGFloat { scaled(6) }
+
+    /// Shadow drop under the permission prompt bar. Base `2`.
+    var promptBarShadowOffsetY: CGFloat { scaled(2) }
+
+    /// Height of the permission prompt bar's buttons. Base `22`.
+    var promptBarButtonHeight: CGFloat { scaled(22) }
+
+    /// The permission prompt bar's width for a page `pageWidth` wide:
+    /// three quarters of the page, clamped to the min/max widths and never
+    /// wider than the page minus its insets.
+    func promptBarWidth(pageWidth: CGFloat) -> CGFloat {
+        let preferred = min(max(pageWidth * 0.75, promptBarMinWidth), promptBarMaxWidth)
+        return max(0, min(preferred, pageWidth - promptBarInset * 2))
+    }
+
+    /// Glyph size of a full-page recovery view (Chromium error, crash). Base `28`.
+    var recoveryIconSize: CGFloat { scaled(28) }
+
+    /// Title size of a full-page recovery view. Base `17`.
+    var recoveryTitleFontSize: CGFloat { scaled(17) }
+
+    /// Body size of a full-page recovery view. Base `13`.
+    var recoveryBodyFontSize: CGFloat { scaled(13) }
+
+    /// Caption size (error code line) of a full-page recovery view. Base `11`.
+    var recoveryCaptionFontSize: CGFloat { scaled(11) }
+
+    /// Widest text column of a full-page recovery view. Base `420`.
+    var recoveryMaxWidth: CGFloat { scaled(420) }
+
+    /// Space between the parts of a full-page recovery view. Base `10`.
+    var recoverySpacing: CGFloat { scaled(10) }
+
+    /// How far a recovery view sits above the page's center: one toolbar
+    /// height (hit target plus the row's vertical padding). Base `34`.
+    var recoveryVerticalLift: CGFloat { scaled(34) }
+
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }

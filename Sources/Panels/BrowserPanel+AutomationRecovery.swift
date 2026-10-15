@@ -135,6 +135,10 @@ extension BrowserPanel {
             instanceID: webViewInstanceID,
             targetURL: targetURL
         )
+        if let enginePage {
+            beginEngineReloadForAutomation(enginePage, targetURL: targetURL)
+            return (ticket, targetURL)
+        }
         let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
             self?.automationNavigationCoordinator.didStart(
                 ticket,

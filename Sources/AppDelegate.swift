@@ -8,6 +8,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
+import CmuxCEF
 import CmuxCommandPalette
 import CmuxPanes
 import CmuxControlSocket
@@ -1682,6 +1683,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
         BrowserAvailabilityMonitor.shared.activate()
+        BrowserEngineRuntime.shared.registerBundledEngines()
+#if DEBUG
+        ChromiumDebugWindowController.shared.openFromEnvironmentIfRequested()
+#endif
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
@@ -2228,7 +2233,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             || !simulatorCleanupTasks.isEmpty
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
-        guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
+        // A running Chromium engine closes its pages and calls CefShutdown
+        // before the process exits (CEFRuntime.shutdown).
+        let hasChromiumRuntime = CEFRuntime.shared.isRunning
+        guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces || hasChromiumRuntime
             || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
@@ -2304,6 +2312,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
+                // After the session snapshot: closing Chromium pages must not
+                // change what restores. Bounded; skips CefShutdown on timeout.
+                await CEFRuntime.shared.shutdown(timeout: .seconds(3))
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
@@ -2327,6 +2338,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if hasLocalTerminalSurfaces {
                 cleanupDeadline = max(cleanupDeadline, .seconds(5) + AgentQuitTerminationCoordinator().budget)
+            }
+            if hasChromiumRuntime {
+                cleanupDeadline += .seconds(3)
             }
             terminateCleanupWatchdogTask?.cancel()
             terminateCleanupWatchdogTask = Task { @MainActor in
@@ -7481,7 +7495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
         if let window = event.window {
-            return window
+            // A key event for a Chromium page acts for the cmux window around it.
+            return window.chromiumActingWindow(fallback: NSApp.mainWindow)
         }
         let eventWindowNumber = event.windowNumber
         guard eventWindowNumber > 0 else { return nil }
@@ -7491,7 +7506,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return window
         }
 #endif
-        return NSApp.window(withWindowNumber: eventWindowNumber)
+        return NSApp.window(withWindowNumber: eventWindowNumber)?
+            .chromiumActingWindow(fallback: NSApp.mainWindow)
     }
 
     private func mainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {

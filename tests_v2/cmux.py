@@ -30,6 +30,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
 BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S = 45.0
+# Socket methods that create a browser surface and accept an `engine`.
+_BROWSER_CREATING_METHODS = frozenset({"browser.open_split", "browser.tab.new"})
 
 
 class cmuxError(Exception):
@@ -241,10 +243,19 @@ class cmux:
         req_id = self._next_id
         self._next_id += 1
 
+        params = dict(params or {})
+        # CMUX_BROWSER_TEST_ENGINE=webkit|chromium runs every browser suite on
+        # one engine: browser-creating calls ask for it, and a result that names
+        # another engine fails instead of passing on the wrong engine.
+        test_engine = os.environ.get("CMUX_BROWSER_TEST_ENGINE", "").strip().lower()
+        pins_engine = bool(test_engine) and method in _BROWSER_CREATING_METHODS and "engine" not in params
+        if pins_engine:
+            params["engine"] = test_engine
+
         payload = {
             "id": req_id,
             "method": method,
-            "params": params or {},
+            "params": params,
         }
         line = json.dumps(payload, separators=(",", ":")) + "\n"
         self._socket.sendall(line.encode("utf-8"))
@@ -262,7 +273,14 @@ class cmux:
             raise cmuxError(f"Mismatched response id: expected {req_id}, got {resp.get('id')}")
 
         if resp.get("ok") is True:
-            return resp.get("result")
+            result = resp.get("result")
+            if pins_engine and isinstance(result, dict) and result.get("surface_id"):
+                opened = result.get("engine")
+                if opened != test_engine:
+                    raise cmuxError(
+                        f"{method} opened engine {opened!r}, expected {test_engine!r} (CMUX_BROWSER_TEST_ENGINE)"
+                    )
+            return result
 
         err = resp.get("error") or {}
         code = err.get("code") or "error"

@@ -23,7 +23,9 @@ debug.app.activate
 debug.bonsplit_underflow.count
 debug.bonsplit_underflow.reset
 debug.browser.address_bar_focused
+debug.browser.crashes
 debug.browser.favicon
+debug.browser.page_status
 debug.canvas.command_scroll_hint
 debug.cloudtree.gallery
 debug.cloudtree.rows

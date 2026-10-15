@@ -997,7 +997,8 @@ struct BrowserPanelView: View {
         // Keep browser find usable when the browser is still in the empty new-tab
         // state (no WKWebView mounted yet). WebView-backed cases are hosted
         // in AppKit by WindowBrowserPortal to avoid layering/clipping issues.
-        if !panel.shouldRenderWebView, let searchState = panel.searchState {
+        // Chromium pages mount the find bar over the page itself (`engineFindOverlayView`).
+        if !panel.shouldRenderWebView, panel.enginePage == nil, let searchState = panel.searchState {
             BrowserSearchOverlay(
                 panelId: panel.id,
                 searchState: searchState,
@@ -1009,6 +1010,27 @@ struct BrowserPanelView: View {
                 onPrevious: { panel.findPrevious() },
                 onClose: { panel.hideFind() },
                 onFieldDidFocus: { panel.noteFindFieldFocused() }
+            )
+        }
+    }
+
+    /// The find bar over a Chromium page: the same card as WebKit's (design spec §6), its frame a
+    /// hole in the page window.
+    @ViewBuilder
+    private var engineFindOverlayView: some View {
+        if let searchState = panel.searchState {
+            BrowserSearchOverlay(
+                panelId: panel.id,
+                searchState: searchState,
+                focusRequestGeneration: panel.searchFocusRequestGeneration,
+                canApplyFocusRequest: { generation in
+                    canApplyBrowserFindFieldFocusRequest(generation)
+                },
+                onNext: { panel.findNext() },
+                onPrevious: { panel.findPrevious() },
+                onClose: { panel.hideFind() },
+                onFieldDidFocus: { panel.noteFindFieldFocused() },
+                pageOverlays: panel.pageOverlays
             )
         }
     }
@@ -1062,6 +1084,13 @@ struct BrowserPanelView: View {
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             omnibarHeaderView
+            if let fallbackReason = panel.engineFallbackNotice {
+                BrowserEngineFallbackNoticeBar(
+                    reason: fallbackReason,
+                    backgroundColor: browserChromeBackgroundColor,
+                    onDismiss: { panel.dismissEngineFallbackNotice() }
+                )
+            }
             CloudBrowserAccessView(panel: panel, backgroundColor: browserChromeBackgroundColor, isVisibleInUI: isVisibleInUI) {
                 webView
             }
@@ -1213,6 +1242,16 @@ struct BrowserPanelView: View {
                     // immediately before the trailing More affordance.
                     browserActiveModeButtonWithShortcutHint
                     browserScreenshotCopiedIndicator
+                    if panel.enginePage != nil {
+                        // Chromium panels only (design spec §7); WebKit keeps today's row.
+                        BrowserZoomChip(
+                            model: panel.zoomIndicator,
+                            metrics: chromeMetrics,
+                            zoomIn: { _ = panel.zoomInResult() },
+                            zoomOut: { _ = panel.zoomOutResult() },
+                            reset: { _ = panel.resetZoomResult() }
+                        )
+                    }
                     if activeToolbarMode != .design {
                         BrowserDesignModeToolbarButton(
                             controller: panel.designModeController,
@@ -1523,6 +1562,13 @@ struct BrowserPanelView: View {
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
+        .background {
+            // Chromium DevTools open: the button keeps its pressed fill (design spec §3).
+            if panel.enginePage != nil, panel.isEngineDevToolsOpen {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.16))
+            }
+        }
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
         .accessibilityLabel(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools"))
@@ -1869,7 +1915,24 @@ struct BrowserPanelView: View {
         let useLocalInlineDeveloperToolsHosting = canvasInlineBrowserHosting
 
         return Group {
-            if panel.shouldAttachWebViewInUI {
+            if let enginePage = panel.enginePage {
+                BrowserEnginePageHost(
+                    page: enginePage,
+                    isVisible: isVisibleInUI && isCurrentPaneOwner,
+                    shouldFocus: isFocused && !addressBarFocused,
+                    onAttach: { contentView in panel.attachPageOverlays(contentView: contentView) },
+                    onPageClicked: {
+                        // As a click into a WebKit page: the pane takes focus
+                        // and the address bar lets go.
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            setAddressBarFocused(false, reason: "chromiumPage.click")
+                        }
+                    },
+                    onVisibilityChange: { visible in panel.noteEnginePageVisibility(visible) }
+                )
+                .overlay(engineFindOverlayView)
+            } else if panel.shouldAttachWebViewInUI {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
@@ -1945,9 +2008,16 @@ struct BrowserPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
             if let prompt = panel.pageRecoveryPrompt {
-                BrowserPageRecoveryOverlay(prompt: prompt, backgroundColor: browserChromeBackgroundColor) {
+                BrowserPageRecoveryOverlay(
+                    prompt: prompt,
+                    backgroundColor: browserChromeBackgroundColor,
+                    metrics: chromeMetrics,
+                    exitPageAction: { panel.exitUnresponsiveChromiumPage() }
+                ) {
                     panel.performPageRecovery(prompt)
                 }
+                // Over a Chromium page the page leaves a hole here (design spec §8).
+                .browserPageOccluding(panel.pageOverlays, id: "pageRecovery")
             }
         }
         .layoutPriority(1)
@@ -2571,9 +2641,12 @@ struct BrowserPanelView: View {
                 let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
                 applyOmnibarEffects(effects)
             }
+            // chrome://settings opens cmux Settings instead of loading: the
+            // address bar goes back to the page's URL (design review #21050).
+            let opensCmuxPage = panel.opensCmuxPage(forTyped: text)
             panel.navigateSmart(text)
             hideSuggestions()
-            suppressNextFocusLostRevert = true
+            suppressNextFocusLostRevert = !opensCmuxPage
             setAddressBarFocused(false, reason: "omnibar.submit.navigate")
         }
     }
@@ -2588,6 +2661,7 @@ struct BrowserPanelView: View {
         // Treat this as a commit, not a user edit: don't refetch suggestions while we're navigating away.
         omnibarState.buffer = suggestion.completion
         omnibarState.isUserEditing = false
+        let opensCmuxPage = panel.opensCmuxPage(forTyped: suggestion.completion)
         switch suggestion.kind {
         case .switchToTab(let host, _, let panelId, _, _):
             if let app = AppDelegate.shared {
@@ -2601,7 +2675,7 @@ struct BrowserPanelView: View {
         }
         hideSuggestions()
         inlineCompletion = nil
-        suppressNextFocusLostRevert = true
+        suppressNextFocusLostRevert = !opensCmuxPage
         setAddressBarFocused(false, reason: "suggestion.commit")
     }
 
@@ -2822,6 +2896,7 @@ struct BrowserPanelView: View {
             )
         }
         let resolvedURL = query.isEmpty ? nil : panel.resolveNavigableURL(from: query)
+        let internalPageCompletions = panel.chromiumInternalPageCompletions(for: query)
         let items = buildOmnibarSuggestions(
             query: query,
             engineName: searchConfiguration.displayName,
@@ -2829,6 +2904,7 @@ struct BrowserPanelView: View {
             openTabMatches: openTabMatches,
             remoteQueries: staleRemote,
             resolvedURL: resolvedURL,
+            internalPageCompletions: internalPageCompletions,
             limit: 8
         )
         let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(items))
@@ -2856,6 +2932,7 @@ struct BrowserPanelView: View {
                 openTabMatches: openTabMatches,
                 remoteQueries: forcedRemote,
                 resolvedURL: resolvedURL,
+                internalPageCompletions: internalPageCompletions,
                 limit: 8
             )
             let forcedEffects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
@@ -2873,6 +2950,8 @@ struct BrowserPanelView: View {
         guard remoteSuggestionsEnabled else { return }
         guard !isSingleCharacterQuery else { return }
         guard omnibarInputIntent(for: query) != .urlLike else { return }
+        // A `chrome://` address typed in a Chromium panel stays on this Mac.
+        guard !panel.keepsOmnibarQueryLocal(query) else { return }
 
         // Keep current remote rows visible while fetching fresh predictions.
         guard let engine = remoteSuggestionsEngine else { return }
@@ -2895,6 +2974,7 @@ struct BrowserPanelView: View {
                     openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
                     remoteQueries: remote,
                     resolvedURL: panel.resolveNavigableURL(from: query),
+                    internalPageCompletions: internalPageCompletions,
                     limit: 8
                 )
                 let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
@@ -3132,7 +3212,10 @@ func omnibarSuggestionSupportsAutocompletion(query: String, suggestion: OmnibarS
     if case .remote = suggestion.kind { return false }
     guard let completion = omnibarSuggestionCompletion(for: suggestion) else { return false }
     // Reject URLs whose host lacks a TLD (e.g. "https://news." → host "news").
+    // Chromium's internal pages (`chrome://extensions/`, offered only in
+    // Chromium panels) have single-word hosts by design.
     if let components = URLComponents(string: completion),
+       components.scheme?.lowercased() != "chrome",
        let host = components.host?.lowercased() {
         let trimmedHost = host.hasSuffix(".") ? String(host.dropLast()) : host
         if !trimmedHost.contains(".") { return false }
@@ -3204,6 +3287,7 @@ func buildOmnibarSuggestions(
     openTabMatches: [OmnibarOpenTabMatch] = [],
     remoteQueries: [String],
     resolvedURL: URL?,
+    internalPageCompletions: [URL] = [],
     limit: Int = 8,
     now: Date = Date()
 ) -> [OmnibarSuggestion] {
@@ -3328,6 +3412,13 @@ func buildOmnibarSuggestions(
         case .queryLike: navigateBaseScore = 470
         }
         insert(.navigate(url: completion), score: navigateBaseScore + completionScore(for: completion))
+    }
+
+    // `chrome://` page names a Chromium panel completes (`chrome://ex` ->
+    // `chrome://extensions/`): above the typed address, which names no page
+    // until the name is complete. Empty for WebKit panels.
+    for (index, url) in internalPageCompletions.enumerated() {
+        insert(.navigate(url: url.absoluteString), score: 1_400 - Double(index))
     }
 
     for (index, entry) in filteredHistoryEntries.prefix(max(limit * 2, limit)).enumerated() {
@@ -4005,6 +4096,12 @@ struct OmnibarSuggestion: Identifiable, Hashable {
             let titleOneline = Self.singleLineText(title)
             guard !titleOneline.isEmpty else { return Self.displayURLText(for: url) }
             return "\(titleOneline) — \(Self.displayURLText(for: url))"
+        case .navigate(let url):
+            // Only Chromium panels offer chrome:// rows. chrome://settings opens
+            // cmux Settings in another window, so its row says so (design review #21050).
+            guard let pageURL = URL(string: url), ChromiumPageRoute(pageURL) == .browserSettings else { return primaryText }
+            let hint = String(localized: "browser.omnibar.chromeSettingsHint", defaultValue: "Opens cmux Settings")
+            return "\(primaryText) — \(hint)"
         default:
             return primaryText
         }

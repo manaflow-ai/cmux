@@ -1,6 +1,7 @@
 import CmuxFoundation
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import SwiftUI
 
 /// Hosting root for the browser find bar: the overlay plus the cmux accent
@@ -17,6 +18,9 @@ struct BrowserSearchOverlay: View {
     let onPrevious: () -> Void
     let onClose: () -> Void
     let onFieldDidFocus: () -> Void
+    /// Over a Chromium page (a child window), the card's frame becomes a hole in the page so
+    /// the card shows and takes the mouse; `nil` over WebKit.
+    var pageOverlays: BrowserPageOverlayCoordinator? = nil
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
@@ -81,7 +85,7 @@ struct BrowserSearchOverlay: View {
                     Image(systemName: "chevron.up")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .safeHelp("Next match (Return)")
+                .safeHelp(String(localized: "search.nextMatch.help", defaultValue: "Next match (Return)"))
 
                 Button(action: {
                     #if DEBUG
@@ -92,7 +96,7 @@ struct BrowserSearchOverlay: View {
                     Image(systemName: "chevron.down")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .safeHelp("Previous match (Shift+Return)")
+                .safeHelp(String(localized: "search.previousMatch.help", defaultValue: "Previous match (Shift+Return)"))
 
                 Button(action: {
                     #if DEBUG
@@ -103,7 +107,7 @@ struct BrowserSearchOverlay: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .safeHelp("Close (Esc)")
+                .safeHelp(String(localized: "search.close.help", defaultValue: "Close (Esc)"))
             }
             .padding(8)
             .background(.background)
@@ -122,6 +126,7 @@ struct BrowserSearchOverlay: View {
                     }
                 }
             )
+            .browserPageOccluding(pageOverlays, id: "find")
             .padding(padding)
             .offset(dragOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)

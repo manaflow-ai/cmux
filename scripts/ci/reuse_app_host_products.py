@@ -248,6 +248,11 @@ def contract(derived=None):
         "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
     }
     value["environment"]["SDKROOT"] = contract_sdkroot(value["environment"]["SDKROOT"])
+    # A build that embeds the Chromium engine (test-e2e.yml's Chromium runs)
+    # is a different product. Hashed only when set, so every other product
+    # keeps the contract it had.
+    if os.environ.get("CMUX_EMBED_CEF"):
+        value["environment"]["CMUX_EMBED_CEF"] = os.environ["CMUX_EMBED_CEF"]
     if derived is None:
         value["os"] = read("sw_vers", "-buildVersion")
         value["environment"].update(

@@ -52,6 +52,12 @@ struct BrowserDownloadsToolbarButton: View {
     let onOpen: (BrowserDownloadRecord) -> Void
     let onReveal: (BrowserDownloadRecord) -> Void
     let onClear: () -> Void
+    /// Pause or resume a running download that has controls (Chromium).
+    var onPauseResume: (BrowserDownloadRecord) -> Void = { _ in }
+    /// Cancel a running download that has controls (Chromium).
+    var onCancel: (BrowserDownloadRecord) -> Void = { _ in }
+    /// Glyph size of the row controls (spec §3b: accessory size).
+    var controlIconPointSize: CGFloat = 11
 
     @State private var isPresented = false
     @State private var seenIDs: Set<String> = []
@@ -116,7 +122,10 @@ struct BrowserDownloadsToolbarButton: View {
                 downloads: downloads,
                 onOpen: onOpen,
                 onReveal: onReveal,
-                onClear: onClear
+                onClear: onClear,
+                onPauseResume: onPauseResume,
+                onCancel: onCancel,
+                controlIconPointSize: controlIconPointSize
             )
             .browserChromePopoverAppearance(colorScheme)
         }
@@ -128,6 +137,9 @@ private struct BrowserDownloadsPopoverContent: View {
     let onOpen: (BrowserDownloadRecord) -> Void
     let onReveal: (BrowserDownloadRecord) -> Void
     let onClear: () -> Void
+    let onPauseResume: (BrowserDownloadRecord) -> Void
+    let onCancel: (BrowserDownloadRecord) -> Void
+    let controlIconPointSize: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -158,7 +170,14 @@ private struct BrowserDownloadsPopoverContent: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(downloads) { record in
-                            BrowserDownloadRow(record: record, onOpen: onOpen, onReveal: onReveal)
+                            BrowserDownloadRow(
+                                record: record,
+                                onOpen: onOpen,
+                                onReveal: onReveal,
+                                onPauseResume: onPauseResume,
+                                onCancel: onCancel,
+                                controlIconPointSize: controlIconPointSize
+                            )
                             if record.id != downloads.last?.id {
                                 Divider().padding(.leading, 44)
                             }
@@ -179,6 +198,9 @@ private struct BrowserDownloadRow: View {
     let record: BrowserDownloadRecord
     let onOpen: (BrowserDownloadRecord) -> Void
     let onReveal: (BrowserDownloadRecord) -> Void
+    let onPauseResume: (BrowserDownloadRecord) -> Void
+    let onCancel: (BrowserDownloadRecord) -> Void
+    let controlIconPointSize: CGFloat
 
     var body: some View {
         rowContent
@@ -200,6 +222,10 @@ private struct BrowserDownloadRow: View {
             }
 
             Spacer(minLength: 8)
+
+            if let controls = record.visibleControls {
+                runningControls(controls)
+            }
 
             if record.state == .saved {
                 Button(String(localized: "browser.downloads.open", defaultValue: "Open")) {
@@ -229,6 +255,36 @@ private struct BrowserDownloadRow: View {
         .modifier(BrowserDownloadDragModifier(record: record))
     }
 
+    /// Pause/Resume and Cancel, icon-only (spec §3b).
+    @ViewBuilder
+    private func runningControls(_ controls: BrowserDownloadRecord.Controls) -> some View {
+        let pauseTitle = controls.isPaused
+            ? String(localized: "browser.downloads.resume", defaultValue: "Resume")
+            : String(localized: "browser.downloads.pause", defaultValue: "Pause")
+        let cancelTitle = String(localized: "browser.downloads.cancel", defaultValue: "Cancel")
+        Button {
+            onPauseResume(record)
+        } label: {
+            Image(systemName: controls.isPaused ? "play.fill" : "pause.fill")
+                .font(.system(size: controlIconPointSize))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .help(pauseTitle)
+        .accessibilityLabel(pauseTitle)
+
+        Button {
+            onCancel(record)
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: controlIconPointSize))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .help(cancelTitle)
+        .accessibilityLabel(cancelTitle)
+    }
+
     @ViewBuilder
     private var leadingIcon: some View {
         switch record.state {
@@ -248,6 +304,9 @@ private struct BrowserDownloadRow: View {
     private var subtitle: String {
         switch record.state {
         case .downloading:
+            if record.visibleControls?.isPaused == true {
+                return String(localized: "browser.downloads.paused", defaultValue: "Paused")
+            }
             return String(localized: "browser.downloading", defaultValue: "Downloading...")
         case .failed:
             return String(localized: "browser.downloads.failed", defaultValue: "Failed")

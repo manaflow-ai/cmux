@@ -349,8 +349,8 @@ extension CMUXCLI {
         disable-browser | enable-browser | browser-status
         browser [--surface <id|ref|index> | <surface>] <subcommand> ...
         browser disable | enable | status
-        browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-        browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+        browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+        browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]"))
         browser goto|navigate <url> [--snapshot-after]
         browser back|forward|reload [--snapshot-after]
         browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]

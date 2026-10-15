@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxTerminal
 import ObjectiveC
 
@@ -60,7 +61,9 @@ extension AppDelegate {
             debugShortcutRoutingFocusedWindowOverrideForTesting.window = nil
         }
 #endif
-        return NSApp.keyWindow
+        // A key Chromium page window (`CefNSWindow`, a child of the cmux
+        // window) acts for the cmux window it sits in.
+        return NSApp.keyWindow?.chromiumActingWindow(fallback: NSApp.mainWindow)
     }
 
     var shortcutRoutingActiveWindow: NSWindow? {
