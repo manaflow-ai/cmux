@@ -42,3 +42,24 @@ include:
 Until the current-head `cmux-next` checks complete and a release/feed points at
 that head, treat `feat-cmux-next` nightly readiness as **unverified**.
 
+## Guard follow-up
+
+After merging the then-current `feat-cmux-next` head
+[`dfed663e552a`](https://github.com/manaflow-ai/cmux/commit/dfed663e552af50267cf835f79426fab871d75ec)
+into this branch, the local guard scripts and the rerun show that the status
+document does not introduce these failures:
+
+- **Motion tokens:** passes on the current base. The earlier PR run reported
+  stale `ColorTransition.swift` findings against its older `e728f7c5339d` base.
+- **Type scale:** the base still reports three raw sizes and two raw weights in
+  `BrowserFitFrameView.swift` (lines 47, 54, and 110). The focused fix is
+  [#21098](https://github.com/manaflow-ai/cmux/pull/21098), already open against
+  `feat-cmux-next`.
+- **Package conventions:** the base still reports
+  `BuiltInAdBlockerSetting.swift:5` as an all-static namespace type. The focused
+  fix is [#20927](https://github.com/manaflow-ai/cmux/pull/20927), already open
+  against `feat-cmux-next`.
+
+These are inherited base-branch findings; this readiness page does not change
+the affected source files or duplicate either focused fix.
+
