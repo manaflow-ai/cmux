@@ -48,6 +48,8 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  environment,
+  environmentActive = false,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -68,6 +70,11 @@ export function ComposerContext({
   /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: "ssh" | "cloud"): void;
+  /// The New Tab page's saved environment control (Labs `savedEnvironments`, EnvironmentPicker),
+  /// after the computer. `environmentActive`: an environment is picked, so it alone names where
+  /// the chat starts and the folder and computer controls step aside.
+  environment?: React.ReactNode;
+  environmentActive?: boolean;
 }) {
   const computers = useMemo(
     () => availableComputers(summary, sessions, peers, localName),
@@ -97,6 +104,14 @@ export function ComposerContext({
       ? undefined
       : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
+  if (environment && environmentActive)
+    return (
+      <div className="acpmux-composer-strip">
+        <div className="acpmux-composer-context">
+          <div className="acpmux-location-leading">{environment}</div>
+        </div>
+      </div>
+    );
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
   const newChats = started && onNewChat !== undefined;
@@ -190,6 +205,14 @@ export function ComposerContext({
               }
             }}
           />
+          {environment && (
+            <>
+              <span className="acpmux-location-dot" aria-hidden="true">
+                ·
+              </span>
+              {environment}
+            </>
+          )}
         </div>
         {branch && <BranchPicker branch={branch} />}
       </div>
@@ -244,7 +267,7 @@ function computerId(summary?: Summary): string {
   return summary?.peer || (summary?.hostKind === "cloud" && summary.host) || "local";
 }
 
-function availableComputers(
+export function availableComputers(
   summary: Summary | undefined,
   sessions: Session[],
   peers: string[],
@@ -276,7 +299,7 @@ function availableComputers(
   return computers;
 }
 
-function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
+export function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
   const seen = new Set<string>();
   const folders: Location[] = [];
   const add = (cwd?: string) => {
@@ -302,7 +325,7 @@ function normalizeCwd(cwd?: string): string | undefined {
 
 /// What every location control shows: an optional icon, the name (cut with an ellipsis, never
 /// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row.
-function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value: string; chevron: boolean }) {
+export function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value: string; chevron: boolean }) {
   return (
     <>
       {icon}
@@ -316,7 +339,7 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
   );
 }
 
-function FolderIcon() {
+export function FolderIcon() {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon ui-ghost-icon"
@@ -335,7 +358,7 @@ function FolderIcon() {
   );
 }
 
-function ComputerIcon() {
+export function ComputerIcon() {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon ui-ghost-icon"

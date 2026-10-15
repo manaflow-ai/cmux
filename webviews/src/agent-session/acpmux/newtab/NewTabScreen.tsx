@@ -4,7 +4,12 @@ import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
-import { ComposerContext } from "../ComposerContext";
+import { ComposerContext, availableComputers, availableFolders } from "../ComposerContext";
+import { EnvironmentPicker } from "../EnvironmentPicker";
+import { EnvironmentPanel } from "../EnvironmentPanel";
+import { environmentFolder, withSaved, type Environment, type EnvironmentHost } from "../environments";
+import { useLabsFlag } from "../../../experiments/labs";
+import { projectLabel } from "../sessionList";
 import type { Project } from "../ProjectChooser";
 import { isAgentHome } from "../sessionList";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
@@ -46,7 +51,13 @@ import { useMinuteClock } from "../clock";
 export type NewTabScreenActions = {
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  onAsk(harness: string, text: string, cwd?: string, model?: string): void;
+  /// `environment`: a saved environment the strip picked (Labs `savedEnvironments`), which names
+  /// the folder and machine instead of `cwd`.
+  onAsk(harness: string, text: string, cwd?: string, model?: string, environment?: Environment): void;
+  /// The host's saved environments (`environment.list/save/remove`); none: the strip offers none.
+  environments?: EnvironmentHost;
+  /// The host's connect flows: SSH… (Connect to Machine) and cmux Cloud….
+  onConnect?(kind: "ssh" | "cloud"): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -130,6 +141,7 @@ export function NewTabScreen(props: Props) {
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
+  const saved = useSavedEnvironments(props.environments);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
@@ -149,7 +161,10 @@ export function NewTabScreen(props: Props) {
     [snapshot.catalog],
   );
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
+  // A picked local environment starts in its first folder: the chips read that folder's last pick.
+  const environmentCwd = saved.selected?.kind === "local" ? environmentFolder(saved.selected) : undefined;
+  const chatFolder =
+    environmentCwd ?? (project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd));
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
@@ -287,7 +302,13 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
-        return props.onAsk(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
+        return props.onAsk(
+          row.harness,
+          row.text,
+          project,
+          row.harness === harness ? chipModel : undefined,
+          saved.selected,
+        );
     }
   };
   const edit = (next: string) => {
@@ -311,7 +332,7 @@ export function NewTabScreen(props: Props) {
     if (!prompt || isAddress(prompt, home)) return;
     // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
     if (!harness) return;
-    props.onAsk(harness, prompt, project, chipModel);
+    props.onAsk(harness, prompt, project, chipModel, saved.selected);
   };
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
@@ -329,7 +350,7 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    props.onAsk(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
+    props.onAsk(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel, saved.selected);
   };
   const send = () => {
     touch();
@@ -463,6 +484,28 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
+  // The machines an SSH environment can name: the Computer menu's (ComposerContext), every chat's.
+  const machines = useMemo(
+    () =>
+      availableComputers(undefined, snapshot.sessions, [], props.machineName)
+        .filter((machine) => machine.id !== "local")
+        .map(({ id, label }) => ({ id, label })),
+    [snapshot.sessions, props.machineName],
+  );
+  const environmentControl = saved.on ? (
+    <EnvironmentPicker
+      environments={saved.list}
+      {...(saved.selected ? { selected: saved.selected } : {})}
+      onSelect={(id) => {
+        touch();
+        saved.select(id);
+        requestAnimationFrame(() => field.current?.focus());
+      }}
+      onNew={() => saved.edit(null)}
+      onEdit={(environment) => saved.edit(environment)}
+      onRemove={saved.remove}
+    />
+  ) : undefined;
   return (
     <div
       ref={screen}
@@ -492,6 +535,7 @@ export function NewTabScreen(props: Props) {
             projectChoices={props.projects ?? []}
             onProject={(cwd) => pickProject(cwd)}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
+            {...(environmentControl ? { environment: environmentControl, environmentActive: !!saved.selected } : {})}
           />
         </div>
         <div ref={setBox} className="nt-box">
@@ -607,6 +651,27 @@ export function NewTabScreen(props: Props) {
         </Popover>
       )}
       {props.notice}
+      {saved.on && saved.editing !== undefined && (
+        <EnvironmentPanel
+          key={saved.editing?.id ?? "new"}
+          {...(saved.editing ? { environment: saved.editing } : {})}
+          folders={(props.projects ?? [])
+            .filter((choice) => !isAgentHome(choice.cwd))
+            .map((choice) => ({ id: choice.cwd, label: choice.label }))}
+          {...(props.onBrowseProject ? { onBrowse: props.onBrowseProject } : {})}
+          machines={machines}
+          machineFolders={(machine) =>
+            availableFolders(undefined, snapshot.sessions, machine).map(({ id }) => ({ id, label: projectLabel(id) }))
+          }
+          {...(props.onConnect ? { onConnect: props.onConnect } : {})}
+          onSave={saved.save}
+          onRemove={saved.remove}
+          onClose={() => {
+            saved.edit(undefined);
+            requestAnimationFrame(() => field.current?.focus());
+          }}
+        />
+      )}
       {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
           browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
           Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
@@ -680,6 +745,60 @@ export function NewTabScreen(props: Props) {
       )}
     </div>
   );
+}
+
+/// The New Tab page's saved environments (cx-ncc.104), behind Labs `savedEnvironments`: the
+/// host's list, read once the flag is on, the one the strip picked, and the one the inline panel
+/// edits (`null`: a new one; `undefined`: no panel). Saves and removals go to the host; the list
+/// follows at once and the host's answer replaces it.
+function useSavedEnvironments(host: EnvironmentHost | undefined) {
+  const flag = useLabsFlag("savedEnvironments");
+  const on = flag && host !== undefined;
+  const [list, setList] = useState<Environment[]>([]);
+  const [selectedId, setSelectedId] = useState<string>();
+  const [editing, setEditing] = useState<Environment | null | undefined>(undefined);
+  // The App hands new actions on each render: the list is read when the flag turns on, not then.
+  const latest = useRef(host);
+  latest.current = host;
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    void latest.current
+      ?.list()
+      .then((environments) => {
+        if (live) setList(environments);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [on]);
+  const selected = on ? list.find((environment) => environment.id === selectedId) : undefined;
+  return {
+    on,
+    list,
+    selected,
+    editing,
+    select: setSelectedId,
+    edit: setEditing,
+    async save(draft: Parameters<EnvironmentHost["save"]>[0]) {
+      const environment = await latest.current!.save(draft);
+      setList((current) => withSaved(current, environment));
+      setSelectedId(environment.id);
+      setEditing(undefined);
+    },
+    remove(environment: Environment) {
+      setList((current) => current.filter((other) => other.id !== environment.id));
+      setSelectedId((current) => (current === environment.id ? undefined : current));
+      setEditing((current) => (current?.id === environment.id ? undefined : current));
+      const host = latest.current;
+      // A removal the host refused comes back with its list.
+      void host
+        ?.remove(environment.id)
+        .catch(() => host.list().then(setList))
+        .catch(() => undefined);
+    },
+  };
 }
 
 /// Down or Ctrl-N is 1, Up or Ctrl-P is -1 (R85: the native list.next keys, here for a field

@@ -11,6 +11,14 @@ export const LABS_FLAGS = {
     title: "Show Preview Features",
     intent: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
   },
+  savedEnvironments: {
+    owner: "op-next-call-chats",
+    created: "2026-10-14",
+    expires: "2026-10-28",
+    cohort: "nightly-next",
+    title: "Saved Environments",
+    intent: "Pick a saved set of folders, machine and settings when you start a chat.",
+  },
 } as const;
 
 export type LabsFlagName = keyof typeof LABS_FLAGS;

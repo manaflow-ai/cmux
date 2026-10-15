@@ -34,6 +34,32 @@
             "beta",
             "prototype"
           ]
+        },
+        {
+          "key": "labs.savedEnvironments",
+          "owner": "op-next-call-chats",
+          "created": "2026-10-14",
+          "expires": "2026-10-28",
+          "cohort": "nightly-next",
+          "note": "Saved environments on the New Tab page (cx-ncc.104): a named set of folders, machine and settings a new chat starts with.",
+          "title": {
+            "key": "settings.labs.savedEnvironments",
+            "text": "Saved Environments"
+          },
+          "help": {
+            "key": "settings.labs.savedEnvironments.help",
+            "text": "Pick a saved set of folders, machine and settings when you start a chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "environment",
+            "environments",
+            "folders",
+            "ssh",
+            "cloud"
+          ]
         }
       ]
     }

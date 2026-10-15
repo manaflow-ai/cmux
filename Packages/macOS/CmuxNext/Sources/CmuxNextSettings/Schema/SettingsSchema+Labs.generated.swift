@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.savedEnvironments`: Saved environments on the New Tab page (cx-ncc.104): a named set of folders, machine and settings a new chat starts with.
+    public nonisolated static let savedEnvironmentsPath = ["labs", "savedEnvironments"]
+    public nonisolated static let savedEnvironmentsDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -23,6 +26,16 @@ nonisolated enum LabsSettingsSchema {
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.savedEnvironmentsPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.savedEnvironments", "Saved Environments"),
+                help: SettingsText.keyed("settings.labs.savedEnvironments.help", "Pick a saved set of folders, machine and settings when you start a chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.savedEnvironmentsDefault),
+                keywords: ["labs", "environment", "environments", "folders", "ssh", "cloud"]
+            ),
         ]
     }
 }
@@ -31,6 +44,7 @@ nonisolated enum LabsSettingsSchema {
 /// `CmuxConfigSnapshot.lab(_:)`, never its key path.
 public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     case previewFeatures
+    case savedEnvironments
 
     /// The cmux.json key: `labs.<name>`.
     public var key: String { "labs." + rawValue }
@@ -39,6 +53,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var owner: String {
         switch self {
         case .previewFeatures: "leo"
+        case .savedEnvironments: "op-next-call-chats"
         }
     }
 
@@ -46,6 +61,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var intent: String {
         switch self {
         case .previewFeatures: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        case .savedEnvironments: "Pick a saved set of folders, machine and settings when you start a chat."
         }
     }
 
@@ -53,6 +69,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var created: String {
         switch self {
         case .previewFeatures: "2026-10-03"
+        case .savedEnvironments: "2026-10-14"
         }
     }
 
@@ -60,6 +77,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var expires: String {
         switch self {
         case .previewFeatures: "2026-10-27"
+        case .savedEnvironments: "2026-10-28"
         }
     }
 
@@ -67,6 +85,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var cohort: LabsCohort {
         switch self {
         case .previewFeatures: .off
+        case .savedEnvironments: .nightlyNext
         }
     }
 }
