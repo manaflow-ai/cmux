@@ -183,6 +183,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
+import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -287,6 +288,8 @@ declare global {
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
+      /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
+      applyTabRow?(row: unknown): void;
       /// Start Agent's floating chat (floatingState.ts, cx-b9qi).
       applyFloatingState?(state: unknown): void;
       /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
@@ -391,6 +394,8 @@ const removeQueued = (promptId: string) =>
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
+/// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
+const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
 const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
@@ -3039,6 +3044,10 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
+  const tabRow = useTabRow();
+  const inTabRow = tabRow.height > 0 && !quick;
+  const tabRowTools = useTabRowTools(inTabRow, reportTabRowTools);
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
   /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
@@ -3399,6 +3408,9 @@ function AcpmuxPane() {
       },
       applyHeaderState(state) {
         setHeaderState(state);
+      },
+      applyTabRow(row) {
+        setTabRow(row);
       },
       applyFloatingState(state) {
         setFloatingState(state);
@@ -5223,10 +5235,11 @@ function AcpmuxPane() {
             <>
               <div
                 className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+                style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
-                <header className="acpmux-header">
+                <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
-                  <div className="acpmux-handoff-header-tools">
+                  <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
                     {preview && (
                       <span
                         className="acpmux-session-coverage"

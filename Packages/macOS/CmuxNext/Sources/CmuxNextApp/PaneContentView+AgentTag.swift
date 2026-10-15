@@ -27,6 +27,6 @@ extension PaneContentView {
         let inset = Metrics.space2
         let host = contentHost.frame
         let size = agentTag.fittingSize(maxWidth: max(0, host.width / 2 - inset))
-        agentTag.frame = NSRect(x: host.maxX - inset - size.width, y: host.minY + inset, width: size.width, height: size.height)
+        agentTag.frame = NSRect(x: host.maxX - inset - size.width, y: contentTopBelowStrip + inset, width: size.width, height: size.height)
     }
 }
