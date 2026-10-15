@@ -95,7 +95,7 @@ public final class UpdateEverythingRunner {
                 // A daemon too old to list agent CLIs lists them once it runs the new build.
                 machine.harnesses = await steps.outdatedAgents(on: machine)
             }
-            if !machine.harnesses.isEmpty { _ = try await steps.updateAgents(on: machine, continueThreads: continueThreads) }
+            if !machine.harnesses.isEmpty { outcome.threadsLeft = try await steps.updateAgents(on: machine, continueThreads: continueThreads) }
         } catch {
             outcome.failure = text(error)
         }
