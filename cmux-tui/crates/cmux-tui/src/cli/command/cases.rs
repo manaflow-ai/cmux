@@ -639,6 +639,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "agent.message.release",
         ),
         (
+            vec!["agent", "message", "unsend", "msg_1", "--recipient", TERMINAL],
+            "agent.message.unsend",
+        ),
+        (
             vec![
                 "agent",
                 "report",

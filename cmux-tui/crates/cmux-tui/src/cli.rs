@@ -933,6 +933,7 @@ USAGE
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
   cmux agent message release <message-id> --recipient <agent> --approve|--decline
+  cmux agent message unsend <message-id> [--recipient <agent>]
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>

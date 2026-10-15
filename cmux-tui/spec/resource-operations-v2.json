@@ -3450,6 +3450,106 @@
       },
       "extra": false
     },
+    "AgentMessageUnsendOutcome": {
+      "kind": "enum",
+      "values": [
+        "unsent",
+        "retracted",
+        "too_late",
+        "failed"
+      ]
+    },
+    "AgentMessageUnsendResult": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentMessageUnsendOutcome"
+          },
+          "description": "failed when any delivery failed, else too_late when any was too late, else retracted when any was retracted, else unsent."
+        },
+        "outcomes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "object",
+              "fields": {
+                "recipient": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1,
+                    "max_length": 256
+                  }
+                },
+                "outcome": {
+                  "required": true,
+                  "type": {
+                    "kind": "ref",
+                    "name": "AgentMessageUnsendOutcome"
+                  }
+                },
+                "error": {
+                  "required": false,
+                  "type": {
+                    "kind": "object",
+                    "fields": {
+                      "reason": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 128
+                        },
+                        "description": "acpmux_unavailable or withdraw_refused."
+                      },
+                      "message": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 1024
+                        }
+                      },
+                      "acpmux_reason": {
+                        "required": false,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 128
+                        },
+                        "description": "acpmux's reason for a withdraw_refused."
+                      }
+                    },
+                    "extra": false
+                  },
+                  "description": "Why a failed delivery could not be taken back."
+                }
+              },
+              "extra": false
+            },
+            "min_items": 1,
+            "max_items": 64
+          },
+          "description": "One outcome per delivery taken back, in recipient order."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
+        }
+      },
+      "extra": false
+    },
     "AgentSnapshot": {
       "kind": "object",
       "fields": {
@@ -13643,6 +13743,78 @@
           {
             "kind": "ref",
             "name": "AgentMessageSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.unsend": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "recipient": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Take back only this recipient's delivery; every delivery when omitted."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only the message's verified sender, or the person in the verified cmux app, takes it back, with no time limit; another agent is refused with operation.failed, reason unsend_not_sender, and a plain local connection (it may be an agent that left out its launch credential) with reason unsend_needs_app.",
+          "Each delivery gets an outcome: unsent when it never reached the agent (a held, queued or failed delivery, or one acpmux still had waiting; the delivery becomes unsent), retracted when acpmux told the agent in its turn that the message was withdrawn (the delivery becomes retracted), too_late when the turn ended or the delivery path cannot take it back (nothing changes), failed when it could not be taken back now (nothing changes; error names why).",
+          "An acpmux recipient's outcome is acpmux's _acpmux/prompt_withdraw answer. When acpmux does not answer for a delivery a hand-over may have reached, its outcome is failed with error.reason acpmux_unavailable; when acpmux refuses the withdraw, failed with error.reason withdraw_refused and error.acpmux_reason. Every other delivery's outcome still commits.",
+          "A retry under the same idempotency key replays the first result, and a key reused with other input or a stale expected_revision is refused, before acpmux is asked.",
+          "Unsending again answers the same outcome."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageUnsendResult"
           }
         ]
       },
