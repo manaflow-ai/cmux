@@ -652,12 +652,12 @@ struct CloudTreeNodeActions {
             let label = openingLabel(resource.machine)
             onWillMutate(label)
             Task { @MainActor in
-                defer { onDidMutate() }
                 guard let catalogProvider = catalog().provider(for: resource.machine) else {
+                    onDidMutate()
                     onFailure(label)
                     return
                 }
-                _ = catalog().cloudPlacementCoordinator.moveRemoteTab(
+                let move = catalog().cloudPlacementCoordinator.moveRemoteTab(
                     resource: resource,
                     tabID: view.tabID,
                     intoRemoteWorkspace: remoteWorkspaceID,
@@ -665,6 +665,8 @@ struct CloudTreeNodeActions {
                     provider: catalogProvider,
                     onFailure: { error in onFailure(String(describing: error)) }
                 )
+                await move.value
+                onDidMutate()
             }
         }
         actions.refreshMachine = refreshMachine

@@ -386,9 +386,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ], "Terminals lists every terminal once, whatever workspace shows it")
     }
 
-    /// Regression for #12226: a pane holding several tabs must expose every tab as a
-    /// sibling leaf row. The pane hierarchy is an implementation detail and must not
-    /// become a terminal-under-terminal presentation.
     @Test("A Cloud browser placement exports an exact draggable tab")
     func browserPlacementIsDragSource() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
@@ -453,8 +450,27 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(resourceID == resource.id.rawValue)
         #expect(tabID == "tab_docs")
         #expect(targetWorkspaceID == side.id)
+
+        let sourceWorkspace = try #require(flattened.first { $0.id == "machine:brave-otter/ws/ws_main" })
+        let otherMachineWorkspace = CloudTreeNode(
+            id: "machine:other-machine/ws/ws_side",
+            kind: .workspace(machine: .cloud("other-machine"), side, terminalCount: 0, hiddenTabCount: 0, openIn: nil)
+        )
+        for rejectedTarget in [sourceWorkspace, otherMachineWorkspace] {
+            #expect(CloudSidebarOrganizationDrop(
+                sourceID: source.id,
+                nodes: roots + [otherMachineWorkspace],
+                state: CloudSidebarOrganizationState(),
+                proposedItem: rejectedTarget,
+                proposedChildIndex: NSOutlineViewDropOnItemIndex,
+                dropAfterItem: false
+            ) == nil, "browser moves require a different workspace on the same machine")
+        }
     }
 
+    /// Regression for #12226: a pane holding several tabs must expose every tab as a
+    /// sibling leaf row. The pane hierarchy is an implementation detail and must not
+    /// become a terminal-under-terminal presentation.
     @Test("A pane with several tabs exposes flat sibling terminal rows")
     func tabsAreFlatSiblingRows() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
