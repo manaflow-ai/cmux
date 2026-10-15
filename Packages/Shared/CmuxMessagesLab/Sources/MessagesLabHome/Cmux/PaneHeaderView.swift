@@ -7,17 +7,22 @@ import AppKit
 /// at Messages' places: the 40 pt avatar 8 pt from the top, and the capsule
 /// name pill (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron) spanning
 /// 44-72 pt (28 pt, centre 58), as Messages' (baseline
-/// ref/real-bubble-stills-2x.png). cmux: the capsule is drawn here (a fill and
-/// a 0.5 pt rim, `pillBacking`) under a borderless title button, not AppKit's
-/// glass bezel, whose rim landed 1-2 pt off in light and dark (rounds 5-8).
+/// ref/real-bubble-stills-2x.png). cmux: the capsule is the system glass
+/// material (`pillGlass`, LabGlass: NSGlassEffectView on macOS 26 and newer)
+/// at exactly that frame, over the host's backing, under a borderless title
+/// button (white on a dark theme): the glass button's bezel drew its capsule
+/// 2-3 pt inside its frame, in light and dark differently (rounds 5-8), and a
+/// self-drawn fill did not look like Messages' glass (round 9).
 /// The disc overlaps the pill's top (disc 8-48 pt) and draws over it, whole,
 /// as in Messages; the pill takes the clicks where they overlap. The avatar
 /// draws in `avatarOverlay`, which the host places over the thread view's blur:
-/// under an open thread Messages only dims the avatar (its edges stay sharp),
-/// while the pill blurs with the transcript (round 8 capture).
+/// under an open thread the avatar only dims (round 8 direction), while the pill
+/// blurs and dims with the transcript under the one backdrop.
 /// No band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
+    /// The pill's capsule: the system glass at the capsule's frame (its own fill, rim and highlight).
+    let pillGlass = LabGlass.surface()
     let pill = NSButton()
     /// cmux: a small translucent capsule behind the pill, always shown, so
     /// its title reads over the rows when the header has no band
@@ -32,7 +37,7 @@ final class PaneHeaderView: NSView {
     /// A light theme: the measured white disc would vanish on a light
     /// header, so the disc takes the theme's secondary text grey with a
     /// white monogram (Messages' light-mode avatar).
-    var light = false { didSet { if light != oldValue { applyAvatar(); applyRim() } } }
+    var light = false { didSet { if light != oldValue { applyAvatar(); applyTitle() } } }
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
@@ -40,8 +45,6 @@ final class PaneHeaderView: NSView {
     /// Messages' pill: 44-72 pt from the window top (centre 58, 28 pt), rim included.
     static let pillCenterY: CGFloat = 58
     static let pillHeight: CGFloat = 28
-    /// The capsule's rim (Messages' glass edge, a light hairline).
-    static let pillRim: CGFloat = 0.5
 
     /// The avatar's own layer host (the host adds it over the thread view's blur): the disc and its
     /// dimming tint (ThreadBackdrop's), never hit (clicks reach this header's `mouseDown`).
@@ -50,12 +53,12 @@ final class PaneHeaderView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         avatar.imageScaling = .scaleProportionallyUpOrDown
-        // Back to front: the pill's capsule (drawn here), the pill's title and chevron; the avatar
+        // Back to front: the host's backing, the pill's glass, the pill's title and chevron; the avatar
         // draws in `avatarOverlay`, over them: the disc draws whole over the pill's top edge.
         pillBacking.wantsLayer = true
-        pillBacking.layer?.borderWidth = PaneHeaderView.pillRim
         addSubview(pillBacking)
-        // HeaderBar's pill, as configured there, without its glass bezel (the capsule is drawn).
+        addSubview(pillGlass)
+        // HeaderBar's pill, as configured there, its glass drawn by `pillGlass` (not the bezel).
         pill.isBordered = false
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
@@ -69,7 +72,6 @@ final class PaneHeaderView: NSView {
         addSubview(pill)
         avatarOverlay.addSubview(avatar)
         applyTitle()
-        applyRim()
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
@@ -114,13 +116,20 @@ final class PaneHeaderView: NSView {
         pillBacking.frame = capsule
         pillBacking.layer?.cornerRadius = h / 2
         pillBacking.isHidden = pill.isHidden
+        pillGlass.frame = capsule
+        pillGlass.cornerRadius = h / 2
+        pillGlass.isHidden = pill.isHidden
         // The overlay matches this header's frame, so the avatar's frame reads the same in both.
         if avatarOverlay.frame != frame { avatarOverlay.frame = frame }
         avatarOverlay.place(avatar.frame)
     }
 
     private func applyTitle() {
-        pill.title = title
+        // Messages' title: white bold on the dark glass; the label colour on a light theme.
+        pill.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .bold),
+            .foregroundColor: light ? NSColor.labelColor : NSColor.white,
+        ])
         pill.isHidden = title.isEmpty
         avatar.isHidden = title.isEmpty
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
@@ -135,22 +144,9 @@ final class PaneHeaderView: NSView {
         avatar.image = picture.map(PaneHeaderView.avatarImage(picture:)) ?? PaneHeaderView.avatarImage(initials, light: light)
     }
 
-    /// cmux: the pill's capsule color (translucent); nil keeps the default fill.
+    /// cmux: the pill's capsule color (translucent), under the glass; nil leaves it clear.
     func setPillBacking(_ color: NSColor?) {
-        pillBacking.layer?.backgroundColor = (color ?? PaneHeaderView.defaultPillFill(light: light)).cgColor
-        pillFillSet = color != nil
-    }
-    private var pillFillSet = false
-
-    /// Messages' glass capsule as drawn: a fill and a light hairline rim (dark: white 18 %; light:
-    /// black 12 %), the fill until the host sets its own (`setPillBacking`).
-    private func applyRim() {
-        pillBacking.layer?.borderColor = (light ? NSColor(white: 0, alpha: 0.12) : NSColor(white: 1, alpha: 0.18)).cgColor
-        if !pillFillSet { pillBacking.layer?.backgroundColor = PaneHeaderView.defaultPillFill(light: light).cgColor }
-    }
-
-    static func defaultPillFill(light: Bool) -> NSColor {
-        light ? NSColor(white: 0.97, alpha: 0.85) : NSColor(white: 0.27, alpha: 0.85)
+        pillBacking.layer?.backgroundColor = color?.cgColor
     }
 
     /// A monogram on the header's avatar disc (white 253, as HeaderView
@@ -213,17 +209,23 @@ final class AvatarOverlay: NSView {
         CATransaction.commit()
     }
 
-    /// ThreadBackdrop.animate's tint: the same opacity, duration and curve, begun at this commit (the
-    /// window view's backdrop starts at the same one).
-    func setDimmed(_ on: Bool) {
+    /// ThreadBackdrop.animate's tint: the same opacity, duration and curve, begun on the same frame as the
+    /// window view's backdrop. `timing`: the vendored tint's own animation, whose begin time, duration and
+    /// curve this one takes (round 9: started on its own, the avatar ran 0-3 frames off the backdrop);
+    /// without it, ThreadBackdrop's constants from this commit.
+    func setDimmed(_ on: Bool, timing: CABasicAnimation? = nil) {
         guard on != dimmed else { return }
         dimmed = on
         let to: Float = on ? Float(1 - ThreadBackdrop.gain) : 0
         let a = CABasicAnimation(keyPath: "opacity")
         a.fromValue = tint.presentation()?.opacity ?? tint.opacity
         a.toValue = to
-        a.duration = on ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration
-        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        a.duration = timing?.duration ?? (on ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration)
+        a.timingFunction = timing?.timingFunction ?? CAMediaTimingFunction(name: .easeInEaseOut)
+        if let begin = timing?.beginTime, begin > 0 {
+            a.beginTime = begin
+            a.fillMode = .backwards
+        }
         tint.opacity = to
         tint.add(a, forKey: "thread")
     }

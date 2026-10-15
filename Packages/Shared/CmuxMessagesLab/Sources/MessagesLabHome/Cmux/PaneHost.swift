@@ -165,7 +165,7 @@ final class HostView: NSView {
         // in the window can change with no size change of the window view (RowCell.windowPlace).
         refreshWindowPlace()
         CATransaction.commit()
-        if let demo { liftThreadLayer(demo); clipThreadToHeader() }  // cmux: the thread layer stays over the header
+        if let demo { liftThreadLayer(demo) }  // cmux: the thread layer stays over the header
         placeNativeViews()
     }
 

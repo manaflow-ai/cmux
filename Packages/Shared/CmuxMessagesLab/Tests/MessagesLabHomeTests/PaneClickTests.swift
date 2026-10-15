@@ -251,10 +251,10 @@ import Testing
 
     // MARK: The header under an open thread or reply view
 
-    /// One backdrop over the live header (the pill blurs with the transcript); the avatar sits over it in
-    /// its own overlay and only dims (ThreadBackdrop's tint); each thread row's mask has a hole at the
-    /// pill, in the row's own coordinates, and nowhere else.
-    @Test func underAnOpenThreadTheAvatarDimsAndRowsPassUnderThePill() throws {
+    /// One backdrop over the live header and the transcript (the pill blurs and dims with it) and the
+    /// thread's rows, all unmasked (rows render once, uncut); only the avatar sits above it, in its
+    /// overlay, dimmed by ThreadBackdrop's tint.
+    @Test func underAnOpenThreadOneBackdropCoversTheHeaderAndTheAvatarDims() throws {
         let (controller, _, demo) = Self.pane()
         let host = controller.host
         host.paneHeader.title = "Chief"
@@ -265,6 +265,7 @@ import Testing
         #expect(overlay.superview === host)
         let views = host.subviews
         #expect((views.firstIndex(of: overlay) ?? -1) > (views.firstIndex(of: host.threadHost) ?? Int.max))
+        #expect((views.firstIndex(of: host.paneHeader) ?? Int.max) < (views.firstIndex(of: host.threadHost) ?? -1))
         #expect(!overlay.dimmed)
         controller.dispatch(.reply(PartRef(messageId: "m1", partIndex: 0)))
         host.needsLayout = true
@@ -272,36 +273,18 @@ import Testing
         #expect(demo.threadOpen)
         #expect(overlay.dimmed)
         #expect(abs(overlay.tint.opacity - Float(1 - ThreadBackdrop.gain)) < 0.0001)
+        // The avatar's tint takes the vendored tint's timing (same duration and curve).
+        let vendored = try #require(host.vendoredThreadTint?.animation(forKey: "thread") as? CABasicAnimation)
+        let ours = try #require(overlay.tint.animation(forKey: "thread") as? CABasicAnimation)
+        #expect(ours.duration == vendored.duration)
         let thread = try #require(HostView.threadLayerView(of: demo))
         let dim = thread.subviews.first?.layer
         let rows = (thread.layer.sublayers ?? []).filter { $0 !== dim }
         #expect(!rows.isEmpty)
-        let pill = host.threadHost.root.convert(host.paneHeader.pillBacking.frame, from: host.paneHeader.layer)
-        for row in rows {
-            let mask = try #require(row.mask as? CAShapeLayer)
-            #expect(mask.name == HostView.bandMaskName)
-            let hole = row.convert(pill, from: thread.layer)
-            #expect(mask.path?.contains(CGPoint(x: hole.midX, y: hole.midY), using: .evenOdd) == false)
-            #expect(mask.path?.contains(CGPoint(x: hole.minX - 40, y: hole.midY), using: .evenOdd) == true)
-        }
+        #expect(rows.allSatisfy { $0.mask == nil })
+        #expect(!host.paneHeader.pillGlass.isHidden)
+        #expect(host.paneHeader.pillGlass.frame == host.paneHeader.pill.frame)
         controller.dispatch(.closeThread)
         #expect(!overlay.dimmed)
-    }
-
-    /// A row's flight moves its mask the other way, whatever kind of position animation it is.
-    @Test func aRowsPositionAnimationIsInvertedOnItsMask() throws {
-        let rowPos = CGPoint(x: 100, y: 500), maskPos = CGPoint(x: 50, y: 20)
-        let k = CAKeyframeAnimation(keyPath: "position.y")
-        k.values = [300, 400, 500].map { NSNumber(value: $0) }
-        k.duration = 0.5
-        let ki = try #require(HostView.invert(k, rowPosition: rowPos, maskPosition: maskPos) as? CAKeyframeAnimation)
-        #expect((ki.values as? [NSNumber])?.map(\.doubleValue) == [220, 120, 20])
-        #expect(ki.duration == 0.5)
-        let b = CABasicAnimation(keyPath: "position")
-        b.fromValue = NSValue(point: NSPoint(x: 100, y: 300))
-        b.toValue = NSValue(point: NSPoint(x: 100, y: 500))
-        let bi = try #require(HostView.invert(b, rowPosition: rowPos, maskPosition: maskPos) as? CABasicAnimation)
-        #expect((bi.fromValue as? NSValue)?.pointValue == NSPoint(x: 50, y: 220))
-        #expect((bi.toValue as? NSValue)?.pointValue == NSPoint(x: 50, y: 20))
     }
 }
