@@ -2077,6 +2077,7 @@ class BindConversationTabSessionRequest:
     surface: Id
     expected_session: Union[str, None]
     session: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

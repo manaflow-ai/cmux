@@ -5,27 +5,27 @@
 //   - the controls are two clusters: + model effort access on the left, mic and Send (or Stop)
 //     on the right; the row's free space sits only between the two;
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
-//     8 to 12 px apart, evenly (within 1 px); no context ring or spinner in the row; one lock at
+//     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
 //     to 12 px, centred in a solid text-colored disc with a base-colored square (Q4-B: the faint
 //     disc read as a disabled Send);
 //   - no label is cut while the row has free space, and a short row cuts by priority: the
 //     permission labels go to icons first, then effort shortens, the model last;
-//   - the folder and computer controls sit whole inside the location strip on the card's top edge
-//     (hq#1957 composer location strip; composer-location-strip.test.ts measures the strip itself).
+//   - these chats have started, so no location strip heads the card (a new chat's strip is
+//     composer-location-strip.test.ts's).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number };
 type Row = {
   bar: Rect;
   box: Rect;
-  footer: Rect;
-  footerControls: Rect[];
+  footer: Rect | null;
   /** Left cluster controls in order, with the free space after the last one. */
   left: { name: string; rect: Rect }[];
   right: Rect;
@@ -61,7 +61,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       element instanceof HTMLElement && element.getBoundingClientRect().width > 0;
     const bar = document.querySelector(".acpmux-composer-bar")!;
     const box = document.querySelector(".acpmux-composer-box")!;
-    const footer = document.querySelector(".acpmux-composer-strip")!;
+    const footer = document.querySelector(".acpmux-composer-strip");
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
@@ -105,8 +105,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     return {
       bar: rect(bar),
       box: rect(box),
-      footer: rect(footer),
-      footerControls: [...footer.querySelectorAll(".acpmux-location-button, .acpmux-location-readonly")].map(rect),
+      footer: footer && rect(footer),
       left,
       right: rect(bar.querySelector(".acpmux-composer-actions")!),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
@@ -166,6 +165,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 720, height: 300 } });
@@ -198,7 +198,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
 
   for (const variant of ["claude-auto", "long-model", "granted", "queued"])
     for (const width of [420, 720, 1100])
-      test(`${variant} at ${width} px: two clusters, cut by priority, strip whole`, async () => {
+      test(`${variant} at ${width} px: two clusters, cut by priority, no location strip`, async () => {
         const measured = await row(variant, width);
         const { left, right, labels, barGap } = measured;
         const names = left.map((control) => control.name);
@@ -227,14 +227,8 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         // At a normal and a wide pane every label of Leo's row shows whole.
         if (width >= 720 && variant !== "long-model" && cut.length > 0)
           problems.push(`${cut.join(", ")} cut at ${width} px`);
-        // The location strip heads the card, its controls whole inside it.
-        if (Math.abs(measured.footer.bottom - measured.box.top) > 1)
-          problems.push("the strip is not on the card's top edge");
-        for (const control of measured.footerControls) {
-          if (control.top < measured.footer.top - 0.5 || control.bottom > measured.footer.bottom + 0.5)
-            problems.push("a strip control runs out of the strip");
-          if (control.left < measured.footer.left - 0.5) problems.push("a strip control runs out of the strip's side");
-        }
+        // A started chat cannot change its folder or machine: no location strip heads the card.
+        if (measured.footer) problems.push("a started chat draws the location strip");
         expect(problems).toEqual([]);
       });
 
@@ -243,16 +237,13 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       test(`${variant} at ${width} px: a compact, calm row`, async () => {
         const measured = await row(variant, width);
         const problems: string[] = [];
-        // Even gaps in the left cluster: each 8 to 12 px, none more than 1 px off another.
-        const gaps = measured.left.slice(1).map((control, index) => ({
-          between: `${measured.left[index]!.name}-${control.name}`,
-          gap: control.rect.left - measured.left[index]!.rect.right,
-        }));
-        for (const { between, gap } of gaps)
-          if (gap < 7.5 || gap > 12.5) problems.push(`${between} ${gap.toFixed(1)} px apart`);
-        const sizes = gaps.map(({ gap }) => gap);
-        if (sizes.length > 1 && Math.max(...sizes) - Math.min(...sizes) > 1)
-          problems.push(`uneven gaps ${gaps.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ")}`);
+        // The left cluster's spacing (one gap inside a group, one between groups) is
+        // composer-row-rhythm.test.ts's; here no two of its controls touch or sit far apart.
+        for (const [index, control] of measured.left.slice(1).entries()) {
+          const gap = control.rect.left - measured.left[index]!.rect.right;
+          if (gap < 3.5 || gap > 12.5)
+            problems.push(`${measured.left[index]!.name}-${control.name} ${gap.toFixed(1)} px apart`);
+        }
         if (measured.spinners.length > 0)
           problems.push(`a ring or spinner in the row: ${measured.spinners.join(", ")}`);
         if (measured.locks > 1) problems.push(`${measured.locks} locks in the row`);

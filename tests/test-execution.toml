@@ -165,6 +165,10 @@ path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_symbol_map.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_release_profile.py"
 lane = "linux-guard"
 
@@ -1342,4 +1346,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_launch_budget_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_notices_submodule.py"
 lane = "linux-guard"

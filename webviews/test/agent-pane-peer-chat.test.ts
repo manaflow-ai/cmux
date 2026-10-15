@@ -6,13 +6,15 @@
 //
 // - The running turn's "Working for" counts from when the prompt was sent, not from the peer's
 //   clock (Lawrence 2026-10-09: it showed "Thinking", then a wrong "Working for n").
-// - The composer's Computer names the peer, not this Mac.
+// - The chat has started, so the composer shows no location strip: neither this Mac nor the peer
+//   is offered as a machine to switch to mid-chat.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -102,6 +104,7 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // In CI the first load of the dev server can stall past 30 s while it transforms deps
     // (#20276's run 38480535894), as in agent-pane-replay. Load it here, again if it stalls, so
@@ -133,7 +136,7 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
   });
 
   describe("a chat on an SSH machine", () => {
-    test("counts its running turn from the prompt and names its machine", async () => {
+    test("counts its running turn from the prompt and offers no machine switch mid-chat", async () => {
       // The prompt went out 5 seconds ago, by the peer's clock.
       promptAt = peerNow() - 5_000;
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
@@ -172,16 +175,16 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       await working.waitFor();
       const label = (await working.textContent()) ?? "";
       const seconds = /^Working for (\d+)s$/.exec(label)?.[1];
-      const computer = await page.locator(".acpmux-composer-context .acpmux-location-label").last().textContent();
+      const strips = await page.locator(".acpmux-composer-strip").count();
       // A few seconds (page load included), never the peer's ten minutes of clock skew.
       expect({
         label,
         recent: seconds !== undefined && Number(seconds) >= 4 && Number(seconds) < 30,
-        computer,
+        strips,
       }).toEqual({
         label,
         recent: true,
-        computer: PEER,
+        strips: 0,
       });
       await page.close();
     });
