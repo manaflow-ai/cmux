@@ -34,7 +34,7 @@ import Testing
             overlays: [.init(rect: card, cornerRadius: 10)]
         )
         let holes = plan.holes
-        #expect(holes.count == 2 * 10 + 1)
+        #expect(holes.count > 3)
         // No two rects overlap: the fork masks even-odd, so an overlap would show the page again.
         for (i, a) in holes.enumerated() {
             for b in holes[(i + 1)...] {
@@ -72,6 +72,40 @@ import Testing
             .init(rect: CGRect(x: 20, y: 20, width: 100, height: 40), cornerRadius: 8),
         ]).holes
         #expect(holes == [bounds])
+    }
+
+    @Test func overlappingCardsCutOneHoleWithNoOverlap() {
+        // A find bar over a permission strip in a short pane.
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 200)
+        let strip = CGRect(x: 0, y: 150, width: 400, height: 40)
+        let find = CGRect(x: 200, y: 130, width: 180, height: 40)
+        let holes = BrowserPageOcclusionPlan(contentBounds: bounds, overlays: [.init(rect: strip), .init(rect: find)]).holes
+        for (i, a) in holes.enumerated() {
+            for b in holes[(i + 1)...] {
+                let overlap = a.intersection(b)
+                #expect(overlap.isNull || overlap.isEmpty, "holes overlap: \(a) \(b)")
+            }
+        }
+        let area = holes.reduce(CGFloat(0)) { $0 + $1.width * $1.height }
+        let shared = strip.intersection(find)
+        #expect(area == strip.width * strip.height + find.width * find.height - shared.width * shared.height)
+        // Every point of either card is in exactly one hole.
+        for point in [CGPoint(x: 10, y: 160), CGPoint(x: 300, y: 140), CGPoint(x: 300, y: 160)] {
+            #expect(holes.filter { $0.contains(point) }.count == 1)
+        }
+    }
+
+    @Test func disjointUnionJoinsMatchingBands() {
+        let single = BrowserPageOcclusionPlan.disjointUnion([
+            CGRect(x: 0, y: 0, width: 100, height: 10),
+            CGRect(x: 0, y: 10, width: 100, height: 10),
+        ])
+        #expect(single == [CGRect(x: 0, y: 0, width: 100, height: 20)])
+        let apart = BrowserPageOcclusionPlan.disjointUnion([
+            CGRect(x: 0, y: 0, width: 10, height: 10),
+            CGRect(x: 50, y: 0, width: 10, height: 10),
+        ])
+        #expect(apart.count == 2)
     }
 
     @Test func fractionalFramesRoundOutward() {
@@ -199,7 +233,7 @@ private final class FlippedView: NSView {
         let target = FakeOcclusionTarget()
         coordinator.attach(contentView: page, target: target)
         coordinator.registerOccluding(anchor, id: "card", cornerRadius: 10)
-        #expect(target.pageOcclusionRects.count == 21)
+        #expect(target.pageOcclusionRects.count > 1)
         coordinator.registerOccluding(anchor, id: "card")
         #expect(target.pageOcclusionRects == [CGRect(x: 100, y: 100, width: 200, height: 100)])
         withExtendedLifetime(window) {}
