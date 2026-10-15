@@ -11,6 +11,8 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     var onTouch: ((TouchEventType, [TouchPoint]) -> Void)?
     /// Finger travel of a one-finger drag, in points (positive = finger moved down).
     var onDrag: ((CGFloat) -> Void)?
+    /// The touch sequence (and so any drag) ended.
+    var onDragEnded: (() -> Void)?
     var onKey: ((DOMKey) -> Void)?
     var onText: ((String) -> Void)?
     var onKeyboardDismissed: (() -> Void)?
@@ -262,6 +264,7 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         }
         if touchIds.isEmpty {
             primaryTouch = nil
+            onDragEnded?()
             if sequenceEnds, type == .end, !sequenceMulti, !suppressTouches,
                sequenceTravel < PageKeyboardPolicy.tapSlop { onTap?() }
             sequenceStart = nil
@@ -278,6 +281,7 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     func panEnded(at p: CGPoint, cancelled: Bool) {
         guard let id = panTouch else { return }
         panTouch = nil
+        onDragEnded?()
         let (x, y) = cssPoint(p)
         onTouch?(cancelled ? .cancel : .end, [TouchPoint(x: x, y: y, id: id)])
     }
@@ -441,6 +445,7 @@ struct PageSurface: UIViewRepresentable {
     var keyboardActive: Bool
     var wantsHardwareKeys: Bool
     var onDrag: (CGFloat) -> Void
+    var onDragEnded: () -> Void = {}
     var onKeyboardDismissed: () -> Void
     var zoomPinchActive = false
 
@@ -460,6 +465,7 @@ struct PageSurface: UIViewRepresentable {
         view.topInset = topInset
         view.viewportCSSWidth = viewportCSSWidth
         view.onDrag = onDrag
+        view.onDragEnded = onDragEnded
         view.onKeyboardDismissed = onKeyboardDismissed
         if zoomPinchActive { view.zoomPinchTookOver() }
         view.show(frame)

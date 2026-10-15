@@ -18,7 +18,15 @@ final class BrowserChromeState {
     /// on the pill, the first finger travel toward expanding), so they
     /// slide and fade back exactly as before.
     private(set) var controlsGone = false
-    var editing = false
+    var editing = false {
+        // Ending an edit (inside its animation) brings the controls back;
+        // they fade in with it.
+        didSet { if !editing, editControlsGone { editControlsGone = false } }
+    }
+    /// Address editing has settled: back, page menu and reload (invisible
+    /// under the field, drawn through glass) leave the hierarchy, as for
+    /// the collapsed bar (`controlsGone`).
+    private(set) var editControlsGone = false
     var editText = ""
     var menuOpen = false
     /// Tab overview presented (grid visible).
@@ -41,6 +49,17 @@ final class BrowserChromeState {
             self.controlsGone = true
         }
         withAnimation(style.motion.sideOut) { sidesVisible = false }
+    }
+
+    /// The editing animation finished.
+    func editingSettled() {
+        if editing { editControlsGone = true }
+    }
+
+    /// A page drag ended: a drag that did not expand the bar leaves the
+    /// controls out of the tree again.
+    func pageDragEnded() {
+        if bar == .collapsed, !controlsGone { controlsGone = true }
     }
 
     /// An expand may follow (touch-down on the pill, finger travel toward
@@ -70,6 +89,7 @@ final class BrowserChromeState {
             // A drag that turned back without expanding: out again.
             controlsGone = true
         }
+        // (A drag that ends without expanding: pageDragEnded.)
         if dragTravel < -style.metrics.collapseThreshold { collapse() }
         if dragTravel > style.metrics.expandThreshold { expand(tap: false) }
     }

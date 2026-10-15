@@ -121,7 +121,7 @@ struct BrowserToolbar: View {
                 .allowsHitTesting(!collapsed)
                 .accessibilityHidden(true)
             // The settled collapsed bar has only the pill (see controlsGone).
-            if !chrome.controlsGone {
+            if !chrome.controlsGone && !chrome.editControlsGone {
             backButton(layout.back)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(local == nil ? sideOpacity : 0)
@@ -273,7 +273,7 @@ struct BrowserToolbar: View {
         let glyphOpacity: Double = (collapsed || chrome.editing ? 0 : 1) * (chrome.menuOpen ? 0.3 : 1)
         ZStack {
             // Leading page-menu slot (48 pt).
-            if !chrome.controlsGone {
+            if !chrome.controlsGone && !chrome.editControlsGone {
             Button(action: unlessSwiped(onMenu)) {
                 PageMenuGlyph()
                     .fill(style.colors.label)
@@ -314,7 +314,7 @@ struct BrowserToolbar: View {
             }
 
             // Trailing reload / stop.
-            if !chrome.controlsGone {
+            if !chrome.controlsGone && !chrome.editControlsGone {
             Button(action: unlessSwiped(onReload)) {
                 ZStack {
                     if tab?.loading == true {

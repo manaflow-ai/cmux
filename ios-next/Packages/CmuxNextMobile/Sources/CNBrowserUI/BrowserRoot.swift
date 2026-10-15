@@ -706,6 +706,7 @@ struct BrowserScreen: View {
                         keyboardActive: chrome.pageKeyboard,
                         wantsHardwareKeys: !chrome.editing && !overviewVisible,
                         onDrag: { chrome.pageDragged($0) },
+                        onDragEnded: { chrome.pageDragEnded() },
                         onKeyboardDismissed: { chrome.pageKeyboard = false; pushGeometry() },
                         zoomPinchActive: zoomPinchActive)
                 .opacity(chrome.swiping || showsStartPage ? 0 : 1)
@@ -810,7 +811,7 @@ struct BrowserScreen: View {
         guard !chrome.editing else { return }
         chrome.pageKeyboard = false
         chrome.editText = showsStartPage ? "" : (model.activeTab?.url ?? "")
-        withAnimation(motion.resolve(motion.keyboard)) { chrome.editing = true }
+        withAnimation(motion.resolve(motion.keyboard)) { chrome.editing = true } completion: { chrome.editingSettled() }
     }
 
     private func endEditing() {
