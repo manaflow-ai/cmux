@@ -188,6 +188,14 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
             postMessage(message: { t?: string; id?: number; op?: string; params?: unknown }) {
               if (message?.t === "call" && message.op === "cmux.agent.chat.sideChat") {
                 sideChats.push(message.params);
+                // A test sets `refuseSideChat`: the app does not open the side session.
+                if ((window as unknown as { refuseSideChat?: boolean }).refuseSideChat)
+                  return Promise.resolve({
+                    t: "err",
+                    id: message.id,
+                    code: "native.failed",
+                    message: "The side pane didn't open.",
+                  });
                 return Promise.resolve({ t: "ok", id: message.id, value: null });
               }
               return host!.postMessage(message);
@@ -256,11 +264,31 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       await page.close();
     });
 
-    test("a side session's composer says Reply in this session…", async () => {
+    test("once acpmux started the side session, the question is sent even when the app can't open it", async () => {
+      const page = await openChat(MAIN, true);
+      await page.evaluate(() => Object.assign(window, { refuseSideChat: true }));
+      await type(page, `/btw ${QUESTION}`);
+      await page.getByRole("alert").filter({ hasText: "The side pane didn't open." }).waitFor();
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+      );
+      // Enter again sends nothing: a retry can't start a second side session.
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(300);
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
+      expect(prompts).toEqual([]);
+      await page.close();
+    });
+
+    test("a side session's composer says Reply in this session… and offers no /btw", async () => {
       const page = await openChat(SIDE, true);
       expect(await page.locator(".acpmux-composer-prompt .acpmux-md-placeholder").innerText()).toBe(
         "Reply in this session…",
       );
+      await type(page, "/btw another question");
+      for (let i = 0; i < 40 && prompts.length === 0; i++) await page.waitForTimeout(50);
+      expect(btws).toEqual([]);
+      expect(await sideChats(page)).toEqual([]);
       await page.close();
     });
 
