@@ -23,7 +23,7 @@ final class HomeKeyState {
     func register(_ pane: ChatController) {
         panes.add(pane)
         start()
-        apply()
+        setNeedsApply()  // a new window attaches before it becomes key: one apply after both
     }
 
     private func start() {
@@ -49,6 +49,8 @@ final class HomeKeyState {
     /// The state from the app and its key window; on a change every Home view draws again with it.
     func apply() {
         let all = panes.allObjects
+        // No registered pane (noFocus runs with --active / --inactive never register): the state is not ours to set.
+        guard !all.isEmpty else { return }
         let views = all.compactMap(\.demo)
         let key = NSApp.isActive ? NSApp.keyWindow : nil
         // A shown Home only (its host view, the NSView in the window): a workspace or tab that is not selected keeps
@@ -61,7 +63,7 @@ final class HomeKeyState {
         guard inactive != Fixture.inactive else { return }
         // setInactive sets the state, drops the shared row bitmaps and redraws its own view; the other views
         // redraw the same way (their rows otherwise keep the old palette until something else redraws them).
-        guard let first = views.first else { Fixture.inactive = inactive; return }
+        guard let first = views.first else { Fixture.inactive = inactive; return }  // panes without a window view yet
         first.setInactive(inactive)
         for view in views.dropFirst() {
             view.backgroundColor = Fixture.background
