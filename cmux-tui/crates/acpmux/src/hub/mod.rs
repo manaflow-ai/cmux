@@ -45,7 +45,6 @@ pub(crate) mod session_pages;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
-use shutdown::ShutdownPlan;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -65,6 +64,7 @@ pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
 mod permissions;
 pub mod person;
+mod processes;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
@@ -193,7 +193,7 @@ pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
-/// `turn_result`; and the shells it runs in the background (`idle.rs`).
+/// `turn_result`.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
     /// `messageId` of the assistant message streaming now.
@@ -208,7 +208,6 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
-    pub(super) background_running: std::collections::HashSet<String>,
 }
 
 pub struct Hub {
@@ -248,7 +247,7 @@ pub struct Hub {
     pub(super) agent_hosts: AtomicBool,
     /// What the coming shutdown does with hosted agents, decided once:
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
-    pub(super) shutdown_plan: StdMutex<ShutdownPlan>,
+    pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
@@ -327,7 +326,7 @@ impl Hub {
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
             agent_hosts: AtomicBool::new(false),
-            shutdown_plan: StdMutex::new(ShutdownPlan::default()),
+            shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
@@ -523,6 +522,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            processes: StdMutex::new(Default::default()),
         })
     }
 

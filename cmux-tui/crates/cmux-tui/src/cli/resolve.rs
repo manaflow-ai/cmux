@@ -332,6 +332,18 @@ pub(super) fn call(
     params: Map<String, Value>,
     idempotency_key: Option<&str>,
 ) -> Result<Value, Failure> {
+    call_as(reader, operation, params, idempotency_key, None)
+}
+
+/// [`call`] with the caller's launch credential in the envelope
+/// (launch_credential.rs decides whether this connection may get it).
+pub(super) fn call_as(
+    reader: &mut Reader,
+    operation: ResourceOperation,
+    params: Map<String, Value>,
+    idempotency_key: Option<&str>,
+    credential: Option<&str>,
+) -> Result<Value, Failure> {
     let id = random_request_id().map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -342,6 +354,9 @@ pub(super) fn call(
     });
     if let Some(key) = idempotency_key {
         request["idempotency_key"] = Value::String(key.to_owned());
+    }
+    if let Some(credential) = credential {
+        request["credential"] = Value::String(credential.to_owned());
     }
     let encoded = serde_json::to_vec(&request).expect("JSON values serialize");
     send(reader, &encoded).map_err(Failure::Transport)?;

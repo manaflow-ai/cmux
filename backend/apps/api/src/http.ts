@@ -388,9 +388,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           if (!r.ok) return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
-        const avatar = payload.op === "participant.avatar.get" ? yield* Effect.tryPromise({ try: () => avatarGetRoute(env, payload.params), catch: unreachable }) : undefined
-        if (avatar) return "invalid" in avatar ? yield* new BadRequest({ code: "validation.invalid", message: avatar.invalid }) : { op: payload.op, value: avatar.value, stream: "avatars", revision: "0" }
         const resolved = yield* principalFor(def.owner, principal)
+        const avatar = payload.op === "participant.avatar.get" ? yield* Effect.tryPromise({ try: () => avatarGetRoute(env, resolved, payload.params), catch: unreachable }) : undefined
+        if (avatar) return "invalid" in avatar ? yield* new BadRequest({ code: "validation.invalid", message: avatar.invalid }) : "hidden" in avatar ? yield* new BadRequest({ code: "selector.not_found", message: "no such participant picture" }) : { op: payload.op, value: avatar.value, stream: "avatars", revision: "0" }
         // G8: an approval is read from the team and owner (ConnectionDO, or CloudDO for Cloud) that posted it, for its members (approval-route.ts).
         const { reader, owner } = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalRoute(env, resolved, payload.params), catch: unreachable }) : { reader: resolved, owner: def.owner }
         // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
