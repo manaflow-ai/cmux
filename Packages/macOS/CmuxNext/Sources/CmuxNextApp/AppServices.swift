@@ -119,7 +119,7 @@ final class AppServices {
         service.start()
         return service
     }()
-    /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
+    /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()

@@ -28,6 +28,33 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
+  /* Its controls answer to its own width (the folder cuts in the middle, the computer gives way
+     to its icon), not the pane's. */
+  container: acpmux-strip / inline-size;
+}
+/* The chat composer's strip (design panel, compact composer): its first and last marks line up
+   with the card's content, the folder icon over the prompt's first letter and the branch chevron
+   over the prompt's last column, so nothing in the strip reads as a stray indent. That puts it
+   9 px in from the card's sides, inside the card's 18 px corner, where the corner has dropped
+   2.4 px from the top edge; a foot of the strip's own fill and sides covers that drop, so the strip
+   still stands on the card. The queue (above) and the seam (below) follow the same inset. */
+.acpmux-composer {
+  --acpmux-strip-inset: 9px;
+  --acpmux-strip-pad: 1.5px;
+}
+.acpmux-composer > .acpmux-composer-strip { z-index: var(--layer-raised, 1); }
+.acpmux-composer > .acpmux-composer-strip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  background: inherit;
+  box-shadow:
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+  pointer-events: none;
 }
 .acpmux-composer-context {
   display: flex;
@@ -37,14 +64,26 @@
   min-width: 0;
   height: 100%;
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
-.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 0; min-width: 0; flex: 1 1 0; }
+/* Folder and computer are two ghost buttons 2 px apart (ui/ghost.css .ui-ghost-row), told apart by
+   their icons; no "·" between them, which floated against the folder's chevron. */
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
 .acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
-.acpmux-composer-context > .acpmux-location-picker:last-child { margin-left: auto; }
-.acpmux-location-dot { flex: none; padding: 0 2px; color: var(--agent-muted); opacity: .65; }
+/* The folder gives up width before the computer: the computer never shrinks (even a fraction of a
+   pixel would put an ellipsis on "This Mac"); it drops its name whole instead, and its cap below
+   bounds a long host name. */
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child { flex-shrink: 100; }
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"] { flex-shrink: 0; }
+/* The branch keeps its name: it shrinks only past half the strip. */
+.acpmux-composer-context > .acpmux-location-picker:last-child { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
+/* The folder and the branch cut only when the strip runs out of room (the rules above), never at
+   the controls' fixed cap (190 px, 145 px in a narrow pane, below), which cut a long name beside
+   empty strip. The computer keeps the cap. */
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:not([data-kind="computer"]) :is(.acpmux-location-button, .acpmux-location-readonly),
+.acpmux-composer-context > .acpmux-location-picker:last-child .acpmux-location-button { max-width: none; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -102,6 +141,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A folder's name cuts in the middle (ComposerContext.tsx splitForMiddleTruncation): the head
+   takes the ellipsis, the tail always shows. */
+.acpmux-location-label[data-middle] { display: inline-flex; min-width: 0; }
+.acpmux-location-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.acpmux-location-tail { flex: none; white-space: pre; }
+/* The strip's steps (compact-composer verdict 4) are pane widths, at or under. They are literals
+   that match COMPOSER_FIT_STEPS in composerRowFit.ts (machineIconOnly 460, folderMiddleTruncate
+   340) once the footer's fit steps land (#20802); the webview is the pane, so a media query reads
+   its width. test/composer-location-strip.test.ts holds each step at its boundary (461/460,
+   341/340).
+   At 460: the computer shows its laptop icon alone, its name in its tooltip and accessible label,
+   so the folder and the branch keep theirs (never "This…"). */
+@media (max-width: 460px) {
+  .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
+}
+/* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
+   last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
+   name. Above it the folder cuts only when the strip runs out of room. */
+@media (max-width: 340px) {
+  .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child :is(.acpmux-location-button, .acpmux-location-readonly) { max-width: 128px; }
 }
 .acpmux-location-button .acpmux-icon,
 .acpmux-location-readonly .acpmux-icon { flex: none; color: currentColor; opacity: .8; }
@@ -612,6 +672,82 @@
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
     inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
 }
+
+/* The top strip's Debug variants (agentPane.debug.topStripStyle, DEV and NIGHTLY; the app sets
+   data-top-strip on <html>). Without the attribute nothing below applies, so the default is the
+   strip and queue above. "Top strip" is whatever stands on the card's top edge: the location strip
+   on a new chat, or the queued prompts once the chat started.
+   - bump: the strip (or the queue, with no strip) stands --acpmux-strip-gap above the card inside
+     its own closed hairline, and the card draws its whole rim (#20789).
+   - plain: no fill, no rim and no tab: muted text floating --acpmux-strip-gap above the card, its
+     ink on the card's content edge (where the prompt's text starts), as Codex and Claude Code
+     desktop show the context above their prompt. */
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+:root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+}
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+:root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
+  content: none;
+}
+:root[data-top-strip] .acpmux-composer { --acpmux-strip-gap: 4px; }
+:root[data-top-strip] .nt-composer { --acpmux-strip-gap: 4px; }
+
+/* bump */
+:root[data-top-strip="bump"] .acpmux-composer-strip {
+  margin-bottom: var(--acpmux-strip-gap);
+  border-radius: 10px 10px 5px 5px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-strip-edge);
+}
+:root[data-top-strip="bump"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  border-radius: 0 0 5px 5px;
+  box-shadow:
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge),
+    inset 0 calc(-1 * var(--cmux-hairline, .5px)) 0 var(--acpmux-strip-edge);
+}
+/* A started chat's queue is the top strip: the same gap and closed rim. */
+:root[data-top-strip="bump"] .acpmux-composer:not(:has(> .acpmux-composer-strip)) > .acpmux-composer-queue {
+  --acpmux-queue-edge: var(--acpmux-composer-edge);
+  margin-bottom: var(--acpmux-strip-gap);
+  border-radius: 12px 12px 5px 5px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
+}
+:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+  --acpmux-queue-edge: var(--acpmux-composer-edge-focus);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
+}
+
+/* plain: the content edge is where the prompt's text starts in the card (16 px in the chat's card,
+   the New Tab's 18 px); a small ghost button's icon ink sits 6 px in from its edge (ui/ghost.css). */
+:root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
+:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+:root[data-top-strip="plain"] .acpmux-composer-strip,
+:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  height: auto;
+  margin: 0 0 var(--acpmux-strip-gap);
+  padding-inline: calc(var(--acpmux-top-strip-edge) - 6px);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transition: none;
+}
+:root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+  margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue { margin-bottom: 0; }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued { padding-inline: 0; color: var(--agent-muted); }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
+/* The row's actions take their own room at its end, with no tray to fade into. */
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-actions { position: static; padding-left: 0; background: none; }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queue-paused { padding-left: 0; }
 
 /* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
    project and Choose folder…. A row is its check, its project's badge and its name, with a short

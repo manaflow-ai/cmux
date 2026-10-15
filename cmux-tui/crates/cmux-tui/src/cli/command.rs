@@ -885,7 +885,7 @@ fn parse_tab_strings(
             }
             if params.is_empty() {
                 return Err(UsageError::new(
-                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9|1280; `cmux browser devices list` lists the devices",
+                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9|1280|off; `cmux browser devices list` lists the devices",
                 ));
             }
             request(ResourceOperation::BrowserTabEmulate, selectors, flags, params)
