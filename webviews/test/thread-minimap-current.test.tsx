@@ -1,5 +1,5 @@
-// The thread minimap's current turn (cx-f7c): the turn being read is a longer tick in the accent,
-// so the reader sees where they are in the thread at a glance (Codex style).
+// The thread minimap's current prompts (cx-f7c, as the Codex rail draws them): every prompt whose
+// turn is on screen is current, a brighter 6 px tick, so the reader sees where they are at a glance.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -86,7 +86,7 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
 
 const scale = (tick: Element) => tick.querySelector<HTMLElement>(".acpmux-minimap__bar")!.style.transform;
 
-test("the minimap draws the turn being read longer than the others, in the accent", async () => {
+test("the minimap marks every prompt on screen as current, at the resting length", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
     await act(async () =>
@@ -96,24 +96,24 @@ test("the minimap draws the turn being read longer than the others, in the accen
     );
     const ticks = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
     expect(ticks()).toHaveLength(TURNS);
-    /// The tick marked as the turn being read; every tick is checked against it.
+    /// The current ticks, checked to be one run, every tick at the 6 px rest.
     const check = () => {
-      const current = ticks().findIndex((tick) => tick.getAttribute("aria-current") === "location");
-      ticks().forEach((tick, index) => {
-        const reading = index === current;
-        // The accent and the length: data-current (threadMinimap.css) and a 14 px bar against the 6 px rest.
-        expect(tick.dataset.current).toBe(reading ? "" : undefined);
-        expect(scale(tick)).toContain(`scaleX(${(reading ? 14 : 6) / 26})`);
-      });
+      const current = ticks().flatMap((tick, index) => (tick.getAttribute("aria-current") === "true" ? [index] : []));
+      expect(current.length).toBeGreaterThan(0);
+      expect(current).toEqual(Array.from({ length: current.length }, (_, offset) => current[0]! + offset));
+      for (const tick of ticks()) {
+        expect(scale(tick)).toContain(`scaleX(${(26 * 0.2308) / 26})`);
+        expect(tick.dataset.tone).toBe(tick.getAttribute("aria-current") === "true" ? "current" : "rest");
+      }
       return current;
     };
-    // It opens at the latest message: a turn near the end is the one being read.
-    expect(check()).toBeGreaterThanOrEqual(TURNS - 2);
-    // Scrolled to the top, the first is.
+    // It opens at the latest message: the last prompt is on screen.
+    expect(check().at(-1)).toBe(TURNS - 1);
+    // Scrolled to the top, the first is, with the ones below it in the viewport.
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     scroller.scrollTop = 0;
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
-    expect(check()).toBe(0);
+    expect(check()[0]).toBe(0);
   } finally {
     await act(async () => root.unmount());
   }
