@@ -327,6 +327,8 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.output(Data("\u{1B}c".utf8)))
         case .detached(let reason):
             ended(reason: reason)
+        case .sameGridResize(let columns, let rows):
+            log.notice("surface \(self.surface, privacy: .public): resized event at the mirrored grid \(columns, privacy: .public)x\(rows, privacy: .public): kept, no reset")
         }
     }
 
