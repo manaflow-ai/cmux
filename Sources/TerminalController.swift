@@ -7011,7 +7011,7 @@ class TerminalController {
                 "focused": panel.id == focusedPanelId,
                 "pane_id": v2OrNull(paneId?.id.uuidString),
                 "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id),
-                "engine": panel.automationEngineKind.rawValue
+                "engine": panel.engineKind.rawValue
             ]
         }
         return [
@@ -7944,7 +7944,7 @@ class TerminalController {
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
-            let request = BrowserSplitRequest(
+            var request = BrowserSplitRequest(
                 url: url,
                 focus: focus,
                 preferredProfileID: preferredProfileID,
@@ -7954,6 +7954,15 @@ class TerminalController {
                 transparentBackground: transparentBackground,
                 bypassRemoteProxy: bypassRemoteProxy
             )
+            if let requested = requestedEngine.engine, requested != .webkit {
+                // Dock browsers are WebKit-only; an explicit engine is refused there
+                // rather than silently opened as WebKit.
+                if case .dock = container {
+                    result = v2BrowserEngineUnsupportedInDock(requested)
+                    return
+                }
+            }
+            request.engine = requestedEngine.engine
             guard let placement = container.openBrowserToRight(
                 of: sourceSurfaceId,
                 request: request
@@ -8004,7 +8013,7 @@ class TerminalController {
                     "show_omnibar": placement.panel.isOmnibarVisible,
                     "transparent_background": transparentBackground,
                     "bypass_remote_proxy": bypassRemoteProxy,
-                    "engine": placement.panel.automationEngineKind.rawValue,
+                    "engine": placement.panel.engineKind.rawValue,
                 ]
             )
             if focus,
@@ -11502,6 +11511,10 @@ class TerminalController {
                     result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
+                if let requested = requestedEngine.engine, requested != .webkit {
+                    result = v2BrowserEngineUnsupportedInDock(requested)
+                    return
+                }
                 let paneUUID = v2UUID(params, "pane_id")
                     ?? v2UUID(params, "target_pane_id")
                     ?? (v2UUID(params, "surface_id").flatMap { dock.paneId(forPanelId: $0)?.id })
@@ -11534,7 +11547,7 @@ class TerminalController {
                     "surface_id": panel.id.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                     "url": panel.currentURL?.absoluteString ?? "",
-                    "engine": panel.automationEngineKind.rawValue
+                    "engine": panel.engineKind.rawValue
                 ])
                 return
             }
@@ -11558,7 +11571,8 @@ class TerminalController {
                 inPane: pane,
                 url: url,
                 focus: true,
-                creationPolicy: .automationPreload
+                creationPolicy: .automationPreload,
+                engine: requestedEngine.engine
             ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
@@ -11571,7 +11585,7 @@ class TerminalController {
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                 "url": panel.currentURL?.absoluteString ?? "",
-                "engine": panel.automationEngineKind.rawValue
+                "engine": panel.engineKind.rawValue
             ])
         }
         return result

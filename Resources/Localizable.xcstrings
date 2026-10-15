@@ -654896,55 +654896,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium is not available in this build of cmux"
+            "value": "The Chromium browser engine is not available"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium غير متاح في إصدار cmux هذا"
+            "value": "محرك متصفح Chromium غير متاح"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium ist in diesem cmux-Build nicht verfügbar"
+            "value": "Die Chromium-Browser-Engine ist nicht verfügbar"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium no está disponible en esta compilación de cmux"
+            "value": "El motor de navegador Chromium no está disponible"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium n’est pas disponible dans cette version de cmux"
+            "value": "Le moteur de navigateur Chromium n’est pas disponible"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この cmux ビルドでは Chromium を利用できません"
+            "value": "Chromium ブラウザエンジンを利用できません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 cmux 빌드에서는 Chromium을 사용할 수 없습니다"
+            "value": "Chromium 브라우저 엔진을 사용할 수 없습니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 cmux 版本中无法使用 Chromium"
+            "value": "Chromium 浏览器引擎不可用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 cmux 版本無法使用 Chromium"
+            "value": "無法使用 Chromium 瀏覽器引擎"
           }
         }
       }
@@ -655771,6 +655771,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chromium 無法啟動，因此這個分頁使用 WebKit。"
+          }
+        }
+      }
+    },
+    "cli.browser.engine.error.dockUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock browsers use WebKit; open the page in a workspace pane to use another engine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم متصفحات Dock محرك WebKit؛ افتح الصفحة في جزء من مساحة العمل لاستخدام محرك آخر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-Browser verwenden WebKit; öffne die Seite in einem Workspace-Bereich, um eine andere Engine zu verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los navegadores del Dock usan WebKit; abre la página en un panel del espacio de trabajo para usar otro motor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les navigateurs du Dock utilisent WebKit ; ouvrez la page dans un panneau de l’espace de travail pour utiliser un autre moteur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock のブラウザは WebKit を使用します。別のエンジンを使うには、ワークスペースのペインでページを開いてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 브라우저는 WebKit을 사용합니다. 다른 엔진을 사용하려면 작업 공간 패인에서 페이지를 여세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 浏览器使用 WebKit；请在工作区窗格中打开页面以使用其他引擎"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 瀏覽器使用 WebKit；請在工作區窗格中開啟頁面以使用其他引擎"
           }
         }
       }
