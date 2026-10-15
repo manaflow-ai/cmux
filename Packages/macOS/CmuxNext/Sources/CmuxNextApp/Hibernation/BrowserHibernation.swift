@@ -173,7 +173,7 @@ final class BrowserHibernation {
             let probe = user ? PageProbe() : await PageProbe.run(tab)
             let exemption = probe.exemption(pressure: self?.pressure ?? .normal) ?? (source.showsFormSubmission ? .formSubmission : nil)
             // A page that stays needs no picture (each replan probes it again).
-            let snapshot = exemption == nil ? await Self.snapshot(tab, cached: self?.cache?.previews.image(for: key)) : nil
+            let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
             guard let self, let cache = self.cache else { return }
             self.probing.remove(key)
             // Still the same hidden page: no show, hide or close since.
@@ -195,11 +195,16 @@ final class BrowserHibernation {
         }
     }
 
-    private static func snapshot(_ tab: any BrowserTab, cached: CGImage?) async -> CGImage? {
-        if let cached { return cached }
-        return try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
+    /// Takes a hidden page's picture (a seam for tests).
+    var capture: (any BrowserTab) async -> CGImage? = { tab in
+        try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.snapshot()
         }
+    }
+
+    private func snapshot(_ tab: any BrowserTab, key: String) async -> CGImage? {
+        if let cached = cache?.previews.image(for: key) { return cached }
+        return await capture(tab)
     }
 
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`

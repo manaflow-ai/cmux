@@ -55,14 +55,96 @@ import Testing
         #expect(rig.exemption(key) == .formInput, "a page with the person's typing hibernated")
     }
 
+    /// #20866 review: a person who used the page and then let a widget or the page's script set a
+    /// field (a date picker, a Select2 menu, a draft re-rendered through `.value`) still has edits
+    /// there, though no trusted input event touched the field.
+    @Test func aPageThePersonClickedWhoseScriptThenSetAFieldKeepsItsPage() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let page = try await rig.page("clicked", body: """
+            <select id="s"><option value="a" selected>A</option><option value="b">B</option></select>
+            <div style="height: 2000px"></div>
+            <script>addEventListener('pointerdown', (e) => { window.clicked = e.isTrusted; }, true);</script>
+            """)
+        rig.window.contentView = page.contentView
+        rig.window.layoutIfNeeded()
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 400, y: 300), modifierFlags: [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rig.window.windowNumber,
+                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            rig.window.sendEvent(event)
+        }
+        try await rig.until("the click reached the page") {
+            (try? await page.evaluate("window.clicked === true", world: .page)) == .bool(true)
+        }
+        _ = try await page.evaluate("document.getElementById('s').value = 'b'; true", world: .page)
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        #expect(rig.exemption(key) == .formInput, "a page the person used, with a changed field, hibernated")
+    }
+
+    /// #20866 review: a rich text editor (a mail compose, a comment box) is no form field.
+    @Test func aPageThePersonTypedIntoARichEditorKeepsItsPage() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let page = try await rig.page("editor", body: "<div id='editor' contenteditable style='height: 200px'></div>")
+        rig.window.contentView = page.contentView
+        rig.window.makeFirstResponder(page.webView)
+        _ = try await page.evaluate("document.getElementById('editor').focus(); true", world: .page)
+        page.webView.insertText("draft")
+        try await rig.until("the typing reached the editor") {
+            (try? await page.evaluate("document.getElementById('editor').textContent", world: .page)) == .string("draft")
+        }
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        #expect(rig.exemption(key) == .formInput, "a page with the person's typing in a rich editor hibernated")
+    }
+
+    /// #20866 review: a 2560 x 1600 pt pane at 2x is about 65 MB, more than the whole 32 MB cache,
+    /// which never took it: the tab woke blank.
+    @Test func aLargePaneStillHasASnapshotAfterHibernating() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let large = try Self.picture(shade: 0.5, width: 5120, height: 3200)
+        rig.hibernation.capture = { _ in large }
+        let key = try await rig.hide(rig.page("large", body: "<p>large</p>"))
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        let snapshot = try #require((rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage,
+                                    "a large pane's page hibernated without a snapshot")
+        #expect(PreviewImageCache.cost(snapshot) <= rig.services.cache.previews.capacityBytes / 4, "one snapshot takes over a quarter of the cache")
+    }
+
+    /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
+    @Test func aPageThatHibernatesAgainShowsItsNewSnapshot() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let first = try Self.picture(shade: 0.2, width: 1000, height: 700)
+        rig.hibernation.capture = { _ in first }
+        let key = try await rig.hide(rig.page("twice", body: "<p>twice</p>"))
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the page woke") { !rig.isHibernated(key) && rig.services.cache.phase(of: key) == .mountedVisible }
+        let second = try Self.picture(shade: 0.8, width: 900, height: 600)
+        rig.hibernation.capture = { _ in second }
+        rig.services.cache.withdraw(key, by: rig.pane)
+        try await rig.until("the page hibernated again") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        let snapshot = (rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
+        #expect(snapshot?.width == 900, "the page showed the picture of its first sleep")
+    }
+
     @Test func hibernatedPagesKeepNoMoreSnapshotsThanThePreviewCache() async throws {
         let rig = try Rig()
         defer { rig.close() }
         var keys: [String] = []
         for index in 0..<8 {
             let page = try await rig.page("plain\(index)", body: "<p>page \(index)</p>")
-            // The page's full-size picture, as a hide captures it (2048 x 1536, 12 MB).
-            rig.services.cache.previews.insert(try Self.picture(shade: Double(index) / 8), for: page.id.rawValue)
+            // The page's full-size picture (2048 x 1536, 12 MB).
+            let picture = try Self.picture(shade: Double(index) / 8)
+            rig.hibernation.capture = { _ in picture }
             let key = try await rig.hide(page)
             try await rig.until("page \(index) hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
             #expect(rig.isHibernated(key))
@@ -76,11 +158,11 @@ import Testing
         #expect(last.snapshotImage != nil, "the latest hibernated page lost its snapshot")
     }
 
-    private static func picture(shade: Double) throws -> CGImage {
-        let context = try #require(CGContext(data: nil, width: 2048, height: 1536, bitsPerComponent: 8, bytesPerRow: 0,
+    private static func picture(shade: Double, width: Int = 2048, height: Int = 1536) throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(gray: shade, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: 2048, height: 1536))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         return try #require(context.makeImage())
     }
 
