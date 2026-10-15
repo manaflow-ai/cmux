@@ -1141,10 +1141,11 @@ export function Picker({
 }
 
 // Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
-function Icon({ children, size = 18 }: { children: React.ReactNode; size?: number }) {
+function Icon({ children, size = 18, shield }: { children: React.ReactNode; size?: number; shield?: string }) {
   return (
     <svg
       className="acpmux-icon"
+      data-shield={shield}
       width={size}
       height={size}
       viewBox="0 0 16 16"
@@ -1162,24 +1163,24 @@ function Icon({ children, size = 18 }: { children: React.ReactNode; size?: numbe
 }
 const SHIELD = "M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z";
 /** Full access: the shield with an exclamation mark, drawn in the warning color by its row. */
-export const ShieldIcon = () => (
-  <Icon>
+export const ShieldIcon = ({ shield }: { shield?: string }) => (
+  <Icon shield={shield}>
     <path d={SHIELD} />
     <path d="M8 5.2v3.3" />
     <circle cx="8" cy="10.9" r=".35" fill="currentColor" />
   </Icon>
 );
 /** A mode that asks first (Claude's default and plan, Codex read-only): the shield with a check. */
-export const ShieldCheckIcon = () => (
-  <Icon>
+export const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
+  <Icon shield={shield}>
     <path d={SHIELD} />
     <path d="m5.9 8.1 1.5 1.5 2.8-2.9" />
   </Icon>
 );
 /** A mode that acts without asking within its limits (accept edits, Codex auto, Claude's don't
  * ask): the plain shield. */
-export const ShieldPlainIcon = () => (
-  <Icon>
+export const ShieldPlainIcon = ({ shield }: { shield?: string }) => (
+  <Icon shield={shield}>
     <path d={SHIELD} />
   </Icon>
 );
@@ -1190,7 +1191,9 @@ export const LockIcon = () => (
   </Icon>
 );
 /** One shield family for the permission mode, the same on the trigger and in the menu: the mark
- * inside the shield carries the risk (compact-composer verdict, 2026-10-14). */
+ * inside the shield carries the risk (compact-composer verdict, 2026-10-14). The svg itself
+ * carries data-shield, with no wrapper: it stays the trigger's first child, as the lock was, so
+ * the trailing-chevron rules (`.acpmux-icon:last-child`) never restyle it. */
 function ModeShield({ modeId }: { modeId?: unknown }) {
   const kind =
     typeof modeId !== "string"
@@ -1200,10 +1203,12 @@ function ModeShield({ modeId }: { modeId?: unknown }) {
         : /accept|auto|dont[-_ ]?ask/i.test(modeId)
           ? "plain"
           : "check";
-  return (
-    <span className="acpmux-mode-shield" data-shield={kind}>
-      {kind === "alert" ? <ShieldIcon /> : kind === "check" ? <ShieldCheckIcon /> : <ShieldPlainIcon />}
-    </span>
+  return kind === "alert" ? (
+    <ShieldIcon shield={kind} />
+  ) : kind === "check" ? (
+    <ShieldCheckIcon shield={kind} />
+  ) : (
+    <ShieldPlainIcon shield={kind} />
   );
 }
 export const ChevronIcon = () => (

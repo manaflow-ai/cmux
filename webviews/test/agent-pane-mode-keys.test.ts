@@ -187,7 +187,7 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
       page.locator(".acpmux-access-trigger [data-shield]").evaluate((node) => node.getAttribute("data-shield"));
     // The chat starts in Claude's default mode: it asks first, so the shield carries a check.
     expect(await trigger()).toBe("check");
-    expect(await page.locator(".acpmux-access-trigger [data-shield]").count()).toBe(1);
+    expect(await page.locator(".acpmux-access-trigger svg[data-shield]").count()).toBe(1);
     await page.locator(".acpmux-access-trigger").click();
     const menu = page.locator(".acpmux-access-menu");
     await menu.waitFor();
