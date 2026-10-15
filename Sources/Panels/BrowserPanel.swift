@@ -3774,7 +3774,12 @@ final class BrowserPanel: Panel, ObservableObject {
         self.profileID = resolvedProfileID
         // Remote and proxied panels load through the WebKit proxy
         // configuration; another engine would reach this Mac's own network.
+        // A WebKit popup (window.open from a WebKit page) brings its own
+        // WKWebView with the opener link; it stays WebKit whatever
+        // browser.engine says.
+        let adoptsWebKitPopup = initialURL != nil && Self.pendingPopupWebView?.url == initialURL
         let routesThroughBrowserProxy = isRemoteWorkspace || proxyEndpoint != nil || explicitWebsiteDataStore != nil
+            || adoptsWebKitPopup
         let enginePageSetup = Self.makeEnginePage(
             choice: routesThroughBrowserProxy
                 ? BrowserEngineChoice(engine: .webkit, source: .inherited)

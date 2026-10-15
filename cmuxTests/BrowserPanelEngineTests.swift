@@ -2,6 +2,7 @@ import AppKit
 import CmuxBrowser
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -327,6 +328,23 @@ import Testing
         snapshot.engine = .chromium
         panel.restoreSessionSnapshot(snapshot)
         #expect(try #require(provider.pages.first).loadedURLs == [URL(string: "https://example.com/restored")!])
+    }
+
+    @Test func webKitPopupStaysWebKitWhenChromiumIsConfigured() {
+        let provider = FakeChromiumProvider()
+        let url = URL(string: "https://example.com/popup")!
+        let popupWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        BrowserPanel.pendingPopupWebView = (url: url, webView: popupWebView)
+        defer { BrowserPanel.pendingPopupWebView = nil }
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            engineRuntime: runtime(providers: [provider], environment: ["CMUX_BROWSER_ENGINE": "chromium"])
+        )
+        defer { panel.close() }
+        #expect(panel.engineKind == .webkit)
+        #expect(panel.webView === popupWebView)
+        #expect(provider.pages.isEmpty)
     }
 
     @Test func closingTheChromiumPanelClosesItsPage() {
