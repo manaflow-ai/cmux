@@ -15,11 +15,16 @@ extension ChatController {
         guard let store, let demo else { return }
         let state = store.state
         guard let m = state.conversation.messages.last, m.senderId == state.me else { return }
+        // cmux: nothing to do unless my newest message or its status moved since the last look (not on
+        // every streamed word of a reply, every typing change).
+        let look = "\(m.id)|\(String(describing: m.status))"
+        guard look != receiptLook else { return }
         let step: Int
-        switch m.status { case .sending?, .sent?: step = 0; case .delivered?: step = 1; default: return }
+        switch m.status { case .sending?, .sent?: step = 0; case .delivered?: step = 1; default: receiptLook = look; return }
         if let a = receiptAhead, a.0 == m.id, a.1 == step { return }
         guard let part = demo.model.rows.last(where: { $0.spec.key.hasPrefix("part:\(m.id):") }) else { return }
         receiptAhead = (m.id, step)
+        receiptLook = look
         let key = "receipt:\(m.id)", width = part.spec.width, now = store.date(at: clock)
         func ask(_ kind: RowSpec.Kind) {
             var spec = RowSpec(key: key, kind: kind, gap: 0, height: 16)

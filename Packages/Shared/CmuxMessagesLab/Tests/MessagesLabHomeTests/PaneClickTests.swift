@@ -251,29 +251,57 @@ import Testing
 
     // MARK: The header under an open thread or reply view
 
-    /// One backdrop: the vendored thread layer sits over the live header, unmasked (the header band and
-    /// the transcript blur and darken as one, no seam). The thread's rows are clipped out of the header
-    /// band, each by a band mask whose top edge is the band's bottom in pane coordinates.
-    @Test func theThreadRowsAreClippedOutOfTheHeaderBand() throws {
+    /// One backdrop over the live header (the pill blurs with the transcript); the avatar sits over it in
+    /// its own overlay and only dims (ThreadBackdrop's tint); each thread row's mask has a hole at the
+    /// pill, in the row's own coordinates, and nowhere else.
+    @Test func underAnOpenThreadTheAvatarDimsAndRowsPassUnderThePill() throws {
         let (controller, _, demo) = Self.pane()
         let host = controller.host
-        host.layoutSubtreeIfNeeded()
-        #expect(host.threadHost.root.mask == nil)
-        controller.dispatch(.reply(PartRef(messageId: "m1", partIndex: 0)))
-        #expect(demo.threadOpen)
-        #expect(host.veilOpen)
+        host.paneHeader.title = "Chief"
         host.needsLayout = true
         host.layoutSubtreeIfNeeded()
+        #expect(host.threadHost.root.mask == nil)
+        let overlay = host.paneHeader.avatarOverlay
+        #expect(overlay.superview === host)
+        let views = host.subviews
+        #expect((views.firstIndex(of: overlay) ?? -1) > (views.firstIndex(of: host.threadHost) ?? Int.max))
+        #expect(!overlay.dimmed)
+        controller.dispatch(.reply(PartRef(messageId: "m1", partIndex: 0)))
+        host.needsLayout = true
+        host.layoutSubtreeIfNeeded()
+        #expect(demo.threadOpen)
+        #expect(overlay.dimmed)
+        #expect(abs(overlay.tint.opacity - Float(1 - ThreadBackdrop.gain)) < 0.0001)
         let thread = try #require(HostView.threadLayerView(of: demo))
         let dim = thread.subviews.first?.layer
         let rows = (thread.layer.sublayers ?? []).filter { $0 !== dim }
         #expect(!rows.isEmpty)
+        let pill = host.threadHost.root.convert(host.paneHeader.pillBacking.frame, from: host.paneHeader.layer)
         for row in rows {
-            let mask = try #require(row.mask)
+            let mask = try #require(row.mask as? CAShapeLayer)
             #expect(mask.name == HostView.bandMaskName)
-            #expect(abs(row.frame.minY + mask.frame.minY - Fixture.headerHeight) < 0.001)
+            let hole = row.convert(pill, from: thread.layer)
+            #expect(mask.path?.contains(CGPoint(x: hole.midX, y: hole.midY), using: .evenOdd) == false)
+            #expect(mask.path?.contains(CGPoint(x: hole.minX - 40, y: hole.midY), using: .evenOdd) == true)
         }
         controller.dispatch(.closeThread)
-        #expect(!host.veilOpen)
+        #expect(!overlay.dimmed)
+    }
+
+    /// A row's flight moves its mask the other way, whatever kind of position animation it is.
+    @Test func aRowsPositionAnimationIsInvertedOnItsMask() throws {
+        let rowPos = CGPoint(x: 100, y: 500), maskPos = CGPoint(x: 50, y: 20)
+        let k = CAKeyframeAnimation(keyPath: "position.y")
+        k.values = [300, 400, 500].map { NSNumber(value: $0) }
+        k.duration = 0.5
+        let ki = try #require(HostView.invert(k, rowPosition: rowPos, maskPosition: maskPos) as? CAKeyframeAnimation)
+        #expect((ki.values as? [NSNumber])?.map(\.doubleValue) == [220, 120, 20])
+        #expect(ki.duration == 0.5)
+        let b = CABasicAnimation(keyPath: "position")
+        b.fromValue = NSValue(point: NSPoint(x: 100, y: 300))
+        b.toValue = NSValue(point: NSPoint(x: 100, y: 500))
+        let bi = try #require(HostView.invert(b, rowPosition: rowPos, maskPosition: maskPos) as? CABasicAnimation)
+        #expect((bi.fromValue as? NSValue)?.pointValue == NSPoint(x: 50, y: 220))
+        #expect((bi.toValue as? NSValue)?.pointValue == NSPoint(x: 50, y: 20))
     }
 }

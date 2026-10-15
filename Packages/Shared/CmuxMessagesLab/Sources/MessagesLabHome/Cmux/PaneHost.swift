@@ -107,6 +107,8 @@ final class HostView: NSView {
         // and darkens it with the transcript, as Messages does (PaneHost+ThreadLayer.swift).
         addSubview(paneHeader)
         addSubview(threadHost)
+        // cmux: the avatar over the thread view's blur (dimmed only, as Messages'; PaneHost+ThreadLayer.swift).
+        addSubview(paneHeader.avatarOverlay)
         liftThreadLayer(demo)
         addSubview(selectionHost)
         // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).
@@ -368,6 +370,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var tapbackChoice: TapbackChoice?
     /// The receipt row drawn ahead for my newest message: its id and step (PaneHost+Receipt.swift).
     var receiptAhead: (ID, Int)?
+    /// My newest message and its status at the last receipt look (PaneHost+Receipt.swift).
+    var receiptLook: String?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
@@ -566,7 +570,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // sits above the thread view's blur). cmux: the scroll view, scroller included, is under
         // `threadHost` (PaneHost+ThreadLayer.swift), so the thread backdrop blurs and darkens it with
         // the transcript, as real Messages does; its alpha stays SequenceScroller's own.
-        host.followThread(open: demo?.threadOpen ?? false)  // cmux: the header's controls blur with the thread view
+        // cmux: the avatar's dimming and the thread rows' masks, only when a thread view opens, closes, is
+        // open or still has rows (not on every streamed word or status).
+        let threadOpen = demo?.threadOpen ?? false
+        if threadOpen || host.veilOpen || host.threadRowsShown { host.followThread(open: threadOpen) }
         prefetchNextReceipt()
         scheduleWake()
     }
@@ -676,9 +683,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     }
 
     /// The keys the field takes while the transcript has the focus: anything without Command or
-    /// Control that is not a navigation or function key (text, Return, Delete, Option characters,
-    /// the input method's keys), and Paste (Command-V). The transcript keeps Copy and the other
-    /// Command keys, Tab, and the arrows, page and Home/End keys (they scroll it).
+    /// Control that is not a navigation or function key (text, Space, Return, Delete, Option
+    /// characters, the input method's keys), and Paste (Command-V). The transcript keeps Copy and the
+    /// other Command keys, Tab, and the arrows, page and Home/End keys (they scroll it). Space is
+    /// text, as upstream: the vendored TranscriptDocumentView.keyDown (MessagesLab Host.swift's
+    /// transcript) sends every printable character, space included, to the field; MessagesLab has no
+    /// Space page scroll or Quick Look on a selected bubble.
     static func goesToField(_ e: NSEvent) -> Bool {
         let mods = e.modifierFlags.intersection([.command, .control, .option, .shift])
         if mods.contains(.command) { return mods == [.command] && e.charactersIgnoringModifiers?.lowercased() == "v" }

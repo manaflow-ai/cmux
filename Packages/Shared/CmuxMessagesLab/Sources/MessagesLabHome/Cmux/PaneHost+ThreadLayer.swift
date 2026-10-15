@@ -67,69 +67,112 @@ extension HostView {
         CATransaction.commit()
     }
 
-    /// cmux: under an open thread or reply view the header (its avatar and pill) blurs and darkens with
-    /// the transcript, and no thread row draws over it. One backdrop does it: the vendored thread layer
-    /// (ThreadBackdrop, then the thread's rows) sits over the live header in `threadHost`, unmasked, so
-    /// the header band and the transcript are one blur and one tint, on the same frames, with no seam
-    /// (round 7: a second backdrop over the band joined the vendored one with a 5.4-level step at 80 pt
-    /// and ran 0-3 frames behind it).
-    ///
-    /// The thread's rows are clipped out of the header band instead, each by a mask of its own (the
-    /// row layers stay where the vendored view put them): the mask's top edge sits at the band's bottom
-    /// (`Fixture.headerHeight`) in pane coordinates. A row flying in or out (ThreadBackdrop.fly, a
-    /// keyframe animation of its `position.y`) carries its mask with it, so the mask gets the inverse
-    /// keyframes on the same duration and begin time: its edge stays at the band's bottom on every
-    /// frame. A row passes under the header, as under Messages' titlebar. Called after every engine
-    /// change (the vendored view adds rows and their flights during a dispatch) and on layout.
+    /// cmux: under an open thread or reply view, Messages blurs and darkens the transcript and the
+    /// name pill, dims the avatar without blurring it (round 8 capture, same scale: its edges stay at
+    /// 1.03 of rest), and the thread's rows pass under the header's controls, sharp, with no cut.
+    /// - The vendored thread layer (ThreadBackdrop, then the thread's rows) sits over the live header in
+    ///   `threadHost`, unmasked: the header band, the pill included, and the transcript are one blur and
+    ///   one tint, on the same frames, with no seam.
+    /// - The avatar draws in its own overlay over that (`PaneHeaderView.avatarOverlay`), dimmed by
+    ///   ThreadBackdrop's tint on the same curve (`followThread`), never blurred. Rows pass under it.
+    /// - Each thread row has a mask with a hole at the pill's capsule (thread-layer coordinates), so a
+    ///   row passes under the pill too and is cut nowhere else. A row's flight (any animation of its
+    ///   `position`, `position.x` or `position.y`: a copy of it with inverted values, the same timing)
+    ///   moves its mask the other way, so the hole stays on the pill on every frame, whatever curve the
+    ///   vendored view uses.
+    /// Only while a thread view is open or its rows are still there (closing).
     func clipThreadToHeader() {
         guard let thread = liftedThread, thread.layer.superlayer === threadHost.root,
               let dim = thread.subviews.first?.layer else { return }
-        let band = min(Fixture.headerHeight, bounds.height)
+        let rows = (thread.layer.sublayers ?? []).filter { $0 !== dim }
+        guard !rows.isEmpty else { return }
+        let hole = paneHeader.pill.isHidden ? nil : threadHost.root.convert(paneHeader.pillBacking.frame, from: paneHeader.layer)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        for row in thread.layer.sublayers ?? [] where row !== dim {
-            Self.clipRow(row, belowY: band)
+        for row in rows { Self.clipRow(row, hole: hole, in: thread.layer) }
+    }
+
+    static let bandMaskName = "cmux.threadPillHole", followedKey = "cmuxFollowedFlight"
+    static let positionKeys: Set<String> = ["position", "position.x", "position.y"]
+
+    /// The row's mask: all of it but `hole` (`space`'s coordinates), following the row's flights.
+    static func clipRow(_ row: CALayer, hole: CGRect?, in space: CALayer) {
+        if let other = row.mask, other.name != bandMaskName { return }  // a mask of the vendored view's own: left alone
+        guard let hole else { row.mask = nil; return }
+        let mask = (row.mask as? CAShapeLayer) ?? CAShapeLayer()
+        mask.name = bandMaskName
+        mask.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull()]
+        mask.fillRule = .evenOdd
+        if mask.frame != row.bounds { mask.frame = row.bounds }
+        // The hole where the row's model (final) place puts the pill.
+        let local = row.convert(hole, from: space)
+        let path = CGMutablePath()
+        path.addRect(row.bounds.insetBy(dx: -4096, dy: -4096))
+        path.addRoundedRect(in: local, cornerWidth: local.height / 2, cornerHeight: local.height / 2)
+        if mask.path != path { mask.path = path }
+        if row.mask !== mask { row.mask = mask }
+        // The flights: every position animation on the row, inverted on the mask, once per flight.
+        let flights = (row.animationKeys() ?? []).compactMap { key -> (String, CAPropertyAnimation)? in
+            guard let a = row.animation(forKey: key) as? CAPropertyAnimation, let path = a.keyPath, positionKeys.contains(path) else { return nil }
+            return (key, a)
+        }
+        let signature = flights.map { "\($0.0)|\($0.1.beginTime)|\($0.1.duration)|\(String(describing: ($0.1 as? CAKeyframeAnimation)?.values ?? [($0.1 as? CABasicAnimation)?.fromValue as Any, ($0.1 as? CABasicAnimation)?.toValue as Any]))" }
+        guard signature != mask.value(forKey: followedKey) as? [String] else { return }
+        mask.setValue(signature, forKey: followedKey)
+        for key in mask.animationKeys() ?? [] where key.hasPrefix("cmux.") { mask.removeAnimation(forKey: key) }
+        for (key, a) in flights {
+            if let inverse = invert(a, rowPosition: row.position, maskPosition: mask.position) { mask.add(inverse, forKey: "cmux." + key) }
         }
     }
 
-    /// The row's mask: everything at or below `y` (the thread layer's coordinates), following the row's flight.
-    static func clipRow(_ row: CALayer, belowY y: CGFloat) {
-        if let other = row.mask, other.name != Self.bandMaskName { return }  // a mask of the vendored view's own: left alone
-        let mask = row.mask ?? CALayer()
-        mask.name = Self.bandMaskName
-        mask.actions = ["bounds": NSNull(), "position": NSNull()]
-        mask.backgroundColor = NSColor.black.cgColor
-        // The model frame: the row at its final place; the mask's top at `y` in the thread layer.
-        let top = y - row.frame.minY
-        let frame = CGRect(x: -4096, y: top, width: row.bounds.width + 8192, height: max(0, row.bounds.height - top) + 4096)
-        if mask.frame != frame { mask.frame = frame }
-        if row.mask !== mask { row.mask = mask }
-        // The flight: the inverse keyframes, once per flight (a flight is known by its values).
-        let fly = row.animation(forKey: "thread.fly") as? CAKeyframeAnimation
-        let values = (fly?.values as? [NSNumber])?.map(\.doubleValue)
-        // The followed flight's values, kept on the mask (CALayer's key-value storage).
-        guard values != mask.value(forKey: Self.followedKey) as? [Double] else { return }
-        mask.setValue(values, forKey: Self.followedKey)
-        mask.removeAnimation(forKey: "cmux.band")
-        guard let fly, let values else { return }
-        let rowY = row.position.y, maskY = mask.position.y
-        let k = CAKeyframeAnimation(keyPath: "position.y")
-        k.values = values.map { NSNumber(value: Double(maskY) - ($0 - Double(rowY))) }
-        k.keyTimes = fly.keyTimes
-        k.duration = fly.duration
-        k.calculationMode = fly.calculationMode
-        k.beginTime = fly.beginTime
-        k.fillMode = fly.fillMode
-        k.timingFunctions = fly.timingFunctions
-        mask.add(k, forKey: "cmux.band")
+    /// A copy of a position animation with values that move the mask by the opposite amount (an
+    /// additive animation's deltas negated), its timing unchanged.
+    static func invert(_ a: CAPropertyAnimation, rowPosition r: CGPoint, maskPosition m: CGPoint) -> CAPropertyAnimation? {
+        guard let path = a.keyPath, let copy = a.copy() as? CAPropertyAnimation else { return nil }
+        func flip(_ v: Any?) -> Any? {
+            switch (path, v) {
+            case ("position", let p as NSValue):
+                let q = p.pointValue
+                return NSValue(point: copy.isAdditive ? NSPoint(x: -q.x, y: -q.y) : NSPoint(x: m.x - (q.x - r.x), y: m.y - (q.y - r.y)))
+            case ("position.x", let n as NSNumber):
+                return NSNumber(value: copy.isAdditive ? -n.doubleValue : Double(m.x) - (n.doubleValue - Double(r.x)))
+            case ("position.y", let n as NSNumber):
+                return NSNumber(value: copy.isAdditive ? -n.doubleValue : Double(m.y) - (n.doubleValue - Double(r.y)))
+            default:
+                return v
+            }
+        }
+        if let k = copy as? CAKeyframeAnimation {
+            k.values = k.values?.map { flip($0) ?? $0 }
+            if k.path != nil { return nil }  // a path flight: not inverted
+        } else if let b = copy as? CABasicAnimation {
+            b.fromValue = flip(b.fromValue)
+            b.toValue = flip(b.toValue)
+            if let by = b.byValue {
+                switch (path, by) {
+                case ("position", let p as NSValue): b.byValue = NSValue(point: NSPoint(x: -p.pointValue.x, y: -p.pointValue.y))
+                case (_, let n as NSNumber): b.byValue = NSNumber(value: -n.doubleValue)
+                default: return nil
+                }
+            }
+        } else {
+            return nil  // a spring or another kind: not inverted
+        }
+        return copy
     }
 
-    static let bandMaskName = "cmux.threadBand", followedKey = "cmuxFollowedFlight"
-
-    /// The thread view's open state, followed after every engine change.
+    /// The thread view's open state, followed after the engine changes that matter: the avatar dims with
+    /// it, and the rows' masks follow while it is open or its rows remain.
     func followThread(open: Bool) {
-        clipThreadToHeader()
+        paneHeader.avatarOverlay.setDimmed(open)
         veilOpen = open
+        clipThreadToHeader()
+    }
+
+    /// The thread layer holds rows (a thread view open or closing).
+    var threadRowsShown: Bool {
+        guard let thread = liftedThread else { return false }
+        return (thread.layer.sublayers?.count ?? 0) > 1
     }
 
     /// The thread layer lives in `threadHost` (tests, the DEBUG socket).

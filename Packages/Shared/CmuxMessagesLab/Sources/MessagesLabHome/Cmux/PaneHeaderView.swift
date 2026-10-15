@@ -4,13 +4,17 @@ import AppKit
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
 /// window, and a Home tab shares the cmux-next window. The same controls sit
 /// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
-/// at Messages' places: the 40 pt avatar 8 pt from the top, and the glass
-/// capsule name pill (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron)
-/// whose capsule, rim included, spans 44-72 pt (centre 58) as Messages'
-/// (round 6 capture: the same pixel procedure on baseline
-/// ref/real-bubble-stills-2x.png and on ours). The disc overlaps the pill's top
-/// (disc 8-48 pt) and draws over it, whole, as in Messages (the white disc
-/// covers the pill's top edge); the pill takes the clicks where they overlap.
+/// at Messages' places: the 40 pt avatar 8 pt from the top, and the capsule
+/// name pill (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron) spanning
+/// 44-72 pt (28 pt, centre 58), as Messages' (baseline
+/// ref/real-bubble-stills-2x.png). cmux: the capsule is drawn here (a fill and
+/// a 0.5 pt rim, `pillBacking`) under a borderless title button, not AppKit's
+/// glass bezel, whose rim landed 1-2 pt off in light and dark (rounds 5-8).
+/// The disc overlaps the pill's top (disc 8-48 pt) and draws over it, whole,
+/// as in Messages; the pill takes the clicks where they overlap. The avatar
+/// draws in `avatarOverlay`, which the host places over the thread view's blur:
+/// under an open thread Messages only dims the avatar (its edges stay sharp),
+/// while the pill blurs with the transcript (round 8 capture).
 /// No band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
@@ -28,36 +32,31 @@ final class PaneHeaderView: NSView {
     /// A light theme: the measured white disc would vanish on a light
     /// header, so the disc takes the theme's secondary text grey with a
     /// white monogram (Messages' light-mode avatar).
-    var light = false { didSet { if light != oldValue { applyAvatar() } } }
+    var light = false { didSet { if light != oldValue { applyAvatar(); applyRim() } } }
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
     static let avatarTop: CGFloat = 8
-    /// HeaderBar: Messages' pill center, 58 pt from the window top.
-    /// The capsule's body (the rect the backing fills and the clicks use): AppKit's glass draws its rim
-    /// about 2 pt outside the body (round 6: a 44-71 body measured 42-72; round 7: 46-71 measured 44-73),
-    /// so a 46-70 body gives Messages' measured 44-72 (centre 58).
+    /// Messages' pill: 44-72 pt from the window top (centre 58, 28 pt), rim included.
     static let pillCenterY: CGFloat = 58
-    static let pillHeight: CGFloat = 24
-    /// AppKit's glass button draws its capsule this far inside its frame, top and bottom
-    /// (round 4 and 5 captures: a 28 pt frame at 44-72 pt drew its rim at 47-69 pt), so
-    /// the frame is the drawn capsule outset by it.
-    static let glassInset: CGFloat = 3
+    static let pillHeight: CGFloat = 28
+    /// The capsule's rim (Messages' glass edge, a light hairline).
+    static let pillRim: CGFloat = 0.5
+
+    /// The avatar's own layer host (the host adds it over the thread view's blur): the disc and its
+    /// dimming tint (ThreadBackdrop's), never hit (clicks reach this header's `mouseDown`).
+    let avatarOverlay = AvatarOverlay()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         avatar.imageScaling = .scaleProportionallyUpOrDown
-        // Back to front: the pill's backing, the pill (glass), the avatar: the disc draws whole
-        // over the pill's top edge, as in Messages.
+        // Back to front: the pill's capsule (drawn here), the pill's title and chevron; the avatar
+        // draws in `avatarOverlay`, over them: the disc draws whole over the pill's top edge.
         pillBacking.wantsLayer = true
+        pillBacking.layer?.borderWidth = PaneHeaderView.pillRim
         addSubview(pillBacking)
-        // HeaderBar's pill, as configured there.
-        if #available(macOS 26, *) {
-            pill.bezelStyle = .glass
-            pill.borderShape = .capsule
-        } else {
-            pill.bezelStyle = .push
-        }
+        // HeaderBar's pill, as configured there, without its glass bezel (the capsule is drawn).
+        pill.isBordered = false
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
         pill.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
@@ -68,8 +67,9 @@ final class PaneHeaderView: NSView {
         pill.target = self
         pill.action = #selector(contactClicked)
         addSubview(pill)
-        addSubview(avatar)
+        avatarOverlay.addSubview(avatar)
         applyTitle()
+        applyRim()
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
@@ -81,8 +81,8 @@ final class PaneHeaderView: NSView {
     /// below the header).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        // The drawn capsule takes its clicks, also where the avatar draws over its top edge (as Messages).
-        if pill.frame.insetBy(dx: 0, dy: PaneHeaderView.glassInset).contains(p) && !pill.isHidden { return pill }
+        // The capsule takes its clicks, also where the avatar draws over its top edge (as Messages).
+        if pill.frame.contains(p) && !pill.isHidden { return pill }
         return bounds.contains(p) ? self : nil
     }
 
@@ -110,10 +110,13 @@ final class PaneHeaderView: NSView {
         let w = HeaderBar.pillWidth(title)
         let h = PaneHeaderView.pillHeight
         let capsule = CGRect(x: (bounds.width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)
-        pill.frame = capsule.insetBy(dx: 0, dy: -PaneHeaderView.glassInset)
+        pill.frame = capsule
         pillBacking.frame = capsule
         pillBacking.layer?.cornerRadius = h / 2
         pillBacking.isHidden = pill.isHidden
+        // The overlay matches this header's frame, so the avatar's frame reads the same in both.
+        if avatarOverlay.frame != frame { avatarOverlay.frame = frame }
+        avatarOverlay.place(avatar.frame)
     }
 
     private func applyTitle() {
@@ -132,9 +135,22 @@ final class PaneHeaderView: NSView {
         avatar.image = picture.map(PaneHeaderView.avatarImage(picture:)) ?? PaneHeaderView.avatarImage(initials, light: light)
     }
 
-    /// cmux: the pill's capsule color (translucent); nil leaves it clear.
+    /// cmux: the pill's capsule color (translucent); nil keeps the default fill.
     func setPillBacking(_ color: NSColor?) {
-        pillBacking.layer?.backgroundColor = color?.cgColor
+        pillBacking.layer?.backgroundColor = (color ?? PaneHeaderView.defaultPillFill(light: light)).cgColor
+        pillFillSet = color != nil
+    }
+    private var pillFillSet = false
+
+    /// Messages' glass capsule as drawn: a fill and a light hairline rim (dark: white 18 %; light:
+    /// black 12 %), the fill until the host sets its own (`setPillBacking`).
+    private func applyRim() {
+        pillBacking.layer?.borderColor = (light ? NSColor(white: 0, alpha: 0.12) : NSColor(white: 1, alpha: 0.18)).cgColor
+        if !pillFillSet { pillBacking.layer?.backgroundColor = PaneHeaderView.defaultPillFill(light: light).cgColor }
+    }
+
+    static func defaultPillFill(light: Bool) -> NSColor {
+        light ? NSColor(white: 0.97, alpha: 0.85) : NSColor(white: 0.27, alpha: 0.85)
     }
 
     /// A monogram on the header's avatar disc (white 253, as HeaderView
@@ -163,5 +179,52 @@ final class PaneHeaderView: NSView {
             picture.draw(in: r, from: square, operation: .sourceOver, fraction: 1)
             return true
         }
+    }
+}
+
+/// The header avatar's own layer host (PaneHeaderView.avatarOverlay): the disc, and over it
+/// ThreadBackdrop's tint (its colour and opacity, out = 5.5 + 0.384 x in), clipped to the disc, faded
+/// with the window view's thread backdrop (`setDimmed`). The host places it over the thread view's
+/// blur, so under an open thread the avatar dims without blurring, as Messages' does. Never hit.
+final class AvatarOverlay: NSView {
+    let tint = CALayer()
+    private(set) var dimmed = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        tint.actions = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull(), "cornerRadius": NSNull()]
+        tint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - ThreadBackdrop.gain), alpha: 1).cgColor
+        tint.opacity = 0
+        tint.masksToBounds = true
+        tint.zPosition = 1
+        layer?.addSublayer(tint)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The tint over the disc at `disc` (this view's coordinates).
+    func place(_ disc: CGRect) {
+        guard tint.frame != disc else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        tint.frame = disc
+        tint.cornerRadius = disc.width / 2
+        CATransaction.commit()
+    }
+
+    /// ThreadBackdrop.animate's tint: the same opacity, duration and curve, begun at this commit (the
+    /// window view's backdrop starts at the same one).
+    func setDimmed(_ on: Bool) {
+        guard on != dimmed else { return }
+        dimmed = on
+        let to: Float = on ? Float(1 - ThreadBackdrop.gain) : 0
+        let a = CABasicAnimation(keyPath: "opacity")
+        a.fromValue = tint.presentation()?.opacity ?? tint.opacity
+        a.toValue = to
+        a.duration = on ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        tint.opacity = to
+        tint.add(a, forKey: "thread")
     }
 }
