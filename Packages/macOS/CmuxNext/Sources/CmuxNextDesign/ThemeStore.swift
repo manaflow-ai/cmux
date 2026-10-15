@@ -81,7 +81,9 @@ public final class ThemeStore {
             ThemeSnapshot.store(derived)
             // Room, workspace and terminal scopes inherit from the app scope.
             ThemeScope.app.storeDidChange()
-            for window in NSApp?.windows ?? [] { refresh(window) }
+            // A theme, light/dark or Ghostty config change recolors every window in place: the
+            // whole window crossfades (terminal surfaces have no color to blend one by one).
+            for window in NSApp?.windows ?? [] { refresh(window, crossfade: true) }
         }
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
@@ -133,7 +135,7 @@ public final class ThemeStore {
     /// change that moves resolved colors or widths without a new theme
     /// (`appearance.borders`).
     public func repaintAll() {
-        for window in NSApp?.windows ?? [] { refresh(window) }
+        for window in NSApp?.windows ?? [] { refresh(window, crossfade: true) }
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
@@ -154,8 +156,9 @@ public final class ThemeStore {
 
     /// Each window takes its own scope's appearance (a light room in a dark
     /// config stays light).
-    private func refresh(_ window: NSWindow) {
+    private func refresh(_ window: NSWindow, crossfade: Bool = false) {
         window.appearance = window.themeScope.appearance
+        if crossfade, window.isVisible { ColorTransition.current.crossfade(window.contentView?.layer) }
         if let contentView = window.contentView { Self.invalidate(contentView) }
         window.invalidateShadow()
     }
