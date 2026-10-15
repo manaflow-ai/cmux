@@ -256,7 +256,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let identity = crate::app_identity::AppIdentity::detect(env, exe.as_deref());
     let own = identity.as_ref().and_then(|i| i.bundle_id.clone());
     let debug = own.as_deref().is_some_and(crate::app_identity::is_debug_bundle);
-    if !overrides_complete() {
+    if debug && !overrides_complete() {
         println!("{}", serde_json::json!({"acpmux": "not-next", "chief": "not-next"}));
         return 0;
     }

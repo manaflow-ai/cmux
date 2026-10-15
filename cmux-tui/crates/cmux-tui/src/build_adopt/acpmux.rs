@@ -45,8 +45,14 @@ pub(crate) fn adopt(home: &Path, exe: Option<&Path>, by: &str) -> Outcome {
     let Some(root) = home.parent().and_then(Path::parent) else { return Outcome::Nothing };
     let legacy = root.join("tags").join(LEGACY_TAG);
     if !is_real_dir(&legacy) {
-        // A NEXT home with nothing to adopt is final: record it once.
-        if is_real_dir(home) && std::fs::symlink_metadata(&legacy).is_err() {
+        // A NEXT home with nothing to adopt is final: record it once, but never over a
+        // post-update home a crashed adoption set aside (a later run merges it first).
+        let key = home.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let leftover =
+            std::fs::read_dir(root.join("builds")).into_iter().flatten().flatten().any(|e| {
+                e.file_name().to_string_lossy().starts_with(&format!(".post-update-{key}-"))
+            });
+        if is_real_dir(home) && std::fs::symlink_metadata(&legacy).is_err() && !leftover {
             let (_, at) = super::now_stamps();
             let record = serde_json::json!({"from": null, "at": at, "by": by, "mode": "none"});
             let _ = super::write_record(&home.join(RECORD), &record);

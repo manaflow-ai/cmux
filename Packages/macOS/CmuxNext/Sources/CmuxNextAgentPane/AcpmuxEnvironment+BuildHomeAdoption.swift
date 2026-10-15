@@ -23,8 +23,9 @@ nonisolated extension AcpmuxEnvironment {
 nonisolated enum BuildHomeAdoption {
     static let nextBundleID = "com.cmuxterm.app.nightly.cmux-next"
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "build-home-adoption")
-    /// The longest an app start waits for the adoption (a large Chief clone, daemon stops).
-    static let limit: Duration = .seconds(120)
+    /// The longest an app start waits for the adoption: above the CLI's worst case (adoption
+    /// lock 30 s, two daemon stops of 45 s, a Chief stop of about 60 s, then the clone).
+    static let limit: Duration = .seconds(300)
     /// Ends the wait after ``limit`` (one launch's one deadline).
     static let deadline = DemandTimer(owner: "build-home-adoption")
 
