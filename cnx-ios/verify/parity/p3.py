@@ -211,3 +211,175 @@ def flow_queue():
         return out
     finally:
         pq.rec_stop()
+
+
+def _tabs():
+    import pq_tabs as t
+    t.TAG = pq.rsh(f"cd {pq.RBASE} && python3 -c 'import sys; sys.path[:0]=[\"e2e\",\".\"]; import rmac; print(rmac.mac().tag)'").stdout.strip()
+    return t
+
+
+def proc_line(pid):
+    return pq.rsh(f"ps -o pid=,ppid=,command= -p {pid}; ps -o pid=,command= -p $(ps -o ppid= -p {pid}) | cut -c1-200; "
+                  f"lsof -a -p {pid} -d cwd -Fn | grep ^n").stdout.strip()
+
+
+def flow_saved_group():
+    """Reopen Saved Tab Group, live (SECURITY.md "Reopen Saved Tab Group"): a saved group of two
+    terminals whose shells ended; the phone reopens it; the Mac starts NEW login shells under
+    the rig app's own terminal host, in the saved folders; then Delete Saved Tab Group…"""
+    t = _tabs()
+    ws = t.seed("saved", terminals=3)
+    name = ws.get("name") or ws.get("title")
+    tabs = t.ws_tabs(ws)
+    pane, s1, s2, s3 = tabs[0][0], tabs[0][1]["surface"], tabs[1][1]["surface"], tabs[2][1]["surface"]
+    pq.rsh("mkdir -p /tmp/p3saved-check")
+    t.mac_raw({"cmd": "send", "surface": s3, "text": "cd /tmp/p3saved-check\r"})
+    time.sleep(2)
+    g = t.mac_raw({"cmd": "create-tab-group", "surfaces": [s2, s3], "color": "red"})
+    gid = next(x["id"] for x in t.mac_raw({"cmd": "list-tab-groups"})["groups"] if s2 in x.get("surfaces", []))
+    t.mac_raw({"cmd": "update-tab-group", "group": gid, "name": "P3SAVED"})
+    sv = t.mac_raw({"cmd": "save-tab-group", "group": gid})
+    saved = next((x.get("saved_id") for x in t.mac_raw({"cmd": "list-tab-groups"})["groups"] if x["id"] == gid), None) or json.dumps(sv)[:200]
+    before = {s: (t.mac_raw({"cmd": "process-info", "surface": s}) or {}).get("pid") for s in (s2, s3)}
+    t.mac_raw({"cmd": "close-tab-group", "group": gid, "end_terminals": True})
+    listed = t.mac_raw({"cmd": "list-saved-tab-groups"})
+    out = {"group": gid, "saved": saved, "old_pids": before, "saved_record": json.dumps(listed)[:600]}
+    s, m, j = pq.ctx()
+    pq.rec_start("reopen-saved-group")
+    try:
+        t.open_ws(j, name)
+        t.open_tab(j, "p2tabs-t1")
+        t.page_menu(j, "Reopen Saved Tab Group…")
+        row = s.wait(contains="P3SAVED", timeout=15)
+        check(row, f"no P3SAVED in the chooser: {[e.label for e in s.find(kind='Button')][:12]}")
+        pq.shot("saved-chooser")
+        s.tap_el(row)
+        ws2, took = t.until(lambda: (lambda w: w if len(t.ws_tabs(w)) >= 3 else None)(t.mac_workspace(name=name)),
+                            timeout=40, what="the reopened tabs on the Mac")
+        out["reopen_s"] = round(took, 1)
+        new = [tab["surface"] for _, tab in t.ws_tabs(ws2) if tab["surface"] != s1]
+        procs = {}
+        for sfc in new:
+            pid = None
+            for _ in range(20):
+                pid = (t.mac_raw({"cmd": "process-info", "surface": sfc}) or {}).get("pid")
+                if pid:
+                    break
+                time.sleep(1)
+            procs[sfc] = {"pid": pid, "ps": proc_line(pid) if pid else ""}
+        out["new"] = procs
+        check(all(p["pid"] and p["pid"] not in before.values() for p in procs.values()), f"not new shells: {procs}")
+        time.sleep(2)
+        pq.shot("saved-reopened")
+        # Delete Saved Tab Group…: the record goes, the open group stays.
+        t.page_menu(j, "Delete Saved Tab Group…")
+        row = s.wait(contains="P3SAVED", timeout=15)
+        check(row, "no P3SAVED in the delete chooser")
+        s.tap_el(row)
+        time.sleep(1.5)
+        confirm = s.wait(label="Delete", kind="Button", timeout=4) or s.wait(contains="Delete Saved", kind="Button", timeout=2)
+        if confirm:
+            s.tap_el(confirm)
+        _, took = t.until(lambda: "P3SAVED" not in json.dumps(t.mac_raw({"cmd": "list-saved-tab-groups"})),
+                          timeout=20, what="the saved record to go")
+        out["delete_s"] = round(took, 1)
+        out["open_after_delete"] = len(t.ws_tabs(t.mac_workspace(name=name)))
+        pq.shot("saved-deleted")
+        return out
+    finally:
+        pq.rec_stop()
+
+
+def personal():
+    import pq_ws
+    return pq_ws.daemon({"cmd": "list-personal", "id": "p3"}).get("data") or {}
+
+
+def group_named(name):
+    return next((g for g in personal().get("groups", []) if g.get("name") == name), None)
+
+
+def ws_group(key):
+    return next((w.get("group") for w in personal().get("workspaces", []) if w.get("workspace_key") == key), "missing")
+
+
+def alert_type(j, text, button):
+    """An alert's text field (cleared), `text`, then its `button`."""
+    import pq_ws
+    s = j.sim
+    f = s.wait(kind="TextField", timeout=6)
+    check(f, "no text field in the alert")
+    s.tap_el(f)
+    time.sleep(0.4)
+    for _ in range(len(f.value or "") + 2):
+        pq.subprocess.run(["axe", "key", "42", "--udid", pq.load()["udid"]], capture_output=True, timeout=20)
+    pq.type_text(text)
+    time.sleep(0.4)
+    pq_ws.menu_item(j, button)
+
+
+def header(j, name):
+    return j.sim.wait(contains=name, ident="workspace.group.*", timeout=10) or j.sim.wait(prefix=name, timeout=4)
+
+
+def flow_groups():
+    """Workspace groups from the phone, each read back from the Mac's personal order."""
+    import pq_ws
+    a, b = "p3g-a", "p3g-b"
+    pq_ws.PREFIX = "p3g-"
+    pq_ws.make_workspaces([a, b])
+    ka, kb = pq_ws.mac_workspace(a)["key"], pq_ws.mac_workspace(b)["key"]
+    s, m, j = pq.ctx()
+    out = {}
+    pq.rec_start("groups")
+    try:
+        # 1. Move Workspace to New Group "Ship".
+        pq_ws.row_action(j, a, "Group", "Move Workspace to Group…", "Move Workspace to New Group")
+        alert_type(j, "Ship", "Create")
+        g = pq_ws.wait_mac(lambda: group_named("Ship"), "the Ship group")
+        pq_ws.wait_mac(lambda: ws_group(ka) == g["id"], "a in Ship")
+        out["create"] = {k: g.get(k) for k in ("id", "name", "color", "collapsed")}
+        pq.shot("groups-created")
+        # 2. Rename Group… "Release", then Set Workspace Group Color… > Cyan.
+        h = header(j, "Ship")
+        check(h, "no Ship header on the phone")
+        j.sim.long_press(*h.center, 1.2); time.sleep(1.2)
+        pq_ws.menu_item(j, "Rename Group…")
+        alert_type(j, "Release", "Rename")
+        pq_ws.wait_mac(lambda: group_named("Release"), "the rename")
+        h = header(j, "Release")
+        j.sim.long_press(*h.center, 1.2); time.sleep(1.2)
+        pq_ws.menu_item(j, "Set Workspace Group Color…")
+        pq_ws.menu_item(j, "Cyan")
+        out["color"] = pq_ws.wait_mac(lambda: (lambda x: x and x.get("color") == "cyan" and x["color"])(group_named("Release")), "cyan")
+        # 3. Tap the header: collapsed on the Mac; tap again: expanded.
+        j.sim.tap_el(header(j, "Release"))
+        pq_ws.wait_mac(lambda: (group_named("Release") or {}).get("collapsed") is True, "collapsed")
+        pq.shot("groups-collapsed")
+        j.sim.tap_el(header(j, "Release"))
+        pq_ws.wait_mac(lambda: (group_named("Release") or {}).get("collapsed") is False, "expanded")
+        out["collapse"] = "collapsed then expanded"
+        # 4. b into Release, then Remove Workspace from Group.
+        pq_ws.row_action(j, b, "Group", "Move Workspace to Group…")
+        # The group's header in the list reads "Release" too: the menu's row is the last.
+        choice = [e for e in j.sim.find(label="Release", kind="Button")]
+        check(choice, "no Release in Move Workspace to Group…")
+        j.sim.tap_el(choice[-1])
+        pq_ws.wait_mac(lambda: ws_group(kb) == g["id"], "b in Release")
+        pq_ws.row_action(j, b, "Group", "Remove Workspace from Group")
+        pq_ws.wait_mac(lambda: ws_group(kb) in (None, ""), "b out of the group")
+        out["place"] = "b in, then out"
+        # 5. Delete Group (asks first): the group goes, a stays open.
+        h = header(j, "Release")
+        j.sim.long_press(*h.center, 1.2); time.sleep(1.2)
+        pq_ws.menu_item(j, "Delete Group")
+        pq_ws.menu_item(j, "Delete Group")
+        pq_ws.wait_mac(lambda: not group_named("Release"), "the group deleted")
+        check(pq_ws.mac_workspace(a), "a closed with its group")
+        out["delete"] = "group gone, a still open"
+        pq.shot("groups-deleted")
+        return out
+    finally:
+        pq.rec_stop()
+        pq_ws.close_on_mac([a, b])
