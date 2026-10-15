@@ -126,7 +126,7 @@ export interface Env {
   readonly CHIEF_CREDITS_MARGIN?: string
   /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
   readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
-  /** "0" turns the brain's credits gate off on this deployment (default on). */
+  /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
   readonly CHIEF_CREDITS_ENFORCE?: string
   /** Top-up amounts a person may pick, comma list of whole USD (default 10,20,50,100). */
   readonly CHIEF_CREDITS_TOPUP_USD?: string
