@@ -99,3 +99,25 @@ import Testing
         #expect(CEFShimEvent(kind: 1, browser: 0, request: 0, a: 0, b: 0, s1: "", s2: "").browserID == nil)
     }
 }
+
+@Suite struct ChromiumWindowRuleTests {
+    private func facts(chromium: Bool = true, browserWindow: Bool = false, hasParent: Bool = false, titled: Bool = true,
+                       visible: Bool = true, devTools: Bool = false, floating: Bool = false) -> ChromiumWindowFacts {
+        ChromiumWindowFacts(chromium: chromium, browserWindow: browserWindow, hasParent: hasParent, titled: titled,
+                            visible: visible, devTools: devTools, floating: floating)
+    }
+
+    @Test func chromiumBrowserWindowIsHiddenAndDialogsClose() {
+        #expect(ChromiumWindowRule.verdict(facts(browserWindow: true)) == .hide)
+        #expect(ChromiumWindowRule.verdict(facts()) == .close)
+    }
+
+    @Test func pagesBubblesDevToolsAndPictureInPictureStay() {
+        #expect(ChromiumWindowRule.verdict(facts(hasParent: true)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(titled: false)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(devTools: true)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(floating: true)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(chromium: false)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(visible: false)) == .allow)
+    }
+}

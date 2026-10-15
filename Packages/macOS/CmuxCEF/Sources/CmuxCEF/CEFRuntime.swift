@@ -52,6 +52,15 @@ public final class CEFRuntime {
     public var openURLWithoutOpener: (@MainActor (URL, CEFDisposition) -> Void)?
 
     let logger = Logger(subsystem: "com.cmuxterm.app", category: "cef")
+    /// Chromium top-level windows cmux allows (the guard hides and closes
+    /// every other titled one). Default: undocked DevTools.
+    public var allowsChromiumWindow: @MainActor (NSWindow) -> Bool = { $0.title.hasPrefix("DevTools") }
+    /// Hides or closes top-level Chromium windows that slip through.
+    private lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
+        self?.allowsChromiumWindow(window) ?? false
+    }
+    /// Chromium windows the guard blocked in this process.
+    public var blockedChromiumWindowCount: Int { windowGuard.blockedCount }
     var pump: CEFMessagePump?
     /// Live browsers by Chromium browser id.
     var browsers: [Int32: CEFBrowser] = [:]
@@ -190,6 +199,7 @@ public final class CEFRuntime {
             let started = ContinuousClock.now
             try initialize(library)
             state = .ready
+            windowGuard.start()
             logger.notice("CEF ready shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) initialize=\(ContinuousClock.now - started, privacy: .public)")
             onReady?()
         } catch {
