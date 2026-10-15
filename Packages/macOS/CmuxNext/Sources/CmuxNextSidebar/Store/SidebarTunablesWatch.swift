@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Observation
 
 /// The sidebar tunables workspace rows draw from (agent mark, presence dots,

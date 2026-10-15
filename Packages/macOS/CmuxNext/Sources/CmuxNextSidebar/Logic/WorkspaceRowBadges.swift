@@ -1,32 +1,4 @@
-public import CmuxNextDesign
-
-/// How a workspace row shows what waits in it (Debug Settings `sidebar.rowBadge`). Leo and
-/// Lawrence 2026-10-14: no count numbers on NEXT rows. The default follows T3 Code's thread list:
-/// the row leads with its harness logo or kind icon, and one small badge on that icon's corner says
-/// the most urgent state; the count reads in the hover card. `stack` is Leo's alternative, one
-/// glyph per pending item overlapping in the trailing slot; `trailing` keeps the count badge and
-/// the trailing status glyph (the look before).
-public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// One badge on the leading icon's bottom-right corner.
-    case corner
-    /// Overlapping glyphs in the trailing slot, one per pending item, up to `SidebarRowBadgeStackCap`.
-    case stack
-    /// The count badge and the trailing status glyph.
-    case trailing
-
-    public var tunableTitle: String {
-        switch self {
-        case .corner: "Corner badge on the icon"
-        case .stack: "Glyph stack (one per item)"
-        case .trailing: "Count and trailing glyph (before)"
-        }
-    }
-
-    public static let tunable = Tunable<SidebarRowBadgeStyle>.choice(
-        "sidebar.rowBadge", .sidebar, "Row badge",
-        help: "How a workspace row shows unread items and agent states: a badge on the leading icon's corner, a stack of glyphs, or the count with a trailing glyph.",
-        default: .corner, code: "SidebarRowBadgeStyle.tunable")
-}
+import CmuxNextDesign
 
 /// A row's pending items, most urgent first: a failure, then a permission (or sign-in) request,
 /// then a question, then work in progress, then each unread item (done). The corner badge draws
