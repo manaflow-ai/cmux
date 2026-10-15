@@ -23,19 +23,11 @@ public final class AgentPaneView: NSView {
     public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     public let source: AgentPaneSource
-    public var customization = AgentPaneCustomization() {
-        didSet {
-            if customization != oldValue { applyCustomization() }
-        }
-    }
-    public var shortcuts = AgentPaneShortcuts() {
-        didSet {
-            if shortcuts != oldValue { applyShortcuts() }
-        }
-    }
-    public var previewFeatures = false {
-        didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
-    }
+    public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
+    public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
+    /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
+    public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     /// The newest recently closed items for the New Tab page's Recently Closed section.
