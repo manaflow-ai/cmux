@@ -295,26 +295,21 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
    its text at the prompts' edge: "N more queued" or "Show less". It opens and closes at once: no
-   motion. Opened, the list stays about its folded height (a pinned "Queued" header over three whole
-   rows) and scrolls a row at a time, so opening moves the chat above by one row at most. The
-   captures of 90721dc and 935dada showed a cut row, a fold over an opened row, and a 156 px jump. */
-.acpmux-composer-queue[data-unfolded] {
-  --acpmux-queue-max: calc(var(--acpmux-queue-header) + 3 * 26px);
-  --acpmux-queue-header: 22px;
-  padding: 0;
-  scroll-snap-type: y mandatory;
-  scroll-padding-top: var(--acpmux-queue-header);
+   motion. The list shows whole rows only: ComposerQueue sizes it to its rows (opened, to its first
+   three, so the chat above moves about a row), a row the list cuts while it scrolls is not drawn,
+   and a focused row scrolls in whole. Rows keep their own height in the capped grid (WebKit shrank
+   an opened row's track, its text then ran over the next row). The captures of 90721dc, 935dada and
+   436917b showed cut rows, a fold over an opened row, a 156 px jump and rows over a pinned header. */
+.acpmux-composer-queue {
+  grid-auto-rows: max-content;
+  scroll-snap-type: y proximity;
 }
-.acpmux-composer-queue[data-unfolded] > .acpmux-queue-header {
-  position: sticky;
-  top: 0;
-  z-index: var(--layer-sticky);
-  height: var(--acpmux-queue-header);
-  box-sizing: border-box;
-  background: var(--acpmux-composer-tray);
-}
-.acpmux-composer-queue[data-unfolded] > .acpmux-queued {
+.acpmux-composer-queue > li {
   scroll-snap-align: start;
+}
+.acpmux-composer-queue > [data-cut] {
+  opacity: 0;
+  pointer-events: none;
 }
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {
