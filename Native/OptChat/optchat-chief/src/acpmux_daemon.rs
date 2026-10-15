@@ -404,6 +404,16 @@ pub fn take_started() -> Option<Started> {
     starts.started.take()
 }
 
+/// Stops the acpmux daemon this process started, if it still runs, with
+/// every agent host of its home (`acpmux daemon shutdown`). Whether it
+/// stopped one.
+pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
+    match take_started() {
+        Some(mut started) if !started.gone() => started.shutdown(log),
+        _ => false,
+    }
+}
+
 /// Stops the daemon this host's `ACPMUX_HOME`/`ACPMUX_SOCKET` name with
 /// `$ACPMUX_BIN daemon shutdown`, whoever started it: the last Chief to
 /// leave a Chief home's shared acpmux (hq-6d 2026-10-14). Whether it

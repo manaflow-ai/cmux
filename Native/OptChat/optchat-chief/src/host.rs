@@ -1494,7 +1494,7 @@ fn stop_started_acpmux() {
             .map_or_else(|| home.clone(), PathBuf::from);
         let end_own = |why: &str| match crate::agents::end_own_sessions(&home) {
             Ok(names) => log(format!(
-                "acpmux: ended this Chief's {} session(s); the daemon keeps running ({why})",
+                "acpmux: ended this Chief's {} session(s) ({why})",
                 names.len()
             )),
             Err(e) => log(format!("acpmux: ending this Chief's sessions: {e}")),
@@ -1502,11 +1502,16 @@ fn stop_started_acpmux() {
         if shared {
             match crate::agents::other_users(&home, &chief_home) {
                 Ok(users) if users.is_empty() => {
-                    log("shared acpmux: this Chief is its last user; stopping it");
+                    // Its own sessions end first (kept, resumable), as with
+                    // other users; then the daemon nobody uses.
+                    end_own("this Chief is its last user; stopping it next");
                     crate::acpmux_daemon::shutdown_shared(&|line| log(line));
                 }
-                Ok(users) => end_own(&format!("{} other user(s)", users.len())),
-                Err(e) => end_own(&format!("its users unknown: {e}")),
+                Ok(users) => end_own(&format!(
+                    "{} other user(s); the daemon keeps running",
+                    users.len()
+                )),
+                Err(e) => end_own(&format!("its users unknown ({e}); the daemon keeps running")),
             }
             return;
         }
@@ -1519,7 +1524,10 @@ fn stop_started_acpmux() {
         }
         match crate::agents::other_users(&home, &chief_home) {
             Ok(users) if !users.is_empty() => {
-                end_own(&format!("other Chiefs use it: {}", users.join(", ")));
+                end_own(&format!(
+                    "other Chiefs use it, the daemon keeps running: {}",
+                    users.join(", ")
+                ));
                 return;
             }
             Ok(_) => {}
