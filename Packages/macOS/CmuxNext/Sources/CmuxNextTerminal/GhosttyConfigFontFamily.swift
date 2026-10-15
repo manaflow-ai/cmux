@@ -25,8 +25,8 @@ enum GhosttyConfigFontFamily {
 
     /// A load of the user's own config (`GhosttyConfigBackground.overrideLines`; only the shared
     /// runtime loads it): reads its family off the main actor, records it in
-    /// `DesignSettings.terminalConfigFontFamily` and, when the terminal's face changed, repaints
-    /// so pages resend their theme (`WebTheme.Terminal`). Only the latest load's read applies.
+    /// `DesignSettings.terminalConfigFontFamily`, which repaints pages when the terminal's face
+    /// changed (`WebTheme.Terminal`). Only the latest load's read applies.
     static func recordLoad() {
         loads += 1
         let load = loads
@@ -36,10 +36,7 @@ enum GhosttyConfigFontFamily {
             let family: String? = await Task.detached { Self.family(inFiles: paths) }.value
             guard load == loads else { return }
             let settings = DesignSettings.shared
-            guard family != settings.terminalConfigFontFamily else { return }
-            let before = settings.effectiveTerminalFontFamily
-            settings.terminalConfigFontFamily = family
-            if settings.effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
+            if family != settings.terminalConfigFontFamily { settings.terminalConfigFontFamily = family }
         }
     }
 
