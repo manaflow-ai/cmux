@@ -1500,6 +1500,7 @@ dependencies = [
  "parking_lot",
  "plist",
  "ratatui",
+ "regex",
  "reqwest",
  "rusqlite",
  "rustls",

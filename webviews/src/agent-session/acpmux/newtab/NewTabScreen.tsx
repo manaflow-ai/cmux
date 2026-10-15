@@ -460,6 +460,8 @@ export function NewTabScreen(props: Props) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
       setDismissed(undefined);
+    } else if (event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
