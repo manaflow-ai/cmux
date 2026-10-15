@@ -84,10 +84,10 @@ struct SignalCodeProbeTests {
             SignalProbe.arm("spin")
             let target = pthread_self()
             var thread: pthread_t?
-            nonisolated(unsafe) var t = target
+            var t = target
             pthread_create(&thread, nil, { arg in
                 usleep(200_000)
-                pthread_kill(arg!.assumingMemoryBound(to: pthread_t.self).pointee, SIGSEGV)
+                pthread_kill(arg.assumingMemoryBound(to: pthread_t.self).pointee, SIGSEGV)
                 return nil
             }, &t)
             var x: UInt64 = 1
