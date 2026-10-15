@@ -47,6 +47,8 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     /// Keyframes of one layer color blend: enough that the straight segments between OKLab
     /// samples differ from the true path by less than one 8-bit step.
     static let keyframes = 16
+    /// Posted when `appearance.colorTransition` changes (`DesignSettings.colorTransition`).
+    public static let didChange = Notification.Name("CmuxNextDesign.ColorTransition.didChange")
     /// The layer animation key of a background color blend.
     public static let layerKey = "cmux.colorTransition.backgroundColor"
 

@@ -53,14 +53,13 @@ public final class DesignSettings {
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
     /// read it resolved through `ColorTransition.current`). A change posts
-    /// `colorTransitionDidChange` so web pages take the new CSS transition.
+    /// `ColorTransition.didChange` so web pages take the new CSS transition.
     public var colorTransition = ColorTransition() {
         didSet {
             guard colorTransition != oldValue else { return }
-            NotificationCenter.default.post(name: Self.colorTransitionDidChange, object: nil)
+            NotificationCenter.default.post(name: ColorTransition.didChange, object: nil)
         }
     }
-    public static let colorTransitionDidChange = Notification.Name("CmuxNextDesign.DesignSettings.colorTransitionDidChange")
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
