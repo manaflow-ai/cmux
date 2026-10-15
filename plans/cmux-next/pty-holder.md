@@ -1,6 +1,6 @@
 # Frozen terminal and agent holders, no process scanning, perfect restore
 
-Epic: cx-t2sqm. Lane: ptyh-noscan. Status: design + slice 1 (guard) landed.
+Epic: cx-t2sqm. Lane: ptyh-noscan. Status: slice 1 (guard) landed 3b015e45086f; decisions D1-D5 taken (section 8).
 
 Order (2026-10-14): the code and process that holds a PTY is as small as
 possible and is assumed to never be updated. Quitting or updating cmux never
@@ -218,6 +218,16 @@ never infers an agent from a process name, argv, foreground group or tree.
   user (or an explicit setting) ends them.
 - Tagged DEV builds and tests may set an orphan grace (env, as today) so
   agents' test runs do not leave terminals for days (cx-h7m67).
+- Landed (cx-t2sqm.16): hosts of normal installs have no orphan grace; the
+  host records `orphan_grace_secs`. Transition limit: hosts already running
+  from an older build keep their built-in 10 min timer; they survive an
+  update only when the new daemon adopts them within 10 min (the app
+  restarts the daemon at once, so this holds for a normal update, not for a
+  quit longer than 10 min before the update).
+- Still open: a plain SIGTERM from any sender ends an orphaned host after
+  2 s (`host_signals.rs`, `HOST_SIGTERM_ORPHAN_MIN`), so a cleanup script or
+  `pkill` can end terminals. Next slice: honor only PID 1 (system shutdown)
+  and an explicit CLOSE.
 
 ## 6. Security
 
@@ -254,28 +264,19 @@ never infers an agent from a process name, argv, foreground group or tree.
 5. `cmux-holder` crate and binary; move VT and renderer ring to the daemon
    (cx-t2sqm.15).
 
-## 8. Decisions
+## 8. Decisions (decided 2026-10-14)
 
-- D5: the control socket (`ControlPeerAncestry.swift`) and the computer-use
-  helper (`PeerInspector.swift`) authorize a peer by walking its ancestor
-  processes up to the app. Recommend: replace with a capability token handed
-  to children in their environment (as `CMUX_*` routing already does), so no
-  parent walk is needed.
-
-- D1: orphan grace. Today a host ends its terminal after 10 min with no
-  daemon. Recommend: remove the timer for normal installs, keep it only for
-  tagged DEV builds and tests.
-- D2: VT parser location. Recommend: daemon only (holder keeps raw bytes +
-  disk spill). Cost: restore after a very long absence with heavy output can
-  lose old scrollback (screen redraws). Keeping ghostty-vt in the holder
-  gives exact state but makes the holder need updates for VT fixes.
-- D3: terminal-resources (CPU/memory per terminal) needs a process tree on
-  macOS. Recommend: report the holder's group rusage only (no per-process
-  breakdown) on macOS; full tree only where the kernel gives it without a
-  scan (Linux cgroup, Windows job).
-- D4: browser-host egress guard enumerates this user's processes
-  (`proc_listpids(UID)` + fd walk) on each loopback connection of an
-  isolated browser, to find who holds the listener. Recommend: replace with
-  a no-scan rule: an isolated browser reaches only loopback ports that cmux
-  itself opened (known from its own registry); every other loopback port is
-  refused. Until then it stays a reviewed exception.
+- D1 (Lawrence): no orphan timer in normal installs (NIGHTLY, release, RC,
+  standalone release cmux-tui); a terminal lives until the user closes it.
+  Tagged DEV and staging builds, debug builds and tests keep the 10 min
+  grace. The host records its grace in `orphan_grace_secs`.
+- D2 (Lawrence): the daemon parses. The holder keeps only raw output with a
+  capped on-disk log.
+- D3 (chief): macOS CPU/memory per terminal = one total for the terminal's
+  process group; a full process tree only on Linux (cgroup) and Windows
+  (job object).
+- D4 (chief): the browser egress guard becomes an allow-list of loopback
+  ports cmux opened; every other loopback port is refused. No process list.
+- D5 (chief): peer checks that walk parent processes (control socket,
+  computer-use helper) become a capability token the app gives its
+  children.
