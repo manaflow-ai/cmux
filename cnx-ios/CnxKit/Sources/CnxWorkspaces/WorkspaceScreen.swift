@@ -84,6 +84,12 @@ public struct WorkspaceScreen: View {
             .onChange(of: director.serial) { run(director.command) }
             #endif
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
+            // New Agent Chat With…: the Mac's agents and models.
+            .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
+                AgentChooser(load: { [source] in try await source.agentCatalog() },
+                             start: { [source] start in source.startAgentChat(start) })
+                    .presentationDetents([.medium, .large])
+            }
             // Closing a tab with a running program asks first (Codex QA F9).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
                 get: { source.pendingClose != nil },

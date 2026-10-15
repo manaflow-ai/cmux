@@ -38,25 +38,26 @@ public struct TabNotice: Equatable, Sendable {
         return .other
     }
 
-    /// "Claude" from "New Claude Chat"; "a terminal" style names for the other kinds.
-    static func subject(ofOption title: String) -> (agent: String?, thing: String) {
+    /// "an agent chat" for any agent entry ("New Agent Chat", "New Claude Chat");
+    /// "a terminal" style names for the other kinds.
+    static func subject(ofOption title: String) -> (isAgent: Bool, thing: String) {
         var name = title
         if name.hasPrefix("New ") { name.removeFirst(4) }
-        if name.hasSuffix(" Chat") {
-            let agent = String(name.dropLast(5))
-            return (agent, "a \(agent) chat")
-        }
-        return (nil, "a \(name.lowercased())")
+        if name.hasSuffix("…") { name.removeLast() }
+        if name.hasSuffix(" Chat") || name.hasPrefix("Agent Chat") { return (true, "an agent chat") }
+        return (false, "a \(name.lowercased())")
     }
 
     static func text(action: Action, macName: String, reason: String) -> String {
         let cause = cause(of: reason)
         switch action {
         case .open(let optionTitle):
-            let (agent, thing) = subject(ofOption: optionTitle)
+            let (isAgent, thing) = subject(ofOption: optionTitle)
             switch cause {
             case .folderNotAllowed:
-                if let agent { return "Can't start \(agent) in this folder from your iPhone yet." }
+                // The phone only asks for a folder of a tab the person has open there; a
+                // Mac that refuses it predates agent chats in workspace folders.
+                if isAgent { return "Update cmux on \(macName) to start agent chats in this folder from your iPhone." }
                 return "Can't open \(thing) in this folder from your iPhone yet."
             case .offline: return "Connect to \(macName) first."
             case .gone: return "This workspace is no longer on \(macName)."

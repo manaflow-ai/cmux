@@ -51,16 +51,31 @@ public struct WorkspaceCreationOptions: Hashable, Sendable {
 /// A refusal the user sees ("Couldn't create a workspace on <Mac>: <message>").
 public struct WorkspaceCreationError: Error, Hashable, Sendable, LocalizedError {
     public var message: String
-    public init(_ message: String) { self.message = message }
+    /// The message is written for the person (the phone's own words, or the Mac's
+    /// reason it shows them too), so a toast shows it as is.
+    public var isForPerson: Bool
+    public init(_ message: String, isForPerson: Bool = false) {
+        self.message = message
+        self.isForPerson = isForPerson
+    }
     public var errorDescription: String? { message }
 }
 
 /// A tab the phone can open in a workspace on its Mac.
 public enum NewTabKind: Hashable, Sendable {
     case terminal
-    /// An agent chat for a harness (`claude`).
-    case agent(String)
+    /// An agent chat: the Mac's default agent, or a chosen harness and model.
+    case agent(AgentChatStart)
     case browser
+
+    /// The same kind, whatever agent or model it starts (for "is this kind offered").
+    public var family: String {
+        switch self {
+        case .terminal: "terminal"
+        case .agent: "agent"
+        case .browser: "browser"
+        }
+    }
 }
 
 /// Where workspaces are really created: the mock store, or a Mac's daemon.
@@ -83,6 +98,11 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// The tabs the phone may open in a workspace on `macID` now (none: the
     /// new-tab menu says why instead of making a tab the Mac never sees).
     func tabKinds(on macID: String) -> [NewTabKind]
+    /// Tab kinds the phone shows but can't open on `macID` now, each with why (an
+    /// older Mac without browser streaming, agents not connected yet).
+    func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)]
+    /// The Mac's agents and models for a new agent chat, with what a phone can't start.
+    func agentCatalog(on macID: String) async throws -> AgentCatalog
     /// Opens a tab on the Mac and returns it once the Mac lists it.
     func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab
     /// Closes a tab on the Mac.
@@ -98,6 +118,10 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Closing isn't available on this Mac")
     }
     public func tabKinds(on macID: String) -> [NewTabKind] { [] }
+    public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] { [] }
+    public func agentCatalog(on macID: String) async throws -> AgentCatalog {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
     public func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
@@ -405,15 +429,32 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         try await settle()
     }
 
-    public func tabKinds(on macID: String) -> [NewTabKind] { [.agent("claude"), .agent("codex"), .terminal, .browser] }
+    /// The kinds this mock Mac opens (all of them by default).
+    public var kinds: [NewTabKind] = [.agentChat, .terminal, .browser]
+    /// The kinds it shows but can't open, with why (an older Mac, agents not up).
+    public var unavailable: [(kind: NewTabKind, reason: String)] = []
+
+    public func tabKinds(on macID: String) -> [NewTabKind] { kinds }
+
+    public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] { unavailable }
+
+    public func agentCatalog(on macID: String) async throws -> AgentCatalog {
+        AgentCatalog(harnesses: [
+            AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
+                               models: [AgentModelChoice(id: "opus", name: "Opus"), AgentModelChoice(id: "sonnet", name: "Sonnet")],
+                               defaultModel: "opus"),
+            AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
+        ])
+    }
 
     /// Mock mode only: the tab exists in the mock store alone.
     public func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab {
         try await settle()
         let id = "t-\(UUID().uuidString.prefix(8).lowercased())"
         return switch kind {
-        case .agent(let harness):
-            WorkspaceTab(id: id, kind: .agent, title: harness == "codex" ? "Codex" : "Claude", subtitle: "New session", harness: harness)
+        case .agent(let start):
+            WorkspaceTab(id: id, kind: .agent, title: start.harness == "codex" ? "Codex" : "Claude", subtitle: "New session",
+                         harness: start.harness ?? "claude")
         case .browser: WorkspaceTab(id: id, kind: .browser, title: "New Tab")
         case .terminal: WorkspaceTab(id: id, kind: .terminal, title: "zsh", subtitle: workspace.directory)
         }

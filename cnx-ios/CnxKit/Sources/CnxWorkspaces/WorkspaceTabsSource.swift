@@ -102,18 +102,39 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return workspace.tabs.map { kitTab($0, in: workspace) }
     }
 
-    /// What the Mac can open in this workspace right now. Every option
-    /// becomes a real tab on the Mac; none are shown while it can't.
+    /// What the Mac can open in this workspace right now, then what it can't
+    /// yet with why (a tap says why instead of opening). Every option that
+    /// opens becomes a real tab on the Mac. Agent chats are one model-agnostic
+    /// entry, as on the Mac (New Agent Chat: its default agent), plus a chooser
+    /// for another agent or model.
     public var newTabOptions: [TabsKitNewTabOption] {
         guard let workspace, let creator else { return [] }
-        return creator.backend.tabKinds(on: workspace.macID).map(Self.option)
+        let kinds = creator.backend.tabKinds(on: workspace.macID)
+        var options: [TabsKitNewTabOption] = []
+        for kind in kinds {
+            options.append(Self.option(kind))
+            if case .agent = kind { options.append(Self.chooseAgentOption) }
+        }
+        for (kind, _) in creator.backend.unavailableTabKinds(on: workspace.macID)
+        where !kinds.contains(where: { $0.family == kind.family }) {
+            var option = Self.option(kind)
+            option.id = Self.unavailablePrefix + option.id
+            options.append(option)
+        }
+        return options
     }
+
+    static let unavailablePrefix = "unavailable:"
+    /// The Mac's wording for an agent chat (`palette.newAgentChat`).
+    static let newAgentChatTitle = "New Agent Chat"
+    static let chooseAgentOption = TabsKitNewTabOption(id: "agent-choose", title: "New Agent Chat With…",
+                                                       systemImage: "slider.horizontal.3", kind: TabsKitTabKind("agent"))
 
     static func option(_ kind: NewTabKind) -> TabsKitNewTabOption {
         switch kind {
-        case .agent(let harness):
-            let name = harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized
-            return TabsKitNewTabOption(id: "agent:\(harness)", title: "New \(name) Chat", systemImage: "sparkle", kind: TabsKitTabKind("agent"))
+        case .agent(let start):
+            let id = start == .macDefault ? "agent" : "agent:\(start.harness ?? "")|\(start.model ?? "")"
+            return TabsKitNewTabOption(id: id, title: newAgentChatTitle, systemImage: "sparkle", kind: TabsKitTabKind("agent"))
         case .terminal:
             return TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal)
         case .browser:
@@ -122,8 +143,31 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     static func kind(of option: TabsKitNewTabOption) -> NewTabKind {
-        if option.id.hasPrefix("agent:") { return .agent(String(option.id.dropFirst("agent:".count))) }
+        if option.id == "agent" { return .agentChat }
+        if option.id.hasPrefix("agent:") {
+            let parts = option.id.dropFirst("agent:".count).split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            let harness = parts.first.flatMap { $0.isEmpty ? nil : $0 }
+            let model = parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil
+            return .agent(AgentChatStart(harness: harness, model: model))
+        }
         return option.id == "browser" ? .browser : .terminal
+    }
+
+    // MARK: Agent chooser
+
+    /// The agent chooser is up (New Agent Chat With…): the screen shows it as a sheet.
+    public var choosingAgent = false
+
+    /// The Mac's agents for the chooser.
+    public func agentCatalog() async throws -> AgentCatalog {
+        guard let workspace, let creator else { throw WorkspaceCreationError("Connect to \(macName) first.") }
+        return try await creator.backend.agentCatalog(on: workspace.macID)
+    }
+
+    /// The chooser's Start Chat: a chat with that agent and model.
+    public func startAgentChat(_ start: AgentChatStart) {
+        choosingAgent = false
+        _ = createTab(Self.option(.agent(start)))
     }
 
     func kitTab(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTab {
@@ -269,6 +313,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
         show(notice.text)
     }
 
+    /// A kind the Mac can't open yet: say why, in the Mac's name.
+    private func showUnavailable(_ option: TabsKitNewTabOption) {
+        let kind = Self.kind(of: TabsKitNewTabOption(id: String(option.id.dropFirst(Self.unavailablePrefix.count)),
+                                                     title: option.title, systemImage: option.systemImage, kind: option.kind))
+        guard let workspace, let creator,
+              let reason = creator.backend.unavailableTabKinds(on: workspace.macID).first(where: { $0.kind.family == kind.family })?.reason
+        else {
+            show("\(option.title) isn't available on \(macName) right now.")
+            return
+        }
+        show(reason.replacingOccurrences(of: "your Mac", with: macName).replacingOccurrences(of: "this Mac", with: macName))
+        CnxTheme.standard.haptics.error()
+    }
+
     /// Opens the tab on the Mac and activates it once the Mac lists it (so a
     /// terminal attaches at once and a chat is bound to its session). A
     /// refusal shows as a notice; nothing phone-only is ever added.
@@ -280,6 +338,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// (`pendingTabTitle`), and a refusal leaves the grid exactly as it was. Once the Mac
     /// lists the tab it becomes active and `openedTab` asks the screen to open it.
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
+        createTab(option)
+    }
+
+    @discardableResult
+    private func createTab(_ option: TabsKitNewTabOption) -> TabsKitTab.ID? {
+        if option.id == Self.chooseAgentOption.id {
+            choosingAgent = true
+            return nil
+        }
+        if option.id.hasPrefix(Self.unavailablePrefix) {
+            showUnavailable(option)
+            return nil
+        }
         guard pendingTabTitle == nil else { return nil }
         pendingTabTitle = option.title
         Task { @MainActor [weak self] in
@@ -312,6 +383,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let tab: WorkspaceTab
         do {
             tab = try await creator.backend.createTab(kind, in: workspace)
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            tabsLog.error("tab request refused on \(self.macName, privacy: .public): \(error.message, privacy: .public)")
+            show(error.message)
+            CnxTheme.standard.haptics.error()
+            return nil
         } catch {
             show(TabNotice(action: .open(optionTitle: option.title), macName: macName, reason: Self.message(error)))
             CnxTheme.standard.haptics.error()
