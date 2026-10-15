@@ -99,7 +99,10 @@ extension CloudSecretsService {
                 try Self.requireShimSuccess(result, machineID: machineID)
             }
             if routesMachine {
-                if routing.releasesEndpoint {
+                // A release runs only now that the keys it frees are gone; a user's
+                // own endpoint is read on the machine, so its pass reruns once the
+                // endpoint landed.
+                if routing.releasesEndpoint || routing.usesUserEndpoint {
                     try await applyProviderRouting(routing, machineID: machineID)
                 }
                 recordProviderRouting(routing, machineID: machineID)
@@ -298,6 +301,9 @@ struct CloudSecretsProviderRouting: Equatable, Sendable {
     /// True when any provider key of the user's is in the set.
     var hasUserProviderKey: Bool { openAI == .direct || openAI == .user || anthropic == .direct || anthropic == .user }
 
+    /// True when a provider uses the user's own endpoint from Cloud Secrets.
+    var usesUserEndpoint: Bool { openAI == .user || anthropic == .user }
+
     /// True when a provider falls back to the model plane, so an endpoint cmux
     /// added for it earlier is released.
     var releasesEndpoint: Bool { openAI == .plane || anthropic == .plane }
@@ -384,11 +390,12 @@ if [ "$anthropic" = plane ] && has_key 'ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN';
 
 # 2. Beside a user's key with no endpoint of their own, the provider's own
 # endpoint; a cmux-added endpoint goes when the key does.
+on_plane() { [ -n "$plane" ] && { [ "${1%/}" = "$plane" ] || [ "${1#"$plane"/}" != "$1" ]; }; }
 route() {
   current=$(sed -n "s/^export $2='\(.*\)'\$/\1/p" "$envf" 2>/dev/null | tail -n 1)
   case "$1" in
     direct)
-      if [ -z "$current" ] || { [ -n "$plane" ] && { [ "${current%/}" = "$plane" ] || [ "${current#"$plane"/}" != "$current" ]; }; }; then
+      if [ -z "$current" ] || on_plane "$current"; then
         cmux env set "$2=$3" >/dev/null 2>&1 || status=1
       fi
       ;;
@@ -411,7 +418,10 @@ plane_shell() {
 
 # 3. codex: a cmux-generated config names the model router as its provider
 # and authenticates it with OPENAI_API_KEY. Launchers older than the
-# per-launch precedence get the user's key provider in the file instead.
+# per-launch precedence get the user's key provider in the file instead,
+# pointed at the user's own OPENAI_BASE_URL when they have one (read here, on
+# the machine, by name: it never leaves it), else OpenAI's own endpoint; never
+# one on the model router, and only a plain URL TOML can hold verbatim.
 # A brand-new machine whose first sync runs before its first shell has no
 # config yet; the first shell would write the model router's provider, so
 # write it now and switch it below.
@@ -419,6 +429,12 @@ codex_cfg="${CODEX_HOME:-$home/.codex}/config.toml"
 if user_key "$openai" && ! grep -qs '^model_provider' "$codex_cfg"; then plane_shell : || :; fi
 if [ -f "$codex_cfg" ] && ! grep -qs cmux_codex_user_key_provider "$etc/agent-auth.sh"; then
   if user_key "$openai"; then
+    codex_url=https://api.openai.com/v1
+    endpoint=$(sed -n "s/^export OPENAI_BASE_URL='\(.*\)'\$/\1/p" "$envf" 2>/dev/null | tail -n 1)
+    case "$endpoint" in
+      *[!A-Za-z0-9._~:/?#@%+=,-]*) ;;
+      http://?*|https://?*) on_plane "$endpoint" || codex_url=$endpoint ;;
+    esac
     if grep -qx 'model_provider = "cmux"' "$codex_cfg"; then
       {
         sed 's/^model_provider = "cmux"$/model_provider = "cmux-openai-key"/' "$codex_cfg"
@@ -426,6 +442,14 @@ if [ -f "$codex_cfg" ] && ! grep -qs cmux_codex_user_key_provider "$etc/agent-au
           printf '\n# Cloud Secrets: your own OPENAI_API_KEY goes to OpenAI directly.\n[model_providers.cmux-openai-key]\nname = "OpenAI"\nbase_url = "https://api.openai.com/v1"\nenv_key = "OPENAI_API_KEY"\nwire_api = "responses"\n'
         fi
       } > "$codex_cfg.cmux-tmp" && mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || status=1
+    fi
+    if grep -qx 'model_provider = "cmux-openai-key"' "$codex_cfg"; then
+      awk -v url="$codex_url" '
+        /^\[/ { block = ($0 == "[model_providers.cmux-openai-key]") }
+        block && /^base_url = / { print "base_url = \"" url "\""; next }
+        { print }
+      ' "$codex_cfg" > "$codex_cfg.cmux-tmp" || status=1
+      if cmp -s "$codex_cfg" "$codex_cfg.cmux-tmp"; then rm -f "$codex_cfg.cmux-tmp"; else mv -f "$codex_cfg.cmux-tmp" "$codex_cfg" || status=1; fi
     fi
   elif [ "$openai" = plane ] && grep -qx 'model_provider = "cmux-openai-key"' "$codex_cfg"; then
     sed 's/^model_provider = "cmux-openai-key"$/model_provider = "cmux"/' "$codex_cfg" > "$codex_cfg.cmux-tmp" \
