@@ -338,14 +338,16 @@ const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
 /// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
-/// 62.5% of a wider pane up to 800px, centered, at least the page edge from each side.
+/// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
+/// centered, at least the page edge from each side.
 const PAGE_EDGE = 18;
-export function transcriptColumn(paneWidth: number) {
-  const column = Math.min(800, Math.max(720, paneWidth * 0.625));
+export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) {
+  const column = Math.min(max, Math.max(min, paneWidth * share));
   const inset = Math.max(PAGE_EDGE, (paneWidth - column) / 2);
   return { inset, width: paneWidth - 2 * inset };
 }
-export const transcriptRowWidth = (paneWidth: number) => Math.max(120, transcriptColumn(paneWidth).width);
+export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn) =>
+  Math.max(120, transcriptColumn(paneWidth, column).width);
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {
@@ -501,12 +503,13 @@ function listHeight(list: Tokens.List, width: number, prepared: Map<string, Prep
 
 function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
   switch (block.type) {
+    // Prose (lists, quotes, paragraphs, headings) keeps its measure in a wide column (chatWidth.ts).
     case "list":
-      return listHeight(block as Tokens.List, width, prepared);
+      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
-        width - QUOTE_INDENT,
+        Math.min(width, chatColumn().prose) - QUOTE_INDENT,
         prepared,
       );
     case "hr":
@@ -523,7 +526,7 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
     case "heading":
       return textHeight(
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
-        width,
+        Math.min(width, chatColumn().prose),
         prepared,
       );
     // Anything else is estimated as its source; the drawn height replaces it once mounted.
@@ -710,6 +713,7 @@ import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
+import { chatColumn, type ChatColumn } from "./chatWidth";
 
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(
