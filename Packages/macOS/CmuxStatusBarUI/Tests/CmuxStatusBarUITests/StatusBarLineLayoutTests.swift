@@ -29,4 +29,19 @@ struct StatusBarLineLayoutTests {
     @Test func lineThatFitsFillsTheOfferedWidth() {
         #expect(width(of: "Claude 42%", offered: 400) == 400)
     }
+
+    /// Links are buttons for keyboard and VoiceOver; a bordered macOS button
+    /// would pad each one and the line would no longer read as one run of text.
+    @Test func linkTakesTheSameWidthAsPlainText() {
+        func fittingWidth(link: String?) -> CGFloat {
+            let line = StatusBarLine(
+                segments: [StatusBarSegment(link: link, runs: [StatusBarRun(text: "Codex 17%")])],
+                fontSize: 11,
+                alignment: .leading,
+                openLink: { _ in }
+            )
+            return NSHostingView(rootView: line).fittingSize.width
+        }
+        #expect(fittingWidth(link: "cmux-action:codex") == fittingWidth(link: nil))
+    }
 }

@@ -42,7 +42,10 @@ public struct StatusBarLine: View {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                 let label = Text(Self.attributed(segment.runs, size: fontSize))
                 if let link = segment.link {
-                    Self.linkPointer(label.onTapGesture { openLink(link) })
+                    Self.linkPointer(
+                        Button { openLink(link) } label: { label }
+                            .buttonStyle(.plain)
+                    )
                 } else {
                     label
                 }
