@@ -1220,6 +1220,7 @@ export function Composer({
                   type="button"
                   className="acpmux-steer"
                   aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                  /* tooltip-allow: the button shows a verb; the tooltip says what it does and its shortcut */
                   title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
                   onClick={() => {
                     send(false, true);
@@ -1329,7 +1330,10 @@ function AttachmentChip({
     const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
     return menu(
       openImage ? () => openImage(source, attachment.name) : undefined,
-      <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
+      <div
+        className="acpmux-attachment acpmux-attachment-image"
+        /* tooltip-allow: an image thumbnail shows no name */ title={attachment.name}
+      >
         {openImage ? (
           <button
             type="button"
@@ -1358,7 +1362,7 @@ function AttachmentChip({
   }
   return menu(
     undefined,
-    <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
+    <div className="acpmux-attachment acpmux-attachment-file">
       <span>{attachment.name}</span>
       {remove}
     </div>,
@@ -1399,11 +1403,7 @@ function PdfAttachmentChip({
   const deliveryLabel = codex ? `${pageLabel} · ${t(COMPOSER_LABELS.sentAsFileForCodex)}` : pageLabel;
   return (
     <>
-      <div
-        className="acpmux-attachment acpmux-attachment-document"
-        title={attachment.name}
-        data-page-count={attachment.pageCount ?? undefined}
-      >
+      <div className="acpmux-attachment acpmux-attachment-document" data-page-count={attachment.pageCount ?? undefined}>
         <button
           type="button"
           className="acpmux-attachment-document-open"
