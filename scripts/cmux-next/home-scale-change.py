@@ -115,7 +115,8 @@ def scale_state(name, want):
     g = geometry()
     print(f"     {name}: " + json.dumps({k: g.get(k) for k in ("windowScale", "renderScale", "rowBitmaps", "rowBitmapsOffScale",
                                                              "cellsOffScale", "composeScale", "headerScale", "bitmapPxPerPtMin",
-                                                             "bitmapPxPerPtMax")}), flush=True)
+                                                             "bitmapPxPerPtMax", "fixtureInactive", "windowKey", "appActive",
+                                                             "lightAppearance", "colorSpaceIsScreen")}), flush=True)
     check(f"{name}: the window, the transcript view, its cells, compose bar and header are at {want:g}x",
           all(g.get(k) == want for k in ("windowScale", "renderScale", "composeScale", "headerScale")) and g.get("cellsOffScale") == 0, g)
     check(f"{name}: rows with a bitmap to read ({g.get('rowBitmaps')} row bitmaps)", g.get("rowBitmaps", 0) >= 3, g)
@@ -268,7 +269,7 @@ finally:
     rpc("action.run", {"id": "endAgents"}, timeout=5)
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     if vd is not None:
         subprocess.run(["kill", str(vd)], capture_output=True)  # the virtual display this script started (its pid=)

@@ -59,6 +59,9 @@ enum Fixture {
     static var lightAppearance = false { didSet { if lightAppearance != oldValue { paletteGeneration += 1 } } }
     /// Bumped by a palette or a scale change: cached bitmaps are stale.
     static fileprivate(set) var paletteGeneration = 0
+    /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
+    /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
+    static func colorSpaceChanged() { paletteGeneration += 1 }
 
     /// Palette, measured with `screencapture -l` on macOS 27 Messages
     /// (cmux-lawrence-2, 2026-10-05): key and non-key windows are identical
@@ -84,6 +87,15 @@ enum Fixture {
     /// background 255, incoming 233/233/235, incoming text 36, secondary text 134, connector 235.
     /// The thread view's elevated rows and the tapback badge in light are UNVERIFIED (not in the take).
     static var background: UIColor { themed(\.background) ?? (lightAppearance ? UIColor(white: 1, alpha: 1) : UIColor(white: 30 / 255, alpha: 1)) }
+    /// The compose field's placeholder and audio waveform are see-through in Messages: the same ink over the
+    /// key field (59, light 249) and the inactive one (50, light 240) is a constant step from it (lossless
+    /// deactivate-activate and appearance-light takes, macOS 27, cx-3cb compose-parity): placeholder +63 in dark
+    /// (122 and 113 at full coverage), -66 in light (183 and 174); waveform 144 and 140 in dark, 152 and 145 in
+    /// light. White at 0.316 (dark) and black at 0.27 (light) over the field give them within 1.5 levels in both
+    /// states; the waveform is 212 at 0.556 (dark, exact) and black at 0.39 (light). Opaque 123 and 144 before:
+    /// 10 levels too light on the inactive dark field, 60 levels too dark in light.
+    static var placeholderInk: UIColor { lightAppearance ? UIColor(white: 0, alpha: 0.27) : UIColor(white: 1, alpha: 0.316) }
+    static var waveformInk: UIColor { lightAppearance ? UIColor(white: 0, alpha: 0.39) : UIColor(white: 212 / 255, alpha: 0.556) }
     static var incoming: UIColor { themed(\.incoming) ?? (lightAppearance ? p3(233, 233, 235) : elevated ? p3(76, 76, 78) : p3(59, 59, 61)) }
     /// The typing indicator (bubble, tail discs, dots) is not the incoming grey: in Messages' key window it is
     /// one level darker in red and green (bubble and discs 58, 58, 61; dots dim 91, 91, 94, lit 133, 133, 135:
@@ -175,8 +187,8 @@ enum Fixture {
     // values, from the theme on a light one; nil keeps the measured values.
     static var typingDot: UIColor { themed(\.typingDot) ?? p3(91, 91, 94) }
     static var typingDotHighlight: UIColor { themed(\.typingDotHighlight) ?? p3(133, 133, 135) }
-    static var placeholder: UIColor { themed(\.placeholder) ?? UIColor(white: 123 / 255, alpha: 1) }
-    static var waveform: UIColor { themed(\.waveform) ?? UIColor(white: 144 / 255, alpha: 1) }
+    static var placeholder: UIColor { themed(\.placeholder) ?? placeholderInk }
+    static var waveform: UIColor { themed(\.waveform) ?? waveformInk }
     static var chipFill: UIColor { themed(\.chipFill) ?? UIColor(white: 1, alpha: 0.12) }
     /// The field glass and its buttons render light glass on a light theme.
     static var isLight: Bool { theme.map { (inactive ? $0.inactive : $0.active).isLight } ?? false }
