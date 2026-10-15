@@ -44,15 +44,6 @@ pub(in crate::cli) enum ChatCommand {
     Read { target: String, after: u64, limit: usize },
 }
 
-impl ChatCommand {
-    pub(in crate::cli) fn action(&self) -> &'static str {
-        match self {
-            Self::Send { .. } => "chat.send",
-            Self::Read { .. } => "chat.read",
-        }
-    }
-}
-
 /// `chat send <chat> [--] <text…>` and `chat read <chat> [--after N]
 /// [--limit N]` (the words after `agents`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
@@ -494,9 +485,7 @@ mod acp {
 
     use serde_json::{Value, json};
 
-    fn block_on<T>(
-        work: impl std::future::Future<Output = anyhow::Result<T>>,
-    ) -> Result<T, String> {
+    fn block_on<T>(work: impl Future<Output = anyhow::Result<T>>) -> Result<T, String> {
         crate::acp::configure_home();
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
