@@ -123,7 +123,15 @@ test("a rendered page sees the theme's --cmux-* variables and cmux's plain defau
   expect(vars.getPropertyValue("--cmux-surface").trim()).toBe(LIGHT.surfaceBackground);
   expect(vars.getPropertyValue("--cmux-border").trim()).toBe(LIGHT.border);
   expect(vars.getPropertyValue("--cmux-accent").trim()).toBe(LIGHT.accent);
-  for (const name of ["--cmux-bg", "--cmux-font", "--cmux-mono", "--cmux-size-body", "--cmux-size-heading", "--cmux-radius", "--cmux-space-2"])
+  for (const name of [
+    "--cmux-bg",
+    "--cmux-font",
+    "--cmux-mono",
+    "--cmux-size-body",
+    "--cmux-size-heading",
+    "--cmux-radius",
+    "--cmux-space-2",
+  ])
     expect(vars.getPropertyValue(name).trim()).not.toBe("");
   // The page itself is see-through, so the card's surface shows, and reads in the theme's text.
   expect(style("html").backgroundColor).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
@@ -167,8 +175,11 @@ test("a dark theme changes the variables a page sees", async () => {
 
 test("the render tool's description names every variable the frame sets", async () => {
   const { RENDER_TOKENS } = await import("../src/agent-session/acpmux/conversation/renderBase");
-  const tool = readFileSync(new URL("../../cmux-tui/crates/cmux-tui/src/cli/mcp/render_tool.rs", import.meta.url), "utf8");
+  const tool = readFileSync(
+    new URL("../../cmux-tui/crates/cmux-tui/src/cli/mcp/render_tool.rs", import.meta.url),
+    "utf8",
+  );
   const description = /"description": "([^"]+)"/.exec(tool)![1]!;
   for (const [name] of RENDER_TOKENS) expect(description).toContain(name);
-  expect(description).toMatch(/hardcode/i);
+  expect(description).toMatch(/hardcod/i);
 });
