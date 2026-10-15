@@ -41,7 +41,7 @@ struct NotificationPreviewTests {
     @Test func showPreviewsKeepsTheMessageOffTheLockScreenOrEverywhere() throws {
         func body(_ previews: NotificationPreviews, locked: Bool) throws -> String? {
             try banner(Self.finished) { service in
-                service.preferences.previews = previews
+                service.previews = previews
                 service.screenLocked = { locked }
             }?.body
         }
@@ -50,7 +50,7 @@ struct NotificationPreviewTests {
         #expect(try body(.whenUnlocked, locked: true) == "", "the default hides it while the screen is locked")
         #expect(try body(.always, locked: true) == message)
         #expect(try body(.never, locked: false) == "")
-        #expect(NotificationPreferences().previews == .whenUnlocked, "previews are on by default")
+        #expect(NotificationCenterService().previews == .whenUnlocked, "previews are on by default")
     }
 
     @Test func aNotifySubtitleReachesTheBanner() throws {

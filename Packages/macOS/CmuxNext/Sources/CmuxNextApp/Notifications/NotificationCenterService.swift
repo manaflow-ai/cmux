@@ -52,6 +52,8 @@ final class NotificationCenterService {
     /// Showcase captures seed the real daemon ledger without showing banners
     /// or prompting for system authorization at launch.
     @ObservationIgnored var desktopPostingEnabled = true
+    /// When a banner shows an agent's last message (Show Previews, like macOS).
+    @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
     /// Whether the screen is locked now (Show Previews `whenUnlocked`); tests pin it.
     @ObservationIgnored var screenLocked: () -> Bool = { ScreenLock.isLocked }
     /// The deadline clock; tests inject their own.
@@ -341,7 +343,7 @@ final class NotificationCenterService {
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let title = program?.title(localizations: localizations)
             ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
-        let body = Self.bannerBody(notification, previews: preferences.previews, screenLocked: screenLocked())
+        let body = Self.bannerBody(notification, previews: previews, screenLocked: screenLocked())
         desktop.post(id: id, title: title, subtitle: subtitle, body: body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
                      attachment: program.flatMap { StatusNotificationImage.data($0.reason) },

@@ -532,7 +532,6 @@
             "key" : "settings.group.banners",
             "rows" : [
               "notifications.desktop",
-              "notifications.showPreviews",
               "notifications.sound",
               "notifications.quietHours",
               "notifications.suppressWhileTypingSeconds",
@@ -21372,76 +21371,6 @@
     },
     {
       "accepts" : [
-        "always",
-        "whenUnlocked",
-        "never"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.always",
-            "text" : "Always"
-          },
-          "value" : "always"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.whenUnlocked",
-            "text" : "When Unlocked"
-          },
-          "value" : "whenUnlocked"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "never"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "whenUnlocked",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.banners",
-        "text" : "Banners and Sound"
-      },
-      "help" : {
-        "key" : "settings.notifications.showPreviews.help",
-        "text" : "A finished turn's banner shows the agent's last message."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "notifications.showPreviews",
-      "keywords" : [
-        "preview",
-        "message",
-        "lock screen"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "notifications",
-        "showPreviews"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "notifications",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.notifications.showPreviews",
-        "text" : "Show Previews"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -23901,7 +23830,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e54b3cf2b99f11fb5c5be6f8097f929b1535fe0b71721eca64854a89cb6a5221",
+  "schema_hash" : "dc122bbb3b7899a72fbc748646938fb914310c91351a798ccfedea1e292126a8",
   "sections" : [
     {
       "id" : "general",
