@@ -131,14 +131,15 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
-        let displayStatusEntries = SidebarStatusEntryDisplayPolicy.entries(
-            workspace.sidebarStatusEntriesInDisplayOrder(),
-            showingProgramStatus: settings.showsProgramStatus
-        )
+        let displayStatusEntries: [SidebarStatusEntry] = {
+            guard detailVisibility.showsMetadata || settings.compactsAgentStatus else { return [] }
+            return SidebarStatusEntryDisplayPolicy.entries(
+                workspace.sidebarStatusEntriesInDisplayOrder(),
+                showingProgramStatus: settings.showsProgramStatus
+            )
+        }()
         let statusEntries = SidebarCompactStatusGlyph.partition(
-            detailVisibility.showsMetadata || settings.compactsAgentStatus
-                ? displayStatusEntries
-                : [],
+            displayStatusEntries,
             compacts: settings.compactsAgentStatus
         )
         let activeCodingAgentCount = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
