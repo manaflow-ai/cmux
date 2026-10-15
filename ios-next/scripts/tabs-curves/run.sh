@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# run.sh [--slot S] [--runs N] [MOTION...]: drive the Tabs app (mock host) on the
-# remote simulator through each motion, record it, and compare it with
-# Safari's curve (check.py). Exit 1 if any run of any motion fails.
+# run.sh [--slot S] [--runs N] [--app tabs|kit] [MOTION...]: drive the Tabs app
+# (mock host) or the CmuxTabsKit demo on the remote simulator through each
+# motion, record it, and compare it with Safari's curve (check.py). Exit 1 if
+# any run of any motion fails.
 #
 #   CMUX_NEXT_IOS_HOST=mini-cmux15 ios-next/scripts/tabs-curves/run.sh --slot base
 #
 # Needs a slot with a built Tabs app (remote-ios.sh build --slot S --scheme Tabs)
-# and a simulator without a hardware keyboard.
+# and a simulator without a hardware keyboard. --app kit needs the kit demo
+# (dev.cmux.tabskit.demo) installed on the slot's simulator; it has no fling
+# (only its active card has a snapshot).
 set -uo pipefail
-slot="tabs"; runs=3; motions=()
-while [[ $# -gt 0 ]]; do case "$1" in --slot) slot="$2"; shift 2 ;; --runs) runs="$2"; shift 2 ;; *) motions+=("$1"); shift ;; esac; done
-[[ ${#motions[@]} -eq 0 ]] && motions=(reflow zoomOut zoomIn swipeUp snapBack fling)
+slot="tabs"; runs=3; app="tabs"; motions=()
+while [[ $# -gt 0 ]]; do case "$1" in --slot) slot="$2"; shift 2 ;; --runs) runs="$2"; shift 2 ;; --app) app="$2"; shift 2 ;; *) motions+=("$1"); shift ;; esac; done
+if [[ ${#motions[@]} -eq 0 ]]; then
+  if [[ $app == kit ]]; then motions=(reflow zoomOut zoomIn swipeUp snapBack); else motions=(reflow zoomOut zoomIn swipeUp snapBack fling); fi
+fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="$HERE/../remote-ios.sh"
 HOST="${CMUX_NEXT_IOS_HOST:-aziz-other-macbook}"
@@ -20,8 +25,13 @@ axe() { ssh "$HOST" "axe $* --udid $U >/dev/null 2>&1 || ~/nx-ios/axe/axe $* --u
 fail=0
 for m in "${motions[@]}"; do
   for i in $(seq 1 "$runs"); do
-    "$R" launch --slot "$slot" --scheme Tabs --env CMUX_NEXT_DEV_SCREEN=tabs-combined --env CMUX_NEXT_TABS_RESET_PINS=1 >/dev/null
-    sleep 6                                              # launch and mock connect (test script only)
+    if [[ $app == kit ]]; then
+      ssh "$HOST" "xcrun simctl terminate $U dev.cmux.tabskit.demo >/dev/null 2>&1; xcrun simctl launch $U dev.cmux.tabskit.demo >/dev/null"
+      sleep 4                                            # launch (test script only)
+    else
+      "$R" launch --slot "$slot" --scheme Tabs --env CMUX_NEXT_DEV_SCREEN=tabs-combined --env CMUX_NEXT_TABS_RESET_PINS=1 >/dev/null
+      sleep 6                                            # launch and mock connect (test script only)
+    fi
     case "$m" in
       zoomOut|swipeUp) pre=() ;;
       *) axe tap -x 344 -y 816; sleep 1.5; pre=() ;;      # open the grid
@@ -34,9 +44,18 @@ for m in "${motions[@]}"; do
       snapBack) g="drag --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 1.0 --steps 60" ;;
       fling)    g="swipe --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 0.12" ;;
     esac
+    name="$m"
+    if [[ $app == kit ]]; then
+      name="kit-$m"
+      # The kit's active card (Springs) is the left one in row 1.
+      case "$m" in
+        zoomIn)   g="tap -x 104 -y 250" ;;
+        snapBack) g="drag --start-x 140 --start-y 250 --end-x 40 --end-y 250 --duration 1.0 --steps 60" ;;
+      esac
+    fi
     ssh "$HOST" "rm -f /tmp/tc.mp4; (xcrun simctl io $U recordVideo --codec=h264 --force /tmp/tc.mp4 >/dev/null 2>&1 & echo \$! > /tmp/tc.pid); sleep 1.5; (axe $g --udid $U || ~/nx-ios/axe/axe $g --udid $U) >/dev/null 2>&1; sleep 1.8; kill -INT \$(cat /tmp/tc.pid); while kill -0 \$(cat /tmp/tc.pid) 2>/dev/null; do sleep 0.2; done"
-    scp -q "$HOST:/tmp/tc.mp4" "$OUT/$m-$i.mp4"
-    printf 'run %d ' "$i"; python3 "$HERE/check.py" "$m" "$OUT/$m-$i.mp4" || fail=1
+    scp -q "$HOST:/tmp/tc.mp4" "$OUT/$name-$i.mp4"
+    printf 'run %d ' "$i"; python3 "$HERE/check.py" "$name" "$OUT/$name-$i.mp4" || fail=1
   done
 done
 exit $fail

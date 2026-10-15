@@ -28,6 +28,18 @@ SPECS = {
     'snapBack': ('1f853c', 'cx', None, 297.65),
     # GitHub flies off from where the finger ended (right edge to 0).
     'fling': ('1f853c', 'x1', None, 0.0),
+    # CmuxTabsKit demo (run.sh --app kit): Springs (orange, active) zooms and
+    # springs back; ✕ on it moves Note (cream) from row 3 left to row 2
+    # right. Its orange tiles are up to ~106 px wide at full size, so the
+    # header band needs 160 px; Note's cream is told from Springs' white page
+    # (fading out under it) with a tolerance of 12. Springs is the left card,
+    # so its spring back is tracked at its right edge (the left one leaves
+    # the screen).
+    'kit-reflow': ('fffae0', 'x0', 16.0, 209.33, 90, 12),
+    'kit-zoomOut': ('ff9f0a', 'w', 402.0, 176.7, 160),
+    'kit-swipeUp': ('ff9f0a', 'w', 402.0, 176.7, 160),
+    'kit-zoomIn': ('ff9f0a', 'w', 176.7, 402.0, 160),
+    'kit-snapBack': ('ff9f0a', 'x1', None, 192.67, 90),
 }
 
 
@@ -39,7 +51,7 @@ def curves():
     return out
 
 
-def track(video, hexc):
+def track(video, hexc, band_px=90, tol=28):
     """Per frame (real pts): bbox of the header colour, in points (402 pt wide)."""
     w, h = 603, 1311
     s = w / 402
@@ -53,10 +65,10 @@ def track(video, hexc):
     rows = []
     for i in range(n):
         f = np.frombuffer(raw[i * w * h * 3:(i + 1) * w * h * 3], dtype=np.uint8).reshape(h, w, 3).astype(np.int16)
-        m = np.abs(f - c).max(axis=2) < 28
+        m = np.abs(f - c).max(axis=2) < tol
         # The header band only: rows where the colour runs across at least
         # 60 pt (the page's own coloured bars and dots are narrower).
-        band = m.sum(1) >= 90
+        band = m.sum(1) >= band_px
         m = m & band[:, None]
         cols = np.nonzero(m.sum(0) >= 6)[0]
         if len(cols) < 3:
@@ -82,9 +94,9 @@ def progress(rows, field, a, b):
 
 
 def compare(motion, video):
-    hexc, field, a, b = SPECS[motion]
-    saf = curves()[motion]
-    t, p, span, at_release = progress(track(video, hexc), field, a, b)
+    hexc, field, a, b, *band = SPECS[motion]
+    saf = curves()[motion.split('-')[-1]]
+    t, p, span, at_release = progress(track(video, hexc, *band), field, a, b)
     # Aligned at the onset (Safari's tables start at rest), or for the fling
     # at the finger's end (Safari's table starts there, holds included).
     i = 1 if at_release else int(np.argmax(p > 0.005))
