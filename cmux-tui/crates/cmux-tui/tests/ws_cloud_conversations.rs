@@ -616,6 +616,7 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
     assert_eq!(row["preview"], "hi", "{row}");
     assert_eq!(row["activity_at"], "2026-10-13T00:00:00Z", "{row}");
     assert_eq!(row["pinned"], false, "{row}");
+    assert_eq!(row["muted"], false, "{row}");
     assert!(row.get("chief_state").is_none(), "{row}");
     assert!(
         cloud
@@ -642,13 +643,10 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
     // The file token is any same-user process's: it never gets the person's Cloud rows.
     let mut agent = Page::open(&addr, &file_token);
     let other = agent.rpc(json!({"cmd":"home-inbox"}));
-    assert_ne!(other["data"]["cloud"], "included", "{other}");
+    assert_eq!(other["ok"], true, "{other}");
+    assert_eq!(other["data"]["cloud"], "signed_out", "{other}");
     assert!(
-        other["data"]["rows"]
-            .as_array()
-            .unwrap_or(&Vec::new())
-            .iter()
-            .all(|row| row["owner"] != "cloud"),
+        other["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
         "{other}"
     );
 }

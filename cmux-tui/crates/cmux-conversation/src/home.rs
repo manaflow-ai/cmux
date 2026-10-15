@@ -99,6 +99,9 @@ pub struct HomeRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pin_position: Option<u64>,
     pub marked_unread: bool,
+    /// The person muted it (a Cloud mute; local conversations have none):
+    /// a view does not count its unread messages.
+    pub muted: bool,
 }
 
 fn participant<'s>(summary: &'s Summary, id: &str) -> Option<&'s Participant> {
@@ -248,6 +251,7 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
                 pinned: state.pinned,
                 pin_position: state.pin_position.filter(|_| state.pinned),
                 marked_unread: state.marked_unread,
+                muted: false,
             }
         })
         .collect();
@@ -264,6 +268,7 @@ pub const OWNER_CLOUD: &str = "cloud";
 pub struct CloudInboxEntry {
     pub conversation: String,
     /// `chief`, `dm` or `group`.
+    #[serde(default)]
     pub kind: String,
     #[serde(default)]
     pub title: String,
@@ -285,13 +290,18 @@ pub struct CloudInboxEntry {
     pub pin_position: Option<u64>,
     #[serde(default)]
     pub marked_unread: bool,
+    #[serde(default)]
+    pub muted: bool,
+    /// Unix ms; absent with `muted` = muted until unmuted.
+    #[serde(default)]
+    pub muted_until: Option<u64>,
 }
 
 /// A Cloud inbox entry as a Home row; none for a removed or archived entry.
 /// The Cloud owner's kind (`dm` is `direct`; a `group` is a `channel` when it
 /// has a title); the name is the title, else the direct peer's id; a Cloud
 /// Chief's live state is not known here (no `chief_state`).
-pub fn cloud_row(entry: &CloudInboxEntry) -> Option<HomeRow> {
+pub fn cloud_row(entry: &CloudInboxEntry, now_ms: u64) -> Option<HomeRow> {
     if entry.removed || entry.archived {
         return None;
     }
@@ -301,10 +311,12 @@ pub fn cloud_row(entry: &CloudInboxEntry) -> Option<HomeRow> {
         _ if entry.title.is_empty() => HomeKind::Group,
         _ => HomeKind::Channel,
     };
-    let name = if entry.title.is_empty() {
-        entry.dm_peer.clone().unwrap_or_default()
-    } else {
+    let name = if !entry.title.is_empty() {
         entry.title.clone()
+    } else if kind == HomeKind::Chief {
+        CHIEF_NAME.to_string()
+    } else {
+        entry.dm_peer.clone().unwrap_or_default()
     };
     Some(HomeRow {
         id: entry.conversation.clone(),
@@ -321,6 +333,7 @@ pub fn cloud_row(entry: &CloudInboxEntry) -> Option<HomeRow> {
         pinned: entry.pinned,
         pin_position: entry.pin_position.filter(|_| entry.pinned),
         marked_unread: entry.marked_unread,
+        muted: entry.muted && entry.muted_until.is_none_or(|until| until > now_ms),
     })
 }
 
@@ -347,13 +360,18 @@ fn order(a: &HomeRow, b: &HomeRow) -> Ordering {
     activity_key(b).cmp(&activity_key(a)).then_with(|| a.id.cmp(&b.id))
 }
 
-/// A time's sort key: RFC 3339 UTC text sorts as text once whole seconds
-/// carry milliseconds too (the Cloud owner may leave them out).
+/// A time's sort key: RFC 3339 UTC text sorts as text once its fraction has
+/// exactly three digits (the Cloud owner may leave them out or write more).
 fn activity_key(row: &HomeRow) -> std::borrow::Cow<'_, str> {
     let at = row.activity_at.as_str();
-    if at.len() == 20 && at.ends_with('Z') {
-        std::borrow::Cow::Owned(format!("{}.000Z", &at[..19]))
-    } else {
-        std::borrow::Cow::Borrowed(at)
+    let Some(body) = at.strip_suffix('Z').filter(|body| body.len() >= 19) else {
+        return std::borrow::Cow::Borrowed(at);
+    };
+    let (seconds, fraction) = body.split_at(19);
+    let digits = fraction.strip_prefix('.').unwrap_or(fraction);
+    if digits.len() == 3 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return std::borrow::Cow::Borrowed(at);
     }
+    let millis: String = digits.chars().chain(std::iter::repeat('0')).take(3).collect();
+    std::borrow::Cow::Owned(format!("{seconds}.{millis}Z"))
 }

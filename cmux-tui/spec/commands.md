@@ -6359,20 +6359,27 @@ last), then by `activity_at` newest first; ties by id ascending.
 Cloud rows come from the person's Cloud inbox entries (the Cloud owner keeps
 their counts, preview and the person's pins and marks): a removed or archived
 entry is not a row; `dm` is `direct`, a `group` is a `channel` when it has a
-title; `name` is the title, else the direct peer's id; `chief` is the peer of a
-`chief` entry; a Cloud row has no `last_author` and no `chief_state`. Local and
-Cloud rows share one order (a time without milliseconds sorts as `.000`).
+title; `name` is the title, else "Chief" for a `chief` entry, else the direct
+peer's id (the view names people from the conversation); `chief` is the peer of
+a `chief` entry; `muted` is the person's Cloud mute (until `muted_until`); a
+Cloud row has no `last_author` and no `chief_state`. One page of the Cloud
+inbox comes (its newest 200 entries); a malformed entry is skipped. Local and
+Cloud rows share one order (a time's fraction counts as three digits); the two
+owners number their pins separately, so pinned rows of both owners mix by
+number. A view keys rows by `(owner, id)`.
 
 Params: `owners?:[local|cloud]` (default both). In the app the local
 conversations' owner and the daemon that holds the person's Cloud lease can be
 two daemons: a view asks each for its own owner.
 
 Result: `object{me, rows:[HomeInboxRow], cloud}`. `me` is the caller's participant
-id (local). `cloud` is `included`, `signed_out` (this connection has no Cloud
-lease), `unavailable` (the Cloud did not answer; the local rows still come) or
-`not_asked`. `HomeInboxRow`: `{id, owner:local|cloud, kind:chief|direct|channel|group, name, unread,
+id (local). `cloud` is `included`; `signed_out` when this connection is not the
+person with the app's lease (only the verified app and the person's
+authenticated page get Cloud rows), or there is no lease or no Cloud here;
+`unavailable` when the Cloud did not answer; or `not_asked`. The local rows come
+in every case. `HomeInboxRow`: `{id, owner:local|cloud, kind:chief|direct|channel|group, name, unread,
 activity_at, preview?, last_author?, chief?, chief_state?:working|waiting|idle,
-pinned, pin_position?, marked_unread}`. A view reads the conversation itself
+pinned, pin_position?, marked_unread, muted}`. A view reads the conversation itself
 (participants, title) from `conversation-list` or `conversation-snapshot`, and
 asks again (coalesced) on `conversation-changed`, `conversation-inbox-changed`,
 `conversation-typing`, `conversation-run-changed` and `chief-changed`. A pinned

@@ -55,7 +55,7 @@ fn is_websocket_person(mux: &Mux, client: u64) -> bool {
 
 /// Whether `client` acts as the person with the app's lease: the verified
 /// app, or an authenticated WebSocket client (`ws-cloud-conversations-v1`).
-fn is_person(mux: &Mux, client: u64) -> bool {
+pub(super) fn is_person(mux: &Mux, client: u64) -> bool {
     is_app(mux, client) || is_websocket_person(mux, client)
 }
 
@@ -448,6 +448,10 @@ pub(super) fn is_network(cmd: &Command) -> bool {
     if let Command::CloudAttachmentUpload(params) = cmd {
         return params.op == "begin" || params.op == "commit";
     }
+    // The Home rows read the Cloud inbox unless only the local rows are asked.
+    if let Command::HomeInbox(params) = cmd {
+        return params.asks_cloud();
+    }
     matches!(
         cmd,
         Command::CloudInboxList(_)
@@ -530,7 +534,10 @@ pub(super) fn start(
         Ok(service.begin_request()?)
     });
     let permit = match precheck {
-        Ok(permit) => permit,
+        Ok(permit) => Some(permit),
+        // The Home rows never fail for the Cloud: without a lease (or a free
+        // request slot) they carry the local rows and say why.
+        Err(_) if matches!(cmd, Command::HomeInbox(_)) => None,
         Err(error) => return send(writer, id, Err(error)),
     };
     let worker_mux = mux.clone();

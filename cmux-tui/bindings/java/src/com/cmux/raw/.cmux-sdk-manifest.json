@@ -1387,8 +1387,8 @@
     },
     {
       "path": "HomeInboxRow.java",
-      "sha256": "526a8f363cc92ccf4ba2f6be72ea0bb8522f63e47bb8a3b3d3c0cf79918f3c7c",
-      "size": 9780
+      "sha256": "d7b201401b9f46162021308155bb834d56a0e1955ef16dbde73944f82699ea00",
+      "size": 10404
     },
     {
       "path": "IdMapping.java",
@@ -1977,7 +1977,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e33cc0383663b31bf0fdfe52c2c1405f3c2ea1519b8cd05d0917cf52da56c8fd",
+      "sha256": "ece9e9b984b4feeac26f54396495975a9c7605a371c07db008648a5c5d4fd727",
       "size": 6943
     },
     {
@@ -3237,7 +3237,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "6ace91cdd3731125872258b93d7ef629e79fac87b0670a4cbfc06f310f563a66",
+  "ir_sha256": "448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

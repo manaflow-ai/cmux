@@ -131,6 +131,14 @@ pub(super) struct HomeInboxParams {
     owners: Option<Vec<String>>,
 }
 
+impl HomeInboxParams {
+    /// Whether the rows include the Cloud inbox (a network read: it leaves
+    /// the request loop like `cloud-inbox-list`).
+    pub(super) fn asks_cloud(&self) -> bool {
+        self.owners.as_ref().is_none_or(|owners| owners.iter().any(|owner| owner == "cloud"))
+    }
+}
+
 /// `conversation-inbox-op`: the caller's own pin or "marked unread" of one
 /// conversation (`op` is `{kind: "inbox.pin", pinned, position?}` or
 /// `{kind: "inbox.mark_unread", unread}`).
@@ -371,30 +379,42 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
 }
 
 /// The person's Cloud inbox as Home rows, through the daemon's lease, and
-/// whether they are in: `included`, `signed_out` (no lease for this
-/// connection) or `unavailable` (the Cloud did not answer). A Cloud failure
-/// never hides the local rows.
+/// whether they are in: `included`, `signed_out` (this connection is not the
+/// person with the app's lease, or there is no lease or no Cloud here) or
+/// `unavailable` (the Cloud did not answer). A Cloud failure never hides the
+/// local rows. One page of the inbox (the newest 200 entries).
 fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, &'static str) {
     use crate::cloud_conversations::CloudError;
-    let signed_out = |error: &anyhow::Error| {
-        matches!(
-            error.downcast_ref::<CloudError>(),
-            Some(CloudError::SignedOut | CloudError::SessionExpired)
-        )
-    };
+    // Only the person's own clients (the app, an authenticated page) get the
+    // person's rows; any other connection never reads a lease.
+    if !super::cloud_conversations::is_person(mux, client) {
+        return (Vec::new(), "signed_out");
+    }
     let listed = super::cloud_conversations::lease_user(mux, client)
         .and_then(|service| service.inbox_list(None, false).map_err(anyhow::Error::from));
-    match listed {
-        Ok(value) => {
-            let entries: Vec<cmux_conversation::CloudInboxEntry> = value
-                .get("entries")
-                .and_then(|entries| serde_json::from_value(entries.clone()).ok())
-                .unwrap_or_default();
-            (entries.iter().filter_map(cmux_conversation::cloud_row).collect(), "included")
+    let value = match listed {
+        Ok(value) => value,
+        Err(error) => {
+            let unanswered =
+                matches!(error.downcast_ref::<CloudError>(), Some(CloudError::Unavailable(_)));
+            return (Vec::new(), if unanswered { "unavailable" } else { "signed_out" });
         }
-        Err(error) if signed_out(&error) => (Vec::new(), "signed_out"),
-        Err(_) => (Vec::new(), "unavailable"),
-    }
+    };
+    let Some(entries) = value.get("entries").and_then(Value::as_array) else {
+        return (Vec::new(), "unavailable");
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    // One malformed entry is skipped, never the whole inbox.
+    let rows = entries
+        .iter()
+        .filter_map(|entry| serde_json::from_value(entry.clone()).ok())
+        .filter_map(|entry: cmux_conversation::CloudInboxEntry| {
+            cmux_conversation::cloud_row(&entry, now_ms)
+        })
+        .collect();
+    (rows, "included")
 }
 
 /// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of

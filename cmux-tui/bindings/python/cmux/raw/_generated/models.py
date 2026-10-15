@@ -895,6 +895,7 @@ class HomeInboxRow:
     id: str
     kind: HomeInboxKind
     marked_unread: bool
+    muted: bool
     name: str
     owner: str
     pinned: bool

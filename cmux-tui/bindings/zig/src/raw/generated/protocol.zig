@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6ace91cdd3731125872258b93d7ef629e79fac87b0670a4cbfc06f310f563a66";
+pub const ir_sha256 = "448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -985,6 +985,7 @@ pub const HomeInboxRow = struct {
     kind: HomeInboxKind,
     last_author: ?[]const u8 = null,
     marked_unread: bool,
+    muted: bool,
     name: []const u8,
     owner: []const u8,
     pin_position: ?u64 = null,

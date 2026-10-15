@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6ace91cdd3731125872258b93d7ef629e79fac87b0670a4cbfc06f310f563a66";
+inline constexpr std::string_view kProtocolIrSha256 = "448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2987,6 +2987,7 @@ struct HomeInboxRow {
     HomeInboxKind kind{};
     std::optional<std::string> last_author{};
     bool marked_unread{};
+    bool muted{};
     std::string name{};
     std::string owner{};
     std::optional<std::uint64_t> pin_position{};

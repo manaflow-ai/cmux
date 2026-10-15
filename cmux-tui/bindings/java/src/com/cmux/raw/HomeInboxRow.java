@@ -18,6 +18,7 @@ public final class HomeInboxRow implements WireValue {
     private final HomeInboxKind kind;
     private final Field<String> lastAuthor;
     private final boolean markedUnread;
+    private final boolean muted;
     private final String name;
     private final String owner;
     private final Field<UInt64> pinPosition;
@@ -37,6 +38,8 @@ public final class HomeInboxRow implements WireValue {
         this.lastAuthor = builder.lastAuthor;
         if (!builder.markedUnreadSet) throw new IllegalArgumentException("marked_unread is required");
         this.markedUnread = builder.markedUnread;
+        if (!builder.mutedSet) throw new IllegalArgumentException("muted is required");
+        this.muted = builder.muted;
         if (!builder.nameSet) throw new IllegalArgumentException("name is required");
         this.name = Wire.nonNull(builder.name, "name");
         if (!builder.ownerSet) throw new IllegalArgumentException("owner is required");
@@ -58,6 +61,7 @@ public final class HomeInboxRow implements WireValue {
     public HomeInboxKind kind() { return kind; }
     public Field<String> lastAuthor() { return lastAuthor; }
     public boolean markedUnread() { return markedUnread; }
+    public boolean muted() { return muted; }
     public String name() { return name; }
     public String owner() { return owner; }
     public Field<UInt64> pinPosition() { return pinPosition; }
@@ -88,6 +92,8 @@ public final class HomeInboxRow implements WireValue {
         }
         Object rawMarkedUnread = Wire.required(object, "marked_unread");
         builder.markedUnread(Wire.bool(rawMarkedUnread, "HomeInboxRow.marked_unread"));
+        Object rawMuted = Wire.required(object, "muted");
+        builder.muted(Wire.bool(rawMuted, "HomeInboxRow.muted"));
         Object rawName = Wire.required(object, "name");
         builder.name(Wire.string(rawName, "HomeInboxRow.name"));
         Object rawOwner = Wire.required(object, "owner");
@@ -117,6 +123,7 @@ public final class HomeInboxRow implements WireValue {
         Wire.put(object, "kind", kind);
         Wire.put(object, "last_author", lastAuthor);
         Wire.put(object, "marked_unread", markedUnread);
+        Wire.put(object, "muted", muted);
         Wire.put(object, "name", name);
         Wire.put(object, "owner", owner);
         Wire.put(object, "pin_position", pinPosition);
@@ -129,11 +136,11 @@ public final class HomeInboxRow implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof HomeInboxRow that)) return false;
-        return Objects.equals(activityAt, that.activityAt) && Objects.equals(chief, that.chief) && Objects.equals(chiefState, that.chiefState) && Objects.equals(id, that.id) && Objects.equals(kind, that.kind) && Objects.equals(lastAuthor, that.lastAuthor) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(name, that.name) && Objects.equals(owner, that.owner) && Objects.equals(pinPosition, that.pinPosition) && Objects.equals(pinned, that.pinned) && Objects.equals(preview, that.preview) && Objects.equals(unread, that.unread);
+        return Objects.equals(activityAt, that.activityAt) && Objects.equals(chief, that.chief) && Objects.equals(chiefState, that.chiefState) && Objects.equals(id, that.id) && Objects.equals(kind, that.kind) && Objects.equals(lastAuthor, that.lastAuthor) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(muted, that.muted) && Objects.equals(name, that.name) && Objects.equals(owner, that.owner) && Objects.equals(pinPosition, that.pinPosition) && Objects.equals(pinned, that.pinned) && Objects.equals(preview, that.preview) && Objects.equals(unread, that.unread);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activityAt, chief, chiefState, id, kind, lastAuthor, markedUnread, name, owner, pinPosition, pinned, preview, unread); }
+    public int hashCode() { return Objects.hash(activityAt, chief, chiefState, id, kind, lastAuthor, markedUnread, muted, name, owner, pinPosition, pinned, preview, unread); }
 
     @Override
     public String toString() { return "HomeInboxRow" + toWire(); }
@@ -150,6 +157,8 @@ public final class HomeInboxRow implements WireValue {
         private Field<String> lastAuthor = Field.omitted();
         private Boolean markedUnread;
         private boolean markedUnreadSet;
+        private Boolean muted;
+        private boolean mutedSet;
         private String name;
         private boolean nameSet;
         private String owner;
@@ -191,6 +200,11 @@ public final class HomeInboxRow implements WireValue {
         public Builder markedUnread(boolean value) {
             this.markedUnread = value;
             this.markedUnreadSet = true;
+            return this;
+        }
+        public Builder muted(boolean value) {
+            this.muted = value;
+            this.mutedSet = true;
             return this;
         }
         public Builder name(String value) {

@@ -3814,6 +3814,9 @@ Result<Json> Codec<HomeInboxRow>::encode(const HomeInboxRow& value) {
     auto encoded_marked_unread = encode_value(value.marked_unread);
     if (!encoded_marked_unread) return std::move(encoded_marked_unread).error();
     object.emplace("marked_unread", std::move(encoded_marked_unread).value());
+    auto encoded_muted = encode_value(value.muted);
+    if (!encoded_muted) return std::move(encoded_muted).error();
+    object.emplace("muted", std::move(encoded_muted).value());
     auto encoded_name = encode_value(value.name);
     if (!encoded_name) return std::move(encoded_name).error();
     object.emplace("name", std::move(encoded_name).value());
@@ -3896,6 +3899,15 @@ Result<HomeInboxRow> Codec<HomeInboxRow>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_marked_unread);
         if (!decoded) return std::move(decoded).error();
         result.marked_unread = std::move(decoded).value();
+    }
+    const Json* field_muted = value.find("muted");
+    if (!field_muted) {
+        return make_error(ErrorCode::decode, "missing required field 'muted'");
+    }
+    if (field_muted) {
+        auto decoded = decode_value<bool>(*field_muted);
+        if (!decoded) return std::move(decoded).error();
+        result.muted = std::move(decoded).value();
     }
     const Json* field_name = value.find("name");
     if (!field_name) {
