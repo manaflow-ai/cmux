@@ -281,6 +281,33 @@ elif op == "table":
           f"{sum(r[2] for r in rows.values())} flaky tests (test s: sum of the full run's test times)")
 PY
 }
+# macOS only: sample the number of allocated PTYs (/dev/ttysNNN) every 2 s
+# during the full run and report the peak against kern.tty.ptmx_max (511 by
+# default): a fleet Mac ran out of PTYs in one full run (cx-leo45). A sampler,
+# not a synchronization: the run never waits on it.
+pty_note=""
+pty_watch_pid=""
+pty_peak_file="$root/.build/cmux-tui-rust-check-pty-peak"
+pty_count() { local n=0 f; for f in /dev/ttys[0-9]*; do [[ -e "$f" ]] && n=$((n + 1)); done; echo "$n"; }
+pty_watch_start() {
+  [[ "$(uname -s)" == Darwin ]] || return 0
+  pty_count >"$pty_peak_file"
+  ( peak="$(cat "$pty_peak_file")"
+    while :; do
+      n="$(pty_count)"
+      if [[ "$n" -gt "$peak" ]]; then peak="$n"; echo "$peak" >"$pty_peak_file"; fi
+      sleep 2
+    done ) &
+  pty_watch_pid=$!
+}
+pty_watch_stop() { # START
+  [[ -n "$pty_watch_pid" ]] || return 0
+  kill "$pty_watch_pid" 2>/dev/null || true
+  wait "$pty_watch_pid" 2>/dev/null || true
+  pty_watch_pid=""
+  pty_note="pty: peak $(cat "$pty_peak_file" 2>/dev/null || echo '?') allocated during the full run (at start $1; kern.tty.ptmx_max $(sysctl -n kern.tty.ptmx_max 2>/dev/null || echo '?'))"
+  echo "$pty_note"
+}
 workspace_tests() {
   # nextest's store is target/nextest under the workspace, not under CARGO_TARGET_DIR.
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
@@ -290,8 +317,12 @@ workspace_tests() {
   [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
   mkdir -p "$(dirname "$test_log")"
   rm -f "$junit"
+  local pty_start=""
+  [[ "$(uname -s)" != Darwin ]] || pty_start="$(pty_count)"
+  pty_watch_start
   cargo "${args[@]}" 2>&1 | tee "$test_log"
   rc="${PIPESTATUS[0]}"
+  pty_watch_stop "$pty_start"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_full"
   [[ "$rc" -ne 0 ]] || return 0
   # nextest exits 100 when a test failed; any other code (build, list) stays red.
@@ -349,6 +380,7 @@ finish() {
   fi
   [[ "${#skip_notes[@]}" -eq 0 ]] || printf '%s\n' "${skip_notes[@]}"
   [[ "${#flaky_notes[@]}" -eq 0 ]] || printf '%s\n' "${flaky_notes[@]}"
+  [[ -z "$pty_note" ]] || echo "$pty_note"
   if [[ "$first_rc" -ne 0 ]]; then
     echo "cmux-tui-rust-check: RED (first red step exit $first_rc)"
   else
