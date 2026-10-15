@@ -391,11 +391,16 @@ fn insert_group(
     transaction: &Transaction<'_>,
     members: Vec<Value>,
     window: Option<String>,
+    tab_groups: Vec<Value>,
 ) -> anyhow::Result<()> {
-    let (closed_id, extra) = match take_pending_group(transaction)? {
+    let (closed_id, mut extra) = match take_pending_group(transaction)? {
         Some((closed_id, extra)) => (closed_id, Some(extra)),
         None => (new_closed_id(), None),
     };
+    if !tab_groups.is_empty() {
+        let fields = extra.get_or_insert_with(|| json!({}));
+        fields["tab_groups"] = Value::Array(tab_groups);
+    }
     insert_record(transaction, closed_id, members, window, extra)
 }
 
@@ -539,68 +544,6 @@ pub(crate) fn record_ungrouped_group(
     insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
-/// Close of a whole tab group: `archive` (as [`record_ungrouped_group`]
-/// takes it, naming the closed tabs) rides on the group that recorded its
-/// tabs, so reopening them forms the group again. Nothing recorded them
-/// (an incognito workspace): nothing to attach.
-pub(crate) fn attach_closed_tab_group(
-    transaction: &Transaction<'_>,
-    archive: &Value,
-) -> anyhow::Result<()> {
-    let Some(first) = archive["tab_ids"].get(0).and_then(Value::as_str) else { return Ok(()) };
-    if !super::store::state_tables_ready(transaction)? {
-        return Ok(());
-    }
-    let found = transaction
-        .query_row(
-            "SELECT g.closed_id, g.record_json FROM closed_groups AS g
-             WHERE EXISTS (SELECT 1 FROM json_tree(g.record_json, '$.members') AS t
-                           WHERE t.key = 'tab_id' AND t.atom = ?1)
-             ORDER BY g.seq DESC LIMIT 1",
-            [first],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?;
-    let Some((closed_id, record)) = found else { return Ok(()) };
-    let mut record: Value = serde_json::from_str(&record)?;
-    // Only the group this close recorded holds every one of its tabs, as
-    // tab members or inside the screen the close emptied.
-    let mut recorded = HashSet::new();
-    closed_tab_ids(&record["members"], &mut recorded);
-    if !archive["tab_ids"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .all(|tab| tab.as_str().is_some_and(|tab| recorded.contains(tab)))
-    {
-        return Ok(());
-    }
-    record["tab_group"] = archive.clone();
-    transaction.execute(
-        "UPDATE closed_groups SET record_json = ?2 WHERE closed_id = ?1",
-        params![closed_id, serde_json::to_string(&record)?],
-    )?;
-    queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
-}
-
-/// Every closed tab id in `value`, at any depth.
-fn closed_tab_ids<'a>(value: &'a Value, ids: &mut HashSet<&'a str>) {
-    match value {
-        Value::Array(items) => items.iter().for_each(|item| closed_tab_ids(item, ids)),
-        Value::Object(fields) => {
-            for (key, field) in fields {
-                match field.as_str() {
-                    Some(id) if key == "tab_id" => {
-                        ids.insert(id);
-                    }
-                    _ => closed_tab_ids(field, ids),
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
 /// A new closed group id.
 pub(crate) fn new_closed_id() -> String {
     format!("closed_{}", new_uuid_v4().replace('-', ""))
@@ -637,7 +580,7 @@ pub(crate) fn flush_pending_group(transaction: &Transaction<'_>) -> anyhow::Resu
     let pending: bool =
         transaction
             .query_row("SELECT EXISTS(SELECT 1 FROM closed_group_pending)", [], |row| row.get(0))?;
-    if pending { insert_group(transaction, Vec::new(), None) } else { Ok(()) }
+    if pending { insert_group(transaction, Vec::new(), None, Vec::new()) } else { Ok(()) }
 }
 
 /// The highest level among the members: a group with a screen is a screen
@@ -753,6 +696,22 @@ pub(crate) fn capture_closed(
     // Tabs a stash (`stash-v1`) keeps: never in the closed group, but a
     // workspace or screen the stash empties still is.
     let stashed = super::stash_store::take_capture_mark(transaction)?;
+    // Before `capture_workspace` forgets which closing workspaces are
+    // ephemeral: their groups are never recorded.
+    let closing_tabs = closing.tabs.iter().cloned().collect::<HashSet<_>>();
+    let mut tab_groups = super::closed_tab_groups::closing_tab_groups(
+        transaction,
+        &closing_tabs,
+        &closing_screens,
+        &closing_workspaces,
+    )?;
+    // A stashed tab is not in this close, so no reopened group may claim it.
+    for archive in &mut tab_groups {
+        if let Some(tab_ids) = archive["tab_ids"].as_array_mut() {
+            tab_ids.retain(|tab| tab.as_str().is_none_or(|tab| !stashed.contains(tab)));
+        }
+    }
+    tab_groups.retain(|archive| archive["tab_ids"].as_array().is_some_and(|tabs| !tabs.is_empty()));
     let mut capture = Capture::default();
     for workspace_id in &closing.workspaces {
         capture_workspace(transaction, workspace_id, &stashed, &mut capture)?;
@@ -782,7 +741,7 @@ pub(crate) fn capture_closed(
     if capture.members.is_empty() {
         return Ok(());
     }
-    insert_group(transaction, capture.members, capture.window)
+    insert_group(transaction, capture.members, capture.window, tab_groups)
 }
 
 fn capture_screen(
