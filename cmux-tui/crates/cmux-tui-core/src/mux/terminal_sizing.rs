@@ -500,6 +500,8 @@ impl Mux {
                     placements: BTreeSet::new(),
                     members: HashMap::new(),
                     applied: std::cell::Cell::new(None),
+                    applied_participants: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+                    hold: std::cell::Cell::new(None),
                 },
             );
         }
@@ -559,12 +561,14 @@ impl Mux {
     pub(super) fn apply_terminal_grid(&self, sizing: &ClientSizingState, runtime: SurfaceId) {
         let Some(entry) = sizing.terminal_sizing.get(&runtime) else { return };
         let state = entry.engine.state();
-        if state.reason == TerminalSizingReason::Held
-            || entry.applied.get() == Some((state.cols, state.rows))
-        {
+        if state.reason == TerminalSizingReason::Held {
             return;
         }
-        entry.applied.set(Some((state.cols, state.rows)));
+        let target = self.terminal_grid_target(entry, runtime, (state.cols, state.rows));
+        if entry.applied.get() == Some(target) {
+            return;
+        }
+        entry.applied.set(Some(target));
         let Some(surface) = entry
             .placements
             .iter()
@@ -573,9 +577,107 @@ impl Mux {
         else {
             return;
         };
-        if surface.size() != (state.cols, state.rows) {
-            let _ = self.resize_surface(surface.id, state.cols, state.rows);
+        if surface.size() != target {
+            let _ = self.resize_surface(surface.id, target.0, target.1);
         }
+    }
+
+    /// The grid to apply for an engine decision `decided`. When a phone or
+    /// tablet view has departed since the last decision and the decision would grow the grid,
+    /// the grid keeps its size for `DEPARTED_GRID_HOLD` (it may still shrink):
+    /// a phone whose link drops and reattaches finds the grid it left, so the
+    /// PTY is not resized twice and an inline TUI (Codex) does not rebuild its
+    /// scrollback for a width change that undoes itself (cnx-ios termqa
+    /// V2-5). A disconnect by another participant ends the hold at once
+    /// (`release_terminal_grid_holds`).
+    pub(super) fn terminal_grid_target(
+        &self,
+        entry: &TerminalSizingEntry,
+        runtime: SurfaceId,
+        decided: (u16, u16),
+    ) -> (u16, u16) {
+        let now = Instant::now();
+        let present = entry
+            .engine
+            .participant_ids()
+            .map(|id| {
+                let handheld = entry
+                    .engine
+                    .participant(id)
+                    .is_some_and(|participant| participant.device_kind.is_handheld());
+                (id.to_owned(), handheld)
+            })
+            .collect::<std::collections::BTreeMap<String, bool>>();
+        let departed = entry
+            .applied_participants
+            .borrow()
+            .iter()
+            .any(|(id, handheld)| *handheld && !present.contains_key(id));
+        *entry.applied_participants.borrow_mut() = present;
+        let grace = departed_grid_hold();
+        if departed
+            && !grace.is_zero()
+            && let Some(applied) = entry.applied.get()
+            && (decided.0 > applied.0 || decided.1 > applied.1)
+        {
+            let held = match entry.hold.get() {
+                Some((held, until)) if now < until => {
+                    (held.0.min(applied.0), held.1.min(applied.1))
+                }
+                _ => applied,
+            };
+            entry.hold.set(Some((held, now + grace)));
+            self.schedule_terminal_grid_hold_end(runtime, grace);
+        }
+        match entry.hold.get() {
+            Some((held, until)) if now < until => (decided.0.min(held.0), decided.1.min(held.1)),
+            Some(_) => {
+                entry.hold.set(None);
+                decided
+            }
+            None => decided,
+        }
+    }
+
+    fn schedule_terminal_grid_hold_end(&self, runtime: SurfaceId, grace: Duration) {
+        let Some(mux) = self.exit_settles.owner() else { return };
+        let mux = Arc::downgrade(&mux);
+        let _ = std::thread::Builder::new().name("terminal-grid-hold".into()).spawn(move || {
+            // An intentional bounded delay: the hold's own deadline.
+            std::thread::sleep(grace);
+            if let Some(mux) = mux.upgrade() {
+                mux.end_expired_terminal_grid_hold(runtime);
+            }
+        });
+    }
+
+    fn end_expired_terminal_grid_hold(&self, runtime: SurfaceId) {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let sizing = self.client_sizing.lock().unwrap();
+        let Some(entry) = sizing.terminal_sizing.get(&runtime) else { return };
+        if entry.hold.get().is_some_and(|(_, until)| Instant::now() < until) {
+            return; // Extended by a later departure; its own timer ends it.
+        }
+        self.apply_terminal_grid(&sizing, runtime);
+        drop(sizing);
+        self.publish_size_states();
+    }
+
+    /// End every grid hold now: a participant disconnected another view on
+    /// purpose, so the grid follows the remaining views at once.
+    pub(crate) fn release_terminal_grid_holds(&self) {
+        let sizing = self.client_sizing.lock().unwrap();
+        let held = sizing
+            .terminal_sizing
+            .iter()
+            .filter(|(_, entry)| entry.hold.take().is_some())
+            .map(|(runtime, _)| *runtime)
+            .collect::<Vec<_>>();
+        for runtime in held {
+            self.apply_terminal_grid(&sizing, runtime);
+        }
+        drop(sizing);
+        self.publish_size_states();
     }
 
     /// Run one engine mutation, apply the resulting grid, then publish size
@@ -847,4 +949,19 @@ impl Mux {
         }
         clients
     }
+}
+
+/// How long a departed view holds the grid from growing (see
+/// `Mux::terminal_grid_target`). Long enough for a phone's link drop,
+/// transport switch or brief app switch; short enough that a Mac whose phone
+/// left gets its own width back soon.
+const DEPARTED_GRID_HOLD: Duration = Duration::from_secs(30);
+/// Test hook: the hold in milliseconds (0 turns it off).
+const DEPARTED_GRID_HOLD_ENV: &str = "CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS";
+
+fn departed_grid_hold() -> Duration {
+    std::env::var(DEPARTED_GRID_HOLD_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map_or(DEPARTED_GRID_HOLD, Duration::from_millis)
 }
