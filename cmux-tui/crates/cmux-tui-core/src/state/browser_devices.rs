@@ -25,6 +25,8 @@ use serde_json::{Map, Value, json};
 pub const CAPABILITY: &str = "browser-devices-v1";
 /// `fit` on `browser.tab.emulate` and the `mode: "fit"` record (cx-va1wd).
 pub const FIT_CAPABILITY: &str = "browser-fit-v1";
+/// A fixed layout width as `fit` ("1280") and `fit.value` (cx-2ftlq).
+pub const FIT_WIDTH_CAPABILITY: &str = "browser-fit-width-v1";
 /// The resource kind of the custom device list on `session.events`.
 pub(crate) const RESOURCE: &str = "browser_device";
 /// The id of the one custom device list.
@@ -446,7 +448,7 @@ fn parse_fit_width(text: &str) -> Option<anyhow::Result<i64>> {
 fn parse_aspect(text: &str) -> anyhow::Result<(i64, i64)> {
     let bad = || {
         anyhow::anyhow!(
-            "bad request: fit takes an aspect ratio W:H such as 16:9 (whole numbers of 1 to {FIT_MAX_ASPECT_SIDE}, at most 4:1 either way)"
+            "bad request: fit takes an aspect ratio W:H such as 16:9 (whole numbers of 1 to {FIT_MAX_ASPECT_SIDE}, at most 4:1 either way) or a layout width of {FIT_FIXED_MIN} to {FIT_FIXED_MAX} CSS px such as 1280"
         )
     };
     let (width, height) = text.trim().split_once([':', 'x', 'X']).ok_or_else(bad)?;

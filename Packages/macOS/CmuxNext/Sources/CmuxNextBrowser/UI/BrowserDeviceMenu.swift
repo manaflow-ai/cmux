@@ -43,17 +43,17 @@ public struct BrowserDeviceMenu {
     public var current: Current?
     /// A row's choice: the device title (nil: No Device) and the orientation (nil: the device's first).
     public var choose: @MainActor (String?, String?) -> Void
-    /// The tab's fit ("16:9" or "1280", nil for none), whether the fit rows show, and a fit row's action.
+    /// The tab's fit ("16:9" or "1280", nil for none), the fits the daemon serves (their rows show), and a fit row's action.
     public var fit: String?
-    public var showsFit: Bool
+    public var fits: [String]
     public var toggleFit: @MainActor (String) -> Void
 
-    public init(devices: [Device], current: Current?, fit: String? = nil, showsFit: Bool = false,
+    public init(devices: [Device], current: Current?, fit: String? = nil, fits: [String] = [],
                 toggleFit: @escaping @MainActor (String) -> Void = { _ in }, choose: @escaping @MainActor (String?, String?) -> Void) {
         self.devices = devices
         self.current = current
         self.fit = fit
-        self.showsFit = showsFit
+        self.fits = fits
         self.toggleFit = toggleFit
         self.choose = choose
     }
@@ -63,7 +63,7 @@ public struct BrowserDeviceMenu {
     public func menu() -> NSMenu {
         let menu = NSMenu()
         add(Strings.noDevice, to: menu, checked: current == nil && fit == nil) { choose(nil, nil) }
-        for (value, title) in [("16:9", Strings.fitDesktop), ("1280", Strings.fitDesktop1280)] where showsFit {
+        for (value, title) in [("16:9", Strings.fitDesktop), ("1280", Strings.fitDesktop1280)] where fits.contains(value) {
             add(title, to: menu, checked: fit == value) { toggleFit(value) }
         }
         if let current, current.orientations.count > 1 {
