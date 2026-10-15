@@ -362,7 +362,11 @@ without a match. `cmux agents wait` does the same: it prints its receipt
 from OSC 133 shell integration); `--until idle` when no plain command runs, no
 program reports `working` (OSC 7501) and no OSC 9;4 progress is under way. Both
 follow the session's event stream instead of polling and print the terminal
-record. A passed timeout exits 124 with `wait.timeout`.
+record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
+stops answering. Both read shell state from OSC 133 marks: in a shell without
+integration `--until idle` returns while a command still runs. After the daemon
+reattaches to a running terminal host, the prompt and command state come back
+only with the shell's next mark.
 
 ### browser (daemon-owned)
 

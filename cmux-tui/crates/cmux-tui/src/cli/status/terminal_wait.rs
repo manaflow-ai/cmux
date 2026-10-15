@@ -208,15 +208,20 @@ fn hold(
 ) -> Result<Value, Failure> {
     // Subscribe before the first read: a change between that read and the
     // subscription still wakes the wait (the stream starts with a snapshot).
+    let opened = Instant::now() + answer_wait(deadline);
     let mut events =
-        resolve::session_events(socket, &resolve::route(params), Instant::now() + ANSWER_TIMEOUT)
-            .ok_or_else(|| {
-            Failure::Transport("cmux: the session's event stream did not open".into())
+        resolve::session_events(socket, &resolve::route(params), opened).ok_or_else(|| {
+            past(deadline).then(|| timed_out(until, timeout)).unwrap_or_else(|| {
+                Failure::Transport("cmux: the session's event stream did not open".into())
+            })
         })?;
     // Ctrl-C shuts the stream down, which ends a wait without a timeout.
     wire::arm_signal_interrupt(events.get_ref().as_ref());
     loop {
-        let record = resolve::read(reader, ResourceOperation::TerminalGet, params.clone())?;
+        // `--timeout` bounds every daemon answer too, not only the event wait.
+        let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
+        let record = resolve::read(reader, ResourceOperation::TerminalGet, params.clone())
+            .map_err(|failure| if past(deadline) { timed_out(until, timeout) } else { failure })?;
         if holds(&record, until)? {
             return Ok(record);
         }
@@ -245,9 +250,7 @@ fn hold(
             }
             // The read timed out at the deadline: read the record once more
             // (a change may have landed just before it), then time out.
-            Err(_)
-                if deadline.is_some_and(|deadline| Instant::now() + DEADLINE_SLACK >= deadline) => {
-            }
+            Err(_) if past(deadline) => {}
             Ok(None) => {
                 return Err(Failure::Transport("cmux: the session's event stream ended".into()));
             }
@@ -282,6 +285,21 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
             Ok(!(command || progress || working))
         }
     }
+}
+
+/// How long to wait for one daemon answer: its usual bound, cut to what is
+/// left of the deadline (at least 1 ms: a zero socket timeout is refused).
+fn answer_wait(deadline: Option<Instant>) -> Duration {
+    deadline.map_or(ANSWER_TIMEOUT, |deadline| {
+        deadline
+            .saturating_duration_since(Instant::now())
+            .clamp(Duration::from_millis(1), ANSWER_TIMEOUT)
+    })
+}
+
+/// Whether the deadline has (all but) passed.
+fn past(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|deadline| Instant::now() + DEADLINE_SLACK >= deadline)
 }
 
 fn timed_out(until: Until, timeout: Option<Duration>) -> Failure {

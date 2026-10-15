@@ -162,9 +162,10 @@ passes without a match. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
-wait --until prompt returns when the shell shows its prompt (OSC 133 shell
-integration); --until idle when no plain command runs and no program
-reports work. Both print the terminal record; a passed --timeout exits 124.
+wait --until prompt returns when the shell shows its prompt; --until idle
+when no command runs and no program reports work. Both need OSC 133 shell
+integration to see commands, and print the terminal record; a passed
+--timeout exits 124.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
