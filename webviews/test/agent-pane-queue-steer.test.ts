@@ -371,7 +371,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const now = page.locator(".acpmux-queued", { hasText: "fix the space thing first" });
       await now.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
       // The queued prompts still count from 1.
-      expect(await page.locator(".acpmux-queued-mark").allInnerTexts()).toEqual(["1", "2"]);
+      expect(await page.locator(".acpmux-queued-mark:not([data-kind])").allInnerTexts()).toEqual(["1", "2"]);
       send(["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }]);
       send(["mux", "dequeued", { promptId: "q-now" }]);
       send([
