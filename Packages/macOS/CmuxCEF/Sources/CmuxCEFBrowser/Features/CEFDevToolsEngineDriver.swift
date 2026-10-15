@@ -13,13 +13,13 @@ public final class CEFDevToolsEngineDriver: BrowserDevToolsEngineDriving {
     public static let embeddedMinimumForkAPI: Int32 = 4
 
     private let shim: any CEFPageFeatureShim
-    private let browserID: Int32
+    private let browserID: @MainActor () -> Int32?
 
     /// Creates a driver for one browser.
     /// - Parameters:
     ///   - shim: The shim calls.
-    ///   - browserID: The inspected page's browser id.
-    public init(shim: any CEFPageFeatureShim, browserID: Int32) {
+    ///   - browserID: The inspected page's browser id, `nil` before Chromium created it.
+    public init(shim: any CEFPageFeatureShim, browserID: @escaping @MainActor () -> Int32?) {
         self.shim = shim
         self.browserID = browserID
     }
@@ -29,6 +29,7 @@ public final class CEFDevToolsEngineDriver: BrowserDevToolsEngineDriving {
     }
 
     public func runDevToolsRequest(_ request: BrowserDevToolsEngineRequest) {
+        guard let browserID = browserID() else { return }
         switch request {
         case .show:
             shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.show, x: 0, y: 0)
@@ -47,6 +48,7 @@ public final class CEFDevToolsEngineDriver: BrowserDevToolsEngineDriving {
     }
 
     public func setDevToolsPlacement(_ placement: BrowserDevToolsPlacement) {
+        guard let browserID = browserID() else { return }
         switch placement {
         case .inView(let parent, let size):
             shim.devToolsSetPlacement(
@@ -59,6 +61,7 @@ public final class CEFDevToolsEngineDriver: BrowserDevToolsEngineDriving {
     }
 
     public func setDevToolsFocused(_ focused: Bool) {
+        guard let browserID = browserID() else { return }
         shim.devToolsSetFocus(browser: browserID, focused: focused)
     }
 }

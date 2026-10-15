@@ -41,7 +41,7 @@ private final class RecordingShim: CEFPageFeatureShim {
     private func makeFeatures(shim: RecordingShim) -> (CEFPageFeatures, NSWindow, UserDefaults) {
         let defaults = UserDefaults(suiteName: "CEFPageFeaturesTests.\(UUID().uuidString)")!
         let features = CEFPageFeatures(
-            shim: shim, browserID: 7, pageView: NSView(),
+            shim: shim, browserID: { 7 }, pageView: CEFHostView(),
             layoutStore: BrowserDevToolsLayoutStore(defaults: defaults)
         )
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 801, height: 601), styleMask: [.titled], backing: .buffered, defer: true)
@@ -107,6 +107,38 @@ private final class RecordingShim: CEFPageFeatureShim {
         #expect(shim.calls.isEmpty)
     }
 
+    @Test func dividerAndChromeRectsBecomeHolesInBothWindows() throws {
+        let shim = RecordingShim()
+        let (features, _, _) = makeFeatures(shim: shim)
+        let page = try #require(features.paneView.pageView as? CEFHostView)
+        features.chromeOcclusionRects = [CGRect(x: 600, y: 560, width: 190, height: 36)]
+        #expect(page.occlusionRects == [CGRect(x: 600, y: 560, width: 190, height: 36)])
+        features.handle(.devToolsWillOpen(browser: 7))
+        features.handle(.devToolsOpened(browser: 7, devTools: 99, docked: true))
+        features.paneView.layoutSubtreeIfNeeded()
+        // 601 high: DevTools 240, line at 240, page from 241; grab = line +/- 3.
+        #expect(page.frame == CGRect(x: 0, y: 241, width: 801, height: 360))
+        #expect(page.occlusionRects == [
+            CGRect(x: 600, y: 319, width: 190, height: 36),
+            CGRect(x: 0, y: 0, width: 801, height: 3),
+        ])
+        let devToolsHost = try #require(features.devTools.devToolsHostView as? CEFHostView)
+        #expect(devToolsHost.occlusionRects == [CGRect(x: 0, y: 237, width: 801, height: 3)])
+    }
+
+    @Test func noEventsOrCallsBeforeChromiumCreatesThePage() async {
+        let shim = RecordingShim()
+        let features = CEFPageFeatures(
+            shim: shim, browserID: { nil }, pageView: CEFHostView(),
+            layoutStore: BrowserDevToolsLayoutStore(defaults: UserDefaults(suiteName: "CEFPageFeaturesTests.\(UUID().uuidString)")!)
+        )
+        #expect(await features.nativeFind.search(needle: "x") == nil)
+        features.devTools.perform(.show)
+        features.setZoomFactor(2)
+        #expect(!features.handle(.devToolsWillOpen(browser: 7)))
+        #expect(shim.calls.isEmpty)
+    }
+
     @Test func zoomFactorsBecomeChromiumLevels() throws {
         let shim = RecordingShim()
         let (features, _, _) = makeFeatures(shim: shim)
@@ -121,7 +153,7 @@ private final class RecordingShim: CEFPageFeatureShim {
     @Test func contextMenuInABackgroundPageIsDismissedAtOnce() {
         let shim = RecordingShim()
         let features = CEFPageFeatures(
-            shim: shim, browserID: 7, pageView: NSView(),
+            shim: shim, browserID: { 7 }, pageView: CEFHostView(),
             layoutStore: BrowserDevToolsLayoutStore(defaults: UserDefaults(suiteName: "CEFPageFeaturesTests.\(UUID().uuidString)")!)
         )
         #expect(features.handle(.contextMenu(browser: 7, token: 42, x: 1, y: 2, itemsJSON: "[]", paramsJSON: "{}")))

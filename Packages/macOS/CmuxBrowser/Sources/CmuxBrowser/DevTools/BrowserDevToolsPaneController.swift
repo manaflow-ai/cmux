@@ -34,6 +34,7 @@ public final class BrowserDevToolsPaneController {
     private unowned let paneView: BrowserDevToolsPaneView
     private let store: BrowserDevToolsLayoutStore
     private let makeWindow: (NSWindow?) -> any BrowserDevToolsWindowHosting
+    private let makeHostView: () -> NSView
     /// Between the engine's will-open and opened events: the layout keeps room.
     private var opening = false
     /// The docked tools' parent view and the divider, while the engine shows tools in a cmux view.
@@ -46,14 +47,18 @@ public final class BrowserDevToolsPaneController {
     ///   - store: Remembers dock side and sizes across pages.
     ///   - makeWindow: Makes the window for undocked tools near the given cmux window. Defaults
     ///     to ``BrowserDevToolsWindow``.
+    ///   - makeHostView: Makes the view the engine's DevTools attach to. Engines whose pages
+    ///     are child windows pass their tracked host view type. Defaults to a plain `NSView`.
     public init(
         paneView: BrowserDevToolsPaneView,
         store: BrowserDevToolsLayoutStore,
-        makeWindow: @escaping (NSWindow?) -> any BrowserDevToolsWindowHosting = { BrowserDevToolsWindow(near: $0) }
+        makeWindow: @escaping (NSWindow?) -> any BrowserDevToolsWindowHosting = { BrowserDevToolsWindow(near: $0) },
+        makeHostView: @escaping () -> NSView = { NSView() }
     ) {
         self.paneView = paneView
         self.store = store
         self.makeWindow = makeWindow
+        self.makeHostView = makeHostView
         let layout = store.load()
         self.layout = layout
         self.state = BrowserDevToolsState(isOpen: false, dock: layout.dock)
@@ -235,6 +240,9 @@ public final class BrowserDevToolsPaneController {
 
     // MARK: Layout (BrowserDevToolsPaneView)
 
+    /// The view the engine's DevTools attach to, while open (in the pane or the DevTools window).
+    public var devToolsHostView: NSView? { views?.host }
+
     /// Whether the pane keeps room for docked tools.
     var reservesRoom: Bool {
         views != nil && layout.dock.isDocked && (state.isOpen || opening)
@@ -267,7 +275,7 @@ public final class BrowserDevToolsPaneController {
     }
 
     private func makeViews() -> (host: NSView, divider: BrowserDevToolsDividerView) {
-        let host = NSView()
+        let host = makeHostView()
         host.setAccessibilityIdentifier("browser.devtools.host")
         let divider = BrowserDevToolsDividerView()
         divider.controller = self
