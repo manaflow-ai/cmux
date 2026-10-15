@@ -103,7 +103,10 @@ public struct DaemonTree: Sendable {
                     let groups = Self.groups(pane["tab_groups"])
                     if let paneID = pane["id"] as? Int { for id in groups.keys { groupPanes[id] = paneID } }
                     for (index, tab) in paneTabs.enumerated() {
-                        guard let surface = tab["surface"] as? Int, tab["dead"] as? Bool != true else { continue }
+                        // A dead tab is listed only when it is a terminal the Mac keeps (Restart
+                        // Shell Here); other dead tabs are gone for the person.
+                        guard let surface = tab["surface"] as? Int,
+                              tab["dead"] as? Bool != true || tab["kind"] as? String == "pty" else { continue }
                         if screen["active"] as? Bool == true, pane["id"] as? Int == activePane, pane["active_tab"] as? Int == index {
                             activeTab = tab
                         }
@@ -201,8 +204,11 @@ public struct DaemonTree: Sendable {
         switch tab["kind"] as? String {
         case "pty", "remote-terminal":
             let subtitle = Self.abbreviated(tab["cwd"] as? String)
-            return WorkspaceTab(id: id, kind: .terminal, title: title.isEmpty ? "Terminal" : title, subtitle: subtitle,
-                                harness: agent?.agent, agentStatus: status)
+            var terminal = WorkspaceTab(id: id, kind: .terminal, title: title.isEmpty ? "Terminal" : title, subtitle: subtitle,
+                                        harness: agent?.agent, agentStatus: status)
+            // Only the Mac's own terminals restart (`restart-tab`: kind pty).
+            if tab["kind"] as? String == "pty", tab["dead"] as? Bool == true { terminal.shellEnded = true }
+            return terminal
         case "browser":
             let url = (tab["url"] as? String).flatMap(URL.init(string:))
             return WorkspaceTab(id: id, kind: .browser, title: title.isEmpty ? (url?.host() ?? "Browser") : title, url: url)

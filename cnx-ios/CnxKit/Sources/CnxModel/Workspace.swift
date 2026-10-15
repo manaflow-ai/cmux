@@ -125,6 +125,10 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     public var group: TabGroupRef?
 
     public var isPinned: Bool { pinned == true }
+    /// A terminal tab whose shell ended and that the Mac keeps (`dead`): Restart Shell
+    /// Here gives it a new shell on the Mac. Optional so older saved copies still decode.
+    public var shellEnded: Bool?
+    public var hasEndedShell: Bool { kind == .terminal && shellEnded == true }
 
     /// A Mac tab group, as a member tab sees it.
     public struct TabGroupRef: Hashable, Sendable, Codable {
