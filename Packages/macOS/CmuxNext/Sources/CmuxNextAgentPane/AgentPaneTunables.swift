@@ -12,5 +12,13 @@ public nonisolated struct AgentPaneTunables {
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor] }
+    /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
+    /// terminal on the right each time." On, the chat header's Terminal opens a split on every
+    /// click (`AgentChatSplitToggles.open`) instead of toggling the one it opened.
+    public static let terminalButtonAdds = Tunable<Bool>.toggle(
+        "agentChat.terminalButtonAdds", .panes, "Terminal button adds a terminal",
+        help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
+        default: false, code: "AgentPaneTunables.terminalButtonAdds")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, terminalButtonAdds.descriptor] }
 }
