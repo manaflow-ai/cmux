@@ -4,12 +4,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { decodeBrowserFramePayload } from "../src/rpc/frames.ts";
 import {
+  FOCUS_SCRIPT,
   IPHONE_USER_AGENT,
   MAX_UNACKED,
   SCREENCAST_QUALITY,
   decodeBrowserFrameMeta,
   jpegSize,
   normalizeUrl,
+  parseFocusPayload,
 } from "../src/providers/browser/index.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -249,6 +251,40 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     // A target the host no longer tracks is still closed in Chrome.
     await client.request("browser.close", { tabId: "UNTRACKED" });
     await expect(client.request("browser.close", { tabId: "GONE" })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("parses focus reports and keeps the focus script valid JavaScript", () => {
+    expect(() => new Function(FOCUS_SCRIPT)).not.toThrow();
+    expect(parseFocusPayload('{"editable":true,"multiline":false,"inputType":"search","enterKeyHint":"search","userInitiated":true}')).toEqual({
+      editable: true,
+      multiline: false,
+      inputType: "search",
+      enterKeyHint: "search",
+      userInitiated: true,
+    });
+    expect(parseFocusPayload('{"editable":false,"multiline":true,"userInitiated":false}')).toEqual({ editable: false, userInitiated: false });
+    expect(parseFocusPayload("nope")).toBeNull();
+    expect(parseFocusPayload('{"editable":"yes"}')).toBeNull();
+  });
+
+  it("tells the stream's owner when an editable element gains or loses focus", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
+    cleanups.push(() => core.shutdown());
+    await client.request("browser.list");
+    const events: any[] = [];
+    client.peer.on("event", (t, p) => t === "browser.focus" && events.push(p));
+    const { streamId } = await client.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 3, mobile: true });
+    expect(cdp.calls.some((c) => c.method === "Runtime.addBinding" && c.params.name === "__cmuxNextFocus")).toBe(true);
+    expect(cdp.calls.some((c) => c.method === "Page.addScriptToEvaluateOnNewDocument" && c.params.source === FOCUS_SCRIPT)).toBe(true);
+    cdp.emit("Runtime.bindingCalled", { name: "__cmuxNextFocus", payload: '{"editable":true,"multiline":false,"inputType":"text","userInitiated":true}' }, "S1");
+    cdp.emit("Runtime.bindingCalled", { name: "__cmuxNextFocus", payload: '{"editable":false,"userInitiated":true}' }, "S1");
+    await waitFor(() => events.length === 2);
+    expect(events[0]).toEqual({ tabId: "T1", streamId, editable: true, multiline: false, inputType: "text", userInitiated: true });
+    expect(events[1]).toEqual({ tabId: "T1", streamId, editable: false, userInitiated: true });
+    await client.request("browser.detach", { streamId });
+    expect(cdp.calls.some((c) => c.method === "Runtime.removeBinding" && c.params.name === "__cmuxNextFocus")).toBe(true);
   });
 
   it("reloads for the user agent only when asked or for tabs the phone created", async () => {
