@@ -346,7 +346,12 @@ export function ComposerQueue({
     </>
   );
   return (
-    <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
+    <ol
+      ref={list}
+      className="acpmux-composer-queue"
+      data-unfolded={foldable && !folded ? "" : undefined}
+      aria-label={`${t("composer.queue")} (${shown.length})`}
+    >
       {paused && (
         <li className="acpmux-queue-paused">
           <span>{t("composer.queuePaused")}</span>

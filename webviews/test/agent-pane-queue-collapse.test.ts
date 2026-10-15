@@ -247,7 +247,6 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                   // Rows show above the fold, and never past the list's own bottom edge.
                   const edge = Math.min(box.bottom, fold.top);
                   const rect = focused.getBoundingClientRect();
-                  const snaps = getComputedStyle(list).scrollSnapType.includes("y");
                   const cut = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")]
                     .map((row) => row.getBoundingClientRect())
                     .filter((row) => row.bottom > box.top + 1 && row.top < edge - 1)
@@ -256,7 +255,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                     focused: focused.dataset.promptId ?? (isFold ? "fold" : focused.className),
                     inSight: inside(rect, isFold ? box.bottom : edge),
                     foldInSight: inside(fold, box.bottom),
-                    wholeRows: snaps || cut === 0,
+                    wholeRows: cut === 0,
                   });
                 }),
               ),

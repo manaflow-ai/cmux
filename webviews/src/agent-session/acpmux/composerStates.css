@@ -294,14 +294,28 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the rows it shows, its text at the
-   prompts' edge, "N more queued" or "Show less". It opens and closes at once: no motion. */
+   prompts' edge, "N more queued" or "Show less". It opens and closes at once: no motion. Opened,
+   the list takes the rows' whole height (the bottom stack's transcript gives way first), so no
+   row is cut; in a pane too short for them the rows scroll under the fold, which stays pinned at
+   the list's bottom edge, and a focused row scrolls clear of it (scroll-padding). The capture of
+   90721dc showed the opened list still capped at 132px, a row cut through and Show less hidden. */
+.acpmux-composer-queue[data-unfolded] {
+  --acpmux-queue-max: none;
+  scroll-padding-bottom: 30px;
+}
 .acpmux-queue-more {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: subgrid;
   min-width: 0;
-  padding: 1px 8px 1px 12px;
+  position: sticky;
+  bottom: -4px;
+  z-index: var(--layer-sticky);
+  /* Over the list's bottom padding, so it covers what scrolls under it. */
+  margin-bottom: -4px;
+  padding: 1px 8px 5px 12px;
   box-sizing: border-box;
+  background: var(--acpmux-composer-tray);
 }
 .acpmux-queue-fold {
   grid-column: 2 / -1;
