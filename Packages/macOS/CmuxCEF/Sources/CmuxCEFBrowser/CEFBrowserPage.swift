@@ -29,6 +29,10 @@ public final class CEFBrowserPage: BrowserPage {
     private var navigationGuardMode: Int32 = 0
     /// The mode last applied to the Chromium browser, nil before it exists.
     private var appliedNavigationGuardMode: Int32?
+    /// Permission prompts waiting for the UI delegate, by shim token.
+    private var pendingPermissions: [Int32: Task<Void, Never>] = [:]
+    /// Downloads of this page, by shim token.
+    private var downloads: [Int32: BrowserPageDownload] = [:]
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
@@ -323,6 +327,8 @@ public final class CEFBrowserPage: BrowserPage {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        pendingPermissions.values.forEach { $0.cancel() }
+        pendingPermissions.removeAll()
         browser.close()
         eventContinuation?.finish()
         eventContinuation = nil
@@ -373,6 +379,88 @@ public final class CEFBrowserPage: BrowserPage {
             emit(.unresponsiveChanged(true))
         case .renderResponsive:
             emit(.unresponsiveChanged(false))
+        case .permissionPrompt(_, let token, let permissions, let origin):
+            handlePermissionPrompt(token: token, bits: permissions, origin: origin)
+        case .permissionDismissed(_, let token):
+            pendingPermissions.removeValue(forKey: token)?.cancel()
+        case .download(let kind, _, let token, let a, let b, let s1, let s2):
+            handleDownload(kind: kind, token: token, a: a, b: b, s1: s1, s2: s2)
+        default:
+            break
+        }
+    }
+
+    // MARK: Permissions
+
+    /// Asks the UI delegate about a Chromium permission prompt and answers
+    /// it. Without a delegate the request is denied; `.prompt` leaves it
+    /// unanswered (Chromium keeps waiting; it is never dismissed).
+    private func handlePermissionPrompt(token: Int32, bits: Int64, origin: String) {
+        let request = BrowserChromiumPermissionRequest(rawValue: UInt32(truncatingIfNeeded: bits))
+            .pageRequest(origin: URL(string: origin))
+        pendingPermissions[token]?.cancel()
+        pendingPermissions[token] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let decision = await self.uiDelegate?.page(self, requestPermission: request) ?? .deny
+            guard !Task.isCancelled, self.pendingPermissions.removeValue(forKey: token) != nil else { return }
+            switch decision {
+            case .grant:
+                CEFRuntime.shared.answerPermission(token: token, allow: true)
+            case .deny:
+                CEFRuntime.shared.answerPermission(token: token, allow: false)
+            case .prompt:
+                break
+            }
+        }
+    }
+
+    // MARK: Downloads
+
+    /// Download events (`CMUX_SHIM_DOWNLOAD_*`): 34 started (the UI delegate
+    /// picks the destination), 35 progress, 36 done.
+    private func handleDownload(kind: Int32, token: Int32, a: Int64, b: Int64, s1: String, s2: String) {
+        switch kind {
+        case 34:
+            let download = BrowserPageDownload(
+                id: String(token),
+                url: URL(string: s1),
+                suggestedFilename: s2.isEmpty ? nil : s2,
+                expectedBytes: a >= 0 ? a : nil,
+                state: .pending
+            )
+            downloads[token] = download
+            emit(.downloadUpdated(download))
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    CEFRuntime.shared.continueDownload(token: token, to: nil)
+                    return
+                }
+                let destination = await self.uiDelegate?.page(self, destinationForDownload: download)
+                CEFRuntime.shared.continueDownload(token: token, to: destination?.path)
+                guard var current = self.downloads[token] else { return }
+                current.destination = destination
+                current.state = destination == nil ? .cancelled : .inProgress
+                self.downloads[token] = destination == nil ? nil : current
+                self.emit(.downloadUpdated(current))
+            }
+        case 35:
+            guard var download = downloads[token] else { return }
+            download.receivedBytes = a
+            download.expectedBytes = b >= 0 ? b : download.expectedBytes
+            download.isPaused = s2 == "paused"
+            download.state = .inProgress
+            downloads[token] = download
+            emit(.downloadUpdated(download))
+        case 36:
+            guard var download = downloads.removeValue(forKey: token) else { return }
+            if !s1.isEmpty { download.destination = URL(fileURLWithPath: s1) }
+            download.isPaused = false
+            download.state = switch a {
+            case 1: .completed
+            case 2: .cancelled
+            default: .failed("interrupted (\(b))")
+            }
+            emit(.downloadUpdated(download))
         default:
             break
         }
