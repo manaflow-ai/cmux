@@ -2231,8 +2231,8 @@
    "value": {
     "compact": {
      "maxWidth": 200,
-     "openStartWidth": 18,
-     "closeEndWidth": 18,
+     "openStartWidth": 0,
+     "closeEndWidth": 0,
      "minActiveWidth": 56,
      "minInactiveWidth": 32,
      "pinnedWidth": 64,
@@ -2244,9 +2244,9 @@
      }
     },
     "comfortable": {
-     "maxWidth": 200,
-     "openStartWidth": 18,
-     "closeEndWidth": 18,
+     "maxWidth": 240,
+     "openStartWidth": 0,
+     "closeEndWidth": 0,
      "minActiveWidth": 56,
      "minInactiveWidth": 32,
      "pinnedWidth": 64,
@@ -2260,7 +2260,12 @@
    },
    "unit": "pt (exitDelay s)",
    "source": "Chromium main 6d3c98f4fe5 (hq-4e spec .cmux-scratch/chrome-tab-motion/SPEC.md): tab_container_impl.cc L1229-1306 (open from the previous right edge minus the 18 DIP overlap, close to the overlap width), L716-741 + L1418-1474 + mouse_watcher.cc L26 (closing mode), dragging_tabs_session.cc L89-94 (reorder threshold 16 DIP x width/256), tab_style.cc (min 56 active, 32 inactive, pinned 64). Lawrence 2026-10-14 \"keep 200\": max width stays 200 (threshold 16 x width/200). cmux-tui/crates/cmux-motion reads this at build time (TabStripGeometry); macOS reads it through cmux-app-ffi.",
-   "use": "Tab strip geometry for the Chrome motion. maxWidth is the default of appearance tabMaxWidth (metrics.tabMaxWidth); a new tab starts openStartWidth wide at the previous tab's right edge minus openStartWidth; a closing tab ends closeEndWidth wide with its left edge pinned; crowding shrinks every tab evenly from maxWidth to minActiveWidth, then the inactive ones to minInactiveWidth (then the strip scrolls); a dragged tab reorders past a neighbour after reorderThreshold x width / maxWidth; mouse closing mode ends belowPad under / trailingPad after the strip plus exitDelay. comfortable = compact (hq-1d 2026-10-15: keep 200 has no density exception; open question for Lawrence whether the taller comfortable row wants other numbers)."
+   "chromeOverlap": {
+    "value": 18,
+    "unit": "pt",
+    "use": "Chrome's tab overlap (TabStyle overlap, 18 DIP). Chrome opens a tab at width 18 at prev.right - 18 and closes it to that, which shows nothing because of the overlap. cmux tabs do not overlap, so openStartWidth and closeEndWidth are 0 (hq-4e 2026-10-15): open from prev.right at width 0, close to width 0 with the left edge pinned to prev.right."
+   },
+   "use": "Tab strip geometry for the Chrome motion. maxWidth is the default of appearance tabMaxWidth (metrics.tabMaxWidth; Lawrence 2026-10-14 \"keep 200\" = keep today's maxima, 200 compact and 240 comfortable, instead of Chrome's 256); a new tab starts openStartWidth wide at the previous tab's right edge minus openStartWidth; a closing tab ends closeEndWidth wide with its left edge pinned there; crowding shrinks every tab evenly from maxWidth to minActiveWidth, then the inactive ones to minInactiveWidth (then the strip scrolls); a dragged tab reorders once the pointer has moved reorderThreshold x (width of the tab at the target index) / 200 since the last reorder; mouse closing mode ends belowPad under / trailingPad after the strip plus exitDelay. Min widths are Chrome's in both densities."
   },
   "springModel": {
    "value": "omega = 2*pi/response; stiffness = omega^2; damping = 2*dampingFraction*omega (SwiftUI .spring(response:dampingFraction:), mass 1). Stepped in closed form from the current displacement AND velocity (exact damped harmonic oscillator, under-, critically or over-damped), so the path is identical at every frame rate; dt is capped at 0.1 s per frame. Retargeting keeps value and velocity. A spring rests (snaps to its target) once |value - target| < epsilon and |velocity| < epsilon * motion.settle.velocityFactor.",

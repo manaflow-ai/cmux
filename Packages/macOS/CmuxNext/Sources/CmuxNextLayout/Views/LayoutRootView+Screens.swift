@@ -38,6 +38,8 @@ extension LayoutRootView {
             if id != model.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 {
                 view.isHidden = true
             }
+            // The thumb's occluder follows the screen's origin and hidden state.
+            view.scrollbar?.syncOccluder()
         }
     }
 }

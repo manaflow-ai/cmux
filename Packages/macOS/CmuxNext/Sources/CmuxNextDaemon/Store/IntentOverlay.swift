@@ -63,11 +63,13 @@ import Foundation
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
-        case .bindAgentSession(let surface, let session):
-            guard let tab = store.tabsBySurface[surface], var record = tab.agentSession, record.session != session else { return nil }
+        case .bindAgentSession(let surface, let session, let harness):
+            guard let tab = store.tabsBySurface[surface], var record = tab.agentSession,
+                  record.session != session || (harness != nil && record.harness != harness) else { return nil }
             let previous = tab.snapshot
             var next = previous
             record.session = session
+            record.harness = harness ?? record.harness
             next.conversation = ConversationTabRef(agentSession: record)
             tab.update(next)
             return .tabSnapshot(surface: surface, previous: previous)
