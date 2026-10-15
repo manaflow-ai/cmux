@@ -72,6 +72,9 @@ final class HomeService {
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
+    /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
+    @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
+    @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
     /// Its durable copy is keyed by the Chief owner (one per Chief home), so
     /// a relaunch or another build shows the same history before the owner
     /// answers (home-state-ownership.md section 4).
@@ -145,6 +148,7 @@ final class HomeService {
             for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
+                homeInbox.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)
                 // Home opened before the owner answered, or the owner came back
@@ -216,6 +220,8 @@ final class HomeService {
     // MARK: Events
 
     private func handle(_ event: DaemonEvent) {
+        homeInbox.note(event)
+        homeCloudInbox.note(event)
         switch event {
         case .conversationChanged(let changed):
             updateList(changed)

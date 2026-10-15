@@ -191,9 +191,14 @@ enum RowDraw {
             let w = parts.reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
             var x = m.centerX - w / 2
             for (s, f, c) in parts {
-                TextDraw.line(s, font: f, color: c, x: x, baseline: top + 27.5, in: ctx, kern: captionKern)
+                TextDraw.line(s, font: f, color: c, x: x, baseline: top + spec.height - 8, in: ctx, kern: captionKern) // 27.5 in a 35.5 pt row
                 x += TextDraw.width(s, font: f, kern: captionKern)
             }
+        case let .notice(s):
+            // As the unsent notice below (ask 9, HostHooks.swift).
+            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+            let w = TextDraw.width(s, font: f)
+            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
@@ -881,7 +886,9 @@ enum TapbackGlyph {
 /// (default `Fixture.renderScale`: inside a view's `Fixture.withRenderScale`, the view's).
 final class RowBitmaps {
     static let shared = RowBitmaps()
-    struct Key: Hashable { var spec: RowSpec; var scale: CGFloat }
+    /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
+    /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
+    struct Key: Hashable { var spec: RowSpec; var scale: CGFloat; var space: CGColorSpace? = WideBitmap.drawSpace }
     private var cache: [Key: CGImage] = [:]
     private var order: [Key] = []
     private var waiters: [Key: [(CGImage) -> Void]] = [:]
@@ -900,11 +907,11 @@ final class RowBitmaps {
     /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
     /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
     /// about 6 % of main in a divider drag).
-    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Key {
-        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale) }
+    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace) -> Key {
+        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale, space: space) }
         var k = spec
         k.width = 0
-        return Key(spec: k, scale: scale)
+        return Key(spec: k, scale: scale, space: space)
     }
     func image(for spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { cache.value(for: RowBitmaps.key(spec, scale: scale)) } // dictionary read
     func has(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Bool {
@@ -1004,21 +1011,22 @@ final class RowBitmaps {
 
     private func apply(_ batch: [(Key, CGImage, Int)]) {
         for (w, img, gen) in batch {
-            // Rendered with an older palette: drop it and render again.
-            guard gen == Fixture.paletteGeneration else {
+            // Rendered with an older palette, or asked in another colour space than the current one (a display change
+            // since the request): drop it and render again (in the current space).
+            guard gen == Fixture.paletteGeneration, w.space == WideBitmap.drawSpace else {
                 let ws = waiters.removeValue(forKey: w) ?? []
                 for d in ws { request(w.spec, scale: w.scale, d) }
                 if ws.isEmpty { request(w.spec, scale: w.scale) }
                 continue
             }
-            store(w.spec, img, scale: w.scale)
+            store(w.spec, img, scale: w.scale, space: w.space)
             waiters.removeValue(forKey: w)?.forEach { $0(img) }
         }
     }
 
-    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat) {
+    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat, space: CGColorSpace?) {
         if TiledBubble.applies(s) { return }
-        let spec = RowBitmaps.key(s, scale: scale)
+        let spec = RowBitmaps.key(s, scale: scale, space: space)
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
         cache.updateValue(img, forKey: spec) // dictionary write
         bytes += img.bytesPerRow * img.height
@@ -1052,7 +1060,13 @@ final class RowBitmaps {
     }
 
     /// Bitmaps rendered ahead of time (loader queue) at `scale`, inserted on main.
-    func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale) { items.forEach { store($0.0, $0.1, scale: scale) } }
+    /// Under the current colour space (WideBitmap.drawSpace). `generation`: the palette generation the items were
+    /// drawn at (off main, before this call); a palette or colour space change since drops them (they are drawn again
+    /// when asked).
+    func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale, generation: Int = Fixture.paletteGeneration) {
+        guard generation == Fixture.paletteGeneration else { return }
+        items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace) }
+    }
 
     /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
     /// prefetch), so a check for rows without bitmaps has something to find.
@@ -1087,6 +1101,15 @@ final class RowBitmaps {
 /// shim's renderer, whose bitmaps are in the window's colour space already.
 enum WideBitmap {
     static let space = LabColorSpace.displayP3 // no force unwrap
+    /// The colour space `make` draws in now (the row bitmap cache's key): AppKit builds draw in the window's display
+    /// space (DisplayScale.colorSpace, process-wide); UIKit builds in their renderer's own (one, so nil).
+    static var drawSpace: CGColorSpace? {
+        #if canImport(UIKit)
+        return nil
+        #else
+        return DisplayScale.colorSpace
+        #endif
+    }
     /// nil when the bitmap cannot be allocated (a huge size, memory pressure); the
     /// caller draws nothing and BitmapFailure logs the first one (crash program, no trap).
     static func make(size: CGSize, scale: CGFloat, opaque: Bool, _ draw: (CGContext) -> Void) -> CGImage? {

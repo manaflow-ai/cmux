@@ -26,6 +26,7 @@ pub mod cli;
 pub mod client;
 pub mod clock;
 pub mod codex_app_server;
+pub mod complete;
 pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;
@@ -40,6 +41,7 @@ pub mod harness_limits;
 pub mod hub;
 #[cfg(windows)]
 mod job;
+pub mod launch_credential;
 pub mod launch_policy;
 pub mod live_models;
 pub mod local_stream;
