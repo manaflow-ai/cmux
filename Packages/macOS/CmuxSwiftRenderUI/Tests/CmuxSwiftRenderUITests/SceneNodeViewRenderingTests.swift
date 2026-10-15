@@ -7,6 +7,7 @@ import Testing
 /// AppKit path a right-click takes, so menu items the host fails to render
 /// show up as missing entries.
 @MainActor
+@Suite(.serialized)
 struct SceneNodeViewRenderingTests {
     /// Sends a left click through AppKit so SwiftUI's native gesture routing
     /// is exercised instead of calling the scene event sink directly.
