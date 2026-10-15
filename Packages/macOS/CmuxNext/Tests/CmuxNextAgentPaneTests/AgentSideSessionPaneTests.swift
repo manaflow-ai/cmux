@@ -109,6 +109,22 @@ struct AgentSideSessionPaneTests {
         }
     }
 
+    /// A chat whose side tabs all closed keeps no tracker: the next chat's lookup drops it, so the
+    /// app does not hold one per chat that ever had a side session.
+    @Test func aChatWhoseSideTabsAllClosedKeepsNoTracker() {
+        let layout = Layout()
+        let chat = "prune-\(UUID().uuidString)"
+        let first = AgentSidePanes.chat(chat)
+        first.open("s1", chat: "chat", hooks: layout.hooks())
+        layout.landMoves()
+        _ = AgentSidePanes.chat("other-\(UUID().uuidString)")
+        #expect(AgentSidePanes.chat(chat) === first, "a tracker with an open side tab was dropped")
+
+        layout.panes["tab-s1"] = nil
+        _ = AgentSidePanes.chat("other-\(UUID().uuidString)")
+        #expect(AgentSidePanes.chat(chat) !== first, "a chat with no open side tab kept its tracker")
+    }
+
     @Test func laterSideSessionsOfAChatOpenAsTabsInItsOneRightPane() {
         let layout = Layout()
         let panes = AgentSidePanes()
