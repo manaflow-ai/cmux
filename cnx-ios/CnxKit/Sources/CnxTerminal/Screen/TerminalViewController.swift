@@ -852,6 +852,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         outputLink = nil
     }
 
+    /// Ghostty pruned `rows` of its oldest rows (`TerminalHistoryPrune`):
+    /// everything held in absolute rows moves up by them, and the offset with
+    /// the document, in this transaction, so the rows on screen stay put
+    /// (also mid-fling: UIKit's deceleration and the fling continue from the
+    /// moved offset).
+    private func historyPruned(_ rows: Int) {
+        sizingLog.notice("history pruned \(rows, privacy: .public) rows at the top (total \(self.scrollbar.total, privacy: .public)): rows held move up")
+        scroll.shiftRows(by: -rows)
+        presentedTop -= rows
+        viewportTop = max(0, viewportTop - rows)
+        recentTops = recentTops.map { max(0, $0 - rows) }
+        steadyViewport = nil
+        restoredMark = nil
+        guard let current = document, cell.height > 0 else { return }
+        let next = TerminalDocumentLayout(originRow: current.originRow - rows, endRow: current.endRow - rows)
+        let reference = max(current.originRow, presentedTop + rows)
+        let shiftY = next.contentY(ofRow: reference - rows, cellHeight: cell.height) - current.contentY(ofRow: reference, cellHeight: cell.height)
+        document = next
+        documentTotal = max(0, documentTotal - rows)
+        settingOffset = true
+        scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+        if shiftY != 0 { scrollView.contentOffset.y += shiftY }
+        settingOffset = false
+        place(atRow: presentedTop)
+    }
+
     /// The reader's rows kept over a mirror reset (V2-3).
     private var readingMark: TerminalReadingMark?
     /// The replay is parsed; the mark is placed at the next scrollbar report.
@@ -989,6 +1015,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func scrollbarReported(total: Int, offset: Int, visible: Int) {
+        if !model.isTUI, !replayGate.isReplaying,
+           let pruned = TerminalHistoryPrune.prunedRows(previousTotal: scrollbar.total, previousOffset: scrollbar.offset,
+                                                         total: total, offset: offset, requestedTop: viewportTop,
+                                                         rows: max(1, surfaceRows)) {
+            historyPruned(pruned)
+        }
         scrollbar = (total, offset, visible)
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
