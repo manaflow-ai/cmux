@@ -167,7 +167,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The chooser's Start Chat: a chat with that agent and model.
     public func startAgentChat(_ start: AgentChatStart) {
         choosingAgent = false
-        _ = createTab(Self.option(.agent(start)))
+        beginTab(Self.option(.agent(start)))
     }
 
     func kitTab(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTab {
@@ -338,11 +338,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// (`pendingTabTitle`), and a refusal leaves the grid exactly as it was. Once the Mac
     /// lists the tab it becomes active and `openedTab` asks the screen to open it.
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
-        createTab(option)
+        beginTab(option)
     }
 
     @discardableResult
-    private func createTab(_ option: TabsKitNewTabOption) -> TabsKitTab.ID? {
+    private func beginTab(_ option: TabsKitNewTabOption) -> TabsKitTab.ID? {
         if option.id == Self.chooseAgentOption.id {
             choosingAgent = true
             return nil
