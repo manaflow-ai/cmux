@@ -1074,10 +1074,16 @@ def main() -> int:
         parser.error("test_filter entries must all target cmuxTests or all target cmuxUITests")
     test_target = targets.pop()
     test_filter = ",".join(args.test_filter)
-    if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
-        parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
     if args.browser_engine and test_target != "cmuxUITests":
         parser.error("--browser-engine takes UI selectors; it sets the engine of the app a UI test launches")
+    if args.browser_engine == "chromium":
+        # test-e2e.yml compiles a Chromium run itself, embedding the engine;
+        # no product CI compiled has it, so waiting for or adopting one is waste.
+        if args.adopt_only:
+            parser.error("--browser-engine chromium compiles its own product; it cannot take --adopt-only")
+        args.full_build = True
+    if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
+        parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
     if args.adopt_main and not args.adopt_only:
         parser.error("--adopt-main goes with --adopt-only")
     if args.ref is not None and not args.ref.strip():

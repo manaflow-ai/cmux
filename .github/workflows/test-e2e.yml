@@ -437,8 +437,10 @@ jobs:
           persist-credentials: false
 
       # A seed dispatch exists to compile, and never adopts a product.
+      # A Chromium run compiles its own product (it embeds the engine), so
+      # no other dispatch's compile helps it.
       - name: Wait for an earlier compile of this revision
-        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') && inputs.browser_engine != 'chromium' }}
         env:
           GH_TOKEN: ${{ github.token }}
           TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
@@ -491,6 +493,10 @@ jobs:
       # artifact id, not the name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
+      # A Chromium run embeds the CEF engine (scripts/cef/embed-cef.sh skips it
+      # under CI=true otherwise). The product contract hashes this when set,
+      # so a Chromium product never answers a WebKit run and the reverse.
+      CMUX_EMBED_CEF: ${{ inputs.browser_engine == 'chromium' && '1' || '' }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -632,6 +638,7 @@ jobs:
       # starts on a root other than the one its product was compiled at.
       - name: Reuse a compiled product instead of building one
         id: reuse
+        if: ${{ inputs.browser_engine != 'chromium' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -906,6 +913,28 @@ jobs:
           esac
           rm -rf -- "$CMUX_DERIVED_DATA_PATH"
           mkdir -p "$CMUX_DERIVED_DATA_PATH"
+
+      # The Embed CEF build phase reads the engine from the ensure-cef cache
+      # and has no credential. Fill the cache here from the private R2 bucket
+      # with the read-only key, which only this step receives (a dispatch is
+      # always a same-repository run). A revision without scripts/cef cannot
+      # embed the engine, and the harness then fails on the engine check.
+      - name: Fetch the Chromium engine for a Chromium run
+        if: ${{ inputs.browser_engine == 'chromium' && steps.reuse.outputs.hit != 'true' }}
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          # A runner's own ~/.secrets file is never a source here.
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+        run: |
+          set -euo pipefail
+          if [ ! -x scripts/cef/ensure-cef.sh ]; then
+            echo "::error::this revision has no scripts/cef/ensure-cef.sh, so it cannot embed the Chromium engine"
+            exit 1
+          fi
+          cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cef/ensure-cef.sh)"
+          echo "Chromium engine cached at $cef_dir; the Embed CEF phase embeds it"
 
       - name: Build the app-host and UI test product
         id: compile

@@ -266,6 +266,20 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertNotIn("reusing that run", result.stdout)
         self.assertEqual(self.dispatch()["browser_engine"], "chromium")
 
+    def test_a_chromium_run_compiles_its_own_product(self):
+        # No CI product embeds the engine, so the launcher never looks for one.
+        for engine, looks in (("webkit", True), ("chromium", False)):
+            with self.subTest(engine=engine):
+                (self.root / "calls.jsonl").unlink(missing_ok=True)
+                result = self.launch("ExampleUITests", "--browser-engine", engine)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                looked = any("head_sha=" in call[-1] for call in self.calls() if call[:1] == ["api"])
+                self.assertEqual(looked, looks)
+                self.assertEqual(self.dispatch()["browser_engine"], engine)
+        refused = self.launch("ExampleUITests", "--browser-engine", "chromium", "--adopt-only")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("cannot take --adopt-only", refused.stderr)
+
     def test_a_browser_engine_needs_ui_selectors(self):
         result = self.launch("cmuxTests/ExampleTests", "--browser-engine", "chromium")
         self.assertNotEqual(result.returncode, 0)
