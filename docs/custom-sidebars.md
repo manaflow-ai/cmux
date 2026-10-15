@@ -240,7 +240,12 @@ Rules of the runtime:
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
   (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
 - Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
-  a handler.
+  a handler. `log(message)` appends an `info` entry to the currently selected
+  workspace's existing sidebar log. The latest entry appears in the built-in
+  workspace row when **Show Latest Log in Sidebar** is enabled; inspect the
+  full buffer while debugging with `cmux list-log` (or
+  `cmux sidebar-state`). Put `log(...)` before a `workspace.select` call when
+  the message belongs to the workspace that is currently selected.
 - Clipboard: `clipboard.write(text)` copies plain text, e.g. a Copy Workspace
   ID menu item: `Button("Copy Workspace ID", () => clipboard.write(w().id))`.
   It only works while cmux is handling a click, double-click, or menu item
