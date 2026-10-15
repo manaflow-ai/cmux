@@ -28,7 +28,7 @@ public import Foundation
 /// its next turn.
 ///
 /// ```swift
-/// let owner = try ChiefConversationOwner(home: .resolve(), brain: brain) { input in
+/// let owner = try await ChiefConversationOwner.load(home: .resolve(), brain: brain) { input in
 ///     ChiefTurnContext(systemPrompt: prompt, workingDirectory: input.home.root)
 /// }
 /// let store = HomeStore(source: ChiefLocalSource(owner: owner))
@@ -70,7 +70,13 @@ public actor ChiefConversationOwner {
     /// the commit is already published.
     public private(set) var lastPersistenceError: String?
 
-    /// Opens (or creates) the Chief home and loads its conversations.
+    /// What the load found wrong with the home's conversation files (damaged
+    /// files kept aside, unreadable ones skipped), for diagnostics.
+    public nonisolated let loadProblems: [String]
+
+    /// Opens (or creates) the Chief home and loads its conversations on the
+    /// caller's thread. The app uses ``load(home:brain:userDisplayName:now:context:)``,
+    /// which reads the files on a background task.
     ///
     /// - Parameters:
     ///   - home: The Chief home; its directories are created.
@@ -78,46 +84,29 @@ public actor ChiefConversationOwner {
     ///   - userDisplayName: The user's name; nil uses `NSFullUserName()`, or "You" when that is empty.
     ///   - now: The clock for message times (tests pass a fixed one).
     ///   - context: Builds each turn's prompt, working directory and environment.
-    /// - Throws: A file system error when the home cannot be created or read.
+    /// - Throws: A file system error when the home's directories cannot be created. A
+    ///   damaged or unreadable conversation file never throws (``loadProblems``).
     public init(home: ChiefHome, brain: any ChiefBrain, userDisplayName: String? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
                 context: @escaping ChiefTurnContextProvider) throws {
+        let people = Self.participants(userDisplayName: userDisplayName)
+        let loaded = try Self.loadConversations(home: home, me: people.me, chief: people.chief, now: now)
+        self.init(home: home, brain: brain, me: people.me, chief: people.chief, now: now, context: context, loaded: loaded)
+    }
+
+    init(home: ChiefHome, brain: any ChiefBrain, me: Participant, chief: Participant,
+         now: @escaping @Sendable () -> Date, context: @escaping ChiefTurnContextProvider,
+         loaded: ChiefLoadedConversations) {
         self.home = home
         self.brain = brain
         self.contextProvider = context
         self.now = now
         self.blobs = ChiefBlobStore(root: home.blobsDirectory)
-        let fullName = userDisplayName ?? NSFullUserName()
-        let name = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let user = Participant(id: Self.userID, kind: .human, displayName: name.isEmpty ? "You" : name)
-        let defaultChief = Participant(id: Self.chiefID, kind: .agent, displayName: "Chief", agentClass: .chief,
-                                       ownerUser: Self.userID)
-        self.me = user
-        self.chief = defaultChief
-        try home.createDirectories()
-        var loaded: [ConversationID: ChiefConversationState] = [:]
-        var logs: [ConversationID: ChiefConversationLog] = [:]
-        let files = try FileManager.default.contentsOfDirectory(at: home.conversationsDirectory, includingPropertiesForKeys: nil)
-        for file in files where file.pathExtension == "jsonl" {
-            guard let state = try ChiefConversationLog.load(file) else { continue }
-            let log = ChiefConversationLog(url: file)
-            try log.rewrite(state)
-            loaded[state.id] = state
-            logs[state.id] = log
-        }
-        if loaded[Self.defaultConversationID] == nil {
-            let created = now()
-            // Unpinned: Home lists it as a row; only the user pins conversations into the grid.
-            let summary = ConversationSummary(id: Self.defaultConversationID, owner: .local, participants: [user, defaultChief],
-                                              createdAt: created, updatedAt: created)
-            let state = ChiefConversationState(summary: summary)
-            let log = ChiefConversationLog(url: Self.file(for: summary.id, in: home))
-            try log.rewrite(state)
-            loaded[summary.id] = state
-            logs[summary.id] = log
-        }
-        self.conversations = loaded
-        self.logs = logs
+        self.me = me
+        self.chief = chief
+        self.conversations = loaded.conversations
+        self.logs = loaded.files.mapValues(ChiefConversationLog.init(url:))
+        self.loadProblems = loaded.problems
     }
 
     static func file(for id: ConversationID, in home: ChiefHome) -> URL {

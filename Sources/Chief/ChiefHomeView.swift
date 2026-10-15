@@ -25,7 +25,9 @@ final class ChiefHomeView: NSView {
     private(set) var transcript: ChiefTranscriptView?
     private(set) var selected: ConversationID
     private var stopped = false
-    private var observers: [any NSObjectProtocol] = []
+    // SAFETY: written only on the main actor; `deinit` reads it once no other
+    // reference exists, and NotificationCenter removal is thread-safe.
+    nonisolated(unsafe) private var observers: [any NSObjectProtocol] = []
     /// Conversations the user marked unread (the owner's read cursor only moves forward).
     private var unreadMarks: Set<String>
     private let defaults: UserDefaults
@@ -55,20 +57,39 @@ final class ChiefHomeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    // Not an isolated deinit (Swift 6.0 has none): the main-thread check guards the hop.
+    // Not an isolated deinit (Swift 6.0 has none). The host tears Home down
+    // (``teardown()``); a view freed without it still stops its transcript: at
+    // once on the main thread, else in one hop that carries the transcript
+    // (never `self`) to the main actor.
     deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for observer in observers { NotificationCenter.default.removeObserver(observer) }
-            stop()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        guard !stopped, let transcript else { return }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { transcript.stop() } // main-proof: this branch runs only on the main thread
+        } else {
+            // task-owner: one hop to the main actor; ends at once
+            Task { @MainActor in transcript.stop() }
         }
     }
 
-    /// Closes the shown conversation. Once.
-    func stop() {
+    /// Stops observing and closes the shown conversation (Chief turned off,
+    /// or the host unmounted Home). Once until ``resumeIfTornDown()``.
+    func teardown() {
         guard !stopped else { return }
         stopped = true
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers = []
         transcript?.stop()
+    }
+
+    /// Shows the selected conversation again after ``teardown()``, for a host
+    /// that mounts the same Home again. Nothing when Home is running.
+    func resumeIfTornDown() {
+        guard stopped else { return }
+        stopped = false
+        observeNotifications()
+        show(selected)
+        reload()
     }
 
     /// Puts the keyboard in the selected conversation's message box.

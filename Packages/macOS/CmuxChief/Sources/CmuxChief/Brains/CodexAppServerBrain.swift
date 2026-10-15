@@ -36,6 +36,8 @@ public actor CodexAppServerBrain: ChiefBrain {
 
     private let configuration: Configuration
     private var conversations: [ConversationID: CodexConversation] = [:]
+    /// Turns `run` handed out that have not reached their conversation yet.
+    private let pendingTurns = ChiefPendingTurns()
 
     /// Creates a brain.
     ///
@@ -48,7 +50,11 @@ public actor CodexAppServerBrain: ChiefBrain {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: ChiefTurnEvent.self, throwing: (any Error).self)
         let token = UUID()
         let conversation = request.conversation
+        let pendingTurns = pendingTurns
+        // Registered before the stream is returned, so a Stop that beats the start task still finds it.
+        pendingTurns.register(token, conversation: conversation)
         continuation.onTermination = { [weak self] _ in
+            pendingTurns.stop(token)
             Task { await self?.existing(conversation)?.detach(token) }
         }
         Task { await self.startTurn(request, token: token, continuation: continuation) }
@@ -60,6 +66,7 @@ public actor CodexAppServerBrain: ChiefBrain {
     }
 
     public func interrupt(conversation: ConversationID) async {
+        pendingTurns.stop(conversation: conversation)
         await conversations[conversation]?.interrupt()
     }
 
@@ -82,7 +89,21 @@ public actor CodexAppServerBrain: ChiefBrain {
             session = CodexConversation(configuration: configuration)
             conversations[request.conversation] = session
         }
-        await session.start(request, token: token, continuation: continuation)
+        await session.start(request, token: token, continuation: continuation, pending: pendingTurns)
+    }
+
+    /// How the driver answers an approval request.
+    enum ApprovalDecision: Equatable {
+        case allow, deny, ask
+    }
+
+    /// The answer to an approval for `command` (nil for file changes): deny
+    /// without a running turn (nobody can answer, and a stopped turn must not
+    /// run more), allow what ``ChiefToolPolicy`` allows, ask about the rest.
+    static func approvalDecision(command: String?, turnRunning: Bool) -> ApprovalDecision {
+        guard turnRunning else { return .deny }
+        if let command, ChiefToolPolicy.autoAllowsCommand(command) { return .allow }
+        return .ask
     }
 
     /// The `thread/start` or `thread/resume` params.
@@ -138,7 +159,14 @@ actor CodexConversation {
         self.configuration = configuration
     }
 
-    func start(_ request: ChiefTurnRequest, token: UUID, continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation) async {
+    func start(_ request: ChiefTurnRequest, token: UUID, continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation,
+               pending: ChiefPendingTurns) async {
+        // Claimed on this actor before any suspension, so an `interrupt()`
+        // queued after a Stop always sees the turn.
+        guard pending.claim(token) else {
+            continuation.finish()
+            return
+        }
         if self.continuation != nil { interrupt() }
         self.continuation = continuation
         self.token = token
@@ -217,10 +245,18 @@ actor CodexConversation {
         let id = nextID
         return try await withCheckedThrowingContinuation { waiter in
             pending[id] = waiter
-            if !process.write(CodexAppServerParser.request(id: id, method: method, params: params).line) {
-                pending.removeValue(forKey: id)?.resume(throwing: ChiefBrainError.protocolError("Codex stopped before \(method)."))
+            let line = CodexAppServerParser.request(id: id, method: method, params: params).line
+            let accepted = process.write(line) { [weak self] written in
+                guard !written else { return }
+                Task { await self?.requestWriteFailed(id: id, method: method) }
             }
+            if !accepted { requestWriteFailed(id: id, method: method) }
         }
+    }
+
+    /// Request `id` could not be written (stdin closed): fail its caller.
+    private func requestWriteFailed(id: Int, method: String) {
+        pending.removeValue(forKey: id)?.resume(throwing: ChiefBrainError.protocolError("Codex stopped before \(method)."))
     }
 
     private func handle(_ line: Data, generation: Int) {
@@ -240,10 +276,9 @@ actor CodexConversation {
                     waiter.resume(returning: result ?? .null)
                 }
             case .approval(let requestID, let kind, let command, let prompt):
-                if let command, ChiefToolPolicy.autoAllowsCommand(command) {
-                    write(CodexAppServerParser.approvalResponse(requestID: requestID, kind: kind, allow: true))
-                } else if continuation == nil {
-                    write(CodexAppServerParser.approvalResponse(requestID: requestID, kind: kind, allow: false))
+                let decision = CodexAppServerBrain.approvalDecision(command: command, turnRunning: continuation != nil)
+                if decision != .ask {
+                    write(CodexAppServerParser.approvalResponse(requestID: requestID, kind: kind, allow: decision == .allow))
                 } else {
                     let id = "codex-" + requestID.compactText
                     approvals[id] = (requestID, kind)

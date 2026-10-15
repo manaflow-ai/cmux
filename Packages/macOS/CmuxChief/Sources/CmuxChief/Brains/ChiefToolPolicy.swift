@@ -4,22 +4,29 @@ import Foundation
 ///
 /// Auto-allowed without an approval card:
 ///
-/// - Claude Code's read-only tools: `Read`, `Glob`, `Grep`, `WebSearch`,
-///   `WebFetch`, `ToolSearch`.
+/// - Claude Code's `WebSearch` and `ToolSearch`.
+/// - `Read`, `Glob` and `Grep` of paths away from credentials
+///   (``ChiefSensitivePaths``): `Read` needs an absolute `file_path`, `Glob`
+///   and `Grep` an absolute `path` that is not the home folder, an ancestor
+///   of it, or an ancestor of a credential folder. `WebFetch` always asks:
+///   a fetched URL can carry what the Chief read.
 /// - A shell command line whose every simple command is allowed, joined by
 ///   `|`, `&&`, `||`, `;` or newlines (see ``ChiefShellLexer``). Redirects
 ///   are limited to `2>&1` and `>/dev/null`; substitution, subshells,
-///   backticks, `<`, background `&` and `$` expansion outside single quotes
-///   ask. The allowed simple commands:
-///   - `cmux …`, except a call naming a destructive verb (closing,
-///     removing, killing, quitting, clearing, publishing, `sudo`, `rpc`,
-///     `--force` and the like; see ``cmuxApprovalWords``).
+///   backticks, `<`, background `&`, `$` expansion outside single quotes,
+///   `$'…'` quoting, brace expansion, globs and tilde expansion ask. The
+///   allowed simple commands:
+///   - `cmux` read-only commands only (``cmuxReadOnlyCommands``: `tree`,
+///     `list-*`, `read-screen`, `vm ls`, …), and none of their words may
+///     name a destructive verb or flag (``cmuxWordAsks(_:)``). Every other
+///     `cmux` command (sending text or keys, creating, closing, `vm exec`,
+///     `browser eval`, `chief …` writes, `config set`) asks.
 ///   - Read-only tools: `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `which`,
 ///     `date`, `jq`, `grep`, `cut`, `tr`, `column`; `rg` without `--pre`;
-///     `sort` without `-o`; `uniq` with at most one file; `awk` without
-///     `system`, pipes, redirection, `getline` or program files; `sed -n`
-///     whose script only prints (`p`, `=`, `l`, `q`, `d`, `n`, `s///` with
-///     `gpiI` flags).
+///     `sort` with only listed ordering flags; `uniq` with at most one file;
+///     `awk` without `system`, pipes, redirection, `getline` or program
+///     files; `sed -n` whose script only prints (`p`, `=`, `l`, `q`, `d`,
+///     `n`, `s///` with `gpiI` flags).
 ///   - Read-only `git` (`status`, `log`, `diff`, `show`, listing `branch`,
 ///     …) and `gh` (`pr view|list|diff|checks|status`, `issue view|list`,
 ///     …).
@@ -40,17 +47,31 @@ enum ChiefToolPolicy {
         ["deny", "decline", "reject", "no", "cancel"].contains(choice.lowercased())
     }
 
-    private static let readOnlyTools: Set<String> = ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch"]
-
     /// Whether Claude Code's `tool` with `input` runs without asking.
     ///
     /// - Parameters:
     ///   - tool: The tool name from the permission request.
     ///   - input: The tool's input.
-    static func autoAllowsClaudeTool(_ tool: String, input: ChiefJSON) -> Bool {
-        if readOnlyTools.contains(tool) { return true }
-        if tool == "Bash", let command = input["command"]?.string { return autoAllowsCommand(command) }
-        return false
+    ///   - home: The user's home folder (tests pass a fixed one).
+    static func autoAllowsClaudeTool(_ tool: String, input: ChiefJSON, home: String = NSHomeDirectory()) -> Bool {
+        let paths = ChiefSensitivePaths(home: home)
+        switch tool {
+        case "WebSearch", "ToolSearch":
+            return true
+        case "Read":
+            guard let file = input["file_path"]?.string else { return false }
+            return paths.allowsRead(file)
+        case "Glob", "Grep":
+            // No `path` searches the brain's working directory, which may be the home folder.
+            guard let root = input["path"]?.string, paths.allowsSearch(root) else { return false }
+            let filters = [tool == "Glob" ? input["pattern"]?.string : nil, input["glob"]?.string].compactMap { $0 }
+            return !filters.contains(where: paths.patternNamesSecrets)
+        case "Bash":
+            guard let command = input["command"]?.string else { return false }
+            return autoAllowsCommand(command)
+        default:
+            return false
+        }
     }
 
     /// Whether a shell command line runs without asking.
@@ -70,16 +91,62 @@ enum ChiefToolPolicy {
     }
 
     /// Words that make a `cmux` call ask first, wherever they appear in it
-    /// (lowercased): verbs that close, remove, kill, quit, wipe, publish or
-    /// escalate, and flags that override a safety check.
+    /// (lowercased, the part before any `=`): verbs that close, remove, kill,
+    /// quit, wipe, type into terminals, run commands, publish or escalate,
+    /// and flags that override a safety check or carry a command. Always
+    /// Allow rules and Home's card use the same check (``cmuxWordAsks(_:)``).
     static let cmuxApprovalWords: Set<String> = [
         "close", "rm", "remove", "delete", "destroy", "kill", "quit", "restart", "relaunch", "reset",
         "clear", "clear-history", "cleanup", "ssh-session-cleanup", "uninstall", "logout",
         "sudo", "rpc", "pipe-pane", "respawn-pane", "set-hook",
         "publish", "access", "grant", "ungrant", "upload", "feedback", "promote-template",
-        "--force", "--yes",
+        "send", "paste", "paste-buffer", "exec", "run", "eval", "repl", "shell", "ssh", "mosh",
+        "approve", "addscript", "addinitscript",
+        "--force", "--yes", "--command", "--eval", "--layout",
     ]
-    private static let cmuxApprovalPrefixes = ["close-", "kill-"]
+    /// Prefixes with the same effect (`close-workspace`, `send-key`, `--force=true`).
+    static let cmuxApprovalPrefixes = [
+        "close-", "kill-", "clear-", "send-", "delete-", "remove-", "--force", "--yes", "--command", "--eval",
+    ]
+
+    /// Whether one word of a `cmux` call names a destructive or escalating
+    /// verb or flag (``cmuxApprovalWords``, ``cmuxApprovalPrefixes``).
+    static func cmuxWordAsks(_ word: String) -> Bool {
+        let lower = word.lowercased()
+        let key = lower.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? lower
+        return cmuxApprovalWords.contains(key) || cmuxApprovalPrefixes.contains { key.hasPrefix($0) }
+    }
+
+    /// The `cmux` commands that only read, checked against `cmux help` and
+    /// each command's `--help`. A call runs without asking when its words
+    /// start with one of these exactly (no global options before it) and no
+    /// later word trips ``cmuxWordAsks(_:)``. Commands that print secrets
+    /// (`workspace env`, `vm env ls --show`) or write on a flag
+    /// (`agent inbox --mark-read`, `workspace status set`) are left out.
+    static let cmuxReadOnlyCommands: [[String]] = {
+        var commands: [[String]] = [
+            ["tree"], ["identify"], ["current"], ["current-window"], ["current-workspace"],
+            ["list-windows"], ["list-workspaces"], ["list-panes"], ["list-pane-surfaces"], ["list-panels"],
+            ["list-status"], ["list-notifications"], ["list-log"], ["list-buffers"],
+            ["read-screen"], ["read-selection"], ["capture-pane"], ["sidebar-state"], ["surface-health"],
+            ["top"], ["memory"], ["version"], ["ping"], ["capabilities"], ["socket-status"], ["browser-status"],
+            ["help"], ["docs"], ["guide"],
+            ["workspace", "list"], ["todo", "list"], ["auth", "status"],
+            ["settings", "path"], ["settings", "docs"],
+            ["config", "get"], ["config", "path"], ["config", "paths"], ["config", "docs"],
+            ["config", "check"], ["config", "validate"],
+            ["chief", "status"], ["chief", "read"], ["chief", "conversations"], ["chief", "home"],
+            ["chief", "memory", "list"], ["chief", "memory", "path"],
+        ]
+        for vm in ["vm", "cloud"] {
+            commands += [
+                [vm, "ls"], [vm, "status"], [vm, "tree"], [vm, "stats"], [vm, "self"], [vm, "wait"],
+                [vm, "terminal", "read"], [vm, "terminal", "wait"], [vm, "terminal", "wait-exit"],
+                [vm, "terminal", "output"],
+            ]
+        }
+        return commands
+    }()
 
     private static let plainReadOnlyPrograms: Set<String> = [
         "ls", "pwd", "cat", "head", "tail", "wc", "which", "jq", "grep", "cut", "tr", "column",
@@ -92,10 +159,7 @@ enum ChiefToolPolicy {
         let args = Array(words.dropFirst())
         switch program {
         case "cmux":
-            return !args.contains { word in
-                let lower = word.lowercased()
-                return cmuxApprovalWords.contains(lower) || cmuxApprovalPrefixes.contains { lower.hasPrefix($0) }
-            }
+            return autoAllowsCmux(args)
         case _ where plainReadOnlyPrograms.contains(program):
             return true
         case "date":
@@ -103,8 +167,7 @@ enum ChiefToolPolicy {
         case "rg":
             return !args.contains { $0.hasPrefix("--pre") }
         case "sort":
-            return !args.contains { $0.hasPrefix("--output") || $0.hasPrefix("--compress-program")
-                || ($0.hasPrefix("-") && !$0.hasPrefix("--") && $0.contains("o")) }
+            return autoAllowsSort(args)
         case "uniq":
             // `uniq in out` writes `out`.
             return args.filter { !$0.hasPrefix("-") }.count <= 1
@@ -119,6 +182,48 @@ enum ChiefToolPolicy {
         default:
             return false
         }
+    }
+
+    /// A read-only `cmux` command (``cmuxReadOnlyCommands``) with no word that asks.
+    private static func autoAllowsCmux(_ args: [String]) -> Bool {
+        guard let command = cmuxReadOnlyCommands.first(where: { args.starts(with: $0) }) else { return false }
+        return !args.dropFirst(command.count).contains(where: cmuxWordAsks)
+    }
+
+    /// `sort` with only ordering flags: GNU sort takes any unambiguous
+    /// abbreviation of a long option (`--out=` is `--output=`), so nothing
+    /// outside this list passes, `-o`, `-T` and `--compress-program` included.
+    private static func autoAllowsSort(_ args: [String]) -> Bool {
+        let longFlags: Set<String> = [
+            "--numeric-sort", "--reverse", "--unique", "--ignore-case", "--ignore-leading-blanks",
+            "--human-numeric-sort", "--version-sort", "--general-numeric-sort", "--month-sort", "--stable",
+            "--dictionary-order", "--ignore-nonprinting", "--zero-terminated", "--check",
+        ]
+        let shortFlags = "nrufbhVgMsdizc"
+        var index = 0
+        var onlyFiles = false
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if onlyFiles || arg == "-" || !arg.hasPrefix("-") { continue }
+            if arg == "--" { onlyFiles = true; continue }
+            if arg.hasPrefix("--") {
+                if longFlags.contains(arg) || arg.hasPrefix("--key=") || arg.hasPrefix("--field-separator=") { continue }
+                if arg == "--key" || arg == "--field-separator" { index += 1; continue }
+                return false
+            }
+            var flags = arg.dropFirst()
+            while let flag = flags.first {
+                flags = flags.dropFirst()
+                if flag == "k" || flag == "t" {
+                    // The rest of the word is the value, else the next word.
+                    if flags.isEmpty { index += 1 }
+                    break
+                }
+                guard shortFlags.contains(flag) else { return false }
+            }
+        }
+        return true
     }
 
     private static func autoAllowsAwk(_ args: [String]) -> Bool {
@@ -194,7 +299,11 @@ enum ChiefToolPolicy {
         }
         guard let sub = rest.first, readOnlyGit.contains(sub) else { return false }
         let subArgs = Array(rest.dropFirst())
-        if subArgs.contains(where: { $0.hasPrefix("--output") }) { return false }
+        // git takes unambiguous abbreviations of long options (`--outp=` is `--output=`).
+        if subArgs.contains(where: { arg in
+            let key = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+            return key.hasPrefix("--output") || (key.count > 3 && "--output".hasPrefix(key))
+        }) { return false }
         let positionals = subArgs.filter { !$0.hasPrefix("-") }
         switch sub {
         case "branch":

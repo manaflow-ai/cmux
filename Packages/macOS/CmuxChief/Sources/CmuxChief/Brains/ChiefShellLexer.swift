@@ -9,8 +9,12 @@ import Foundation
 ///
 /// Anything it does not model returns nil so the caller asks the user:
 /// command or process substitution, backticks, subshells, `<` input,
-/// heredocs, background `&`, comments, unterminated quotes and redirects to
-/// real files.
+/// heredocs, background `&`, comments, unterminated quotes, redirects to
+/// real files, `$'…'` and `$"…"` quoting (ANSI-C escapes and locale
+/// translation rewrite the word), and unquoted characters the shell would
+/// expand into other words: brace expansion (`{`, `}`), globs (`*`, `?`,
+/// `[`, zsh's `^` and `#`), a leading `~` or one after `=` or `:`, and a
+/// leading `=` (zsh's `=cmd` path expansion).
 struct ChiefShellLexer {
     /// One word of a simple command.
     struct Word: Equatable {
@@ -66,12 +70,13 @@ struct ChiefShellLexer {
         started = true
     }
 
-    /// A `$` outside single quotes: `$(` is rejected, `$name`, `${…}`,
-    /// `$1`, `$?` and friends mark the word as expanding, a lone `$` is
-    /// literal.
+    /// A `$` outside single quotes: `$(`, `$'…'` and `$"…"` are rejected,
+    /// `$name`, `${…}`, `$1`, `$?` and friends mark the word as expanding, a
+    /// lone `$` is literal.
     private mutating func dollar() -> Bool {
         guard let next = peek(1) else { append("$"); return true }
-        if next == "(" { return false }
+        // `$'--pre=bash'` decodes escapes (`\x74` is `t`), `$"…"` translates.
+        if next == "(" || next == "'" || next == "\"" { return false }
         let special: Set<Unicode.Scalar> = ["{", "_", "?", "#", "@", "*", "!", "$", "-"]
         if special.contains(next) || CharacterSet.alphanumerics.contains(next) { expands = true }
         append("$")
@@ -126,6 +131,16 @@ struct ChiefShellLexer {
             case "$":
                 guard dollar() else { return nil }
                 index += 1
+            case "{", "}", "*", "?", "[", "^", "#":
+                // Brace expansion and globs turn one word into others
+                // (`clo{s,}e-workspace`, `{--pre=bash,}`).
+                return nil
+            case "~" where !started || current.unicodeScalars.last == "=" || current.unicodeScalars.last == ":":
+                // Tilde expansion: `~`, `--output=~/x`, `PATH:~/bin`.
+                return nil
+            case "=" where !started:
+                // zsh expands `=cmd` to the program's path.
+                return nil
             default:
                 append(scalar)
                 index += 1

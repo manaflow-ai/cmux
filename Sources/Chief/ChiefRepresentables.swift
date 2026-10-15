@@ -15,6 +15,8 @@ struct ChiefHomeRepresentable: NSViewRepresentable {
     var isActive: Bool
 
     func makeNSView(context: Context) -> ChiefHomeView {
+        // SwiftUI may unmount and mount the window's one Home again.
+        home.resumeIfTornDown()
         home.isActive = isActive
         return home
     }
@@ -22,6 +24,12 @@ struct ChiefHomeRepresentable: NSViewRepresentable {
     func updateNSView(_ view: ChiefHomeView, context: Context) {
         // Focus follows `cmuxChiefHomeDidActivate` (ChiefHomeView), first entry included.
         view.isActive = isActive
+    }
+
+    /// Home left the window (window closed, Chief turned off): stop streaming
+    /// now rather than whenever, and on whichever thread, the view is freed.
+    static func dismantleNSView(_ view: ChiefHomeView, coordinator: ()) {
+        view.teardown()
     }
 }
 

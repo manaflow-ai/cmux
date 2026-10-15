@@ -2814,7 +2814,7 @@ struct ContentView: View {
                 AppDelegate.shared?.startChiefIfEnabled()
             } else {
                 ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState).leave()
-                chiefHome?.stop()
+                chiefHome?.teardown()
                 chiefHome = nil
             }
         })
