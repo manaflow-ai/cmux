@@ -2479,6 +2479,17 @@ export class AcpmuxDirectClient {
     const result = await this.request("_acpmux/ask", { sessionId: this.selectedSessionId, text: question });
     return typeof result?.text === "string" ? result.text : "";
   }
+  /// Opens a side session about the open session (`/btw`, `_acpmux/btw`): acpmux starts a
+  /// read-only chat on a cheap model (`model` overrides its pick) that holds this chat as context,
+  /// sends it `question`, and answers at once. Resolves to the side session's id, which the host
+  /// opens beside this chat; undefined without an open session.
+  async btw(question: string, model?: string): Promise<string | undefined> {
+    if (!this.selectedSessionId) return undefined;
+    const params: Record<string, unknown> = { sessionId: this.selectedSessionId, question };
+    if (model) params.model = model;
+    const result = await this.request("_acpmux/btw", params);
+    return typeof result?.sessionId === "string" ? result.sessionId : undefined;
+  }
   async setModel(modelId: string): Promise<void> {
     if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });
   }

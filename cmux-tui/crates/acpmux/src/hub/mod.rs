@@ -6,6 +6,8 @@
 
 mod adoption;
 mod aside;
+mod btw;
+pub(crate) use btw::SIDE_TAG;
 mod bookmarks;
 mod catalog_reload;
 mod cursor_ext;
