@@ -145,7 +145,7 @@ Mac side unchanged from round 5 (`cnx-e2e-604fc689` on mini-2).
    `drawHierarchy`), then `showStaticCard`.
 4. V5-4 / D4 rows 39 vs 42 (Mac side), V5-5 closed tab's terminal lingering.
 5. D1, D11, D12 (the launch screen is already black in dark mode: `LaunchBackground` has a dark
-   appearance; the white screen is light mode with a dark terminal tab, a design decision), D6, D10,
+   appearance, checked 0.35 s after launch on `cnx-termqa-impl` in dark mode: `round6/d12-launch-dark.png`; the white screen is light mode with a dark terminal tab, a design decision), D6, D10,
    V2-6, T-LIFE-08, 60-minute Codex and Claude Code sessions, G-14, G-17, the link-status reader.
 6. Following still reads pixels every frame (p99 3.36 ms on the simulator): band-limited read next.
 7. PR 20809: re-run of the disk-refused compile job requested on run 38690447375.
