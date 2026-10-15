@@ -54,6 +54,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
+        "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),
