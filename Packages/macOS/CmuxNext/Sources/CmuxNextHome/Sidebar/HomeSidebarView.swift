@@ -46,7 +46,6 @@ public final class HomeSidebarView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         list.frame = bounds
-        list.autoresizingMask = [.width, .height]
         addSubview(list)
         SystemScrollers.follow(list.scrollView)
         addSubview(dragStrip)

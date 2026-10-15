@@ -259,12 +259,17 @@ try:
     check("the pinned channel is first in Messages", (native_list() or [{}])[0].get("id") == pinned, native_list())
     shot("1-messages-list")
 
-    # Cloud rows come from the build's own daemon (its Cloud lease), asked with owners ["cloud"]. Signed out here:
-    # the local rows stay and the list says so in one quiet line.
+    # Cloud rows come from the build's own daemon (its Cloud lease), asked by the app with owners ["cloud"]. Signed
+    # out here: the local rows stay and the list says so in one quiet line. The state is the app's own answer.
     app_path = chief_socket("cmux-app-%s" % TAG)
     if check("the build's daemon socket answers", bool(app_path), TAG):
-        cloud = (Line(app_path).request("home-inbox", owners=["cloud"]) or {}).get("cloud")
-        check("the build's daemon answers the Cloud state", cloud in ("included", "signed_out", "unavailable"), cloud)
+        try:
+            Line(app_path).request("home-inbox", owners=["cloud"])
+            check("the build's daemon serves home-inbox with owners", True)
+        except (OSError, RuntimeError, ValueError) as error:
+            check("the build's daemon serves home-inbox with owners", False, str(error))
+        cloud = poll(lambda: dock().get("messages_cloud"), 30)
+        check("the app has the Cloud state from the build's daemon", cloud in ("included", "signed_out", "unavailable"), dock().get("messages_cloud"))
         note = poll(lambda: dock().get("messages_note"), 15) if cloud in ("signed_out", "unavailable") else None
         if cloud == "signed_out":
             check("Messages shows the quiet signed-out note", note == "Sign in to see your Cloud conversations.", dock().get("messages_note"))

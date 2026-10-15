@@ -43,7 +43,11 @@ public final class HomeInboxSource {
         switch event {
         case .conversationChanged: if !isCloud { refresh() }
         case .unknown(let name, _) where Self.rowEvents.contains(name): if !isCloud { refresh() }
-        case .cloudConversations: if isCloud { refresh() }
+        case .cloudConversations(let cloud) where isCloud:
+            switch cloud {
+            case .inboxChanged, .inboxReset, .resynced, .subscriptionState: refresh()
+            default: break
+            }
         default: break
         }
     }
@@ -62,7 +66,10 @@ public final class HomeInboxSource {
                 guard generation == self.generation else { continue }
                 switch read {
                 case .unsupported: if reply != nil { reply = nil }
-                case .reply(let next): if pendingWrites == 0, reply != next { reply = next }
+                case .reply(var next):
+                    // The Cloud did not answer: its last rows stay, only the state changes.
+                    if next.cloud == "unavailable", let last = reply { next.rows = last.rows }
+                    if pendingWrites == 0, reply != next { reply = next }
                 case .failed: break
                 }
                 if !readAgain { break }
@@ -96,15 +103,15 @@ public final class HomeInboxSource {
         write([(id, .pin(on, position: on ? Self.now() : nil))])
     }
 
-    /// The pinned rows in `order` (a drag in the pinned grid): each gets a position in that order.
-    public func place(_ order: [String]) {
+    /// This owner's pinned rows at new positions (a drag in the pinned grid; the caller numbers the whole
+    /// shown grid, both owners, in its new order).
+    public func place(_ positions: [(id: String, position: UInt64)]) {
         guard var list = rows else { return }
-        let base = Self.now()
-        let placed = Set(order)
-        let pinned = order.compactMap { id in list.first { $0.id == id } }.enumerated().map { index, row in
+        let placed = Set(positions.map(\.id))
+        let pinned = positions.compactMap { place in list.first { $0.id == place.id }.map { ($0, place.position) } }.map { row, position in
             var row = row
             row.pinned = true
-            row.pinPosition = base + UInt64(index)
+            row.pinPosition = position
             return row
         }
         list.removeAll { placed.contains($0.id) }
@@ -149,5 +156,5 @@ public final class HomeInboxSource {
 
     /// Milliseconds since 1970: the position the Channels page gives a pin too, so both views'
     /// pins sort by when they were made.
-    private static func now() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
+    static func now() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
 }

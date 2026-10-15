@@ -46,8 +46,18 @@ struct HomeInboxMapping {
         let all = lists.flatMap { $0 }
         guard lists.filter({ !$0.isEmpty }).count > 1 else { return all }
         let pinned = all.filter(\.pinned).sorted { ($0.pinPosition ?? .max, $0.id) < ($1.pinPosition ?? .max, $1.id) }
-        let rest = all.filter { !$0.pinned }.sorted { $0.activityAt != $1.activityAt ? $0.activityAt > $1.activityAt : $0.id < $1.id }
+        let rest = all.filter { !$0.pinned }.map { (key: timeKey($0.activityAt), row: $0) }
+            .sorted { $0.key != $1.key ? $0.key > $1.key : $0.row.id < $1.row.id }.map(\.row)
         return pinned + rest
+    }
+
+    /// An RFC 3339 UTC time with its fraction as exactly three digits, so two owners' times sort as text
+    /// (the daemon's merge key: `...:07Z` is `...:07.000`).
+    static func timeKey(_ time: String) -> String {
+        let plain = time.hasSuffix("Z") ? String(time.dropLast()) : time
+        let parts = plain.split(separator: ".", maxSplits: 1)
+        let fraction = parts.count > 1 ? String(parts[1].prefix(3)) : ""
+        return String(parts.first ?? "") + "." + fraction.padding(toLength: 3, withPad: "0", startingAt: 0)
     }
 
     /// The owner's kinds; a channel draws as a group (the list has no channel style of its own).

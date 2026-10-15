@@ -29,8 +29,8 @@ extension HomeService {
                                           userID: auth.isSignedIn ? auth.user?.id : nil,
                                           displayName: auth.user?.displayName ?? auth.user?.primaryEmail ?? "")
             }) {
-                cloudInbox.connectionChanged(local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil)
                 await linker.apply(link)
+                cloudInbox.connectionChanged(local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil)
             }
         }
     }

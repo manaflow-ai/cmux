@@ -60,9 +60,10 @@ public struct CloudInboxOpRequest: DaemonRequest {
         case conversation, op
         case idempotencyKey = "idempotency_key"
     }
-    public init(conversation: String, idempotencyKey: String = UUID().uuidString.lowercased(), op: ConversationInboxOpRequest.Op) {
+    /// A nil key is a new one.
+    public init(conversation: String, idempotencyKey: String? = nil, op: ConversationInboxOpRequest.Op) {
         self.conversation = conversation
-        self.idempotencyKey = idempotencyKey
+        self.idempotencyKey = idempotencyKey ?? UUID().uuidString.lowercased()
         self.op = op
     }
 }

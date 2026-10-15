@@ -42,7 +42,7 @@ extension DebugHome {
                 .object(["id": .string(item.id.rawValue), "title": .string(item.title), "pinned": .bool(item.isPinned),
                          "unread": .bool(item.unread), "chief": .bool(item.isChief)])
             }),
-            "messages_note": view.messages?.list.model.note.map { .string($0) } ?? .null,
+            "messages_note": view.messages?.list.model.note.map { .string($0) } ?? .null, "messages_cloud": view.messages?.list.model.cloudState.map { .string($0) } ?? .null,
             "handoff": view.lastHandoff.map { .object(["conversation": .string($0.conversation), "message": $0.message.map { .string($0) } ?? .null]) } ?? .null,
         ])
     }

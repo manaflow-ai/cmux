@@ -139,10 +139,16 @@ public final class HomeSidebarSource {
     /// keeps the order: with the owner among its pinned rows when it lists `id`, else with this account's pins.
     public func place(_ id: ConversationID, at index: Int) {
         let shown = model(query: "", now: Date()).pinned.map(\.id)
-        if let inbox = owner(of: id) {
-            var order = shown.filter { $0 != id && owner(of: $0) === inbox }
+        if owner(of: id) != nil {
+            // The whole grid in its new order gets positions, each pin with its own owner, so pins of both owners keep that order.
+            var order = shown.filter { $0 != id && owner(of: $0) != nil }
             order.insert(id, at: min(max(0, index), order.count))
-            return inbox.place(order.map(\.rawValue))
+            let base = HomeInboxSource.now()
+            for inbox in inboxes {
+                let mine = order.enumerated().filter { owner(of: $0.element) === inbox }.map { (id: $0.element.rawValue, position: base + UInt64($0.offset)) }
+                if !mine.isEmpty { inbox.place(mine) }
+            }
+            return
         }
         pins.place(id, at: index, shown: shown)
         store.save(pins, account: account())
