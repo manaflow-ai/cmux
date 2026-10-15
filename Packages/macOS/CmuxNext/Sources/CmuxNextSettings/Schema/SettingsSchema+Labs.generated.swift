@@ -5,6 +5,12 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.sidebarStatusGrouping`: Offers Status in Group Projects By and the sidebar.groupBy.status action; without it sidebar.groupBy "status" reads as none.
+    public nonisolated static let sidebarStatusGroupingPath = ["labs", "sidebarStatusGrouping"]
+    public nonisolated static let sidebarStatusGroupingDefault = false
+    /// `labs.sidebarStatusElbow`: Read only with labs.sidebarStatusGrouping on.
+    public nonisolated static let sidebarStatusElbowPath = ["labs", "sidebarStatusElbow"]
+    public nonisolated static let sidebarStatusElbowDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -23,6 +29,26 @@ nonisolated enum LabsSettingsSchema {
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.sidebarStatusGroupingPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.sidebarStatusGrouping", "Group Sidebar by Status"),
+                help: SettingsText.keyed("settings.labs.sidebarStatusGrouping.help", "The sidebar groups workspaces by agent status: Needs you, Working, Done."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.sidebarStatusGroupingDefault),
+                keywords: ["labs", "sidebar", "group", "status", "agents", "needs you", "working", "done"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.sidebarStatusElbowPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.sidebarStatusElbow", "Nest Child Agent Sessions"),
+                help: SettingsText.keyed("settings.labs.sidebarStatusElbow.help", "Child agent sessions hang off their parent row with the ⎿ connector; only with status grouping."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.sidebarStatusElbowDefault),
+                keywords: ["labs", "sidebar", "agents", "sessions", "child", "parent", "nest", "subagents", "tree"]
+            ),
         ]
     }
 }
@@ -31,6 +57,8 @@ nonisolated enum LabsSettingsSchema {
 /// `CmuxConfigSnapshot.lab(_:)`, never its key path.
 public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     case previewFeatures
+    case sidebarStatusGrouping
+    case sidebarStatusElbow
 
     /// The cmux.json key: `labs.<name>`.
     public var key: String { "labs." + rawValue }
@@ -39,6 +67,8 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var owner: String {
         switch self {
         case .previewFeatures: "leo"
+        case .sidebarStatusGrouping: "leo"
+        case .sidebarStatusElbow: "leo"
         }
     }
 
@@ -46,6 +76,8 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var intent: String {
         switch self {
         case .previewFeatures: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        case .sidebarStatusGrouping: "The sidebar groups workspaces by agent status: Needs you, Working, Done."
+        case .sidebarStatusElbow: "Child agent sessions hang off their parent row with the ⎿ connector; only with status grouping."
         }
     }
 
@@ -53,6 +85,8 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var created: String {
         switch self {
         case .previewFeatures: "2026-10-03"
+        case .sidebarStatusGrouping: "2026-10-14"
+        case .sidebarStatusElbow: "2026-10-14"
         }
     }
 
@@ -60,6 +94,8 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var expires: String {
         switch self {
         case .previewFeatures: "2026-10-27"
+        case .sidebarStatusGrouping: "2026-10-28"
+        case .sidebarStatusElbow: "2026-10-28"
         }
     }
 
@@ -67,6 +103,8 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var cohort: LabsCohort {
         switch self {
         case .previewFeatures: .off
+        case .sidebarStatusGrouping: .off
+        case .sidebarStatusElbow: .off
         }
     }
 }
