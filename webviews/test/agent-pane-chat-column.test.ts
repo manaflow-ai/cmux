@@ -432,31 +432,50 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// once nothing moves.
   const endClearance = async (page: Page, what: "actions" | "line", toEnd = false) => {
     await restingLastLine(page);
-    if (toEnd) {
+    if (toEnd)
       await page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         scroller.scrollTop = scroller.scrollHeight;
       });
-      await restingLastLine(page);
-    }
-    return page.evaluate((what) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const composer = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-composer")!;
-      const end =
-        what === "actions"
-          ? [...scroller.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)
-          : [...scroller.querySelectorAll<HTMLElement>("p")].at(-1);
-      const top = Math.min(
-        ...[composer, ...composer.querySelectorAll<HTMLElement>("*")]
-          .filter((node) => node.getBoundingClientRect().height > 0)
-          .map((node) => node.getBoundingClientRect().top),
-      );
-      return {
-        clears: end ? Math.round(top - end.getBoundingClientRect().bottom) : null,
-        viewEnds: Math.round(top - scroller.getBoundingClientRect().bottom),
-      };
-    }, what);
+    // Read at rest: the composer grows with its draft and the view follows the text a frame or more
+    // later, so the reading counts once it holds for STILL_FRAMES painted frames.
+    return page.evaluate(
+      ({ what, still }) =>
+        new Promise<{ clears: number | null; viewEnds: number }>((done) => {
+          const read = () => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const composer = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-composer")!;
+            const end =
+              what === "actions"
+                ? [...scroller.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)
+                : [...scroller.querySelectorAll<HTMLElement>("p")].at(-1);
+            const top = Math.min(
+              ...[composer, ...composer.querySelectorAll<HTMLElement>("*")]
+                .filter((node) => node.getBoundingClientRect().height > 0)
+                .map((node) => node.getBoundingClientRect().top),
+            );
+            return {
+              clears: end ? Math.round(top - end.getBoundingClientRect().bottom) : null,
+              viewEnds: Math.round(top - scroller.getBoundingClientRect().bottom),
+            };
+          };
+          let last = JSON.stringify(read());
+          let held = 0;
+          const started = performance.now();
+          const frame = () => {
+            const now = read();
+            const text = JSON.stringify(now);
+            held = text === last ? held + 1 : 0;
+            last = text;
+            if (held >= still || performance.now() - started > 3_000) done(now);
+            else requestAnimationFrame(frame);
+          };
+          requestAnimationFrame(frame);
+        }),
+      { what, still: STILL_FRAMES },
+    );
   };
+  const STILL_FRAMES = 10;
   /// The room the last row keeps over the composer: the composer never covers it, and it never
   /// sits on the composer's edge.
   const BREATHING = 16;
@@ -506,14 +525,53 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   test("each fold motion moves every row the fold moves: a slide, a short fade, or none", async () => {
     // Leo 2026-10-14 (#20610): a motion option that shows nothing is no option. When the reader
     // opens or closes a Worked for fold, every row that changes place slides there (slide) or fades
-    // in there over 120-180 ms (fade, sliding none); none animates nothing.
-    type Toggle = { moved: string[]; motions: { id: string; property: string; duration: number }[] };
+    // in there over 120-180 ms (fade, sliding none, and fading no row it did not move); none animates
+    // nothing. The header the reader toggled keeps its place in every mode.
+    type Toggle = {
+      moved: string[];
+      kept: string[];
+      header: number;
+      motions: { id: string; property: string; duration: number }[];
+    };
     const toggles: Record<string, Toggle[]> = {};
     for (const mode of ["slide", "fade", "none"]) {
       const chat = newChat();
       const page = await open(chat, 900, 700, `&foldMotion=${mode}`);
       push(chat, "mux", "turn_result", { status: "completed" });
-      await page.locator(".cv-turn-actions").last().waitFor();
+      // A short last turn, followed at the end with its header in view, as a chat ends.
+      push(chat, "mux", "user_message", { text: "List the steps", promptId: "p-2" });
+      push(chat, "mux", "turn_started", {});
+      for (const id of ["c2", "c3"]) {
+        const command = `cat step-${id}.log`;
+        push(
+          chat,
+          "in",
+          "tool_call",
+          update({
+            sessionUpdate: "tool_call",
+            toolCallId: id,
+            title: command,
+            kind: "execute",
+            status: "in_progress",
+            rawInput: { command },
+          }),
+        );
+        push(
+          chat,
+          "in",
+          "tool_call_update",
+          update({
+            sessionUpdate: "tool_call_update",
+            toolCallId: id,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: "ok" } }],
+          }),
+        );
+      }
+      push(chat, "in", "agent_message_chunk", chunk("Two steps, both done."));
+      push(chat, "mux", "turn_result", { status: "completed" });
+      await page.getByText("Two steps, both done.").waitFor();
+      await page.waitForFunction(() => document.querySelectorAll(".cv-turn-actions").length >= 2);
       await restingLastLine(page);
       await page.evaluate(() => {
         const animate = Element.prototype.animate;
@@ -538,14 +596,21 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           ),
         );
       toggles[mode] = [];
+      const header = () =>
+        page.evaluate(() => [...document.querySelectorAll(".cv-worked.is-toggle")].at(-1)!.getBoundingClientRect().top);
       for (let toggle = 0; toggle < 2; toggle++) {
+        // The header is in view; the reader clicks it (a DOM click, as Playwright's would scroll).
         const before = await tops();
+        const was = await header();
         await page.evaluate(() => ((window as any).__motions = []));
-        await page.locator(".cv-worked.is-toggle").last().click();
+        await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".cv-worked.is-toggle")].at(-1)!.click());
         await page.waitForTimeout(400);
         const after = await tops();
+        const moved = (id: string) => id in before && Math.abs(after[id]! - before[id]!) > 0.5;
         toggles[mode]!.push({
-          moved: Object.keys(after).filter((id) => id in before && Math.abs(after[id]! - before[id]!) > 0.5),
+          moved: Object.keys(after).filter(moved),
+          kept: Object.keys(after).filter((id) => id in before && !moved(id)),
+          header: Math.round((await header()) - was),
           motions: await page.evaluate(() => (window as any).__motions),
         });
       }
@@ -562,8 +627,23 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       fadeStill: unmoved("fade", "opacity"),
       fadeSlides: all("fade").filter((motion) => motion.property === "translate").length,
       fadeLong: all("fade").filter((motion) => motion.duration < 120 || motion.duration > 180),
+      // Rows the fold did not move stay in full ink: a fade of the whole view reads as a blank frame.
+      fadeKept: toggles.fade!.flatMap(({ kept, motions }) => motions.filter((motion) => kept.includes(motion.id))),
       none: all("none").length,
-    }).toEqual({ moves: [true, true], slideStill: [], fadeStill: [], fadeSlides: 0, fadeLong: [], none: 0 });
+      // The header the reader toggled stays where it was, in every mode.
+      headers: Object.fromEntries(
+        Object.entries(toggles).map(([mode, list]) => [mode, list.map((toggle) => toggle.header)]),
+      ),
+    }).toEqual({
+      moves: [true, true],
+      slideStill: [],
+      fadeStill: [],
+      fadeSlides: 0,
+      fadeLong: [],
+      fadeKept: [],
+      none: 0,
+      headers: { slide: [0, 0], fade: [0, 0], none: [0, 0] },
+    });
   });
 
   test("a prompt is a solid bubble with its text inset evenly, at the column's right edge", async () => {
