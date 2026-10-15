@@ -129,33 +129,18 @@ struct ChromiumPageFailureOverlay: View {
         }
         .padding(metrics.unresponsiveCardPadding)
         .frame(minWidth: metrics.unresponsiveCardMinWidth, maxWidth: metrics.unresponsiveCardMaxWidth, alignment: .leading)
-        // Opaque fill and a hairline instead of material and a shadow: the
-        // card shows through a hole in the page window, where material would
-        // blur cmux's views and a shadow would be clipped (spec §0.9).
-        .background(
-            Color(nsColor: .windowBackgroundColor),
-            in: RoundedRectangle(cornerRadius: metrics.unresponsiveCardCornerRadius, style: .continuous)
+        // Over a Chromium page the card sits in a notched hole of the page
+        // window: opaque fill and a hairline instead of material and a shadow
+        // (spec §0.9, chrome-ui's shared card treatment).
+        .browserPageOverlayCard(
+            overlays,
+            cornerRadius: metrics.unresponsiveCardCornerRadius,
+            fill: Color(nsColor: .windowBackgroundColor)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: metrics.unresponsiveCardCornerRadius, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        )
-        .background(cardHole)
+        .browserPageOccluding(overlays, id: "pageFailure.card", cornerRadius: metrics.unresponsiveCardCornerRadius)
         .padding(metrics.pageFailureHorizontalInset)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("BrowserChromiumUnresponsiveCard")
-    }
-
-    /// The card's hole in the page window: exactly the card, not the space
-    /// around it, so the frozen page stays visible around the card. One rect:
-    /// the page window honours a single hole per overlay today, so the
-    /// notched three-band hole of spec §0.9 waits for multi-rect support (a
-    /// band-split hole showed only its first band); until then the four
-    /// corner arcs show the pane background.
-    private var cardHole: some View {
-        Color.clear
-            .browserPageOccluding(overlays, id: "pageFailure.card")
-            .accessibilityHidden(true)
     }
 }
 

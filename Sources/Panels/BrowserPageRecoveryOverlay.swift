@@ -123,8 +123,9 @@ struct ChromiumLoadFailureView: View {
 
     var body: some View {
         ZStack {
+            // Opaque: in the Chromium page's hole only the host placeholder
+            // would show through a veil (spec §0.9).
             Color(nsColor: backgroundColor)
-                .opacity(0.92)
             VStack(spacing: metrics.recoverySpacing) {
                 Image(systemName: "exclamationmark.triangle")
                     .cmuxFont(size: metrics.recoveryIconSize)

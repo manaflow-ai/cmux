@@ -40,9 +40,12 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
     private weak var contentView: NSView?
     private weak var occlusionTarget: (any BrowserPageOcclusionHosting)?
     private var occludingAnchors: [String: WeakView] = [:]
+    private var occludingRadii: [String: CGFloat] = [:]
     private var floatingOverlays: [String: FloatingOverlay] = [:]
     private var updateObserver: (any NSObjectProtocol)?
     private weak var observedWindow: NSWindow?
+    /// The floating placement last asked for (published on the next turn).
+    private var pendingFloatingPlacement = false
 
     public init() {}
 
@@ -64,9 +67,21 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
         self.contentView = contentView
         if let occlusionTarget, occlusionTarget !== target { occlusionTarget.pageOcclusionRects = [] }
         occlusionTarget = target
-        let panels = target != nil && contentView != nil
-        if hostsFloatingOverlaysInPanels != panels { hostsFloatingOverlaysInPanels = panels }
+        publishFloatingPlacement(target != nil && contentView != nil)
         update()
+    }
+
+    /// Publishes where floating overlays draw. Attaching runs inside SwiftUI
+    /// view updates (`makeNSView` / `updateNSView`), where publishing is not
+    /// allowed, so the change lands on the next main-queue turn.
+    private func publishFloatingPlacement(_ inPanels: Bool) {
+        guard pendingFloatingPlacement != inPanels else { return }
+        pendingFloatingPlacement = inPanels
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.pendingFloatingPlacement == inPanels,
+                  self.hostsFloatingOverlaysInPanels != inPanels else { return }
+            self.hostsFloatingOverlaysInPanels = inPanels
+        }
     }
 
     /// Detaches the page (the panel closes or swaps its page).
@@ -77,15 +92,26 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
     // MARK: Occluding overlays
 
     /// `anchor` shows an occluding overlay (its frame is the overlay's frame).
-    public func registerOccluding(_ anchor: NSView, id: String) {
+    /// A rounded card passes its `cornerRadius`, so the page shows in its
+    /// corners (notched hole, design spec §0.9).
+    public func registerOccluding(_ anchor: NSView, id: String, cornerRadius: CGFloat = 0) {
         occludingAnchors[id] = WeakView(view: anchor)
+        occludingRadii[id] = cornerRadius
         update()
     }
 
     public func unregisterOccluding(id: String) {
+        occludingRadii[id] = nil
         guard occludingAnchors.removeValue(forKey: id) != nil else { return }
         update()
     }
+
+    /// Whether overlays sit over a child-window (Chromium) page. An occluding
+    /// overlay then draws in a hole of the page, where material blurs cmux's
+    /// own views rather than the page and an outer shadow is clipped: it
+    /// switches to an opaque fill with a 0.5 pt separator stroke
+    /// (`browserPageOverlayCard`, design spec §0.9). WebKit keeps its look.
+    public var overlaysSitInPageHoles: Bool { hostsFloatingOverlaysInPanels }
 
     // MARK: Floating overlays
 
@@ -125,15 +151,23 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
             for overlay in floatingOverlays.values { overlay.panel.detach() }
             return
         }
-        let contentRect = contentView.convert(contentView.bounds, to: nil)
+        // Holes are in the content view's own coordinates (AppKit handles a
+        // flipped view or a bounds offset).
         let plan = BrowserPageOcclusionPlan(
-            contentRectInWindow: contentRect,
-            overlayRectsInWindow: occludingAnchors.values.compactMap { Self.shownRectInWindow($0.view, window: window) }
+            contentBounds: contentView.bounds,
+            overlays: occludingAnchors.compactMap { id, anchor in
+                Self.shownRectInWindow(anchor.view, window: window).map {
+                    BrowserPageOcclusionPlan.Overlay(rect: contentView.convert($0, from: nil),
+                                                     cornerRadius: occludingRadii[id] ?? 0)
+                }
+            }
         )
         let holes = plan.holes
         if occlusionTarget.pageOcclusionRects != holes { occlusionTarget.pageOcclusionRects = holes }
+        let contentRect = contentView.convert(contentView.bounds, to: nil)
         for overlay in floatingOverlays.values {
-            guard let rect = Self.shownRectInWindow(overlay.anchor.view, window: window)?.intersection(contentRect),
+            guard window.isVisible,
+                  let rect = Self.shownRectInWindow(overlay.anchor.view, window: window)?.intersection(contentRect),
                   !rect.isNull, !rect.isEmpty else {
                 overlay.panel.detach()
                 continue
