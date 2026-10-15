@@ -1407,7 +1407,13 @@ test "$daemon_pid" = fixture
     });
     try {
       const result = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; cmux_ensure_opencode_config`], {
-        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, CMUX_CODEROUTER_URL: server.origin, OPENAI_API_KEY: "cmux-vm-edge-placeholder" },
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+          HOME: home,
+          CMUX_CODEROUTER_URL: server.origin,
+          OPENAI_BASE_URL: `${server.origin}/v1`,
+          OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        },
       });
       expect(result.status).toBe(78);
       expect(result.stderr).toBe(`cmux: ${message}\n`);
