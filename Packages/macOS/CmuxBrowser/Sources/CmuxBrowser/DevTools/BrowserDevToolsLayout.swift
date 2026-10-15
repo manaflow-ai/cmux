@@ -105,6 +105,28 @@ public struct BrowserDevToolsLayout: Hashable, Sendable {
         return min(max(wanted, minimumDevToolsExtent), available - minimumPageExtent)
     }
 
+    /// The tools' share of the pane along the dock axis, 0 to 1 (the divider's accessibility value).
+    public var devToolsShare: Double {
+        dock.isSide ? sideFraction : bottomFraction
+    }
+
+    /// Grows the tools by `points` along the dock axis (negative shrinks them), within the
+    /// tools and page minimums: the divider's arrow keys and accessibility increment.
+    /// - Parameters:
+    ///   - points: The change of the tools' extent.
+    ///   - bounds: The pane's content bounds.
+    public mutating func resizeDevTools(by points: CGFloat, in bounds: CGRect) {
+        let extent = dock.isSide ? bounds.width : bounds.height
+        let available = max(extent - lineThickness, 1)
+        let current = Self.devToolsExtent(fraction: devToolsShare, extent: extent, lineThickness: lineThickness)
+        let size = Self.devToolsExtent(fraction: Double((current + points) / available), extent: extent, lineThickness: lineThickness)
+        if dock.isSide {
+            sideFraction = Double(size / available)
+        } else {
+            bottomFraction = Double(size / available)
+        }
+    }
+
     /// Moves the divider line to `point` during a drag, updating the fraction of the current dock.
     /// - Parameters:
     ///   - point: The mouse location in content coordinates.

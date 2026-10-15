@@ -315,6 +315,14 @@ public final class BrowserDevToolsPaneController {
         store.save(layout)
     }
 
+    /// Grows the docked tools by `points` (negative shrinks them) and remembers the size.
+    func resizeDevTools(by points: CGFloat) {
+        layout.resizeDevTools(by: points, in: paneView.bounds)
+        store.save(layout)
+        paneView.needsLayout = true
+        paneView.layoutSubtreeIfNeeded()
+    }
+
     private func makeViews() -> (host: NSView, divider: BrowserDevToolsDividerView) {
         let host = makeHostView()
         host.setAccessibilityIdentifier("browser.devtools.host")

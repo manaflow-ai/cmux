@@ -52,6 +52,18 @@ import Testing
         #expect(abs(layout.sideFraction - 0.12) < 0.0001)
     }
 
+    @Test func keyboardResizingStaysWithinTheMinimums() {
+        var layout = BrowserDevToolsLayout(dock: .bottom, bottomFraction: 0.4)
+        layout.resizeDevTools(by: 16, in: bounds)
+        #expect(BrowserDevToolsLayout.devToolsExtent(fraction: layout.bottomFraction, extent: 801) == 336)
+        layout.resizeDevTools(by: -10_000, in: bounds)
+        #expect(BrowserDevToolsLayout.devToolsExtent(fraction: layout.bottomFraction, extent: 801) == 120)
+        layout.dock = .right
+        layout.resizeDevTools(by: 10_000, in: bounds)
+        #expect(BrowserDevToolsLayout.devToolsExtent(fraction: layout.sideFraction, extent: 1001) == 920)
+        #expect(abs(layout.devToolsShare - 0.92) < 0.0001)
+    }
+
     @Test func forkSideValuesMapToDocks() {
         #expect(BrowserDevToolsDock(forkSide: 0) == .window)
         #expect(BrowserDevToolsDock(forkSide: 1) == .left)

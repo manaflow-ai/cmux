@@ -11,11 +11,70 @@ final class BrowserDevToolsDividerView: NSView {
     weak var controller: BrowserDevToolsPaneController?
     private var dragging = false
 
+    /// How far one arrow key or accessibility step moves the divider.
+    static let keyboardStep: CGFloat = 16
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setAccessibilityIdentifier("browser.devtools.divider")
+        setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
+        setAccessibilityLabel(String(
+            localized: "browser.devTools.divider.accessibility",
+            defaultValue: "Developer Tools divider",
+            bundle: .module
+        ))
     }
+
+    // MARK: Accessibility and keyboard
+
+    override func accessibilityValue() -> Any? {
+        // The tools' share of the pane, as a whole percentage.
+        controller.map { NSNumber(value: Int(($0.layout.devToolsShare * 100).rounded())) }
+    }
+
+    override func accessibilityOrientation() -> NSAccessibilityOrientation {
+        isSide ? .vertical : .horizontal
+    }
+
+    override func accessibilityPerformIncrement() -> Bool {
+        controller?.resizeDevTools(by: Self.keyboardStep)
+        return controller != nil
+    }
+
+    override func accessibilityPerformDecrement() -> Bool {
+        controller?.resizeDevTools(by: -Self.keyboardStep)
+        return controller != nil
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+
+    /// Arrow keys move the divider: toward the page grows the tools.
+    override func keyDown(with event: NSEvent) {
+        guard let controller else { return super.keyDown(with: event) }
+        let dock = controller.layout.dock
+        let step = Self.keyboardStep
+        let delta: CGFloat?
+        switch (event.specialKey, dock) {
+        case (.leftArrow?, .right): delta = step
+        case (.rightArrow?, .right): delta = -step
+        case (.leftArrow?, .left): delta = -step
+        case (.rightArrow?, .left): delta = step
+        case (.upArrow?, .bottom): delta = step
+        case (.downArrow?, .bottom): delta = -step
+        default: delta = nil
+        }
+        guard let delta else { return super.keyDown(with: event) }
+        controller.resizeDevTools(by: delta)
+        NSAccessibility.post(element: self, notification: .valueChanged)
+    }
+
+    override func drawFocusRingMask() {
+        bounds.fill()
+    }
+
+    override var focusRingMaskBounds: NSRect { bounds }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
