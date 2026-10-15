@@ -193,7 +193,12 @@ final class CEFTabContentView: NSView {
         let devToolsHost = tab?.devToolsController.views?.host
         // A fit (cx-qby5j) shows the page in its presented rect inside the frame view.
         let emulation = tab?.deviceEmulation
-        let fitPage = emulation?.presentedRect(in: pageViewportFrame)
+        // The frame stays under the host view (the pane host is re-added at the bottom on a tab switch).
+        if let frame = subviews.first(where: { $0 is BrowserFitFrameView }), subviews.first !== frame {
+            addSubview(frame, positioned: .below, relativeTo: nil)
+        }
+        // With a side panel, Chromium's window holds the panel and the page, so the host keeps the page frame.
+        let fitPage = tab?.sidePanel.state == nil ? emulation?.presentedRect(in: pageViewportFrame) : nil
         for subview in subviews {
             let frame: CGRect
             if let fitFrame = subview as? BrowserFitFrameView {
@@ -214,6 +219,10 @@ final class CEFTabContentView: NSView {
             if subview.frame != frame { subview.frame = frame }
         }
         tab?.applyOcclusion()
+        // DevTools or the side panel moved the page area without a resize of this view: refit.
+        if let tab, let emulation, emulation.viewport(in: emulation.layoutArea(in: pageViewportFrame).size) != tab.deviceEmulationViewport {
+            tab.applyDeviceEmulation()
+        }
     }
 
     /// Adds the fit frame under the page for a fit and removes it otherwise.

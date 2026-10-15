@@ -7,7 +7,7 @@ public nonisolated enum BrowserFitCommand: Sendable, Equatable {
     case fit(String?)
     /// Ask for a custom aspect ratio or width (the palette's argument page).
     case custom
-    /// Page zoom: +1 in, -1 out, 0 actual size.
+    /// Page zoom: +1 in, -1 out, 0 actual size (the frame runs it on its own browser chrome).
     case zoom(Int)
 }
 
@@ -76,9 +76,9 @@ public final class BrowserFitFrameView: NSView {
         tabID = emulation?.tabID
         value = emulation?.fit?.value ?? ""
         label.stringValue = text
-        choose.title = Strings.title(value)
-        note.isHidden = !Self.explains
+        if note.isHidden != !Self.explains { note.isHidden = !Self.explains; needsLayout = true }
         if changed {
+            choose.title = Strings.title(value)
             applyColors()
             needsDisplay = true
             needsLayout = true
@@ -131,6 +131,7 @@ public final class BrowserFitFrameView: NSView {
     @objc private func showChoices() {
         Self.explains = false
         note.isHidden = true
+        needsLayout = true
         let menu = NSMenu()
         menu.addItem(.sectionHeader(title: Strings.aspectRatio))
         for aspect in Self.aspects { add(Strings.title(aspect), .fit(aspect), checked: aspect == value, to: menu) }
@@ -144,7 +145,8 @@ public final class BrowserFitFrameView: NSView {
         add(Strings.actualSize, .zoom(0), to: menu)
         menu.addItem(.separator())
         add(Strings.turnOff, .fit(nil), to: menu)
-        menu.popUp(positioning: nil, at: CGPoint(x: 0, y: choose.bounds.maxY + 4), in: choose)
+        // Upward: the bar is at the bottom of the pane.
+        menu.popUp(positioning: nil, at: CGPoint(x: 0, y: choose.bounds.minY - 4), in: choose)
     }
 
     @objc private func turnOff() { run(.fit(nil)) }
@@ -157,6 +159,14 @@ public final class BrowserFitFrameView: NSView {
     private func run(_ command: BrowserFitCommand) {
         Self.explains = false
         note.isHidden = true
+        needsLayout = true
+        if case .zoom(let step) = command {
+            // Page zoom of the tab this frame belongs to, as its toolbar's zoom does.
+            var view = superview
+            while let current = view, !(current is BrowserChromeView) { view = current.superview }
+            (view as? BrowserChromeView)?.perform(step > 0 ? .zoomIn : step < 0 ? .zoomOut : .resetZoom)
+            return
+        }
         guard let tabID else { return }
         Self.perform?(tabID, command)
     }

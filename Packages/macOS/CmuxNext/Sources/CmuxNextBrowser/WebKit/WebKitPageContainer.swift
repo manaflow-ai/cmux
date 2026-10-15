@@ -93,6 +93,7 @@ final class WebKitPageContainer: NSView {
     private func placeEmulatedPage() {
         guard let page else { return }
         updateFitFrame()
+        fitFrame?.isHidden = !pageAlone
         guard let placement = emulatedPlacement(), pageAlone else {
             // No emulation, or the inspector owns the web view's frame.
             guard isScaledForEmulation else { return }
