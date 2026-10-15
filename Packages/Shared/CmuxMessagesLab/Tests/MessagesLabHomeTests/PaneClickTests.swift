@@ -233,4 +233,19 @@ import Testing
         _ = window.performKeyEquivalent(with: Self.key(window, "v", code: 9, mods: .command))
         #expect(Self.lastIntents?.pasted.isEmpty == true)
     }
+
+    /// Command-V with the field focused and no bubble click: the main menu's Paste. AppKit sends the
+    /// menu item's nil-targeted `paste:` to the key window's first responder and up its chain; this is
+    /// that dispatch on the pane's window (a test window is not key), and the field pastes.
+    @Test func theMenusPasteWithTheFieldFocusedPastesIntoTheField() throws {
+        let (controller, window, _) = try Self.focusedPane()
+        let field = try #require(controller.demo?.compose.textView.view)
+        window.makeFirstResponder(field)
+        let pb = try Self.privatePasteboard(controller)
+        defer { pb.releaseGlobally() }
+        let item = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        #expect(window.firstResponder?.tryToPerform(#selector(NSText.paste(_:)), with: item) == true)
+        #expect(window.firstResponder === field)
+        #expect(Self.lastIntents?.pasted == [pb.name])
+    }
 }

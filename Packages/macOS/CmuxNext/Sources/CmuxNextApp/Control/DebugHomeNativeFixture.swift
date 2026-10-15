@@ -182,6 +182,10 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else { return .object(["error": .string("click needs x and y")]) }
             let clicked = view.debugClick(atWindow: CGPoint(x: x, y: y), count: params["count"]?.intValue ?? 1)
             return .object(["ok": .bool(clicked), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+        case "paste":
+            // The main menu's Paste to this window's first responder, as AppKit sends it from a key window
+            // (a never-key capture window does not get the menu's action).
+            ok = view.debugMenuPaste()
         case "blocked_opens":
             // What the fixture's link and attachment clicks would have opened (the fixture never opens apps).
             let urls = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.blockedOpens ?? []
@@ -192,7 +196,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies, stream, blocked_opens or thread_state")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies, stream, blocked_opens, paste or thread_state")])
         }
         return .object(["ok": .bool(ok)])
     }

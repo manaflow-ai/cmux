@@ -509,6 +509,24 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// Automation (DEBUG socket): the main menu's Paste as AppKit sends it from a key window: its
+    /// action (`paste:`, from the main menu's own item when it has one) to this window's first
+    /// responder and up its chain. A window that is not key never gets the menu's action (AppKit sends
+    /// a nil-targeted action to the key window), so a capture on a never-key window drives it here.
+    /// True when a responder took it.
+    public func debugMenuPaste() -> Bool {
+        guard let window, let responder = window.firstResponder else { return false }
+        func find(_ menu: NSMenu?) -> NSMenuItem? {
+            for item in menu?.items ?? [] {
+                if item.action == #selector(NSText.paste(_:)) { return item }
+                if let found = find(item.submenu) { return found }
+            }
+            return nil
+        }
+        let item = find(NSApp.mainMenu) ?? NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        return responder.tryToPerform(#selector(NSText.paste(_:)), with: item)
+    }
+
     /// Automation (DEBUG fixtures): links and attachments call `handler` with the URL they would open
     /// instead of opening it in another app (nil restores the system's open).
     public func debugReplaceExternalOpens(_ handler: ((URL) -> Void)?) {
