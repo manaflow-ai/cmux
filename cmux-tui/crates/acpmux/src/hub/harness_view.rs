@@ -9,12 +9,22 @@ impl Hub {
     /// probe problems, and a profile file's display, capability, auth and
     /// sessions data; plus the profile sources' diagnostics.
     pub async fn harnesses_view(&self) -> Value {
+        // Before the config lock: the table reads it with `try_read`.
+        let web_modes = self.web_modes();
         let cfg = self.config.read().await;
         let mut agents = serde_json::Map::new();
         for (name, p) in &cfg.harnesses {
             let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
             if let Some(o) = v.as_object_mut() {
                 o.insert("family".into(), json!(crate::config::derive_family(name, p)));
+                // What a remote device (a phone) may start with it: the modes
+                // a session it starts runs in, the start mode first, or why
+                // not (`web_modes::remote_start`, the remote guard's rules).
+                let remote = match crate::web_modes::remote_start(&web_modes, name, p) {
+                    Ok(modes) => json!({"startable": true, "modes": modes}),
+                    Err(reason) => json!({"startable": false, "reason": reason}),
+                };
+                o.insert("remote".into(), remote);
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
                 }

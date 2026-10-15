@@ -896,7 +896,7 @@ pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, fami
 
 mod launchers;
 pub(crate) use launchers::which;
-pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
+pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{
