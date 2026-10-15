@@ -248,12 +248,6 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter())
-        // A terminal's launch credential names that one terminal; no agent
-        // acts as the terminal that started acpmux, not even through a preset.
-        .env_remove(crate::config::LAUNCH_CREDENTIAL_ENV)
-        // Nor as the Chief whose host started acpmux (config::CHIEF_CREDENTIAL_ENV).
-        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[0])
-        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[1])
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
@@ -267,6 +261,8 @@ pub(crate) fn harness_command(
     // port: a job object there (a later landing).
     #[cfg(unix)]
     cmd.process_group(0);
+    // Only its own session's credential: never acpmux's, a preset's or a Chief's.
+    crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
