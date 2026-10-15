@@ -1,6 +1,6 @@
 //! The lists against what the page sends (webviews/src/agent-session/acpmux),
 //! as AcpmuxPaneMethods.swift says they were made: every
-//! `this.request("...")` in direct.ts, `HANDOFF_OPS` (handoff/protocol.ts),
+//! `this.request("...")` in direct.ts and sessionPages.ts, `HANDOFF_OPS` (handoff/protocol.ts),
 //! `PERMISSION_GROUP_OPS` (permissions/protocol.ts), `FORK_OP`
 //! (operations.ts), `PREWARM_METHOD` (direct.ts), and the raw
 //! `session/cancel` notification. `file.search` (and the git reads, sent by a
@@ -63,6 +63,7 @@ fn the_allowlist_is_what_the_page_sends() {
     let dir = pane();
     let direct = read(&dir, "direct.ts");
     let mut sent: BTreeSet<String> = quoted_after(&direct, "this.request(").into_iter().collect();
+    sent.extend(quoted_after(&read(&dir, "sessionPages.ts"), "this.request("));
     sent.extend(object_values(&read(&dir, "handoff/protocol.ts"), "HANDOFF_OPS"));
     sent.extend(object_values(&read(&dir, "permissions/protocol.ts"), "PERMISSION_GROUP_OPS"));
     sent.insert(constant(&read(&dir, "operations.ts"), "FORK_OP"));

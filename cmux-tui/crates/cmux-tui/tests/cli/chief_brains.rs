@@ -383,3 +383,68 @@ fn a_chief_brain_finds_claude_on_the_persons_login_path() {
     let _ = owned.child.wait();
     wait_gone(pid, "after daemon shutdown");
 }
+
+/// The account's home directory (the user database), as the app's default
+/// Chief host gets it (`FileManager.homeDirectoryForCurrentUser`).
+fn account_home() -> String {
+    // SAFETY: getpwuid returns a pointer into static storage or null; it is
+    // read at once, on this thread.
+    unsafe {
+        let record = libc::getpwuid(libc::getuid());
+        assert!(!record.is_null(), "no user database record");
+        std::ffi::CStr::from_ptr((*record).pw_dir).to_str().unwrap().to_owned()
+    }
+}
+
+/// A new Chief's brain gets the same HOME as the default Chief's (hq-6d P1
+/// 2026-10-14, mac26 401): the account's home, not the HOME of the process
+/// that started the app. An app started by a job runner with its own HOME
+/// (nx-remote on mac26: HOME is the job root) gave the daemon that HOME; the
+/// new Chief's host then read the person's Claude settings env (the
+/// subrouter route) from `<job root>/.claude/settings.json`, found none,
+/// and its turns signed in with the account's expired login.
+#[test]
+fn a_chief_brain_gets_the_accounts_home_like_the_default_chief() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbh");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    // The job runner's own HOME, which the daemon inherits.
+    let job_home = files.join("job-home");
+    fs::create_dir_all(job_home.join(".claude")).unwrap();
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let job_home_text = job_home.display().to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-home",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str()), ("HOME", job_home_text.as_str())],
+    );
+    let server = &owned;
+    let scout = make_chief(server, "Scout", "Researcher");
+    let scout_home = brain_dir(&chief_home, &scout);
+    let pid: i32 = wait_file(&scout_home.join("pid.1")).parse().unwrap();
+    let env = env_of(&scout_home.join("env.1"));
+    assert_eq!(
+        env.get("HOME").map(String::as_str),
+        Some(account_home().as_str()),
+        "the brain's HOME is not the account's (the job runner's was {job_home_text})"
+    );
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(pid, "after daemon shutdown");
+}

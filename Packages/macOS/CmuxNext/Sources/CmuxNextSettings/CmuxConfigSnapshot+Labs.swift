@@ -54,6 +54,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: the agent pane's unfinished surfaces and Click by Hint.
     public var previewFeatures: Bool { lab(.previewFeatures) }
 
+    /// `labs.classicHome`: Home as the classic top page (cx-ebm.59.5); read once at launch.
+    public var classicHome: Bool { lab(.classicHome) }
+
     /// Each `labs.<name>` the file sets; a value that is not a bool is unset plus a diagnostic.
     static func parseLabs(_ root: JSONValue) -> ([LabsFlag: Bool], [SettingsDiagnostic]) {
         var values: [LabsFlag: Bool] = [:]

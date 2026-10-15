@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.classicHome`: Home as the classic top page (the Chief conversation full window) instead of the home workspace with the Chief's page in a left dock (hq-6d cx-ebm.59.5). Off by default; kept for one release. HomeDock.classic reads it through DesignSettings.classicHome.
+    public nonisolated static let classicHomePath = ["labs", "classicHome"]
+    public nonisolated static let classicHomeDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -23,6 +26,16 @@ nonisolated enum LabsSettingsSchema {
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.classicHomePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.classicHome", "Classic Home"),
+                help: SettingsText.keyed("settings.labs.classicHome.help", "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.classicHomeDefault),
+                keywords: ["home", "chief", "classic", "dock", "page"]
+            ),
         ]
     }
 }
@@ -31,6 +44,7 @@ nonisolated enum LabsSettingsSchema {
 /// `CmuxConfigSnapshot.lab(_:)`, never its key path.
 public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     case previewFeatures
+    case classicHome
 
     /// The cmux.json key: `labs.<name>`.
     public var key: String { "labs." + rawValue }
@@ -39,6 +53,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var owner: String {
         switch self {
         case .previewFeatures: "leo"
+        case .classicHome: "hq-6d"
         }
     }
 
@@ -46,6 +61,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var intent: String {
         switch self {
         case .previewFeatures: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        case .classicHome: "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
         }
     }
 
@@ -53,6 +69,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var created: String {
         switch self {
         case .previewFeatures: "2026-10-03"
+        case .classicHome: "2026-10-14"
         }
     }
 
@@ -60,6 +77,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var expires: String {
         switch self {
         case .previewFeatures: "2026-10-27"
+        case .classicHome: "2026-10-28"
         }
     }
 
@@ -67,6 +85,7 @@ public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
     public var cohort: LabsCohort {
         switch self {
         case .previewFeatures: .off
+        case .classicHome: .off
         }
     }
 }

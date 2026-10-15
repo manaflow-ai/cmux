@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -189,6 +190,7 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here first.
     for (let attempt = 1; ; attempt++) {
