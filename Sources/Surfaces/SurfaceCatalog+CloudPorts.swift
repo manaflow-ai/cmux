@@ -95,7 +95,10 @@ extension SurfaceCatalog {
         if let resource {
             return preferredLocalWorkspaceID(for: resource, fallback: fallback)
         }
-        return projections.first(where: { $0.resource == resourceID })?.workspaceID ?? fallback
+        // A port named before discovery (`cmux vm open <m> <port>`) has no
+        // resource yet; it still opens beside the machine's other surfaces.
+        return projections.first(where: { $0.resource == resourceID })?.workspaceID
+            ?? (resourceID.isForwardedPort ? machineWorkspaceID(resourceID.machine, fallback: fallback) : fallback)
     }
 
     /// Resolves the local workspace for a value captured from a tree snapshot.
@@ -108,9 +111,12 @@ extension SurfaceCatalog {
         let machine = resource.machine
         let remoteWorkspaceIDs = Set(resource.remoteWorkspaces.map(\.id))
         guard !remoteWorkspaceIDs.isEmpty else {
-            // A machine-pool port has no remote workspace owner. Never infer one
-            // from unrelated projections on the same machine.
-            return projections.first(where: { $0.resource == resource.id })?.workspaceID ?? fallback
+            // A machine-pool port has no remote workspace owner: it opens where
+            // it is already shown, else beside the machine's other surfaces, so
+            // `cmux vm open <m> <port>` from an unrelated local workspace (or the
+            // sidebar with one selected) lands in the machine's workspace.
+            return projections.first(where: { $0.resource == resource.id })?.workspaceID
+                ?? machineWorkspaceID(machine, fallback: fallback)
         }
         var relatedIDs = Set([resource.id])
         relatedIDs.formUnion(resources.values.compactMap { candidate -> SurfaceResourceID? in
@@ -138,6 +144,27 @@ extension SurfaceCatalog {
                 || (count == current.count && id.uuidString < current.id.uuidString) {
                 winner = (id, count)
             }
+        }
+        return winner?.id ?? fallback
+    }
+
+    /// The local workspace that shows the most of `machine`'s surfaces. The
+    /// caller's workspace wins whenever it already shows any of them, so an
+    /// explicit choice among several machine workspaces is never overridden;
+    /// with no machine surface open locally the caller's workspace is used.
+    func machineWorkspaceID(_ machine: SurfaceMachineID, fallback: UUID?) -> UUID? {
+        var counts: [UUID: Int] = [:]
+        for projection in projections where projection.resource.machine == machine {
+            counts[projection.workspaceID, default: 0] += 1
+        }
+        if let fallback, counts[fallback] != nil { return fallback }
+        var winner: (id: UUID, count: Int)?
+        for (id, count) in counts {
+            if let current = winner,
+               count < current.count || (count == current.count && id.uuidString >= current.id.uuidString) {
+                continue
+            }
+            winner = (id, count)
         }
         return winner?.id ?? fallback
     }

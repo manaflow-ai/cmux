@@ -440,4 +440,163 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("work/r on brave-otter already holds a checkout of github.com/other/r"), result.stderr)
         XCTAssertTrue(result.stderr.contains("--dir"), result.stderr)
     }
+
+    // MARK: - Declared secrets and setup
+
+    /// The clone exec's stdout for a checkout holding `.cmux/cloud.json`.
+    private static func vmCloneOutput(withCloudJSON cloudJSON: String) -> String {
+        "cmux-clone=cloned\ncmux-manifest .cmux/cloud.json \(Data(cloudJSON.utf8).base64EncodedString())\n"
+    }
+
+    private static let vmCloneManifest = #"""
+    {
+      // what the project needs
+      "env": [{"name": "DATABASE_URL", "description": "Postgres for tests"}, "ANTHROPIC_API_KEY"],
+      "setup": ["bun install", "bun run build"],
+    }
+    """#
+
+    /// The app's side of a clone whose checkout declares secrets and setup. `setupOutput`
+    /// is what the "setup" terminal printed.
+    private static func vmCloneSetupResponder(setupOutput: String) -> @Sendable (String, [String: Any]) -> [String: Any]? {
+        { method, params in
+            switch method {
+            case "vm.secrets_sync": return ["machine": "brave-otter", "sent": [], "removed": [], "noop": true]
+            case "vm.exec": return ["exit_code": 0, "stdout": vmCloneOutput(withCloudJSON: vmCloneManifest), "stderr": ""]
+            case "vm.secrets_check":
+                return [
+                    "declared": [
+                        ["name": "DATABASE_URL", "description": "Postgres for tests", "source": ".cmux/cloud.json", "stored": false, "scopes": [], "effective": false],
+                        ["name": "ANTHROPIC_API_KEY", "description": NSNull(), "source": ".cmux/cloud.json", "stored": true, "scopes": ["all"], "effective": true],
+                    ],
+                    "missing": ["DATABASE_URL"],
+                    "project": "github.com/acme/api",
+                    "machine": "brave-otter",
+                ]
+            case "vm.workspace_new": return ["machine": "brave-otter", "remote_workspace_id": "ws_9", "existing": false, "opened": false, "terminal_id": "term_starter"]
+            case "vm.terminal_write": return ["wrote": 20]
+            case "surface.new_terminal":
+                return (params["name"] as? String) == "setup"
+                    ? ["terminal_id": "term_setup", "remote_workspace_id": "ws_9"]
+                    : ["terminal_id": "term_agent", "remote_workspace_id": "ws_9"]
+            case "vm.terminal_wait": return ["matched": true, "text": setupOutput]
+            case "vm.terminal_output": return ["text": setupOutput, "start_offset": 0, "next_offset": setupOutput.utf8.count, "complete": true]
+            default: return nil
+            }
+        }
+    }
+
+    func testVMCloneWarnsAboutMissingSecretsAndRunsSetupInAVisibleTerminal() throws {
+        let root = try vmCloneScratch("setup")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let output = "[cmux setup] 2 step(s) from .cmux/cloud.json\r\n\r\n[cmux setup 1/2] $ bun install\r\n\u{1B}[32mbun install v1.2\u{1B}[0m\r\n"
+            + "[cmux setup 1/2] exit 0\r\n\r\n[cmux setup 2/2] $ bun run build\r\nbuilt in 3s\r\n[cmux setup 2/2] exit 0\r\n[cmux setup] done\r\n$ "
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcs1",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open", "--json", "--agent", "claude"],
+            home: home,
+            respond: Self.vmCloneSetupResponder(setupOutput: output)
+        )
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(
+            log.methods,
+            ["vm.secrets_sync", "vm.exec", "vm.secrets_check", "vm.workspace_new", "vm.terminal_write",
+             "surface.new_terminal", "vm.terminal_wait", "vm.terminal_output", "surface.new_terminal"],
+            "setup runs after the workspace and before the agent: \(log.methods)"
+        )
+        // The same exec that clones reads the manifest back (names and commands only).
+        let command = try XCTUnwrap(log.params(ofFirst: "vm.exec")?["command"] as? String)
+        XCTAssertTrue(command.contains("cmux-manifest"), command)
+        XCTAssertTrue(command.contains(".cmux/cloud.json"), command)
+
+        // Preflight: the declared names go to the app with the machine and the project.
+        let check = try XCTUnwrap(log.params(ofFirst: "vm.secrets_check"))
+        XCTAssertEqual(check["id"] as? String, "brave-otter")
+        XCTAssertEqual(check["project"] as? String, "github.com/acme/api")
+        XCTAssertEqual((check["files"] as? [String: Any])?[".cmux/cloud.json"] as? String, Self.vmCloneManifest)
+        XCTAssertTrue(
+            result.stderr.contains("Missing secrets for acme/api: DATABASE_URL (from .cmux/cloud.json \u{2014} \"Postgres for tests\")."),
+            result.stderr
+        )
+        XCTAssertTrue(result.stderr.contains("Add: cmux vm secrets set DATABASE_URL --scope project:github.com/acme/api"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("ANTHROPIC_API_KEY ("), "a stored name is not reported missing: \(result.stderr)")
+
+        // Setup: one visible terminal named "setup" in the repository's workspace.
+        let terminals = log.snapshot()
+            .filter { ($0["method"] as? String) == "surface.new_terminal" }
+            .compactMap { $0["params"] as? [String: Any] }
+        XCTAssertEqual(terminals.first?["name"] as? String, "setup")
+        XCTAssertEqual(terminals.first?["remote_workspace_id"] as? String, "ws_9")
+        XCTAssertEqual(terminals.first?["focus"] as? Bool, false)
+        let setupCommand = try XCTUnwrap(terminals.first?["command"] as? [String])
+        XCTAssertEqual(setupCommand.prefix(2), ["bash", "-lc"])
+        let script = setupCommand.last ?? ""
+        XCTAssertTrue(script.contains("( eval 'bun install' )"), script)
+        XCTAssertTrue(script.contains("( eval 'bun run build' )"), script)
+        XCTAssertTrue(script.contains("work/api"), script)
+        XCTAssertTrue(script.hasSuffix("exec \"${SHELL:-bash}\" -l"), "the terminal stays open as a shell: \(script)")
+        let wait = try XCTUnwrap(log.params(ofFirst: "vm.terminal_wait"))
+        XCTAssertEqual(wait["terminal_id"] as? String, "term_setup")
+        XCTAssertEqual(wait["pattern"] as? String, "\\[cmux setup 1/2\\] exit [0-9]+")
+        XCTAssertNotNil(wait["timeout_ms"] as? Int, "the wait is bounded: \(wait)")
+        XCTAssertEqual(terminals.last?["name"] as? String, "claude", "the agent starts after setup")
+
+        for step in ["Setup 1/2 bun install \u{2026} ", "Setup 2/2 bun run build \u{2026} "] {
+            XCTAssertTrue(result.stderr.contains(step), "missing '\(step)' in:\n\(result.stderr)")
+        }
+        XCTAssertTrue(result.stderr.contains("s \u{2713}"), result.stderr)
+
+        let payload = try XCTUnwrap(result.stdout.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any], result.stdout)
+        XCTAssertEqual(payload["missing_secrets"] as? [String], ["DATABASE_URL"])
+        let setup = try XCTUnwrap(payload["setup"] as? [String: Any])
+        XCTAssertEqual(setup["status"] as? String, "done")
+        XCTAssertEqual(setup["terminal_id"] as? String, "term_setup")
+        XCTAssertEqual((setup["steps"] as? [[String: Any]])?.compactMap { $0["exit_code"] as? Int }, [0, 0])
+        XCTAssertEqual(payload["agent_terminal_id"] as? String, "term_agent")
+        XCTAssertNotNil((payload["timings"] as? [String: Any])?["setup"])
+    }
+
+    func testVMCloneStopsAtAFailedSetupStepAndKeepsItsTerminal() throws {
+        let root = try vmCloneScratch("setupfail")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let output = "[cmux setup 1/2] $ bun install\nok\n[cmux setup 1/2] exit 0\n[cmux setup 2/2] $ bun run build\nerror: missing script\n[cmux setup 2/2] exit 7\n[cmux setup] step 2/2 failed. This shell stays open in the checkout.\n"
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcs2",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open", "--agent", "codex"],
+            home: home,
+            respond: Self.vmCloneSetupResponder(setupOutput: output)
+        )
+        XCTAssertEqual(result.status, 7, "a failed step's exit code passes through: stdout=\(result.stdout) stderr=\(result.stderr)")
+        let terminals = log.snapshot().filter { ($0["method"] as? String) == "surface.new_terminal" }
+        XCTAssertEqual(terminals.count, 1, "no agent after a failed setup: \(log.methods)")
+        XCTAssertFalse(log.methods.contains("vm.terminal_close"), "the setup terminal stays open")
+        XCTAssertTrue(result.stderr.contains("Setup 1/2 bun install \u{2026} "), result.stderr)
+        XCTAssertTrue(result.stderr.contains("\u{2717} exit 7"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("setup step 2/2 `bun run build` exited 7"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Open: cmux vm open brave-otter/ws_9/term_setup"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("cmux vm clone acme/api --machine brave-otter --skip-setup"), result.stderr)
+    }
+
+    func testVMCloneSkipSetupStartsTheAgentWithoutTheSetupTerminal() throws {
+        let root = try vmCloneScratch("setupskip")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcs3",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open", "--skip-setup", "--json", "--agent", "claude"],
+            home: home,
+            respond: Self.vmCloneSetupResponder(setupOutput: "")
+        )
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        let terminals = log.snapshot()
+            .filter { ($0["method"] as? String) == "surface.new_terminal" }
+            .compactMap { ($0["params"] as? [String: Any])?["name"] as? String }
+        XCTAssertEqual(terminals, ["claude"], log.methods.description)
+        XCTAssertFalse(log.methods.contains("vm.terminal_wait"), log.methods.description)
+        XCTAssertTrue(result.stderr.contains("Setup skipped (--skip-setup): bun install; bun run build"), result.stderr)
+        let payload = try XCTUnwrap(result.stdout.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any], result.stdout)
+        XCTAssertEqual((payload["setup"] as? [String: Any])?["status"] as? String, "skipped")
+    }
 }

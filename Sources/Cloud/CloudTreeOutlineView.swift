@@ -836,14 +836,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     })
                 }
                 return items
-            case .port(let resource, let url, let openIn):
-                return resourceMenuItems(
-                    resource,
-                    isLocal: false,
-                    openInLocalWorkspace: openIn,
-                    openAction: { [weak self] in self?.open(node) },
-                    portURL: url
-                )
+            case .port(let resource, _, _):
+                // CloudTreeOutlineView+Ports.swift: private open/copy, Share…, sharing status.
+                return portMenuItems(resource, openAction: { [weak self] in self?.open(node) })
             case .portsGroup(let machine):
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(machine) }]
             case .browsersGroup:

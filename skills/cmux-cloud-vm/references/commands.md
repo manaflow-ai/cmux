@@ -775,14 +775,14 @@ Socket `vm.snapshot` with a template-oriented name (`template-<id>-<unix time>`)
 ### `cmux vm ports`
 
 ```bash
-cmux vm ports <id> [--json]
+cmux vm ports <id> [--all] [--json]
 ```
 
-A `vm.exec` of `ss -ltnp` (or `netstat -ltnp`): the TCP ports listening **inside** the machine. `--json`: the exec payload.
+A `vm.exec` of `ss -ltnp` (or `netstat -ltnp`), classified by the same rules as the sidebar's Ports tab (`CloudListeningPortClassifier`). The default table lists only your servers: `PORT · PROCESS · PRIVATE URL · SHARED`. PRIVATE URL is the machine's VPC address (works only through `cmux vpn up`; `*` marks a 127.0.0.1-only listener that opens in cmux but not from other apps). SHARED is `none`, `you`, `team` or `PUBLIC` from `cmux cloud domains` (`?` when publications could not be read). System listeners (SSH 22, DNS 53, cmux-tui 1337 and other `cmux*` processes, the image's 8080, Desktop VNC/noVNC, container runtimes) are hidden; `--all` shows them with a KIND column. `--json`: the raw exec payload plus `ports: [{port, processes, pids, addresses, kind, system, loopback_only, private_url, shared}]`.
 
 ### Port URLs: `cmux vm open <id> <port>`
 
-See `vm open`: `cmux vm open <id> 3000` opens an HTTP port on the machine as a browser pane (`vm.port_open`); `--print` only mints and prints the URL (`vm.open_port`, `--json` → `{open_url, …}`). The URL points at the machine's **private VPC address** — reachable only through the owner's WireGuard tunnel (`cmux vpn up`), never a public ingress; the daemon's own port is refused, and the lease carries an expiry. Only share URLs minted this way; never guess provider URLs (they resolve for the machine's owner only).
+See `vm open`: `cmux vm open <id> 3000` opens an HTTP port on the machine as a browser pane (`vm.port_open`); `--print` only mints and prints the URL (`vm.open_port`, `--json` → `{open_url, …}`). Both first check that something listens on the port and otherwise fail, naming your listening ports; `--force` skips the check (a server still starting). The pane opens in the local workspace already showing the machine (else where you are) and is titled `:<port> · <machine>` until the page names itself. The URL points at the machine's **private VPC address** — reachable only through the owner's WireGuard tunnel (`cmux vpn up`), never a public ingress; the daemon's own port is refused, and the lease carries an expiry. Only share URLs minted this way; never guess provider URLs (they resolve for the machine's owner only).
 
 ## Account and plan
 

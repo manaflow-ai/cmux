@@ -137,6 +137,18 @@ enum CloudSecretsSocketParams {
         return id
     }
 
+    /// `files: {path: text}` for `vm.secrets_check`, limited to the declaring paths and
+    /// their size cap; nil when absent or holding none of them.
+    static func declaringFiles(_ raw: Any?) -> [String: String]? {
+        guard let object = raw as? [String: Any] else { return nil }
+        var files: [String: String] = [:]
+        for path in CloudSecretRequirements.declaringPaths {
+            guard let text = object[path] as? String, text.utf8.count <= CloudSecretRequirements.maxFileBytes else { continue }
+            files[path] = text
+        }
+        return files.isEmpty && object.isEmpty ? nil : files
+    }
+
     static func source(_ params: [String: Any]) -> CloudSecretSource {
         string(params["source"]).flatMap(CloudSecretSource.init(wireValue:)) ?? .manual
     }
@@ -313,30 +325,64 @@ extension TerminalController {
                     return payload
                 }
             case "vm.secrets_check":
-                guard let directory = CloudSecretsSocketParams.string(params["dir"]) else {
+                // Names only: `dir` is a checkout on this Mac; `files` carries the declaring
+                // files' text fetched from a checkout elsewhere (a Cloud machine). With `id`
+                // and/or a project, `missing` lists the declared names that machine's
+                // effective set (all + its linked projects + that project + the machine)
+                // would not have.
+                let files = CloudSecretsSocketParams.declaringFiles(params["files"])
+                let directory = CloudSecretsSocketParams.string(params["dir"])
+                guard directory != nil || files != nil else {
                     throw CloudSecretsSocketFailure.invalidParams(String(
                         localized: "cloudSecrets.socket.dirRequired",
                         defaultValue: "vm.secrets_check requires `dir`: the project directory to read."
                     ))
                 }
+                let machine = CloudSecretsSocketParams.string(params["id"])
+                let project = CloudSecretsSocketParams.projectKey(params)
                 return cloudSecretsCall(id: id, timeoutSeconds: 30) {
-                    let declared = CloudSecretRequirements.declared(inDirectory: URL(fileURLWithPath: directory, isDirectory: true))
+                    let declared: [CloudSecretRequirement]
+                    if let files {
+                        declared = CloudSecretRequirements.declared(files: files)
+                    } else {
+                        declared = CloudSecretRequirements.declared(inDirectory: URL(fileURLWithPath: directory ?? "", isDirectory: true))
+                    }
                     let service = await CloudSecretsService.shared
                     await service.reload()
                     let records = await service.records
-                    return [
-                        "dir": directory,
+                    var projectKeys: [String] = []
+                    if let machine {
+                        projectKeys = await service.delivery(for: machine)?.projectKeys ?? []
+                    }
+                    if let project, !projectKeys.contains(project) { projectKeys.append(project) }
+                    let missing = Set(CloudSecretRequirements.missing(
+                        declared,
+                        records: records,
+                        projectKeys: projectKeys,
+                        machineID: machine
+                    ).map(\.name))
+                    let targeted = machine != nil || project != nil
+                    var payload: [String: Any] = [
                         "declared": declared.map { requirement -> [String: Any] in
                             let scopes = records.filter { $0.name == requirement.name }.map(\.scope.wireValue)
-                            return [
+                            var item: [String: Any] = [
                                 "name": requirement.name,
                                 "description": requirement.description.map { $0 as Any } ?? NSNull(),
                                 "source": requirement.source,
                                 "stored": !scopes.isEmpty,
                                 "scopes": scopes,
                             ]
+                            if targeted { item["effective"] = !missing.contains(requirement.name) }
+                            return item
                         },
+                        "project": project.map { $0 as Any } ?? NSNull(),
                     ]
+                    if let directory { payload["dir"] = directory }
+                    if targeted {
+                        payload["machine"] = machine.map { $0 as Any } ?? NSNull()
+                        payload["missing"] = declared.filter { missing.contains($0.name) }.map(\.name)
+                    }
+                    return payload
                 }
             default:
                 return v2Error(id: id, code: "method_not_found", message: "Unknown method")

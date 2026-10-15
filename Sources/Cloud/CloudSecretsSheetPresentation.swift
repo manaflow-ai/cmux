@@ -123,6 +123,47 @@ enum CloudSecretsSheetPresentation {
 
     // MARK: Labels
 
+    // MARK: Declared names
+
+    /// A ghost row's second line: "Needed by owner/repo · Not set".
+    static func requirementDetail(projectLabel: String) -> String {
+        String(
+            format: String(localized: "cloudSecrets.requirement.detail", defaultValue: "Needed by %@ \u{00B7} Not set"),
+            projectLabel
+        )
+    }
+
+    /// Where the name is declared and what the repository says it is for.
+    static func requirementHelp(_ requirement: CloudSecretRequirement) -> String {
+        guard let description = requirement.description else {
+            return String(
+                format: String(localized: "cloudSecrets.requirement.help", defaultValue: "Declared in %@"),
+                requirement.source
+            )
+        }
+        return String(
+            format: String(localized: "cloudSecrets.requirement.helpDescribed", defaultValue: "Declared in %1$@: %2$@"),
+            requirement.source,
+            description
+        )
+    }
+
+    /// The add card's hint for a declared name: "owner/repo needs this: Postgres for tests".
+    static func requirementHint(_ requirement: CloudSecretRequirement, projectLabel: String) -> String {
+        guard let description = requirement.description else {
+            return String(
+                format: String(localized: "cloudSecrets.requirement.hint", defaultValue: "%1$@ declares this in %2$@."),
+                projectLabel,
+                requirement.source
+            )
+        }
+        return String(
+            format: String(localized: "cloudSecrets.requirement.hintDescribed", defaultValue: "%1$@ needs this: %2$@"),
+            projectLabel,
+            description
+        )
+    }
+
     /// "owner/repo" for `github.com/owner/repo`, the folder for `local/<name>`.
     static func shortProjectLabel(_ key: String) -> String {
         let parts = key.split(separator: "/").map(String.init)

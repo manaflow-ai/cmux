@@ -360,6 +360,162 @@ extension CMUXCLI {
         }
     }
 
+    // MARK: - Missing-secret preflight
+
+    /// A declared name the target machine's effective set does not have.
+    struct VMSecretsPreflightGap: Equatable {
+        let name: String
+        let description: String?
+        /// The declaring file, relative to the repository root.
+        let source: String
+    }
+
+    /// What `vm.secrets_check` said about one repository and machine.
+    struct VMSecretsPreflight: Equatable {
+        /// The normalized project key the check used, when one resolved.
+        let projectKey: String?
+        let missing: [VMSecretsPreflightGap]
+    }
+
+    /// Compares the names a repository declares (`.cmux/cloud.json` `env`, devcontainer
+    /// `secrets`) with the secrets that reach `machine` (all machines, its linked projects,
+    /// `project`, and the machine itself) and returns warning lines to print before setup
+    /// or an agent starts. Empty when nothing is missing or the check is unavailable; it
+    /// never throws and never blocks, because a missing key is the user's call.
+    ///
+    /// - `project`: a project key or git remote URL. nil with a `directory` uses that
+    ///   directory's origin remote.
+    /// - `directory`: a checkout on this Mac; the app reads its declaring files.
+    /// - `manifestFiles`: the declaring files' text from a checkout elsewhere (keys such as
+    ///   `.cmux/cloud.json`); wins over `directory`. These files hold names, never values.
+    ///
+    /// The add hint says `--project` when `directory` is the current directory (the
+    /// form `cmux vm secrets set` resolves the same way), otherwise
+    /// `--scope project:<key>`.
+    func vmSecretsPreflightWarnings(
+        machine: String,
+        project: String?,
+        directory: String?,
+        manifestFiles: [String: String] = [:],
+        client: SocketClient
+    ) -> [String] {
+        guard let preflight = vmSecretsPreflight(
+            machine: machine,
+            project: project,
+            directory: directory,
+            manifestFiles: manifestFiles,
+            client: client
+        ) else { return [] }
+        let usesCurrentDirectory = project == nil && directory.map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+                == URL(fileURLWithPath: FileManager.default.currentDirectoryPath).standardizedFileURL.path
+        } == true
+        return Self.vmSecretsPreflightLines(preflight, hintUsesCurrentDirectory: usesCurrentDirectory)
+    }
+
+    /// The structured form of ``vmSecretsPreflightWarnings(machine:project:directory:manifestFiles:client:)``;
+    /// nil when there is nothing to check or the app cannot check it.
+    func vmSecretsPreflight(
+        machine: String,
+        project: String?,
+        directory: String?,
+        manifestFiles: [String: String],
+        client: SocketClient
+    ) -> VMSecretsPreflight? {
+        var params: [String: Any] = ["id": machine]
+        if !manifestFiles.isEmpty {
+            params["files"] = manifestFiles
+        } else if let directory {
+            params["dir"] = directory
+        } else {
+            return nil
+        }
+        if let project, !project.isEmpty {
+            params["project"] = project
+        } else if let directory, let remote = Self.vmSecretsGitRemoteURL(directory: directory) {
+            params["project_remote_url"] = remote
+        }
+        guard let response = try? client.sendV2(method: "vm.secrets_check", params: params, responseTimeout: 60) else {
+            // An app without the check (or without `files`): no warning rather than a wrong one.
+            return nil
+        }
+        return Self.vmSecretsPreflight(fromCheck: response)
+    }
+
+    /// Parses a `vm.secrets_check` response. An app that predates `missing` reports
+    /// declared names stored in no scope at all.
+    static func vmSecretsPreflight(fromCheck response: [String: Any]) -> VMSecretsPreflight {
+        let declared = (response["declared"] as? [[String: Any]]) ?? []
+        let missingNames: Set<String>
+        if let names = response["missing"] as? [String] {
+            missingNames = Set(names)
+        } else {
+            missingNames = Set(declared.filter { ($0["stored"] as? Bool) == false }.compactMap { $0["name"] as? String })
+        }
+        let gaps = declared.compactMap { item -> VMSecretsPreflightGap? in
+            guard let name = item["name"] as? String, missingNames.contains(name), isValidVMEnvKey(name) else { return nil }
+            let source = (item["source"] as? String).map { vmSecretsPrintable($0, limit: 80) } ?? ".cmux/cloud.json"
+            let description = (item["description"] as? String).map { vmSecretsPrintable($0, limit: 80) }
+            return VMSecretsPreflightGap(name: name, description: description?.isEmpty == true ? nil : description, source: source)
+        }
+        return VMSecretsPreflight(projectKey: response["project"] as? String, missing: gaps)
+    }
+
+    /// `Missing secrets for owner/repo: NAME (from file — "description"), …` and the
+    /// command that adds them. Empty when nothing is missing.
+    static func vmSecretsPreflightLines(_ preflight: VMSecretsPreflight, hintUsesCurrentDirectory: Bool) -> [String] {
+        guard !preflight.missing.isEmpty else { return [] }
+        let items = preflight.missing.map { gap -> String in
+            if let description = gap.description {
+                return String(
+                    format: String(localized: "cloudSecrets.cli.preflight.itemDescribed", defaultValue: "%1$@ (from %2$@ \u{2014} \"%3$@\")"),
+                    gap.name, gap.source, description
+                )
+            }
+            return String(
+                format: String(localized: "cloudSecrets.cli.preflight.item", defaultValue: "%1$@ (from %2$@)"),
+                gap.name, gap.source
+            )
+        }
+        let label = preflight.projectKey.map(vmSecretsShortProjectLabel)
+            ?? String(localized: "cloudSecrets.cli.preflight.thisProject", defaultValue: "this project")
+        let names = preflight.missing.map(\.name).joined(separator: " ")
+        let scope: String
+        if hintUsesCurrentDirectory || preflight.projectKey == nil {
+            scope = "--project"
+        } else {
+            scope = "--scope project:\(preflight.projectKey ?? "")"
+        }
+        return [
+            String(
+                format: String(localized: "cloudSecrets.cli.preflight.missing", defaultValue: "Missing secrets for %1$@: %2$@."),
+                label, items.joined(separator: ", ")
+            ),
+            String(
+                format: String(localized: "cloudSecrets.cli.preflight.add", defaultValue: "Add: cmux vm secrets set %1$@ %2$@ (continuing without them)"),
+                names, scope
+            ),
+        ]
+    }
+
+    /// "owner/repo" for `github.com/owner/repo`, the folder for `local/<name>`.
+    static func vmSecretsShortProjectLabel(_ key: String) -> String {
+        let parts = key.split(separator: "/").map(String.init)
+        if parts.first == "local", parts.count >= 2 { return parts.dropFirst().joined(separator: "/") }
+        guard parts.count >= 3 else { return key }
+        return parts.suffix(2).joined(separator: "/")
+    }
+
+    /// Repository text made safe for a terminal line: control characters (escape
+    /// sequences included) become spaces, and it is cut at `limit` characters.
+    static func vmSecretsPrintable(_ text: String, limit: Int) -> String {
+        let cleaned = String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+            CharacterSet.controlCharacters.contains(scalar) ? " " : scalar
+        })).trimmingCharacters(in: .whitespaces)
+        guard cleaned.count > limit else { return cleaned }
+        return String(cleaned.prefix(max(0, limit - 1))) + "\u{2026}"
+    }
+
     static func vmSecretsAgentWarning(_ reason: String) -> String {
         String(format: String(localized: "cloudSecrets.cli.agent.syncWarning", defaultValue: "[cmux vm agent] warning: Cloud Secrets were not synced (%@); starting the agent anyway."), reason)
     }

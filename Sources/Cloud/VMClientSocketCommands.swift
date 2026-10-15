@@ -890,6 +890,10 @@ extension TerminalController {
         if let slug = vm.slug, !slug.isEmpty {
             payload["slug"] = slug
         }
+        // The VPC address behind every private port URL (`cmux vm ports`).
+        if let privateAddress = vm.preferredPrivateAddress {
+            payload["privateAddress"] = privateAddress
+        }
         if let createdBy = vm.createdBy {
             // A known account with no recorded name sends an explicit null for
             // the name, the same shape the HTTP response uses, so a consumer

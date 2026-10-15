@@ -21,7 +21,15 @@ struct CloudSecretsSheetModelTests {
         var syncError: String?
         var setCalls: [(names: [String], scope: CloudSecretScope)] = []
 
-        func model(machineID: String? = nil, label: String? = nil, withPreview: Bool = true) -> CloudSecretsSheetModel {
+        var declaredReads: [URL] = []
+
+        func model(
+            machineID: String? = nil,
+            label: String? = nil,
+            withPreview: Bool = true,
+            checkout: CloudSecretProjectCheckout? = nil,
+            declared: [CloudSecretRequirement] = []
+        ) -> CloudSecretsSheetModel {
             let vault = vault
             var preview: (@MainActor ([CloudSecretInput], CloudSecretScope) async throws -> [CloudSecretChange])?
             if withPreview {
@@ -30,6 +38,7 @@ struct CloudSecretsSheetModelTests {
             return CloudSecretsSheetModel(
                 machineID: machineID,
                 machineLabel: label,
+                contextCheckout: checkout,
                 backend: CloudSecretsSheetBackend(
                     load: {
                         CloudSecretsSheetBackend.Snapshot(records: try await vault.records(), deliveries: try await vault.deliveries())
@@ -44,6 +53,10 @@ struct CloudSecretsSheetModelTests {
                     sync: { id in
                         self.syncedMachines.append(id)
                         return self.syncError
+                    },
+                    declared: { root in
+                        self.declaredReads.append(root)
+                        return declared
                     }
                 ),
                 now: { Date(timeIntervalSince1970: 1_800_000_000) }
@@ -259,5 +272,65 @@ struct CloudSecretsSheetModelTests {
         #expect(CloudSecretsSheetPresentation.maskedFingerprint("3f9a1c2e") == "\u{2022}\u{2022}\u{2022}\u{2022} 3f9a1c2e")
         #expect(CloudSecretsSheetPresentation.normalizedProjectKey("git@github.com:Acme/API.git") == "github.com/acme/api")
         #expect(CloudSecretsSheetPresentation.normalizedProjectKey("  ") == nil)
+    }
+
+    // MARK: Repository-declared names
+
+    @Test("The Project tab lists the checkout's unset names as ghost rows, and Set… opens a prefilled editor")
+    func declaredNamesShowAsGhostRows() async throws {
+        let harness = Harness()
+        let project = "github.com/acme/api"
+        try await harness.vault.set([CloudSecretInput(name: "ANTHROPIC_API_KEY", value: "sk-all")], scope: .all, source: .manual)
+        try await harness.vault.set([CloudSecretInput(name: "STRIPE_KEY", value: "sk-other")], scope: .project("github.com/acme/web"), source: .manual)
+        let checkout = CloudSecretProjectCheckout(root: URL(fileURLWithPath: "/tmp/acme-api"), projectKey: project)
+        let declared = [
+            CloudSecretRequirement(name: "ANTHROPIC_API_KEY", description: nil, source: ".cmux/cloud.json"),
+            CloudSecretRequirement(name: "DATABASE_URL", description: "Postgres for tests", source: ".cmux/cloud.json"),
+            CloudSecretRequirement(name: "STRIPE_KEY", description: nil, source: ".devcontainer/devcontainer.json"),
+        ]
+        let model = harness.model(checkout: checkout, declared: declared)
+        await model.load()
+
+        #expect(harness.declaredReads == [checkout.root])
+        #expect(model.projectKey == project, "opened from a checkout, the Project tab starts on its project")
+        #expect(model.unsetRequirements.isEmpty, "ghost rows belong to the Project tab only")
+        model.tab = .project
+        // An all-machines secret covers the name; another project's does not.
+        #expect(model.unsetRequirements.map(\.name) == ["DATABASE_URL", "STRIPE_KEY"])
+        #expect(model.unsetRequirementsProjectLabel == "acme/api")
+        #expect(CloudSecretsSheetPresentation.requirementDetail(projectLabel: "acme/api").contains("acme/api"))
+
+        model.projectKey = "github.com/acme/web"
+        #expect(model.unsetRequirements.isEmpty, "another project's view does not show this checkout's needs")
+        model.projectKey = nil
+        #expect(model.unsetRequirements.count == 2)
+
+        let databaseURL = try #require(model.unsetRequirements.first)
+        model.beginSetRequirement(databaseURL)
+        #expect(model.editor?.name == "DATABASE_URL")
+        #expect(model.editor?.projectText == project)
+        #expect(model.editor?.hint?.contains("Postgres for tests") == true)
+        #expect(model.editorScope == .project(project))
+        model.editor?.value = "postgres://localhost/test"
+        await model.saveEditor()
+        #expect(harness.setCalls.last?.names == ["DATABASE_URL"])
+        #expect(harness.setCalls.last?.scope == .project(project))
+        #expect(model.unsetRequirements.map(\.name) == ["STRIPE_KEY"], "a saved name leaves the ghost rows")
+    }
+
+    @Test("Without a checkout, or from a machine, no declared names are read")
+    func noCheckoutNoGhostRows() async {
+        let harness = Harness()
+        let model = harness.model(declared: [CloudSecretRequirement(name: "DATABASE_URL", description: nil, source: ".cmux/cloud.json")])
+        await model.load()
+        model.tab = .project
+        #expect(model.unsetRequirements.isEmpty)
+        #expect(harness.declaredReads.isEmpty)
+        #expect(model.projectKey == nil)
+
+        let checkout = CloudSecretProjectCheckout(root: URL(fileURLWithPath: "/tmp/x"), projectKey: "local/x")
+        let machineModel = harness.model(machineID: "vm-1", checkout: checkout)
+        await machineModel.load()
+        #expect(machineModel.projectKey != "local/x", "a machine's sheet keeps its linked project")
     }
 }

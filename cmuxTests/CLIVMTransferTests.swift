@@ -1148,8 +1148,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.stdout, "hello world\n")
         XCTAssertTrue(result.stderr.contains("exited code=3"), result.stderr)
         XCTAssertTrue(result.stderr.contains("Started claude on vivid-newt"), "launch report moves to stderr with --output: \(result.stderr)")
+        // `vm agent` first syncs Cloud Secrets and checks repo-declared names
+        // (best effort; this mock answers neither), then launches and waits.
         XCTAssertEqual(
-            log.methods,
+            log.methods.filter { !$0.hasPrefix("vm.secrets_") },
             ["surface.new_terminal", "vm.terminal_wait_exit", "vm.terminal_wait_exit", "vm.terminal_output", "vm.terminal_output"],
             log.methods.description
         )

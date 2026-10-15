@@ -154,6 +154,8 @@ cmux vm secrets rm OLD_SERVICE_TOKEN       # remove it from every machine that g
   }
 }`}</CodeBlock>
       <p>{t.rich("declareCheck", { code })}</p>
+      <p>{t.rich("declarePreflight", { code })}</p>
+      <p>{t.rich("declareApp", { b: bold })}</p>
 
       <DocsHeading level={2} id="git-auth">{t("gitTitle")}</DocsHeading>
       <p>{t.rich("gitDesc", { code })}</p>

@@ -29,6 +29,10 @@ extension SurfaceCatalog {
             generatedTitle: generatedTitle,
             remoteWorkspaceName: remoteWorkspaceName
         )
+        if generatedTitle != nil {
+            nameInitialWorkspaceForWhatItIs(localWorkspaceID: localWorkspaceID, machine: machine,
+                                            receiptName: remoteWorkspaceName)
+        }
         // A remote id can arrive after a user edit. Submit that edit once, at
         // the first identity binding, before graph reconciliation can apply an
         // older snapshot. Repeated receipts never replay the old title.
@@ -61,4 +65,43 @@ extension SurfaceCatalog {
         cloudWorkspaceRenameService.updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: self)
 }
 
+}
+
+extension SurfaceCatalog {
+    /// Replaces the daemon's counter name on a machine's sole workspace with
+    /// its project or machine label (``CloudInitialWorkspaceName``), on both
+    /// sides: the local title now, and the daemon name through the shared
+    /// rename queue, whose pending intent keeps reconciliation from flashing
+    /// the counter name back. A failed rename leaves the daemon name, which
+    /// the next reconciliation adopts again.
+    @MainActor
+    func nameInitialWorkspaceForWhatItIs(localWorkspaceID: UUID, machine: SurfaceMachineID, receiptName: String?) {
+        guard let workspace = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID),
+              workspace.effectiveCustomTitleSource != .user,
+              let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
+              !remoteWorkspaceID.isEmpty,
+              provider(for: machine) != nil else { return }
+        let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: remoteWorkspaceID)
+        guard pendingCloudRenameName(for: key) == nil else { return }
+        let catalogSnapshot = self.snapshot
+        let info = catalogSnapshot.machines.first { $0.id == machine }
+        let known = info?.remoteWorkspaces == nil ? nil
+            : CloudTreeNodeBuilder.remoteWorkspaces(info: info, resources: catalogSnapshot.resources(on: machine))
+        let remote = known?.first { $0.id == remoteWorkspaceID }
+        let decision = CloudInitialWorkspaceName(
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteName: cloudStates[machine]?.lookupIndex.workspace(id: remoteWorkspaceID)?.name
+                ?? remote?.name ?? receiptName,
+            machineWorkspaceIDs: known?.map(\.id),
+            workingDirectory: remote?.detail,
+            machineLabel: info?.name,
+            machineRawIDs: [machine.rawValue, machine.cloudMachineID, machine.tuiMachineID].compactMap { $0 }
+        )
+        guard let name = decision.replacement,
+              let manager = workspace.owningTabManager ?? cloudWorkspaceRenameService.environment.tabManager(localWorkspaceID)
+        else { return }
+        _ = manager.setCustomTitle(tabId: localWorkspaceID, title: name, source: .remote,
+                                   propagateToRemoteTmux: false, propagateToCloud: false)
+        enqueueRemoteWorkspaceRename(on: machine, id: remoteWorkspaceID, name: name)
+    }
 }

@@ -96,4 +96,78 @@ import Testing
         #expect(object["a"] as? [Int] == [1, 2])
         #expect((object["b"] as? [String: Int]) == ["c": 1, "d": 2])
     }
+
+    @Test
+    func declaredFromFetchedFilesMatchesTheDirectoryReader() throws {
+        let files = [
+            ".cmux/cloud.json": #"{"env": [{"name": "DATABASE_URL", "description": "Postgres for tests"}], "setup": ["bun install"]}"#,
+            ".devcontainer.json": #"{"secrets": {"HF_TOKEN": {}}}"#,
+            "README.md": "not a manifest",
+        ]
+        let root = try makeRepository(files)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fromFiles = CloudSecretRequirements.declared(files: files)
+        #expect(fromFiles == CloudSecretRequirements.declared(inDirectory: root))
+        #expect(fromFiles.map(\.name) == ["DATABASE_URL", "HF_TOKEN"])
+        #expect(CloudSecretRequirements.declared(files: [:]).isEmpty)
+        #expect(CloudSecretRequirements.declaringPaths == [".cmux/cloud.json", ".devcontainer/devcontainer.json", ".devcontainer.json"])
+    }
+
+    @Test
+    func oversizedManifestDeclaresNothing() throws {
+        let padding = String(repeating: " ", count: CloudSecretRequirements.maxFileBytes)
+        let root = try makeRepository([".cmux/cloud.json": #"{"env": ["A"]}"# + padding])
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(CloudSecretRequirements.declared(inDirectory: root).isEmpty)
+    }
+
+    @Test
+    func missingCountsOnlyTheScopesThatReachTheTarget() {
+        let date = Date(timeIntervalSince1970: 0)
+        func record(_ name: String, _ scope: CloudSecretScope) -> CloudSecretRecord {
+            CloudSecretRecord(name: name, scope: scope, fingerprint: "00000000", createdAt: date, updatedAt: date, source: .manual)
+        }
+        let requirements = ["ANTHROPIC_API_KEY", "DATABASE_URL", "STRIPE_KEY", "ONLY_THERE", "OTHER_MACHINE"].map {
+            CloudSecretRequirement(name: $0, description: nil, source: ".cmux/cloud.json")
+        }
+        let records = [
+            record("ANTHROPIC_API_KEY", .all),
+            record("DATABASE_URL", .project("github.com/acme/api")),
+            record("STRIPE_KEY", .project("github.com/acme/web")),
+            record("ONLY_THERE", .machine("vm-1")),
+            record("OTHER_MACHINE", .machine("vm-2")),
+        ]
+        let forMachine = CloudSecretRequirements.missing(requirements, records: records, projectKeys: ["github.com/acme/api"], machineID: "vm-1")
+        #expect(forMachine.map(\.name) == ["STRIPE_KEY", "OTHER_MACHINE"])
+        let forProject = CloudSecretRequirements.missing(requirements, records: records, projectKeys: ["github.com/acme/api"], machineID: nil)
+        #expect(forProject.map(\.name) == ["STRIPE_KEY", "ONLY_THERE", "OTHER_MACHINE"])
+        #expect(CloudSecretRequirements.missing(requirements, records: [], projectKeys: [], machineID: nil) == requirements)
+    }
+
+    @Test
+    func checkoutResolvesOriginFromConfigAndWorktrees() throws {
+        let root = try makeRepository([
+            "repo/.git/config": """
+            [core]
+            \tbare = false
+            [remote "upstream"]
+            \turl = https://github.com/someone/else.git
+            [remote "origin"]
+            \turl = git@github.com:Acme/API.git
+            \tfetch = +refs/heads/*:refs/remotes/origin/*
+            """,
+            "repo/src/deep/file.txt": "x",
+            "repo/.git/worktrees/feature/commondir": "../..\n",
+            "wt/.git": "gitdir: ../repo/.git/worktrees/feature\n",
+            "plain/.git/config": "[core]\n\tbare = false\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let nested = try #require(CloudSecretProjectCheckout.locate(from: root.appendingPathComponent("repo/src/deep")))
+        #expect(nested.projectKey == "github.com/acme/api")
+        #expect(nested.root.lastPathComponent == "repo")
+        let worktree = try #require(CloudSecretProjectCheckout.locate(from: root.appendingPathComponent("wt")))
+        #expect(worktree.projectKey == "github.com/acme/api")
+        #expect(CloudSecretProjectCheckout.locate(from: root.appendingPathComponent("plain"))?.projectKey == "local/plain")
+        #expect(CloudSecretProjectCheckout.originURL(config: "[remote \"origin\"]\n  url = \"https://gitlab.com/g/p.git\"\n") == "https://gitlab.com/g/p.git")
+    }
 }

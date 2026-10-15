@@ -378,9 +378,16 @@ extension CMUXCLI {
     static var vmPortsUsage: String {
         String(localized: "cli.vm.ports.usage", defaultValue: """
         Usage:
-          cmux vm ports <machine> [--json]
+          cmux vm ports <machine> [--all] [--json]
 
-        Show listening TCP ports inside a Cloud VM.
+        Show the servers you started inside a Cloud VM: PORT, PROCESS, PRIVATE URL
+        (reachable only through your cmux VPN) and SHARED (none, you, team or PUBLIC,
+        from `cmux cloud domains`). System listeners (SSH, DNS, cmux, Desktop) are
+        hidden; --all shows them with their KIND. --json lists every port with a
+        `system` flag, plus the raw inventory.
+
+        Open one:  cmux vm open <machine> <port>
+        Share one: cmux cloud domains publish <machine> <port>
         """)
     }
 

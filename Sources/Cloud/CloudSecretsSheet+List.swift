@@ -101,9 +101,19 @@ struct CloudSecretsList: View {
 
     var body: some View {
         let records = model.visibleRecords
+        let needed = model.unsetRequirements
         VStack(alignment: .leading, spacing: 10) {
+            if !needed.isEmpty {
+                CloudSecretsRequirementList(
+                    requirements: needed,
+                    projectLabel: model.unsetRequirementsProjectLabel,
+                    isEnabled: !model.hasModalCard,
+                    onSet: { model.beginSetRequirement($0) }
+                )
+            }
             if records.isEmpty {
-                emptyTab
+                // The ghost rows already say what this project needs.
+                if needed.isEmpty { emptyTab }
             } else {
                 list(records)
             }
@@ -212,6 +222,83 @@ struct CloudSecretsList: View {
                 ? String(localized: "cloudSecrets.empty.thisMachine", defaultValue: "No secrets only for this machine. A machine secret wins over project and all-machine secrets with the same name.")
                 : String(localized: "cloudSecrets.empty.machines", defaultValue: "No machine-only secrets. To add one, open Secrets from a machine’s menu.")
         }
+    }
+}
+
+/// Names the window's checkout declares (`.cmux/cloud.json` `env`, devcontainer
+/// `secrets`) that are not set for its project: ghost rows in a dashed box, each
+/// with Set…, which opens the add card with the name filled in. Closures only.
+private struct CloudSecretsRequirementList: View {
+    let requirements: [CloudSecretRequirement]
+    let projectLabel: String
+    let isEnabled: Bool
+    let onSet: (CloudSecretRequirement) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(requirements.enumerated()), id: \.element.name) { index, requirement in
+                if index > 0 { Divider().padding(.leading, 12) }
+                CloudSecretsRequirementRow(
+                    name: requirement.name,
+                    detail: CloudSecretsSheetPresentation.requirementDetail(projectLabel: projectLabel),
+                    help: CloudSecretsSheetPresentation.requirementHelp(requirement),
+                    isEnabled: isEnabled,
+                    onSet: { onSet(requirement) }
+                )
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(
+            format: String(localized: "cloudSecrets.requirement.listLabel", defaultValue: "Secrets %@ needs"),
+            projectLabel
+        ))
+        .accessibilityIdentifier("CloudSecretsSheet.requirements")
+    }
+}
+
+/// A declared name with no value: secondary monospace name, "Needed by … · Not
+/// set", and a Set… button that is always shown (it is the row's only action).
+private struct CloudSecretsRequirementRow: View {
+    let name: String
+    let detail: String
+    let help: String
+    let isEnabled: Bool
+    let onSet: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "key")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+            Text(name)
+                .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(1)
+            Text(detail)
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Button(String(localized: "cloudSecrets.requirement.set", defaultValue: "Set\u{2026}"), action: onSet)
+                .controlSize(.small)
+                .disabled(!isEnabled)
+                .accessibilityIdentifier("CloudSecretsSheet.requirement.\(name).set")
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 36)
+        .help(help)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([name, detail, help].joined(separator: ", "))
+        .accessibilityAction(named: String(localized: "cloudSecrets.requirement.set", defaultValue: "Set\u{2026}"), onSet)
+        .accessibilityIdentifier("CloudSecretsSheet.requirement.\(name)")
     }
 }
 

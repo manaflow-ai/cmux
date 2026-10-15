@@ -864,7 +864,7 @@ extension CMUXCLI {
     static var vmOpenUsage: String {
         """
         Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus [<true|false>] | --no-focus] [--print]
-               cmux vm open <id> <port> [--print]
+               cmux vm open <id> <port> [--print] [--force]
 
         \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
           <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
@@ -883,6 +883,8 @@ extension CMUXCLI {
                              \(openFocusDefaultHelp)
                              A desktop opens beside you unless --focus is given; a port always does.
           --print            Ports only: print the URL, do not open a pane.
+          --force            Ports only: open even when nothing listens on the port yet
+                             (otherwise the command names the ports that do listen).
 
         Examples:
           cmux vm open vivid-newt
@@ -1299,6 +1301,19 @@ extension CMUXCLI {
             let response = try client.sendV2(method: "vm.terminal_read", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
             print((response["text"] as? String) ?? "")
+            // An exited terminal still answers with its last screen; the socket's own
+            // `message` says so (and how it ended) on stderr, keeping stdout the screen.
+            if (response["exited"] as? Bool) == true {
+                let message = (response["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !message.isEmpty {
+                    cliWriteStderr(message + "\n")
+                } else if let exitCode = response["exit_code"] as? Int {
+                    cliWriteStderr(String(
+                        format: String(localized: "cli.vm.terminal.read.exited", defaultValue: "Terminal %1$@ has exited (code %2$d)."),
+                        terminalID, exitCode
+                    ) + "\n")
+                }
+            }
         case "wait":
             guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
             guard let pattern = patternOpt, !pattern.isEmpty else {
@@ -1492,7 +1507,8 @@ extension CMUXCLI {
         focus: Bool?,
         printOnly: Bool,
         client: SocketClient,
-        jsonOutput: Bool
+        jsonOutput: Bool,
+        forcePortOpen: Bool = false
     ) throws {
         switch target {
         case .machine:
@@ -1512,7 +1528,7 @@ extension CMUXCLI {
                 ))
             }
         case .port(let machine, let port):
-            try openVMPort(vmId: machine, port: port, printOnly: printOnly, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput)
+            try openVMPort(vmId: machine, port: port, printOnly: printOnly, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput, force: forcePortOpen)
         case .terminal(let machine, let remoteWorkspace, let terminal, let tab):
             // The path contains a remote workspace selector. Resolve it before
             // opening so the catalog can retain the exact placement instead of
@@ -1645,8 +1661,14 @@ extension CMUXCLI {
         printOnly: Bool,
         workspaceRaw: String?,
         client: SocketClient,
-        jsonOutput: Bool
+        jsonOutput: Bool,
+        force: Bool = false
     ) throws {
+        // A URL for a port nothing listens on is a dead link: refuse it unless
+        // `--force` (CMUXCLI+VMPorts.swift shares the classifier with `vm ports`).
+        if !force {
+            try vmPortOpenPreflight(vmId: vmId, port: port, client: client)
+        }
         if printOnly {
             let payload = try client.sendV2(method: "vm.open_port", params: ["id": vmId, "port": port], responseTimeout: 90)
             if jsonOutput {

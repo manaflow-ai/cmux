@@ -473,6 +473,39 @@ struct CloudPortOpenRegressionTests {
         #expect(concurrent.contains { $0.id == poolPort.id })
     }
 
+    @Test("A pool port opened from an unrelated workspace lands in the machine's local workspace")
+    func poolPortOpensInMachineWorkspace() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        catalog.register(FakeProvider(machine: machine, supportsPortPreviews: true))
+        catalog.replaceResources([terminal()], on: machine, info: machineInfo(workspaces: [workspace]))
+        let machineWorkspaceID = live.id()
+        let homeWorkspaceID = live.id()
+        _ = try await catalog.project(
+            terminal().id,
+            into: .workspace(id: machineWorkspaceID, placement: .split),
+            focus: false,
+            reuseExisting: false
+        )
+
+        // Evaluator repro: `cmux vm open <m> 9999` from the local "~" workspace
+        // opened the preview there instead of beside the machine's terminal.
+        let undiscovered = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(9999))
+        #expect(catalog.preferredLocalWorkspaceID(for: undiscovered, fallback: homeWorkspaceID) == machineWorkspaceID)
+        let poolPort = discoveredPort(3000)
+        catalog.upsert(poolPort)
+        #expect(catalog.preferredLocalWorkspaceID(for: poolPort, fallback: homeWorkspaceID) == machineWorkspaceID)
+        // The caller's workspace wins when it already shows the machine.
+        #expect(catalog.preferredLocalWorkspaceID(for: poolPort, fallback: machineWorkspaceID) == machineWorkspaceID)
+
+        // With no machine surface open locally, the caller's workspace is used.
+        let empty = SurfaceCatalog(live: live)
+        empty.register(FakeProvider(machine: machine, supportsPortPreviews: true))
+        empty.upsert(poolPort)
+        #expect(empty.preferredLocalWorkspaceID(for: poolPort, fallback: homeWorkspaceID) == homeWorkspaceID)
+    }
+
     @Test("Unsupported providers fail before a synthetic row or browser pane is created")
     func unsupportedProviderFailsClosed() async {
         let live = LiveWorkspaceFixture()

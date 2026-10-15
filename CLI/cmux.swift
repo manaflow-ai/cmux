@@ -7154,7 +7154,16 @@ struct CMUXCLI {
                 if let verb = commandArgs.first?.lowercased(), verb == "hibernate" || verb == "wake" {
                     try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
                 } else {
-                    try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+                    let agentArguments = Self.vmAgentAliasArgs(commandArgs)
+                    do {
+                        try runVMAgentCommand(rest: agentArguments, client: client, jsonOutput: jsonOutput)
+                    } catch {
+                        // `--machine <label>`: the same lazy label resolution as `cmux vm agent`.
+                        guard let retryArguments = try vmMachineLabelRetryArguments(after: error, verb: "agent", arguments: agentArguments, client: client) else {
+                            throw error
+                        }
+                        try runVMAgentCommand(rest: retryArguments, client: client, jsonOutput: jsonOutput)
+                    }
                 }
             }
 
@@ -7164,7 +7173,14 @@ struct CMUXCLI {
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
-            let rest = Array(commandArgs.dropFirst())
+            // A machine label typed where an id belongs is resolved after the verb's
+            // not-found failure, then the verb runs once more with the id
+            // (vmMachineLabelRetryArguments, CMUXCLI+VMMachineLabels.swift).
+            var vmVerbArguments = Array(commandArgs.dropFirst())
+            var vmMachineLabelResolved = false
+            vmVerbAttempt: while true {
+            let rest = vmVerbArguments
+            do {
             switch sub {
             case "domains":
                 try runCloudDomainsCommand(
@@ -7301,10 +7317,12 @@ struct CMUXCLI {
                     break
                 }
                 let printOnly = hasFlag(rest, name: "--print")
+                // `--force`: open a port even when nothing listens on it yet (vmPortOpenPreflight).
+                let forcePortOpen = hasFlag(rest, name: "--force")
                 let (workspaceOpt, rest1) = parseOption(rest, name: "--workspace")
                 let (focus, rest2) = try parseOpenFocusFlags(rest1, command: "vm open")
                 let (windowOpt, rest3) = parseOption(rest2, name: "--window")
-                let openArgs = rest3.filter { $0 != "--print" }
+                let openArgs = rest3.filter { $0 != "--print" && $0 != "--force" }
                 guard let rawTarget = openArgs.first, let target = Self.parseVMOpenTarget(rawTarget), openArgs.count <= 2 else {
                     throw CLIError(message: Self.vmOpenUsage)
                 }
@@ -7313,7 +7331,7 @@ struct CMUXCLI {
                     guard case .machine(let vmId) = target, let port = Int(portArg), (1...65535).contains(port) else {
                         throw CLIError(message: Self.vmOpenUsage)
                     }
-                    try openVMPort(vmId: vmId, port: port, printOnly: printOnly, workspaceRaw: workspaceOpt, client: client, jsonOutput: jsonOutput)
+                    try openVMPort(vmId: vmId, port: port, printOnly: printOnly, workspaceRaw: workspaceOpt, client: client, jsonOutput: jsonOutput, force: forcePortOpen)
                     break
                 }
                 if case .machine(let vmId) = target {
@@ -7328,7 +7346,7 @@ struct CMUXCLI {
                     )
                     break
                 }
-                try runVMOpenTarget(target, workspaceRaw: workspaceOpt, focus: focus, printOnly: printOnly, client: client, jsonOutput: jsonOutput)
+                try runVMOpenTarget(target, workspaceRaw: workspaceOpt, focus: focus, printOnly: printOnly, client: client, jsonOutput: jsonOutput, forcePortOpen: forcePortOpen)
 
             case "status", "info":
                 guard let vmId = rest.first else {
@@ -8072,16 +8090,8 @@ struct CMUXCLI {
                 print((response["stdout"] as? String) ?? "")
 
             case "ports":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm ports <id>")
-                }
-                let command = "if command -v ss >/dev/null 2>&1; then ss -ltnp; elif command -v netstat >/dev/null 2>&1; then netstat -ltnp; else echo 'No port inspector found'; fi"
-                let response = try client.sendV2(method: "vm.exec", params: ["id": vmId, "command": command, "timeout_ms": 30_000], responseTimeout: 35)
-                if jsonOutput {
-                    print(jsonString(response))
-                    break
-                }
-                print((response["stdout"] as? String) ?? "")
+                // CMUXCLI+VMPorts.swift: the person's ports by default, `--all` adds system ports.
+                try runVMPortsCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "handoff":
                 guard let vmId = rest.first else {
@@ -8135,6 +8145,16 @@ struct CMUXCLI {
                       cmux vm shell <id>
                       cmux vm rm <id>
                     """)
+            }
+            break vmVerbAttempt
+            } catch {
+                guard !vmMachineLabelResolved,
+                      let retryArguments = try vmMachineLabelRetryArguments(after: error, verb: sub, arguments: rest, client: client) else {
+                    throw error
+                }
+                vmVerbArguments = retryArguments
+                vmMachineLabelResolved = true
+            }
             }
 
         case "remotes", "remote":
@@ -21254,8 +21274,23 @@ struct CMUXCLI {
                 localized: "cli.vm.resize.helpDescription",
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
+            // The first screen of `cmux vm --help`: the five commands that take someone
+            // from nothing to an agent working on their repo. The full list follows.
+            let quickStart = String(
+                localized: "cli.vm.help.quickStart",
+                defaultValue: """
+                Quick start:
+                  cmux vm secrets import --from-shell           Give machines your API keys (once).
+                  cmux vm clone owner/repo --agent claude       Clone a repo on a machine and start an agent.
+                  cmux vm ls                                    List your machines (labels work as ids).
+                  cmux vm open <machine>                        Open a machine's shell here.
+                  cmux vm agent --agent codex -- "<task>"       Run an agent on a routed machine.
+                """
+            )
             return """
             Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+
+            \(quickStart)
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -21451,7 +21486,7 @@ struct CMUXCLI {
                                         Block until the VM reports a ready status; --wake also
                                         runs a trivial exec so a sleeping machine is awake.
               tools <id>                Inspect installed tools inside the VM.
-              ports <id>                Show listening TCP ports inside the VM.
+              ports <id> [--all]        Show your servers inside the VM (--all: system ports too).
               handoff <id>              Print a short attach handoff block.
               promote-template <id>     Snapshot a VM with a template-oriented name.
 

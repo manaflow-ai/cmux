@@ -20,6 +20,9 @@ struct CloudSecretsSheetBackend {
     var status: @MainActor (String) async throws -> [CloudSecretMachineStatusRow]
     /// Syncs one machine and returns the redacted error text, nil on success.
     var sync: @MainActor (String) async -> String?
+    /// The names a local checkout declares (`.cmux/cloud.json`, devcontainer), read
+    /// off the main actor; nil when the host cannot read checkouts.
+    var declared: (@MainActor (URL) async -> [CloudSecretRequirement])? = nil
 }
 
 /// State behind the Cloud Secrets sheet: the list for the selected scope,
@@ -48,6 +51,8 @@ final class CloudSecretsSheetModel {
         var name: String
         var value: String = ""
         var projectText: String
+        /// Why this name is being added (a repository's description of it), when known.
+        var hint: String?
         var error: String?
         var isSaving = false
 
@@ -71,12 +76,17 @@ final class CloudSecretsSheetModel {
     let machineLabel: String?
     /// The project of the window the sheet opened from, offered first.
     let contextProjectKey: String?
+    /// The local checkout the sheet opened from, whose declared names the Project
+    /// tab lists when they are not set.
+    let contextCheckout: CloudSecretProjectCheckout?
     var machineLabels: [String: String]
 
     private(set) var phase: Phase = .loading
     private(set) var records: [CloudSecretRecord] = []
     private(set) var deliveries: [CloudSecretDelivery] = []
     private(set) var statusRows: [CloudSecretMachineStatusRow] = []
+    /// What ``contextCheckout`` declares, read on each load.
+    private(set) var declaredRequirements: [CloudSecretRequirement] = []
     private(set) var statusError: String?
     private(set) var isSyncing = false
     private(set) var syncError: String?
@@ -105,18 +115,22 @@ final class CloudSecretsSheetModel {
         machineID: String? = nil,
         machineLabel: String? = nil,
         contextProjectKey: String? = nil,
+        contextCheckout: CloudSecretProjectCheckout? = nil,
         machineLabels: [String: String] = [:],
         backend: CloudSecretsSheetBackend,
         now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.machineID = machineID
         self.machineLabel = machineLabel.flatMap { $0.isEmpty ? nil : $0 } ?? machineID
-        self.contextProjectKey = contextProjectKey
+        self.contextProjectKey = contextProjectKey ?? contextCheckout?.projectKey
+        self.contextCheckout = contextCheckout
         var labels = machineLabels
         if let machineID, let machineLabel, !machineLabel.isEmpty { labels[machineID] = machineLabel }
         self.machineLabels = labels
         self.backend = backend
         self.now = now
+        // Opened from a checkout: the Project tab starts on that project.
+        if machineID == nil, let checkout = contextCheckout { projectKey = checkout.projectKey }
     }
 
     // MARK: Derived
@@ -184,6 +198,35 @@ final class CloudSecretsSheetModel {
 
     var hasModalCard: Bool { editor != nil || importDraft != nil }
 
+    /// On the Project tab, the names the context checkout declares that nothing
+    /// covers for its project (an all-machines secret or one for that project), in
+    /// declaration order. Empty on other tabs, or when another project is selected.
+    var unsetRequirements: [CloudSecretRequirement] {
+        guard tab == .project, let checkout = contextCheckout,
+              projectKey == nil || projectKey == checkout.projectKey else { return [] }
+        return CloudSecretRequirements.missing(
+            declaredRequirements,
+            records: records,
+            projectKeys: [checkout.projectKey],
+            machineID: nil
+        )
+    }
+
+    /// "owner/repo" for the ghost rows' "Needed by …".
+    var unsetRequirementsProjectLabel: String {
+        contextCheckout.map { CloudSecretsSheetPresentation.shortProjectLabel($0.projectKey) } ?? ""
+    }
+
+    /// Set… on a ghost row: the add card with the name filled in, scoped to the
+    /// checkout's project, and the repository's description as its hint.
+    func beginSetRequirement(_ requirement: CloudSecretRequirement) {
+        guard let checkout = contextCheckout, !hasModalCard else { return }
+        tab = .project
+        beginAdd(name: requirement.name)
+        editor?.projectText = checkout.projectKey
+        editor?.hint = CloudSecretsSheetPresentation.requirementHint(requirement, projectLabel: unsetRequirementsProjectLabel)
+    }
+
     // MARK: Loading
 
     func load() async {
@@ -193,6 +236,9 @@ final class CloudSecretsSheetModel {
             records = snapshot.records
             deliveries = snapshot.deliveries
             if projectKey == nil, isMachineMode { projectKey = delivery?.projectKeys.first }
+            if let checkout = contextCheckout, let declared = backend.declared {
+                declaredRequirements = await declared(checkout.root)
+            }
             phase = .ready
         } catch {
             phase = .loadFailed(CloudSecretsSheetPresentation.message(for: error))

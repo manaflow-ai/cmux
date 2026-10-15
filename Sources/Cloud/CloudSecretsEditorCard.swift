@@ -63,6 +63,14 @@ struct CloudSecretsEditorCard: View {
                     }
                 }
 
+                if let hint = editor.hint {
+                    Text(hint)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("CloudSecretsEditor.hint")
+                }
+
                 if let error = editor.error {
                     Text(error)
                         .cmuxFont(size: 11)

@@ -65,7 +65,9 @@ cmux vm clone owner/repo --agent claude`}</CodeBlock>
         <li>{t("stepMachine")}</li>
         <li>{t("stepSecrets")}</li>
         <li>{t("stepClone")}</li>
+        <li>{t.rich("stepMissing", { code })}</li>
         <li>{t("stepWorkspace")}</li>
+        <li>{t.rich("stepSetup", { code })}</li>
         <li>{t.rich("stepAgent", { code })}</li>
       </ol>
       <CodeBlock lang="bash">{`cmux vm clone owner/repo                   # open the checkout in a Cloud workspace
@@ -84,7 +86,7 @@ cmux vm clone .`}</CodeBlock>
 
       <DocsHeading level={2} id="options">{t("optionsTitle")}</DocsHeading>
       <p>{t("optionsDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm clone <repo> [--machine <id> | --new] [--size <4g|8g|16g|24g|32g|64g>] [--branch <b>] [--dir <remote-dir>] [--agent claude|codex|opencode|pi [-- <prompt>]] [--no-open] [--focus|--no-focus] [--dry-run] [--json]`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux vm clone <repo> [--machine <id> | --new] [--size <4g|8g|16g|24g|32g|64g>] [--branch <b>] [--dir <remote-dir>] [--agent claude|codex|opencode|pi [-- <prompt>]] [--skip-setup] [--no-open] [--focus|--no-focus] [--dry-run] [--json]`}</CodeBlock>
 
       <DocsHeading level={2} id="private-repos">{t("privateTitle")}</DocsHeading>
       <p>{t.rich("privateDesc", { code, link: secretsLink })}</p>
@@ -93,6 +95,20 @@ cmux vm clone .`}</CodeBlock>
       <DocsHeading level={2} id="keys-the-repo-needs">{t("declareTitle")}</DocsHeading>
       <p>{t.rich("declareDesc", { code, link: secretsLink })}</p>
       <CodeBlock lang="bash">{`cmux vm secrets check`}</CodeBlock>
+
+      <DocsHeading level={2} id="setup">{t("setupTitle")}</DocsHeading>
+      <p>{t.rich("setupDesc", { code })}</p>
+      <CodeBlock lang="json">{`// .cmux/cloud.json
+{
+  "env": [{ "name": "DATABASE_URL", "description": "Postgres for tests" }],
+  "setup": ["bun install", "bun run build"]
+}`}</CodeBlock>
+      <CodeBlock lang="text">{`Missing secrets for owner/repo: DATABASE_URL (from .cmux/cloud.json — "Postgres for tests").
+Add: cmux vm secrets set DATABASE_URL --scope project:github.com/owner/repo (continuing without them)
+Setup 1/2 bun install … 12.4s ✓
+Setup 2/2 bun run build … 31.0s ✓`}</CodeBlock>
+      <p>{t.rich("setupFailure", { code })}</p>
+      <p>{t.rich("setupTrust", { code })}</p>
 
       <DocsHeading level={2} id="clone-or-push">{t("pushTitle")}</DocsHeading>
       <p>{t.rich("pushDesc", { code })}</p>

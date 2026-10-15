@@ -227,7 +227,7 @@ List and inspect:
 cmux vm ls                    # NAME LABEL STATE PROVIDER IMAGE + plan meter
 cmux vm status <id>           # provider, status, image
 cmux vm stats <id>            # live CPU/memory
-cmux vm ports <id>            # listening TCP ports inside the machine
+cmux vm ports <id>            # your servers: PORT PROCESS PRIVATE-URL SHARED (--all adds system ports)
 cmux vm tools <id>            # probe common tools inside the machine
 cmux vm tree [<machine>|local] [--refresh]
 cmux vm self <id> [<path>] [--json]   # the machine's reflection (name, owner, team, peers, integrations) through your session

@@ -20,6 +20,14 @@ final class CloudSecretsSheetPresenter {
 
     private init() {}
 
+#if DEBUG
+    /// The open sheet for the `debug.cloud_secrets.*` socket verbs.
+    var debugOpenSheet: (model: CloudSecretsSheetModel, window: NSWindow, host: NSWindow?)? {
+        guard let model, let sheetWindow else { return nil }
+        return (model, sheetWindow, hostWindow)
+    }
+#endif
+
     /// Opens the sheet. With a machine it is that machine's view: per-name
     /// delivery state and Sync Now. Opening for a different machine replaces
     /// the open sheet; the same one is brought forward.
@@ -35,6 +43,7 @@ final class CloudSecretsSheetPresenter {
         let model = CloudSecretsSheetModel(
             machineID: machineID,
             machineLabel: machineLabel,
+            contextCheckout: machineID == nil ? Self.contextCheckout(preferredWindow: preferredWindow) : nil,
             backend: Self.backend(service)
         )
         model.onFinished = { [weak self] in self?.dismiss() }
@@ -67,6 +76,17 @@ final class CloudSecretsSheetPresenter {
             hostWindow = nil
             sheet.orderFrontFloating()
         }
+    }
+
+    /// The git checkout the window's selected local workspace is in, so the
+    /// Project tab can list the names that repository declares. nil for a Cloud
+    /// workspace or a folder outside any checkout.
+    private static func contextCheckout(preferredWindow: NSWindow?) -> CloudSecretProjectCheckout? {
+        guard let workspace = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: preferredWindow)?.selectedWorkspace,
+              workspace.cloudVMID == nil else { return nil }
+        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard directory.hasPrefix("/") else { return nil }
+        return CloudSecretProjectCheckout.locate(from: URL(fileURLWithPath: directory, isDirectory: true))
     }
 
     /// Lets the Cloud "Get started" card open this sheet.
@@ -106,6 +126,12 @@ final class CloudSecretsSheetPresenter {
             },
             sync: { machineID in
                 await service.sync(machineID: machineID).error
+            },
+            declared: { root in
+                // Names only; the files are small, but read them off the main actor.
+                await Task.detached(priority: .userInitiated) {
+                    CloudSecretRequirements.declared(inDirectory: root)
+                }.value
             }
         )
     }
