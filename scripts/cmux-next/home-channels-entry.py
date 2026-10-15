@@ -207,7 +207,9 @@ def palette_run(pid, text, title, shot_name):
         if "error" in state():  # the attempt closed the palette: open it again with the real chord
             cua("hotkey", {"pid": pid, "window_id": main["window_id"], "keys": ["cmd", "shift", "p"]})
             poll(lambda: "error" not in state(), 5)
-        rpc("debug.key", {"target": "palette", "key": "a", "modifiers": ["cmd"]})
+        # Clear what the attempt typed with Delete (Cmd-A in the palette opens its Tabs page, job 1015-062807-e251cc).
+        for _ in range(len(state().get("query") or "")):
+            rpc("debug.key", {"target": "palette", "key": "delete"})
         for ch in text:
             rpc("debug.key", {"target": "palette", "key": "space" if ch == " " else ch})
     found = poll(lambda: state().get("selected") == title, 10)
