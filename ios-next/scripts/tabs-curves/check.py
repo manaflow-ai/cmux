@@ -54,6 +54,10 @@ def track(video, hexc):
     for i in range(n):
         f = np.frombuffer(raw[i * w * h * 3:(i + 1) * w * h * 3], dtype=np.uint8).reshape(h, w, 3).astype(np.int16)
         m = np.abs(f - c).max(axis=2) < 28
+        # The header band only: rows where the colour runs across at least
+        # 60 pt (the page's own coloured bars and dots are narrower).
+        band = m.sum(1) >= 90
+        m = m & band[:, None]
         cols = np.nonzero(m.sum(0) >= 6)[0]
         if len(cols) < 3:
             rows.append((pts[i], None))
@@ -66,32 +70,38 @@ def track(video, hexc):
 def progress(rows, field, a, b):
     t = np.array([r[0] for r in rows if r[1]])
     v = np.array([r[1][field] for r in rows if r[1]])
-    if field == 'x1' and b == 0.0:   # fling: from where it last rested before leaving
-        i = len(v) - 1
-        moving = np.nonzero(np.abs(np.diff(v)) > 0.5)[0]
-        a = v[moving[-1] + 1] if len(moving) else v[0]
-        # the release: the last frame at its pre-exit rest before the final descent
-        k = np.nonzero(v > a + 2)[0]
-        a = v[k[-1] + 1] if len(k) else v[0]
+    if field == 'x1' and b == 0.0:   # fling: from the finger's end (x1 at about 300)
+        k = int(np.argmax(v <= 302.5))
+        t, v, a = t[k:], v[k:], v[k]
+        return t, (a - v) / a, a, True
     if a is None:                    # spring back: from the turnaround
         i = int(np.argmin(v))
         t, v, a = t[i:], v[i:], v[i]
     p = (v - a) / (b - a)
-    return t, p, abs(b - a)
+    return t, p, abs(b - a), False
 
 
 def compare(motion, video):
     hexc, field, a, b = SPECS[motion]
     saf = curves()[motion]
-    t, p, span = progress(track(video, hexc), field, a, b)
-    i = int(np.argmax(p > 0.005))
+    t, p, span, at_release = progress(track(video, hexc), field, a, b)
+    # Aligned at the onset (Safari's tables start at rest), or for the fling
+    # at the finger's end (Safari's table starts there, holds included).
+    i = 1 if at_release else int(np.argmax(p > 0.005))
     t0 = t[max(0, i - 1)]
     tt = (t - t0) * 1000
     st = np.arange(len(saf)) * 1000 / 60
 
     def cross(times, prog, q):
+        """The time `prog` first reaches `q`, interpolated between frames."""
         k = int(np.argmax(prog >= q))
-        return float(times[k]) if prog[k] >= q else float('nan')
+        if prog[k] < q:
+            return float('nan')
+        if k == 0:
+            return float(times[0])
+        a, b = prog[k - 1], prog[k]
+        f = (q - a) / (b - a) if b > a else 1.0
+        return float(times[k - 1] + (times[k] - times[k - 1]) * f)
 
     rows = []
     worst = 0.0
