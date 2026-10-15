@@ -253,7 +253,7 @@ impl Backend for Fake {
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure> {
         self.sent.borrow_mut().push(json!({"kind": "events", "cursor": cursor}));
-        if self.fail_resources {
+        if self.fail_resources || self.live.borrow().daemon_down {
             return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
         }
         if self.live.borrow().journal.is_some() {

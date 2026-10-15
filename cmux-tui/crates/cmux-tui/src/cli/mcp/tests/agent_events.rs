@@ -502,3 +502,59 @@ fn agents_events_stays_within_its_timeout_when_the_app_is_slow() {
     assert_eq!(answer["sources"]["app"], false, "{answer}");
     assert_eq!(answer["timed_out"], true);
 }
+
+/// `after` with its JSON edited by `edit`, as a client could send it.
+fn edited(after: &str, edit: impl FnOnce(&mut Value)) -> String {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let body = after.strip_prefix("evc1_").expect("a cursor");
+    let mut value =
+        serde_json::from_slice::<Value>(&URL_SAFE_NO_PAD.decode(body).unwrap()).unwrap();
+    edit(&mut value);
+    format!("evc1_{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&value).unwrap()))
+}
+
+#[test]
+fn agents_events_refuses_an_edited_cursor_without_failing_the_server() {
+    let mut server = Server::new(fake(), None);
+    let after = start(&mut server);
+    now(&server, Change::Journal(json!([tab(TAB, "a")])));
+    let edited = edited(&after, |value| value["s"] = json!(u64::MAX));
+    let result = call(&mut server, "agents_events", json!({"after": edited, "timeout_seconds": 0}));
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["state"], "not_run", "{result}");
+    // The server still answers.
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    assert_eq!(list(&answer).len(), 1, "{answer}");
+}
+
+#[test]
+fn agents_events_from_now_reads_the_daemon_once_for_its_baseline_and_scope() {
+    let mut server = Server::new(fake(), None);
+    events(&mut server, json!({"timeout_seconds": 0}));
+    let reads = sent_of(&server, "resource")
+        .into_iter()
+        .filter(|sent| sent["request"]["operation"] == "session.snapshot")
+        .count();
+    assert_eq!(reads, 1, "the baseline's snapshot also scopes the app");
+}
+
+#[test]
+fn agents_events_reports_what_it_missed_while_the_daemon_was_unreachable() {
+    let fake = fake();
+    fake.live.borrow_mut().daemon_down = true;
+    let mut server = Server::new(fake, None);
+    let answer = events(&mut server, json!({"timeout_seconds": 0}));
+    assert_eq!(answer["sources"]["daemon"], false, "{answer}");
+    let after = answer["next_after"].as_str().unwrap().to_owned();
+    // The daemon comes back with changes this caller never saw.
+    now(&server, Change::DaemonDown(false));
+    now(&server, Change::Journal(json!([tab(TAB, "missed")])));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    let got = list(&answer);
+    assert_eq!(got.len(), 1, "{answer}");
+    assert_eq!(
+        (got[0]["kind"].as_str(), got[0]["reason"].as_str()),
+        (Some("reset"), Some("daemon_unavailable"))
+    );
+}
