@@ -66,6 +66,29 @@ struct CEFBrowserPageVisibilityTests {
         _ = window
     }
 
+    @Test("A page in no window draws in a transparent capture window, then goes back to its container")
+    func backgroundWorkspaceCapture() async {
+        let page = CEFBrowserPage(browser: CEFBrowser(configuration: CEFBrowserConfiguration(profile: UUID())))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let host = page.browser.hostView
+        host.frame = container.bounds
+        container.addSubview(host)
+        page.setContentVisible(false)
+        await page.withContentVisibleForCapture {
+            #expect(host.window != nil)
+            #expect(host.window?.alphaValue == 0)
+            #expect(host.window?.ignoresMouseEvents == true)
+            #expect(host.isCoveredForCapture)
+            #expect(!host.isHidden)
+            #expect(host.frame.size == NSSize(width: 320, height: 240))
+        }
+        #expect(host.superview === container)
+        #expect(host.window == nil)
+        #expect(host.frame == container.bounds)
+        #expect(host.isHidden)
+        #expect(!host.isCoveredForCapture)
+    }
+
     @Test("A page on screen captures without being touched")
     func visiblePageUntouched() async {
         let (page, window) = makePage()
