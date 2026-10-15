@@ -67,8 +67,21 @@ public final class CEFHostView: NSView {
     /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)
     /// on every geometry update.
     @objc public func cmuxOcclusionRects() -> NSArray {
-        Self.outermost(occlusionRects.map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty })
+        // A covered page shows nothing: one hole over all of it, at its current size.
+        let rects = isCoveredForCapture ? [bounds] : occlusionRects
+        return Self.outermost(rects.map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty })
             .map { NSValue(rect: $0) } as NSArray
+    }
+
+    /// While true the page draws but shows nothing on screen (an occlusion
+    /// hole over the whole view, sized on every geometry update), so a
+    /// background page can be captured. Features' own `occlusionRects` are
+    /// kept and apply again when the cover ends.
+    public var isCoveredForCapture = false {
+        didSet {
+            guard isCoveredForCapture != oldValue else { return }
+            postGeometryChange()
+        }
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update.

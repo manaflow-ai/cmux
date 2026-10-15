@@ -41,9 +41,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var pendingPermissions: [Int32: Task<Void, Never>] = [:]
     /// Downloads of this page, by shim token.
     private var downloads: [Int32: BrowserPageDownload] = [:]
-    /// Captures running while the page is hidden, and the occlusion the page
-    /// had before the first of them (CEFBrowserPage+HiddenCapture).
-    var hiddenCapture = (depth: 0, savedOcclusion: [CGRect](), wantsVisible: true)
+    /// Hidden-page captures in flight and whether the pane shows the page (CEFBrowserPage+HiddenCapture).
+    var hiddenCapture = CEFBrowserPageCaptureState()
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
@@ -306,8 +305,10 @@ public final class CEFBrowserPage: BrowserPage {
         hiddenCapture.wantsVisible = visible
         // While a capture of the hidden page runs, only its cover changes now.
         if hiddenCapture.depth > 0 { return captureVisibilityChanged(visible) }
-        guard browser.hostView.isHidden == visible else { return }
-        browser.hostView.isHidden = !visible
+        if browser.hostView.isHidden == visible { browser.hostView.isHidden = !visible }
+        // A tab opened or restored in the background still loads, as a hidden web view does:
+        // a hidden host view never presents, which is what would otherwise create the page.
+        if !visible, browser.browserID == nil, !browser.isClosed { browser.createNow() }
     }
 
     /// Delivers a trusted input event through `Input.dispatch*Event`.
