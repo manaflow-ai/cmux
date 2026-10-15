@@ -291,7 +291,7 @@ the Mac.
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | It creates one tab that shows an acpmux session of this Mac. The tab itself runs nothing. The session behind it is created over the phone's `acpmux` lane with `session/new`, under acpmux's remote guard: an existing folder, an asking policy, no MCP servers, and folder trust held for the person to answer. Codex and opencode are refused families there. The phone may set only `pane`, `workspace`, `cols`, `rows`, `origin`, `mutation_id`, `transaction` and `agent_session {harness, session, host_name}`. `harness` and `session` must be short identifiers (`[A-Za-z0-9._:-]`, at most 64 and 128 bytes). `host_name` is a display name of at most 256 bytes with no control characters. `conversation`/`owner` (another conversation owner), `page`/`route` (the app's own pages) and any other field are refused. |
+| Executes commands or opens content on local objects? | It creates one tab that shows an acpmux session of this Mac. The tab itself runs nothing. The session behind it is created over the phone's `acpmux` lane with `session/new`, under acpmux's remote guard: an existing folder, an asking policy, no MCP servers, and folder trust held for the person to answer. opencode and the codex-acp adapter are refused families there; Codex on the `codex app-server` bridge starts in its asking mode (round 2, below). The phone may set only `pane`, `workspace`, `cols`, `rows`, `origin`, `mutation_id`, `transaction` and `agent_session {harness, session, host_name}`. `harness` and `session` must be short identifiers (`[A-Za-z0-9._:-]`, at most 64 and 128 bytes). `host_name` is a display name of at most 256 bytes with no control characters. `conversation`/`owner` (another conversation owner), `page`/`route` (the app's own pages) and any other field are refused. |
 | Mutates or destroys objects the session does not own? | `agent_session.host` is never the phone's choice. hostd sets it to this Mac's own `install:<id>` (`CNX_AGENT_TAB_HOST`, supplied by the app's `AgentTabStore.localHost`). A phone that names any other host, such as a `registry:` host or another Mac's install, is refused. The tab therefore always belongs to this Mac's acpmux and shows in the Mac app as its own chat. Without `CNX_AGENT_TAB_HOST` (an older app), every `new-conversation-tab` is refused with `unavailable`. The Swift mirror refuses it always, because the irx lane has no such host. |
 | Reads local state the remote should not see? | No new read. A session id the phone names is one it can already attach to over `acpmux`. |
 
@@ -366,8 +366,9 @@ same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
   (`CnxApproverSync.rootsClearPending`); the list is memory only and goes with
   acpmux.
 - **What stays refused:** the phone still sends no `cwd` to the daemon, no
-  command, argv, env, mode or permission policy other than `ask`; Codex and
-  opencode stay refused families (`web_modes.rs`); MCP servers stay empty. The
+  command, argv, env, mode or permission policy other than `ask`; opencode and the
+  codex-acp adapter stay refused families (`web_modes.rs`; Codex on the app-server
+  bridge starts in its asking mode, round 2); MCP servers stay empty. The
   phone's own guard says why before it asks: a workspace whose folder is the
   home folder (or above) gets "Agent chats start in a project folder" instead of
   acpmux's refusal (`LiveWorkspaceCreationBackend.isHomeOrAbove`).
