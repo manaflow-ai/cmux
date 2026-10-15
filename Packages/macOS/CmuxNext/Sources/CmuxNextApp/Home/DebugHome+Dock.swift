@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextHome
 import CmuxNextSettings
 
@@ -36,7 +37,29 @@ extension DebugHome {
             "switch_selected": .number(Double(control.selectedSegment)),
             "switch_labels": .array((0..<control.segmentCount).map { .string(control.label(forSegment: $0) ?? "") }),
             "switch_frame": header.map(box) ?? .null,
+            // The Messages list as drawn: the pinned grid, then the rows (id, title, pinned, unread).
+            "messages_list": .array(((view.messages?.list.model).map { $0.pinned + $0.rows } ?? []).map { item in
+                .object(["id": .string(item.id.rawValue), "title": .string(item.title), "pinned": .bool(item.isPinned),
+                         "unread": .bool(item.unread), "chief": .bool(item.isChief)])
+            }),
             "handoff": view.lastHandoff.map { .object(["conversation": .string($0.conversation), "message": $0.message.map { .string($0) } ?? .null]) } ?? .null,
         ])
+    }
+
+    /// `debug.home.drive {action: list, op: pin | unpin | unread | read, conversation}`: the docked Messages
+    /// list's own menu handlers (Pin, Unpin, Mark as Unread, Mark as Read) for one conversation.
+    static func driveDockList(_ params: [String: JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
+        guard let list = HomeDockTab.view(services)?.messages?.list, let id = params["conversation"]?.stringValue else {
+            return .object(["ok": .bool(false), "error": .string("no docked Messages list, or no conversation")])
+        }
+        let conversation = ConversationID(id)
+        switch params["op"]?.stringValue {
+        case "pin": list.onSetPinned(true, conversation)
+        case "unpin": list.onSetPinned(false, conversation)
+        case "unread": list.onMarkUnread(conversation)
+        case "read": list.onMarkRead(conversation)
+        default: return .object(["ok": .bool(false), "error": .string("op must be pin, unpin, unread or read")])
+        }
+        return .object(["ok": .bool(true)])
     }
 }
