@@ -99,7 +99,7 @@ private struct BrowserPermissionPromptStrip: View {
 
     private var question: some View {
         HStack(alignment: .center, spacing: metrics.promptStripSpacing) {
-            Image(systemName: BrowserPermissionPromptText.symbolName(for: prompt.kinds))
+            Image(systemName: BrowserPermissionPromptText.symbolName(for: prompt))
                 .font(.system(size: metrics.promptBarIconFontSize))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
@@ -122,6 +122,12 @@ private struct BrowserPermissionPromptStrip: View {
             case .blockOrAllow:
                 button(BrowserPermissionPromptText.block, prominent: false) { answer(.block) }
                 button(BrowserPermissionPromptText.allow, prominent: true) { answer(prompt.allowAnswer) }
+            case .systemBlocked:
+                // Spec §4 v1.4: the page was denied already; macOS decides the device.
+                button(BrowserPermissionPromptText.notNow, prominent: false) { answer(.notNow) }
+                button(BrowserPermissionPromptText.openSystemSettings, prominent: true) { answer(.openSystemSettings) }
+            case .systemManaged:
+                button(BrowserPermissionPromptText.notNow, prominent: false) { answer(.notNow) }
             }
         }
         .fixedSize()
@@ -168,9 +174,26 @@ enum BrowserPermissionPromptText {
         String(localized: "browser.permission.prompt.allow", defaultValue: "Allow")
     }
 
+    static var notNow: String {
+        String(localized: "browser.permission.prompt.notNow", defaultValue: "Not now")
+    }
+
+    static var openSystemSettings: String {
+        String(localized: "browser.permission.prompt.openSystemSettings", defaultValue: "Open System Settings")
+    }
+
     /// Names the strip for VoiceOver (it is not modal).
     static var accessibilityLabel: String {
         String(localized: "browser.permission.prompt.accessibilityLabel", defaultValue: "Permission request")
+    }
+
+    /// The SF Symbol of the capability asked about; slashed when macOS keeps
+    /// the device from cmux (spec §4 v1.4).
+    static func symbolName(for prompt: BrowserPermissionPrompt) -> String {
+        if prompt.variant != .ask {
+            return prompt.kinds.contains(.camera) ? "video.slash" : "mic.slash"
+        }
+        return symbolName(for: prompt.kinds)
     }
 
     /// The SF Symbol of the capability asked about.
@@ -189,6 +212,9 @@ enum BrowserPermissionPromptText {
     /// frame of another site asks, the embedding page's site too.
     static func message(for prompt: BrowserPermissionPrompt) -> AttributedString {
         let origin = prompt.displayOrigin
+        if let format = systemFormat(for: prompt) {
+            return boldingOrigin(origin, in: format)
+        }
         let format: String
         switch Set(prompt.kinds) {
         case [.camera]:
@@ -218,6 +244,45 @@ enum BrowserPermissionPromptText {
         // "**frame.site** (embedded in **page.site**) wants to …"
         let sites = String(localized: "browser.permission.prompt.embeddedSites", defaultValue: "%1$@ (embedded in %2$@)")
         return filling(format, with: bolding([origin, embedding], in: sites))
+    }
+
+    /// The system strips' text (spec §4 v1.4), or `nil` for the site's question.
+    static func systemFormat(for prompt: BrowserPermissionPrompt) -> String? {
+        let devices = Set(prompt.kinds).intersection([.camera, .microphone])
+        switch (prompt.variant, devices) {
+        case (.ask, _):
+            return nil
+        case (.systemBlocked, [.camera]):
+            return String(
+                localized: "browser.permission.prompt.systemBlocked.camera",
+                defaultValue: "%@ wants to use your camera, but cmux doesn't have camera access on this Mac."
+            )
+        case (.systemBlocked, [.microphone]):
+            return String(
+                localized: "browser.permission.prompt.systemBlocked.microphone",
+                defaultValue: "%@ wants to use your microphone, but cmux doesn't have microphone access on this Mac."
+            )
+        case (.systemBlocked, _):
+            return String(
+                localized: "browser.permission.prompt.systemBlocked.cameraAndMicrophone",
+                defaultValue: "%@ wants to use your camera and microphone, but cmux doesn't have access to them on this Mac."
+            )
+        case (.systemManaged, [.camera]):
+            return String(
+                localized: "browser.permission.prompt.systemManaged.camera",
+                defaultValue: "%@ wants to use your camera, but camera access on this Mac is managed by your organization."
+            )
+        case (.systemManaged, [.microphone]):
+            return String(
+                localized: "browser.permission.prompt.systemManaged.microphone",
+                defaultValue: "%@ wants to use your microphone, but microphone access on this Mac is managed by your organization."
+            )
+        case (.systemManaged, _):
+            return String(
+                localized: "browser.permission.prompt.systemManaged.cameraAndMicrophone",
+                defaultValue: "%@ wants to use your camera and microphone, but access to them on this Mac is managed by your organization."
+            )
+        }
     }
 
     /// Fills `%1$@`/`%2$@` in `format` with bold `values`, never parsing them as markup.

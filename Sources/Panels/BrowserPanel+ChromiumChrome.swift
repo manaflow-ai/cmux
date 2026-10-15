@@ -145,6 +145,17 @@ final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
     weak var panel: BrowserPanel?
     /// The panel's permission prompt bar questions (data: design spec §4).
     let permissionQueue = BrowserPermissionPromptQueue()
+    /// Decides the panel's permission requests; one per panel, so a system
+    /// notice shows once per page load (spec §4 v1.4).
+    lazy var permissionCoordinator = BrowserPagePermissionCoordinator(
+        queue: permissionQueue,
+        store: { profileID in
+            BrowserChromiumProfileEngineStore.current?.sitePermissions.store(forProfileID: profileID)
+                ?? BrowserSitePermissionStore(fileURL: nil)
+        },
+        mediaAuthorization: BrowserAVMediaAuthorization.shared,
+        openSystemSettings: { NSWorkspace.shared.open($0) }
+    )
     /// Engine downloads staged into temporary files (data: design spec §3b).
     /// Lazy: a WebKit panel never stages one (and never creates the directory here).
     lazy var downloadLedger = BrowserPageDownloadLedger(temporaryDirectory: BrowserDownloadDelegate.tempDir)

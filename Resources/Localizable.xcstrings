@@ -656364,6 +656364,478 @@
           }
         }
       }
+    },
+    "browser.permission.prompt.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt nicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以后再说"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫時不要"
+          }
+        }
+      }
+    },
+    "browser.permission.prompt.openSystemSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح إعدادات النظام"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemeinstellungen öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes del Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Réglages Système"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开系统设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開系統設定"
+          }
+        }
+      }
+    },
+    "browser.permission.prompt.systemBlocked.camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to use your camera, but cmux doesn't have camera access on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد %@ استخدام الكاميرا، لكن cmux لا يملك إذن الوصول إلى الكاميرا على جهاز Mac هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ möchte deine Kamera verwenden, aber cmux hat auf diesem Mac keinen Zugriff auf die Kamera."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quiere usar tu cámara, pero cmux no tiene acceso a la cámara en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ souhaite utiliser votre caméra, mais cmux n’a pas accès à la caméra sur ce Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がカメラの使用を求めていますが、cmux はこの Mac のカメラにアクセスできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 카메라를 사용하려고 하지만 cmux는 이 Mac에서 카메라에 접근할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的摄像头，但 cmux 在这台 Mac 上没有摄像头访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的攝影機，但 cmux 在這台 Mac 上沒有攝影機取用權限。"
+          }
+        }
+      }
+    },
+    "browser.permission.prompt.systemBlocked.cameraAndMicrophone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to use your camera and microphone, but cmux doesn't have access to them on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد %@ استخدام الكاميرا والميكروفون، لكن cmux لا يملك إذن الوصول إليهما على جهاز Mac هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ möchte deine Kamera und dein Mikrofon verwenden, aber cmux hat auf diesem Mac keinen Zugriff darauf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quiere usar tu cámara y tu micrófono, pero cmux no tiene acceso a ellos en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ souhaite utiliser votre caméra et votre micro, mais cmux n’y a pas accès sur ce Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がカメラとマイクの使用を求めていますが、cmux はこの Mac でこれらにアクセスできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 카메라와 마이크를 사용하려고 하지만 cmux는 이 Mac에서 접근할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的摄像头和麦克风，但 cmux 在这台 Mac 上没有访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的攝影機和麥克風，但 cmux 在這台 Mac 上沒有取用權限。"
+          }
+        }
+      }
+    },
+    "browser.permission.prompt.systemBlocked.microphone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to use your microphone, but cmux doesn't have microphone access on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد %@ استخدام الميكروفون، لكن cmux لا يملك إذن الوصول إلى الميكروفون على جهاز Mac هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ möchte dein Mikrofon verwenden, aber cmux hat auf diesem Mac keinen Zugriff auf das Mikrofon."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quiere usar tu micrófono, pero cmux no tiene acceso al micrófono en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ souhaite utiliser votre micro, mais cmux n’a pas accès au micro sur ce Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がマイクの使用を求めていますが、cmux はこの Mac のマイクにアクセスできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 마이크를 사용하려고 하지만 cmux는 이 Mac에서 마이크에 접근할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的麦克风，但 cmux 在这台 Mac 上没有麦克风访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的麥克風，但 cmux 在這台 Mac 上沒有麥克風取用權限。"
+          }
+        }
+      }
+    },
+    "browser.permission.prompt.systemManaged.camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to use your camera, but camera access on this Mac is managed by your organization."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد %@ استخدام الكاميرا، لكن الوصول إلى الكاميرا على جهاز Mac هذا تديره مؤسستك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ möchte deine Kamera verwenden, aber der Kamerazugriff auf diesem Mac wird von deiner Organisation verwaltet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quiere usar tu cámara, pero el acceso a la cámara en este Mac lo gestiona tu organización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ souhaite utiliser votre caméra, mais l’accès à la caméra sur ce Mac est géré par votre organisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がカメラの使用を求めていますが、この Mac のカメラへのアクセスは組織によって管理されています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 카메라를 사용하려고 하지만 이 Mac의 카메라 접근은 조직에서 관리합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的摄像头，但这台 Mac 的摄像头访问权限由你的组织管理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的攝影機，但這台 Mac 的攝影機取用權限由你的組織管理。"
+          }
+        }
+      }
+    },
+    "browser.permission.prompt.systemManaged.cameraAndMicrophone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to use your camera and microphone, but access to them on this Mac is managed by your organization."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد %@ استخدام الكاميرا والميكروفون، لكن الوصول إليهما على جهاز Mac هذا تديره مؤسستك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ möchte deine Kamera und dein Mikrofon verwenden, aber der Zugriff darauf wird auf diesem Mac von deiner Organisation verwaltet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quiere usar tu cámara y tu micrófono, pero el acceso a ellos en este Mac lo gestiona tu organización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ souhaite utiliser votre caméra et votre micro, mais leur accès sur ce Mac est géré par votre organisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がカメラとマイクの使用を求めていますが、この Mac でのこれらへのアクセスは組織によって管理されています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 카메라와 마이크를 사용하려고 하지만 이 Mac에서의 접근은 조직에서 관리합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的摄像头和麦克风，但这台 Mac 的相关访问权限由你的组织管理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的攝影機和麥克風，但這台 Mac 的相關取用權限由你的組織管理。"
+          }
+        }
+      }
+    },
+    "browser.permission.prompt.systemManaged.microphone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to use your microphone, but microphone access on this Mac is managed by your organization."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يريد %@ استخدام الميكروفون، لكن الوصول إلى الميكروفون على جهاز Mac هذا تديره مؤسستك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ möchte dein Mikrofon verwenden, aber der Mikrofonzugriff auf diesem Mac wird von deiner Organisation verwaltet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ quiere usar tu micrófono, pero el acceso al micrófono en este Mac lo gestiona tu organización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ souhaite utiliser votre micro, mais l’accès au micro sur ce Mac est géré par votre organisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がマイクの使用を求めていますが、この Mac のマイクへのアクセスは組織によって管理されています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 마이크를 사용하려고 하지만 이 Mac의 마이크 접근은 조직에서 관리합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的麦克风，但这台 Mac 的麦克风访问权限由你的组织管理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 想要使用你的麥克風，但這台 Mac 的麥克風取用權限由你的組織管理。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
