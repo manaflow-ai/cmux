@@ -152,6 +152,8 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
+  /** Labs (preview features) on, as the app's `labs.previewFeatures` push sends it. */
+  labs?: boolean;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

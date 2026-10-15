@@ -184,6 +184,7 @@ import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { PullRequestDock } from "./summary/PullRequestDock";
+import { RecapCard, useRecapCard } from "./RecapCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
@@ -4615,6 +4616,15 @@ function AcpmuxPane() {
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
   );
+  // Labs: a turn that ended on a question offers its yes above the composer (RecapCard.tsx).
+  const recapCard = useRecapCard({
+    rows: snapshot.rows,
+    sessionId: snapshot.sessionId,
+    on: preview && !snapshot.isWorking,
+    asking: hasBottomAsk || trustPending || Boolean(pendingFolder),
+    send: (text) => void addressThread(text).catch(() => composerHandle.current?.restore(text, [])),
+    focusComposer: () => composerHandle.current?.focus(),
+  });
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
@@ -4699,6 +4709,9 @@ function AcpmuxPane() {
   const composer = !reviewing && !handoffLoading && (
     <>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
+      {recapCard.recap && (
+        <RecapCard recap={recapCard.recap} onReply={recapCard.reply} onDismiss={recapCard.dismiss} keyHint={!quick} />
+      )}
       <DictationNotice dictation={dictation} />
       {importError && (
         <p className="acpmux-composer-remote-note" role="alert">
@@ -4957,6 +4970,7 @@ function AcpmuxPane() {
           capture={captureScreen}
           upload={uploadFiles}
           onOpenInWindow={quick ? openInWindow : undefined}
+          onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
           prompt={prompt}
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
