@@ -26,7 +26,19 @@ fn session_state_dir(dir: &std::path::Path) -> Option<PathBuf> {
 fn chief_list_shows_the_daemons_words_for_an_internal_failure() {
     let mut server = HeadlessServer::start_with_options("chief-list-internal", None, None, &[]);
     // A registry file from a future build: the daemon cannot open it.
-    let state = session_state_dir(&server.state).expect("the session state directory");
+    // The daemon writes its workspace registry while it starts (bounded wait).
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let state = loop {
+        if let Some(found) = session_state_dir(&server.state) {
+            break found;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no session state directory under {}",
+            server.state.display()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
     let db = rusqlite::Connection::open(state.join("chiefs.sqlite3")).unwrap();
     db.execute_batch(
         "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);

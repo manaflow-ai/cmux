@@ -992,6 +992,12 @@ mod sanitize;
 mod socket;
 pub(super) use hints::connect_failure;
 use sanitize::{sanitize_human_block, sanitize_human_cell};
+
+/// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief
+/// CLI shows a daemon's own words).
+pub(in crate::cli) fn sanitize_remote_text(value: &str) -> String {
+    sanitize_human_block(value)
+}
 #[cfg(unix)]
 pub(super) use socket::resolve_failure_message;
 #[cfg(test)]

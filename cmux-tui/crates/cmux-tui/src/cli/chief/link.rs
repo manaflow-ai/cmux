@@ -117,7 +117,8 @@ impl Link {
                 .pointer("/details/extra/message")
                 .and_then(Value::as_str)
                 .filter(|m| !m.trim().is_empty());
-            let message = detail.map_or_else(|| text("message"), str::to_owned);
+            let message =
+                detail.map_or_else(|| text("message"), crate::cli::wire::sanitize_remote_text);
             return Err(LinkError::Rejected { code, message });
         }
     }

@@ -449,14 +449,16 @@ fn chief_says_at_once_that_agents_are_disabled_and_starts_nothing() {
     assert!(!home.join("tui").exists(), "no session daemon started");
 }
 
-/// The account's home directory in the user database.
-fn account_home() -> String {
+/// The account's home directory in the user database; None without a record.
+fn account_home() -> Option<String> {
     // SAFETY: getpwuid returns a pointer into static storage or null; it is
     // read at once, on this thread.
     unsafe {
         let record = libc::getpwuid(libc::getuid());
-        assert!(!record.is_null(), "no user database record");
-        std::ffi::CStr::from_ptr((*record).pw_dir).to_str().unwrap().to_owned()
+        if record.is_null() {
+            return None;
+        }
+        Some(std::ffi::CStr::from_ptr((*record).pw_dir).to_str().unwrap().to_owned())
     }
 }
 
@@ -467,6 +469,10 @@ fn a_cli_started_brain_gets_the_accounts_home_not_the_callers() {
     // the job root and its turns got 401. Like the daemon's brains
     // (c47dd2fd0112) and the app's (FileManager.homeDirectoryForCurrentUser),
     // the brain gets the account's home from the user database.
+    let Some(account) = account_home() else {
+        // No user database record: the CLI keeps the caller's HOME.
+        return;
+    };
     let sandbox = Sandbox::new("chief-brain-home");
     let home = sandbox.isolated();
     let home_arg = home.to_str().unwrap();
@@ -475,7 +481,7 @@ fn a_cli_started_brain_gets_the_accounts_home_not_the_callers() {
     let brain_home = fs::read_to_string(home.join("brain-home")).unwrap();
     assert_eq!(
         brain_home,
-        account_home(),
+        account,
         "the brain's HOME is not the account's (the caller's was {})",
         caller_home.display()
     );
