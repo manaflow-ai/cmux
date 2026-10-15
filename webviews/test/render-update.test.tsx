@@ -207,7 +207,14 @@ test("a streaming delta reads no render input again and keeps the cards' pages",
     return parse(text, reviver);
   }) as typeof JSON.parse;
   try {
-    const delta: AcpmuxRow = { id: "answer", version: 1, at: 0, kind: "assistant", text: "Here is the", streaming: true };
+    const delta: AcpmuxRow = {
+      id: "answer",
+      version: 1,
+      at: 0,
+      kind: "assistant",
+      text: "Here is the",
+      streaming: true,
+    };
     const next = [...rows, delta];
     expect(renderPages(next)).toBe(pages);
     await draw(next);

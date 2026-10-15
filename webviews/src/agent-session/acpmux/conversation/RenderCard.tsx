@@ -133,10 +133,8 @@ export function RenderCard({ call, card }: { call: RenderCall; card?: string }) 
 /// page is its own card instance, so a new page waits for Run like any other.
 export function RenderToolCard({ tool }: { tool: NonNullable<AcpmuxActivity["tool"]> }) {
   const pages = useContext(RenderPages);
-  const call = renderCall(tool);
-  if (!call) return null;
   const page = pages?.get(tool.id);
   if (page && page.first !== tool.id) return null;
-  const shown = page?.calls.at(-1) ?? call;
-  return <RenderCard key={shown.html} call={shown} card={page?.first} />;
+  const shown = page?.calls.at(-1) ?? renderCall(tool);
+  return shown ? <RenderCard key={shown.html} call={shown} card={page?.first} /> : null;
 }

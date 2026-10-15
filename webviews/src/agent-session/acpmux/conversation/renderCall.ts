@@ -28,9 +28,28 @@ const NAME = /(?:^|[_./:\s])(?:html_)?render(?:\s*\([^)]*\))?$/i;
 /// Statuses of a call that did not render: it failed, or its turn was cancelled before it ran.
 const NOT_RENDERED = new Set(["failed", "pending", "in_progress"]);
 
+/// A `cmux mcp` refusal (`state: "not_run"`) in a call's output, for a harness that reports the
+/// refused call as completed; a receipt says `rendered: true`.
+const REFUSED = /"state"\s*:\s*"not_run"/;
+const RENDERED = /"rendered"\s*:\s*true/;
+
+/// Each tool call's render, read once: a snapshot keeps an unchanged call's object, and its input
+/// can be a page of up to 1 MiB.
+const calls = new WeakMap<Tool, RenderCall | null>();
+
 /// The HTML a tool call renders, or nil for every other call and one that did not run.
 export function renderCall(tool: Tool): RenderCall | undefined {
+  let call = calls.get(tool);
+  if (call === undefined) {
+    call = readCall(tool) ?? null;
+    calls.set(tool, call);
+  }
+  return call ?? undefined;
+}
+
+function readCall(tool: Tool): RenderCall | undefined {
   if (NOT_RENDERED.has(tool.status ?? "") || !NAME.test(tool.title.trim())) return undefined;
+  if (tool.output && REFUSED.test(tool.output) && !RENDERED.test(tool.output)) return undefined;
   const input = parseInput(tool.inputSummary);
   const html = input?.html;
   if (typeof html !== "string" || !html.trim()) return undefined;
@@ -64,26 +83,41 @@ export type RenderPage = { first: string; id: string; calls: RenderCall[] };
 /// the most recent card that answers to that id, which shows its last page; one that finds none is
 /// its own card.
 export function renderPages(rows: readonly AcpmuxRow[]): Map<string, RenderPage> {
-  const pages = new Map<string, RenderPage>();
-  const latest = new Map<string, RenderPage>();
+  const found: [string, RenderCall][] = [];
   for (const row of rows) {
     if (row.kind !== "activity") continue;
     for (const item of row.items ?? []) {
       const call = item.tool && renderCall(item.tool);
-      if (!call?.id) continue;
-      const card = call.update ? latest.get(call.id) : undefined;
-      if (card) {
-        if (card.calls.at(-1)!.html !== call.html) card.calls.push(call);
-        pages.set(item.tool!.id, card);
-        continue;
-      }
-      const page = { first: item.tool!.id, id: call.id, calls: [call] };
-      pages.set(page.first, page);
-      latest.set(page.id, page);
+      if (call?.id) found.push([item.tool!.id, call]);
     }
   }
+  // A snapshot whose render calls are the last one's (a streaming delta, most snapshots) keeps its
+  // pages, so the cards and the panel do not draw again.
+  if (
+    last &&
+    last.found.length === found.length &&
+    last.found.every(([id, call], index) => id === found[index]![0] && call === found[index]![1])
+  )
+    return last.pages;
+  const pages = new Map<string, RenderPage>();
+  const latest = new Map<string, RenderPage>();
+  for (const [id, call] of found) {
+    const card = call.update ? latest.get(call.id!) : undefined;
+    if (card) {
+      // The same page again (a new title) replaces the last; another page is the next version.
+      if (card.calls.at(-1)!.html === call.html) card.calls[card.calls.length - 1] = call;
+      else card.calls.push(call);
+      pages.set(id, card);
+      continue;
+    }
+    const page = { first: id, id: call.id!, calls: [call] };
+    pages.set(id, page);
+    latest.set(page.id, page);
+  }
+  last = { found, pages };
   return pages;
 }
+let last: { found: [string, RenderCall][]; pages: Map<string, RenderPage> } | undefined;
 
 /// The open chat's render pages (`renderPages`); unset where there is no transcript (a gallery).
 export const RenderPages = createContext<Map<string, RenderPage> | undefined>(undefined);
