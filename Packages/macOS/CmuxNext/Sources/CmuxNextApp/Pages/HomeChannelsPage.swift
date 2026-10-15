@@ -21,7 +21,7 @@ extension PageDescriptor {
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, HomeSwitchPageRoute.prefix],
-        nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([HomeChannelsSelectionMenu.quoteCommand]),
+        nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
 
@@ -43,8 +43,8 @@ extension PageFactory {
         // Selected message text: Copy, Quote in Reply, Search the Web and Look Up, not Copy alone.
         let registry = services.registry
         page.contextMenuEditor = { [weak page] menu in
-            HomeChannelsSelectionMenu.rebuild(menu, actions: .init(
-                quote: { page?.send(command: HomeChannelsSelectionMenu.quoteCommand) },
+            PageSelectionMenu.rebuild(menu, actions: .init(
+                quote: { page?.send(command: PageSelectionMenu.quoteCommand) },
                 search: {
                     page?.webKitView.evaluateJavaScript("String(getSelection())") { value, _ in
                         guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

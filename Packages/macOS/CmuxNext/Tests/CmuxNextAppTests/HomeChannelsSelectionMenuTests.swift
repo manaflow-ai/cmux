@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextPages
+@testable import CmuxNextPages
 import Testing
 
 /// The Channels page's native menu on selected message text (POLISH.md right-click contract): WebKit's
@@ -20,19 +20,19 @@ struct HomeChannelsSelectionMenuTests {
     }
 
     @Test func selectedTextGetsCopyQuoteSearchAndLookUp() {
-        #expect(PageDescriptor.homeChannels.commands.contains(HomeChannelsSelectionMenu.quoteCommand))
+        #expect(PageDescriptor.homeChannels.commands.contains(PageSelectionMenu.quoteCommand))
         var ran: [String] = []
         let menu = Self.webKitMenu(["WKMenuItemIdentifierLookUp", "WKMenuItemIdentifierTranslate", "WKMenuItemIdentifierSearchWeb",
                                     "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierShareMenu", "WKMenuItemIdentifierSpeechMenu"])
-        HomeChannelsSelectionMenu.rebuild(menu, actions: .init(quote: { ran.append("quote") }, search: { ran.append("search") }))
+        PageSelectionMenu.rebuild(menu, actions: .init(quote: { ran.append("quote") }, search: { ran.append("search") }))
 
         // WebKit's items by identifier, the page's by title (AppKit names an item's identifier after its action).
         let webKit = { (item: NSMenuItem) in item.identifier?.rawValue.hasPrefix("WKMenuItemIdentifier") == true }
         #expect(menu.items.map { $0.isSeparatorItem ? "-" : webKit($0) ? $0.identifier!.rawValue : $0.title } == [
-            "WKMenuItemIdentifierCopy", HomeChannelsSelectionMenu.Strings.quoteInReply, "-",
-            HomeChannelsSelectionMenu.Strings.searchTheWeb, "WKMenuItemIdentifierLookUp",
+            "WKMenuItemIdentifierCopy", PageSelectionMenu.Strings.quoteInReply, "-",
+            PageSelectionMenu.Strings.searchTheWeb, "WKMenuItemIdentifierLookUp",
         ])
-        for title in [HomeChannelsSelectionMenu.Strings.quoteInReply, HomeChannelsSelectionMenu.Strings.searchTheWeb] {
+        for title in [PageSelectionMenu.Strings.quoteInReply, PageSelectionMenu.Strings.searchTheWeb] {
             let item = menu.items.first { $0.title == title }
             if let item, let action = item.action { _ = (item.target as? NSObject)?.perform(action, with: item) }
         }
@@ -41,7 +41,7 @@ struct HomeChannelsSelectionMenuTests {
 
     @Test func nothingSelectedLeavesNoMenu() {
         let menu = Self.webKitMenu(["WKMenuItemIdentifierReload", "WKMenuItemIdentifierInspectElement"])
-        HomeChannelsSelectionMenu.rebuild(menu, actions: .init(quote: {}, search: {}))
+        PageSelectionMenu.rebuild(menu, actions: .init(quote: {}, search: {}))
         #expect(menu.items.isEmpty)
     }
 }

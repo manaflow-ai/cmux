@@ -4,7 +4,7 @@
 // inline edit never does, and text selected inside a composer or any other field is never quoted. The composer
 // (Composer.tsx) takes the text through QUOTE_EVENT.
 
-/** The page command the app's selection menu sends (HomeChannelsSelectionMenu.swift). */
+/** The page command the app's selection menu sends (CmuxNextPages PageSelectionMenu.swift). */
 export const QUOTE_COMMAND = "quoteSelection";
 
 /** The event a composer takes a quote through: `detail` is the selected text. */
