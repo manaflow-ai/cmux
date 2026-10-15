@@ -32,6 +32,7 @@ import { translate } from "./i18n";
 import { experimentArm } from "../../experiments/experiment";
 import { sessionOffer as sessionOfferExperiment } from "./offer/sessionOffer.experiment";
 import { errorMessage } from "./transportErrors";
+import { SessionPager } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
@@ -540,6 +541,8 @@ export class AcpmuxDirectClient {
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
   private sessions: Session[] = [];
+  /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
+  private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
   private selectedSessionId?: string;
@@ -806,8 +809,20 @@ export class AcpmuxDirectClient {
             .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
             .filter((peer: string | undefined): peer is string => Boolean(peer))
         : [];
-      const watched = await this.request("_acpmux/watch", { enabled: true });
-      this.sessions = this.reread(watched?.sessions);
+      const first = await this.sessionPages.first();
+      let laterPages = first?.next;
+      const linkedLater =
+        first !== undefined &&
+        laterPages !== undefined &&
+        this.selectedSessionId !== undefined &&
+        !first.sessions.some((session) => session.sessionId === this.selectedSessionId);
+      if (first && !linkedLater) this.sessions = first.sessions;
+      else {
+        // A linked chat older than the first page, or a lagged watch restarted the list: read the
+        // whole list before calling the chat missing.
+        this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
+        laterPages = undefined;
+      }
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
         if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
@@ -840,6 +855,7 @@ export class AcpmuxDirectClient {
         sessions: this.sessions.length,
       });
       this.emit("connected");
+      if (laterPages) void this.readLaterSessions(laterPages);
     } catch (error) {
       this.wire.lifecycle("connect failed", {
         message: error instanceof Error ? error.message : String(error),
@@ -1009,8 +1025,16 @@ export class AcpmuxDirectClient {
   /// A selection made while the request was out is newer than the list.
   private async refreshSessions(): Promise<void> {
     const generation = this.selectionGeneration;
-    const watched = await this.request("_acpmux/watch", { enabled: true });
-    this.sessions = this.reread(watched?.sessions);
+    const first = await this.sessionPages.first();
+    // A newer reread started meanwhile; it sets the list.
+    if (!first) return;
+    let list = first.sessions;
+    const add = (more: Session[]) => {
+      list = [...list, ...more];
+    };
+    if (first.next && !(await this.sessionPages.rest(first.next, () => list, add))) return;
+    // Changes that came while the pages did are newer than the pages.
+    this.sessions = this.sessionPages.settle(list);
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -1030,11 +1054,16 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
   }
 
-  /// A full session list from `_acpmux/watch`. acpmux owns `unread` (cx-n8ou): the pane only
-  /// tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
-  private reread(sessions: Session[] | undefined): Session[] {
-    return (sessions ?? []).filter((session) => session.sessionId);
+  /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
+  /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
+  private async readLaterSessions(cursor: string): Promise<void> {
+    await this.sessionPages.rest(cursor, () => this.sessions, this.addSessions).catch(() => undefined);
   }
+
+  private addSessions = (more: Session[]): void => {
+    this.sessions = [...this.sessions, ...more];
+    if (!this.opening) this.emit("session changed");
+  };
 
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
@@ -1322,6 +1351,7 @@ export class AcpmuxDirectClient {
   private sessionChanged(params: any): void {
     const session = params?.session;
     if (params?.kind === "purged" && session?.sessionId) {
+      this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
         this.selectFallbackSession("session purged");
@@ -1329,6 +1359,7 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!session?.sessionId) return;
+    this.sessionPages.changedSession(session);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
@@ -2163,12 +2194,17 @@ export class AcpmuxDirectClient {
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
   /// install from the Harnesses page).
   async harnessHealth(id: string, options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown> {
+    const rows = await this.harnessHealthRows(options);
+    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+  }
+  /// Every harness's health row from this Mac's acpmux (`_acpmux/harness/health`): its last check
+  /// unless `refresh`; the model picker's rail reads which ones are signed out (cx-ae9eb).
+  async harnessHealthRows(options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown[]> {
     const reply = await this.request("_acpmux/harness/health", {
       ...(options.refresh ? { refresh: true } : {}),
       ...(options.rescan ? { rescan: true } : {}),
     });
-    const rows: unknown[] = Array.isArray(reply?.harnesses) ? reply.harnesses : [];
-    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+    return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
@@ -2654,6 +2690,7 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
+    this.sessionPages.stop();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
@@ -2850,6 +2887,8 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
+    ...(harness.kind === "terminal" ? { pickable: false } : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
