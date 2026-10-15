@@ -233,6 +233,42 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
+    func autoSelectionUsesConfiguredCandidateWithoutPresentingPicker() throws {
+        let firstCredential = URLCredential(user: "first", password: "unused", persistence: .forSession)
+        let secondCredential = URLCredential(user: "second", password: "unused", persistence: .forSession)
+        let candidates = [
+            BrowserClientCertificateCredentialCandidate(title: "First", serialNumber: "01", credential: firstCredential),
+            BrowserClientCertificateCredentialCandidate(title: "Second", serialNumber: "02", credential: secondCredential),
+        ]
+        let handler = BrowserClientCertificateAuthenticationHandler(
+            candidateProvider: { _, completion in
+                completion(candidates)
+                return nil
+            },
+            autoSelection: { _, candidates in
+                candidates.first { $0.serialNumber == "02" }
+            }
+        )
+        var pickerWasPresented = false
+        var disposition: URLSession.AuthChallengeDisposition?
+        var credential: URLCredential?
+
+        let handled = handler.handle(
+            challenge: makeChallenge(),
+            candidatePicker: { _, _, _, _ in pickerWasPresented = true }
+        ) { returnedDisposition, returnedCredential in
+            disposition = returnedDisposition
+            credential = returnedCredential
+        }
+
+        #expect(handled)
+        #expect(!pickerWasPresented)
+        #expect(disposition == .useCredential)
+        let returnedCredential = try #require(credential)
+        #expect(returnedCredential === secondCredential)
+    }
+
+    @Test
     func coordinatorCoalescesDuplicateProtectionSpaceChallenges() throws {
         let expectedCredential = URLCredential(user: "client-cert", password: "unused", persistence: .forSession)
         let coordinator = BrowserClientCertificatePromptCoordinator()
