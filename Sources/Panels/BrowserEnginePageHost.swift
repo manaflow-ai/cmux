@@ -34,13 +34,17 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         if page.contentView.superview !== container {
             attach(page.contentView, to: container)
         }
-        container.wantsPageFocus = shouldFocus && isVisible
+        let wantsPageFocus = shouldFocus && isVisible
+        let gainsPageFocus = wantsPageFocus && !container.wantsPageFocus
+        container.wantsPageFocus = wantsPageFocus
         container.onPageClicked = onPageClicked
         // The first attach runs before the container is in a window; attach
         // again once it is, so overlays sync with the placed page.
         container.onMovedToWindow = { [onAttach, page] in onAttach(page.contentView) }
         page.setContentVisible(isVisible)
-        if shouldFocus, isVisible {
+        // Only when the page becomes the focus target: repeated requests on
+        // unrelated SwiftUI updates made Chromium focus the page's first link.
+        if gainsPageFocus {
             page.setFocused(true)
         }
     }
