@@ -130,7 +130,7 @@ final class SidebarBridge {
         sameTurn.observe(listsRows: true, {
             // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
             let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
-            feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar, SidebarMapping.nestsAgentRows] as [AnyHashable])
+            feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar, SidebarAgentLink.nests] as [AnyHashable])
             let (sections, launching, failed) = Self.liveSections(
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,
