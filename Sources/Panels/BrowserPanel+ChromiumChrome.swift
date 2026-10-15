@@ -18,9 +18,16 @@ extension BrowserPanel {
     /// itself (`chrome://settings` opens Settings > Browser). Returns whether
     /// it did, so the caller loads nothing.
     func openCmuxPageForChromiumRoute(_ input: String) -> Bool {
-        guard allowsChromiumInternalPages, ChromiumPageRoute(typed: input) == .browserSettings else { return false }
+        guard opensCmuxPage(forTyped: input) else { return false }
         AppDelegate.shared?.openPreferencesWindow(debugSource: "browser.chromeSettings", navigationTarget: .browser)
         return true
+    }
+
+    /// Whether typed text opens one of cmux's own pages instead of loading
+    /// (`chrome://settings` in a Chromium panel). The address bar then shows
+    /// the page's URL again, since the panel did not navigate.
+    func opensCmuxPage(forTyped input: String) -> Bool {
+        allowsChromiumInternalPages && ChromiumPageRoute(typed: input) == .browserSettings
     }
 
     /// The `chrome://` pages the address bar offers for `query` in this panel.
