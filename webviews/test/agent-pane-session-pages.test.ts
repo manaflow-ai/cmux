@@ -151,7 +151,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
           const failed =
             ws === faultSocket &&
             ((message.method === "_acpmux/sessions" && faults.failPages) ||
-            (message.method === "_acpmux/watch" && params.limit === undefined && faults.failWhole-- > 0));
+              (message.method === "_acpmux/watch" && params.limit === undefined && faults.failWhole-- > 0));
           if (failed) {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "page lost" } }));
             return;
