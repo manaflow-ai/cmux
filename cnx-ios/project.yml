@@ -158,17 +158,13 @@ targets:
         CNXAppleSignIn: $(CNX_APPLE_SIGN_IN)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        # No ITSAppUsesNonExemptEncryption key, on purpose. WireGuard
-        # (boringtun), WebRTC (DTLS-SRTP) and rustls use standard algorithms
-        # outside the OS (EAR 740.17(b)(1), no documents). Lawrence 2026-10-15:
-        # standard algorithms only, no proprietary crypto, third-party crypto,
-        # not on the French App Store. App Store Connect makes no encryption
-        # declaration for that answer set (it needs proprietary crypto, or
-        # third-party crypto on the French store) and refuses an upload with
-        # the key YES and no ITSEncryptionExportComplianceCode (90592). So the
-        # answer is filed per build after upload:
-        # `asc builds update --uses-non-exempt-encryption true`
-        # (testflight-build.sh --upload does it).
+        # WireGuard (boringtun), WebRTC (DTLS-SRTP) and rustls use standard
+        # algorithms outside the OS. Lawrence 2026-10-15: standard algorithms
+        # only, no proprietary crypto, not on the French App Store. App Store
+        # Connect records exactly that answer as usesNonExemptEncryption=false
+        # ("you can specify this in Info.plist"), offers no encryption
+        # declaration for it, and refuses YES without a compliance code (90592).
+        ITSAppUsesNonExemptEncryption: false
         # The Mac link dials the Mac's LAN address directly (WireGuard UDP,
         # WebRTC host candidates) before falling back to the relay.
         NSLocalNetworkUsageDescription: Connect directly to your Mac on this network for a faster, private link.
