@@ -114,9 +114,10 @@ public struct TerminalRowReader {
 
     /// One absolute row's text; nil when Ghostty cannot address it now.
     public func text(_ row: TerminalAbsoluteRow) -> String? {
-        // Round 7 behaviour (red): the absolute row passed as a screen y.
-        guard space.contains(row) else { return nil }
-        return source.text(TerminalScreenRow(row.index))
+        if let active = space.active(row) { return source.text(active) }
+        if let viewport = space.viewport(row) { return source.text(viewport) }
+        if let screen = space.screen(row) { return source.text(screen) }
+        return nil
     }
 
     /// The lowest row with text in `top...bottom`, reading from the bottom:
@@ -138,9 +139,8 @@ public struct TerminalRowReader {
     /// `gridRows` (an all-blank read of a longer range reports the rows read).
     public func leadingBlankRows(through last: TerminalAbsoluteRow) -> Int? {
         guard last.index >= 0, space.totalRows > 0, space.gridRows > 0 else { return nil }
-        // Round 7 behaviour (red): the absolute row passed as a screen y.
-        let capped = TerminalAbsoluteRow(min(last.index, space.totalRows - 1))
-        guard let text = source.text(screenRowsThrough: TerminalScreenRow(capped.index)) else { return nil }
+        let capped = TerminalAbsoluteRow(min(last.index, space.totalRows - 1, space.gridRows - 1))
+        guard let screenLast = space.screen(capped), let text = source.text(screenRowsThrough: screenLast) else { return nil }
         let limit = capped.index + 1
         guard !text.isEmpty else { return limit }
         return Array(text.utf8).withUnsafeBytes { TerminalDocumentLayout.leadingNewlines(in: $0, limit: limit) }

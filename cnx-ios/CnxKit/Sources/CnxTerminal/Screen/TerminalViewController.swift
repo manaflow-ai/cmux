@@ -953,6 +953,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         selection.shiftRows(by: -rows)
     }
 
+    /// Ghostty's rows in the scrollbar's numbering (`TerminalRowSpace`): the
+    /// last reported total and viewport top. Each read goes to Ghostty in a
+    /// numbering that addresses the row, or reads nil.
+    private var rowReader: TerminalRowReader {
+        surface.rowReader(totalRows: scrollbar.total, viewportTop: scrollbar.offset)
+    }
+
     /// The reader's rows kept over a mirror reset (V2-3).
     private var readingMark: TerminalReadingMark?
     /// The replay is parsed; the mark is placed at the next scrollbar report.
@@ -965,8 +972,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         readingMarkAwaitsReport = false
         guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
         let total = scrollbar.total
-        let surface = surface
-        guard let anchor = mark.locate(totalRows: total, rowText: { surface.rowText($0) }) else { return }
+        let reader = rowReader
+        guard let anchor = mark.locate(totalRows: total, rowText: { reader.text(TerminalAbsoluteRow($0)) }) else { return }
         sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
         restoredMark = (mark, anchor)
@@ -1012,8 +1019,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // ones a misplaced restore put on screen.
             readingMark = restored.mark
         } else {
-            let surface = surface
-            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { surface.rowText($0) }
+            let reader = rowReader
+            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
         }
         restoredMark = nil
         sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
@@ -1161,7 +1168,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// once it has any text.
     private func replayHasContent() -> Bool {
         let rows = model.isTUI ? max(1, tuiRows) : max(1, surface.grid.rows)
-        guard let text = surface.screenRowsText(through: rows - 1) else { return true }
+        guard let text = surface.activeAreaText() else { return true }
         return TerminalHeldFrame().shouldRelease(isAlternate: model.isTUI,
                                                  nonBlankRows: TerminalHeldFrame.nonBlankRows(in: text, limit: rows),
                                                  rows: rows, elapsed: CACurrentMediaTime() - freezeStarted)
@@ -1308,12 +1315,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // being redrawn and resized: read the top again on every update,
             // so earlier output is never left above an origin read too early (R2-1).
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
-            blank = surface.leadingBlankRows(through: max(0, last)) ?? blank
+            blank = rowReader.leadingBlankRows(through: TerminalAbsoluteRow(max(0, last))) ?? blank
         }
         // Rows an inline TUI draws below the cursor (Codex CLI's hints).
         var lastContent: Int?
         if let cursor, cursor + 1 <= scrollbar.total - 1 {
-            lastContent = surface.lastNonBlankRow(from: cursor + 1, through: scrollbar.total - 1)
+            lastContent = rowReader.lastNonBlankRow(from: TerminalAbsoluteRow(cursor + 1), through: TerminalAbsoluteRow(scrollbar.total - 1))?.index
         }
         let measured = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
                                                    lastContentRow: lastContent)
@@ -1758,10 +1765,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // top): the rows the surface holds, the visible ones and the margins.
         selection.rowText = { [weak self] row in
             guard let self else { return nil }
-            let y = row - scrollbar.offset
-            guard y >= 0, y < surface.grid.rows else { return nil }
-            return surface.viewportText(from: TerminalCellPoint(row: y, column: 0),
-                                        to: TerminalCellPoint(row: y, column: max(0, surface.grid.columns - 1)))
+            return rowReader.text(TerminalAbsoluteRow(row))
         }
         selection.text = { [weak self] start, end in
             guard let self, let document else { return nil }
