@@ -447,7 +447,11 @@ fn the_default_host_stops_while_chief_b_is_mid_turn_and_b_finishes() {
     std::fs::create_dir_all(&b).unwrap();
     let acpmux_home = h.join("acpmux");
     std::fs::create_dir_all(&acpmux_home).unwrap();
-    std::fs::write(acpmux_home.join("sessions.json"), default_and_b(&h, &b).to_string()).unwrap();
+    std::fs::write(
+        acpmux_home.join("sessions.json"),
+        default_and_b(&h, &b).to_string(),
+    )
+    .unwrap();
     let fake = host_stops(dir.path(), &h, &acpmux_home, None);
     let _guard = Leftovers(vec![fake]);
     assert_eq!(

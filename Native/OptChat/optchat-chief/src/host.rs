@@ -1482,6 +1482,7 @@ static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 ///   left alone, and so is the next daemon on its socket.
 /// - A shared acpmux (`acpmux_daemon::shared`): this Chief's own sessions
 ///   end; when no other Chief uses the daemon, it stops too.
+///
 /// A daemon this host neither started nor shares is left alone.
 fn stop_started_acpmux() {
     static ONCE: std::sync::Once = std::sync::Once::new();

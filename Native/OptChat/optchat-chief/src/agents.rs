@@ -123,12 +123,33 @@ pub fn other_users(
             users.push(format!("host {}", chief.display()));
         }
     }
-    let (client, _) = connect()?;
-    let listed = sessions(&client);
+    // Bounded: a stop must not hang on a daemon that does not answer.
+    let socket = crate::acpmux_daemon::socket_path();
+    let client = crate::acpmux_peer::connect(&socket, |_| {})
+        .map_err(|e| format!("acpmux is not reachable at {}: {e}", socket.display()))?;
+    let ask = |method: &str, params: Value| {
+        client
+            .start(method, params)
+            .recv_timeout(USERS_LIMIT)
+            .map_err(|_| format!("{method}: no answer in {} s", USERS_LIMIT.as_secs()))?
+            .map_err(|e| format!("{method}: {e}"))
+    };
+    let listed = ask(
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "chief-agents", "version": env!("CARGO_PKG_VERSION")}}),
+    )
+    .and_then(|_| ask("_acpmux/sessions", json!({})));
     client.close();
+    let listed: Vec<SessionSummary> = listed?
+        .get("sessions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|s| serde_json::from_value(s.clone()).ok())
+        .collect();
     let me = crate::paths::home_id(home);
     let my_parent = parent_tag(home);
-    for s in listed? {
+    for s in listed {
         if s.status == cmux_chief::acp::SessionStatus::Closed {
             continue;
         }
@@ -148,6 +169,9 @@ pub fn other_users(
     }
     Ok(users)
 }
+
+/// How long [`other_users`] waits for each answer.
+const USERS_LIMIT: Duration = Duration::from_secs(2);
 
 /// How long [`end_own_sessions`] waits for all its kills.
 const END_SESSIONS_LIMIT: Duration = Duration::from_secs(3);
