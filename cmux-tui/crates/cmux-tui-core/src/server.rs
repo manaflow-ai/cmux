@@ -265,6 +265,7 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_inspect;
+mod chief_manage;
 mod chief_registry_resource;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;

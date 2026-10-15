@@ -316,7 +316,6 @@ public final class TabStripView: NSView {
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
-        hoverCard.metrics = metrics
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.body
