@@ -5,9 +5,10 @@
 //   - the controls are two clusters: + model effort access on the left, mic and Send (or Stop)
 //     on the right; the row's free space sits only between the two;
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
-//     8 to 12 px apart, evenly (within 1 px); no context ring or spinner in the row; one lock at
-//     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of at
-//     most 12 px;
+//     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
+//     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
+//     to 12 px, centred in a solid text-colored disc with a base-colored square (Q4-B: the faint
+//     disc read as a disabled Send);
 //   - no label is cut while the row has free space, and a short row cuts by priority: the
 //     permission labels go to icons first, then effort shortens, the model last;
 //   - the folder and computer controls sit whole inside the location strip on the card's top edge
@@ -18,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number };
 type Row = {
@@ -41,8 +43,12 @@ type Row = {
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** Send's or Stop's fill, whichever shows. */
+  /** Send's or Stop's fill and ink, whichever shows. */
   fill: string;
+  ink: string;
+  /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
+  text: string;
+  base: string;
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
@@ -126,6 +132,16 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         ? rect(bar.querySelector(".acpmux-cancel svg rect")!)
         : undefined,
       fill: getComputedStyle(bar.querySelector(".acpmux-send")!).backgroundColor,
+      ink: getComputedStyle(bar.querySelector(".acpmux-send")!).color,
+      ...(() => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--agent-text)";
+        probe.style.backgroundColor = "var(--acpmux-base)";
+        bar.appendChild(probe);
+        const { color, backgroundColor } = getComputedStyle(probe);
+        probe.remove();
+        return { text: color, base: backgroundColor };
+      })(),
     };
   }
 
@@ -151,6 +167,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 720, height: 300 } });
@@ -228,30 +245,27 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       test(`${variant} at ${width} px: a compact, calm row`, async () => {
         const measured = await row(variant, width);
         const problems: string[] = [];
-        // Even gaps in the left cluster: each 8 to 12 px, none more than 1 px off another.
-        const gaps = measured.left.slice(1).map((control, index) => ({
-          between: `${measured.left[index]!.name}-${control.name}`,
-          gap: control.rect.left - measured.left[index]!.rect.right,
-        }));
-        for (const { between, gap } of gaps)
-          if (gap < 7.5 || gap > 12.5) problems.push(`${between} ${gap.toFixed(1)} px apart`);
-        const sizes = gaps.map(({ gap }) => gap);
-        if (sizes.length > 1 && Math.max(...sizes) - Math.min(...sizes) > 1)
-          problems.push(`uneven gaps ${gaps.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ")}`);
+        // The left cluster's spacing (one gap inside a group, one between groups) is
+        // composer-row-rhythm.test.ts's; here no two of its controls touch or sit far apart.
+        for (const [index, control] of measured.left.slice(1).entries()) {
+          const gap = control.rect.left - measured.left[index]!.rect.right;
+          if (gap < 3.5 || gap > 12.5)
+            problems.push(`${measured.left[index]!.name}-${control.name} ${gap.toFixed(1)} px apart`);
+        }
         if (measured.spinners.length > 0)
           problems.push(`a ring or spinner in the row: ${measured.spinners.join(", ")}`);
         if (measured.locks > 1) problems.push(`${measured.locks} locks in the row`);
         if (measured.status) problems.push("the granted-permission status chip is in the row");
         if (measured.stopGlyph) {
           const { width: w, bottom, top } = measured.stopGlyph;
-          if (Math.abs(w - (bottom - top)) > 0.5 || w > 12)
+          if (Math.abs(w - (bottom - top)) > 0.5 || w < 9 || w > 12)
             problems.push(`Stop's glyph is ${w.toFixed(1)} x ${(bottom - top).toFixed(1)} px`);
         }
         expect(problems).toEqual([]);
       });
 
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop takes Send's box and circle`, async () => {
+    test(`at ${width} px Stop takes Send's box as a solid, theme-inverted disc`, async () => {
       const idle = await row("claude-auto", width);
       const running = await row("queued", width);
       const send = idle.send!;
@@ -261,7 +275,15 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         (side) => Math.abs(send[side] - stop[side]) > 0.5,
       );
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      // The same circle as Send (its resting fill), not a disc of its own.
-      expect(running.fill).toBe(idle.fill);
+      // A solid disc in the text color with a base-colored square, never the faint resting circle
+      // of an empty draft's Send (design panel Q4-B: that read as a disabled Send).
+      expect(running.fill).not.toBe(idle.fill);
+      expect(running.fill).toBe(running.text);
+      expect(running.ink).toBe(running.base);
+      // The square sits in the disc's centre.
+      const glyph = running.stopGlyph!;
+      const centre = (low: number, high: number) => (low + high) / 2;
+      expect(Math.abs(centre(glyph.left, glyph.right) - centre(stop.left, stop.right))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(centre(glyph.top, glyph.bottom) - centre(stop.top, stop.bottom))).toBeLessThanOrEqual(0.5);
     });
 });

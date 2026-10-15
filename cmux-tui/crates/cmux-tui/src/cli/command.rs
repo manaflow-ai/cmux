@@ -198,6 +198,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             end_terminals: flags.boolean("end-terminals"),
         },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -209,7 +212,15 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                 action,
                 super::suggestion(
                     action,
-                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                    &[
+                        "stats",
+                        "start",
+                        "ensure",
+                        "status",
+                        "stop",
+                        "reload-config",
+                        "compact-registry",
+                    ],
                 ),
             )));
         }
