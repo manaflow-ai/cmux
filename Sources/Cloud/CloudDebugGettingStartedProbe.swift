@@ -69,6 +69,7 @@ final class CloudDebugGettingStartedProbe {
         case openSecrets
         case createMachine
         case openLocalAgent
+        case openRepository
         /// The step only offers a command to copy.
         case noButton
     }
@@ -77,7 +78,9 @@ final class CloudDebugGettingStartedProbe {
         switch step {
         case .addKeys: return actions.openSecrets == nil ? .noButton : .openSecrets
         case .createMachine: return .createMachine
-        case .startAgent: return actions.openLocalAgent == nil ? .noButton : .openLocalAgent
+        case .startAgent:
+            if actions.openRepository != nil { return .openRepository }
+            return actions.openLocalAgent == nil ? .noButton : .openLocalAgent
         case nil: return .noButton
         }
     }

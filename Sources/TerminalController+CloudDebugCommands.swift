@@ -159,6 +159,7 @@ extension TerminalController {
             case .openSecrets: actions.openSecrets?()
             case .createMachine: actions.createMachine()
             case .openLocalAgent: actions.openLocalAgent?()
+            case .openRepository: actions.openRepository?()
             case .noButton:
                 return v2Ok(id: id, result: ["action": action.rawValue, "applied": false, "reason": "the current step has no button"])
             }

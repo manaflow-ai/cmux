@@ -5,25 +5,57 @@ import SwiftUI
 
 /// All machines / Project / This machine, with a count per segment, and the
 /// project menu on the Project tab.
+///
+/// The bar never overflows the sheet's gutters. It keeps the segments and the
+/// project menu on one line when they fit; otherwise the menu moves to its own
+/// line under the segments, and as a last resort the segments share the width
+/// and truncate. French and Spanish ("Toutes les machines 2", "Todos los
+/// proyectos") are the widest catalog strings and take the second layout.
 struct CloudSecretsScopeBar: View {
     @Bindable var model: CloudSecretsSheetModel
 
     var body: some View {
-        HStack(spacing: 10) {
-            Picker(selection: $model.tab) {
-                ForEach(CloudSecretsSheetModel.Tab.allCases, id: \.self) { tab in
-                    Text(segmentTitle(tab)).tag(tab)
-                }
-            } label: {
-                Text(String(localized: "cloudSecrets.scope.label", defaultValue: "Applies to"))
+        let showsProjectMenu = model.tab == .project && !model.projectKeys.isEmpty
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                segments.fixedSize()
+                if showsProjectMenu { projectMenu.fixedSize() }
+                Spacer(minLength: 0)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .disabled(model.hasModalCard)
-            .accessibilityIdentifier("CloudSecretsSheet.scope")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 0) {
+                    segments.fixedSize()
+                    Spacer(minLength: 0)
+                }
+                if showsProjectMenu { projectMenuRow }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                segments.frame(maxWidth: .infinity)
+                if showsProjectMenu { projectMenuRow }
+            }
+        }
+    }
 
-            if model.tab == .project, !model.projectKeys.isEmpty {
+    private var segments: some View {
+        Picker(selection: $model.tab) {
+            ForEach(CloudSecretsSheetModel.Tab.allCases, id: \.self) { tab in
+                Text(segmentTitle(tab)).tag(tab)
+            }
+        } label: {
+            Text(String(localized: "cloudSecrets.scope.label", defaultValue: "Applies to"))
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .disabled(model.hasModalCard)
+        .accessibilityIdentifier("CloudSecretsSheet.scope")
+    }
+
+    /// The menu on its own line: it truncates a long project name instead of
+    /// pushing past the sheet's edge.
+    private var projectMenuRow: some View {
+        HStack(spacing: 0) {
+            ViewThatFits(in: .horizontal) {
+                projectMenu.fixedSize()
                 projectMenu
             }
             Spacer(minLength: 0)
@@ -49,9 +81,10 @@ struct CloudSecretsScopeBar: View {
         } label: {
             Text(model.projectKey.map { model.projectLabel($0) }
                 ?? String(localized: "cloudSecrets.project.all", defaultValue: "All Projects"))
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
         .disabled(model.hasModalCard)
         .help(model.projectKey ?? "")
         .accessibilityLabel(String(localized: "cloudSecrets.project.label", defaultValue: "Project"))
@@ -96,9 +129,6 @@ struct CloudSecretsList: View {
     @Bindable var model: CloudSecretsSheetModel
     @FocusState private var isFocused: Bool
 
-    /// Past this many rows the list scrolls instead of growing the sheet.
-    private static let maxUnscrolledRows = 7
-
     var body: some View {
         let records = model.visibleRecords
         let needed = model.unsetRequirements
@@ -129,16 +159,11 @@ struct CloudSecretsList: View {
             ForEach(Array(records.enumerated()), id: \.element.sheetID) { index, record in
                 if index > 0 { Divider().padding(.leading, 12) }
                 row(record)
+                    .id(record.sheetID)
             }
         }
-        Group {
-            if records.count > Self.maxUnscrolledRows {
-                ScrollView { rows }
-                    .frame(height: CGFloat(Self.maxUnscrolledRows) * 40)
-            } else {
-                rows
-            }
-        }
+        // The sheet's body scrolls; the list keeps its full height inside it.
+        rows
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -334,7 +359,9 @@ private struct CloudSecretsRow: View {
     private enum Column {
         static let state: CGFloat = 116
         static let fingerprint: CGFloat = 92
-        static let age: CGFloat = 64
+        /// Fits the short relative forms outside English ("il y a 5 min",
+        /// "5 мин. назад", "vor 3 Tagen") at 11 pt.
+        static let age: CGFloat = 78
         static let actions: CGFloat = 46
     }
 
@@ -556,33 +583,48 @@ private struct CloudSecretsPresetChips: View {
     let presets: [CloudSecretCatalog.Preset]
     let onPick: (String) -> Void
 
+    /// Keeps the row inside the sheet's gutters: every chip when they fit,
+    /// otherwise fewer from the end (a longer "Quick add" label in German or
+    /// Japanese costs the last chip, never the sheet's edge).
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: presets.count, through: 1, by: -1)), id: \.self) { count in
+                row(Array(presets.prefix(count)))
+            }
+        }
+    }
+
+    private func row(_ shown: [CloudSecretCatalog.Preset]) -> some View {
         HStack(spacing: 6) {
             Text(String(localized: "cloudSecrets.presets.label", defaultValue: "Quick add"))
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .fixedSize()
-            ForEach(presets, id: \.name) { preset in
-                Button {
-                    onPick(preset.name)
-                } label: {
-                    Label(preset.label, systemImage: "plus")
-                        .labelStyle(.titleAndIcon)
-                        .cmuxFont(size: 11)
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.small)
-                .fixedSize()
-                .help(String(
-                    format: String(localized: "cloudSecrets.presets.help", defaultValue: "Add %1$@, used by %2$@"),
-                    preset.name,
-                    preset.agents.joined(separator: ", ")
-                ))
-                .accessibilityLabel(CloudSecretsSheetPresentation.presetAccessibility(preset))
-                .accessibilityIdentifier("CloudSecretsSheet.preset.\(preset.name)")
+            ForEach(shown, id: \.name) { preset in
+                chip(preset)
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func chip(_ preset: CloudSecretCatalog.Preset) -> some View {
+        Button {
+            onPick(preset.name)
+        } label: {
+            Label(preset.label, systemImage: "plus")
+                .labelStyle(.titleAndIcon)
+                .cmuxFont(size: 11)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .fixedSize()
+        .help(String(
+            format: String(localized: "cloudSecrets.presets.help", defaultValue: "Add %1$@, used by %2$@"),
+            preset.name,
+            preset.agents.joined(separator: ", ")
+        ))
+        .accessibilityLabel(CloudSecretsSheetPresentation.presetAccessibility(preset))
+        .accessibilityIdentifier("CloudSecretsSheet.preset.\(preset.name)")
     }
 }

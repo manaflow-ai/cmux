@@ -207,6 +207,18 @@ enum CloudSecretsSheetPresentation {
         return tail
     }
 
+    /// Which of a machine's linked projects a Cloud workspace is about: the one
+    /// whose repository name is the workspace folder's name (`vm clone` checks
+    /// out `owner/repo` into `…/repo`), otherwise the first link. nil when the
+    /// machine has none.
+    static func linkedProject(_ projectKeys: [String], directoryName: String?) -> String? {
+        if let name = directoryName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !name.isEmpty,
+           let match = projectKeys.first(where: { $0.split(separator: "/").last.map(String.init)?.lowercased() == name }) {
+            return match
+        }
+        return projectKeys.first
+    }
+
     /// A project's label, preferring the casing someone typed this session.
     static func projectLabel(_ key: String, displayNames: [String: String] = [:]) -> String {
         displayNames[key] ?? shortProjectLabel(key)
@@ -251,7 +263,7 @@ enum CloudSecretsSheetPresentation {
 
     /// "Updated 2h ago", or "Updated just now" inside the first minute and
     /// for a timestamp from a clock that runs ahead.
-    static func updatedLabel(_ date: Date, now: Date, locale: Locale = .current) -> String {
+    static func updatedLabel(_ date: Date, now: Date, locale: Locale = CloudSecretsSheetPresentation.interfaceLocale()) -> String {
         guard let relative = relativePhrase(date, now: now, locale: locale) else {
             return String(localized: "cloudSecrets.row.updatedJustNow", defaultValue: "Updated just now")
         }
@@ -261,13 +273,13 @@ enum CloudSecretsSheetPresentation {
     /// The row's age column: "2m ago" or "just now", without the "Updated"
     /// that every row would repeat. ``updatedLabel(_:now:locale:)`` is the
     /// full phrase for help and VoiceOver.
-    static func ageLabel(_ date: Date, now: Date, locale: Locale = .current) -> String {
+    static func ageLabel(_ date: Date, now: Date, locale: Locale = CloudSecretsSheetPresentation.interfaceLocale()) -> String {
         relativePhrase(date, now: now, locale: locale)
             ?? String(localized: "cloudSecrets.row.age.justNow", defaultValue: "just now")
     }
 
     /// "Delivered 5m ago", "Delivered just now" or "Not delivered yet".
-    static func deliveredLabel(_ date: Date?, now: Date, locale: Locale = .current) -> String {
+    static func deliveredLabel(_ date: Date?, now: Date, locale: Locale = CloudSecretsSheetPresentation.interfaceLocale()) -> String {
         guard let date else {
             return String(localized: "cloudSecrets.machine.neverDelivered", defaultValue: "Not delivered yet")
         }
@@ -283,9 +295,34 @@ enum CloudSecretsSheetPresentation {
         guard elapsed >= 60 else { return nil }
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = locale
-        formatter.unitsStyle = .abbreviated
+        formatter.unitsStyle = relativeUnitsStyle(for: locale)
         formatter.dateTimeStyle = .numeric
         return formatter.localizedString(for: date, relativeTo: now)
+    }
+
+    /// `.abbreviated` is CLDR's narrow form. English reads it as a phrase
+    /// ("5m ago"), but other languages turn it into a symbol: French and
+    /// Russian print "-5 min", German "vor 5 m". Everywhere but English the
+    /// short form is the compact one that still reads as words
+    /// ("il y a 5 min", "vor 5 Min.", "5分前").
+    static func relativeUnitsStyle(for locale: Locale) -> RelativeDateTimeFormatter.UnitsStyle {
+        locale.language.languageCode == .english ? .abbreviated : .short
+    }
+
+    /// The locale ages are written in: the language the app's strings are in
+    /// (the bundle's first preferred localization), with the person's region.
+    /// `Locale.current` alone follows the region setting, so an English Mac
+    /// running cmux in French would put "5m ago" in a French sentence.
+    static func interfaceLocale(
+        preferredLocalizations: [String] = Bundle.main.preferredLocalizations,
+        current: Locale = .current
+    ) -> Locale {
+        guard let language = preferredLocalizations.first, !language.isEmpty else { return current }
+        let interface = Locale(identifier: language)
+        if interface.language.languageCode == current.language.languageCode { return current }
+        var components = Locale.Components(identifier: language)
+        if components.region == nil { components.region = current.region }
+        return Locale(components: components)
     }
 
     static func stateTitle(_ state: RowState) -> String {

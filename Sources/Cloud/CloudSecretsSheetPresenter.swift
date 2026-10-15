@@ -42,10 +42,13 @@ final class CloudSecretsSheetPresenter {
             dismiss()
         }
         let service = CloudSecretsService.shared
+        let cloudContext = machineID == nil ? Self.contextCloudWorkspace(preferredWindow: preferredWindow) : nil
         let model = CloudSecretsSheetModel(
             machineID: machineID,
             machineLabel: machineLabel,
             contextCheckout: machineID == nil ? Self.contextCheckout(preferredWindow: preferredWindow) : nil,
+            contextMachineID: cloudContext?.machineID,
+            contextDirectoryName: cloudContext?.directoryName,
             backend: Self.backend(service)
         )
         model.onFinished = { [weak self] in self?.dismiss() }
@@ -107,6 +110,17 @@ final class CloudSecretsSheetPresenter {
         return CloudSecretProjectCheckout.locate(from: URL(fileURLWithPath: directory, isDirectory: true))
     }
 
+    /// The machine and folder of the window's selected Cloud workspace, so the
+    /// Project tab can start on the project that machine is linked to and list
+    /// what it still needs. nil for a local workspace.
+    private static func contextCloudWorkspace(preferredWindow: NSWindow?) -> (machineID: String, directoryName: String?)? {
+        guard let workspace = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: preferredWindow)?.selectedWorkspace,
+              let machineID = workspace.cloudVMID, !machineID.isEmpty else { return nil }
+        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = directory.isEmpty ? nil : URL(fileURLWithPath: directory).lastPathComponent
+        return (machineID, name)
+    }
+
     /// Lets the Cloud "Get started" card open this sheet.
     func installGettingStartedBridge(_ bridge: CloudGettingStartedSecretsBridge) {
         bridge.openSecrets = { [weak self] in
@@ -146,6 +160,9 @@ final class CloudSecretsSheetPresenter {
                 await Task.detached(priority: .userInitiated) {
                     CloudSecretRequirements.declared(inDirectory: root)
                 }.value
+            },
+            declaredForProject: { projectKey in
+                service.declaredRequirementsByProject[projectKey] ?? []
             },
             // Saves return once the vault is written; the sheet then runs this in
             // the background when auto-sync is on.

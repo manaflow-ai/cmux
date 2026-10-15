@@ -23,6 +23,11 @@ struct CloudSecretsSheetBackend {
     /// The names a local checkout declares (`.cmux/cloud.json`, devcontainer), read
     /// off the main actor; nil when the host cannot read checkouts.
     var declared: (@MainActor (URL) async -> [CloudSecretRequirement])? = nil
+    /// The names a project declares when the sheet has no local checkout of it
+    /// (opened from a machine or a Cloud workspace): what the host last read from
+    /// a checkout of that project, such as the one `cmux vm clone` checked.
+    /// nil when the host keeps no such record.
+    var declaredForProject: (@MainActor (String) async -> [CloudSecretRequirement])? = nil
     /// Delivers a saved change to every machine that needs it, when the host
     /// delivers after each change; nil when it does not. The sheet runs it after
     /// each write so it knows a delivery is in flight and can say "Syncing…"
@@ -84,14 +89,25 @@ final class CloudSecretsSheetModel {
     /// The local checkout the sheet opened from, whose declared names the Project
     /// tab lists when they are not set.
     let contextCheckout: CloudSecretProjectCheckout?
+    /// The machine of the Cloud workspace the sheet opened from, when it was not
+    /// opened for a machine. Its linked projects name the project the ghost rows
+    /// are about.
+    let contextMachineID: String?
+    /// The Cloud workspace's folder name, which picks among several linked projects.
+    let contextDirectoryName: String?
     var machineLabels: [String: String]
 
     private(set) var phase: Phase = .loading
     private(set) var records: [CloudSecretRecord] = []
     private(set) var deliveries: [CloudSecretDelivery] = []
     private(set) var statusRows: [CloudSecretMachineStatusRow] = []
-    /// What ``contextCheckout`` declares, read on each load.
-    private(set) var declaredRequirements: [CloudSecretRequirement] = []
+    /// What each project declares, by key, read on each load: the local
+    /// checkout's own files for its project, otherwise what the host last read
+    /// from a checkout of it. Projects that declare nothing are left out.
+    private(set) var declaredByProject: [String: [CloudSecretRequirement]] = [:]
+    /// The project the sheet was opened about: the local checkout's, or the
+    /// linked project of the machine (or Cloud workspace) it was opened from.
+    private(set) var declaredProjectKey: String?
     private(set) var statusError: String?
     private(set) var isSyncing = false
     private(set) var syncError: String?
@@ -131,6 +147,8 @@ final class CloudSecretsSheetModel {
         machineLabel: String? = nil,
         contextProjectKey: String? = nil,
         contextCheckout: CloudSecretProjectCheckout? = nil,
+        contextMachineID: String? = nil,
+        contextDirectoryName: String? = nil,
         machineLabels: [String: String] = [:],
         backend: CloudSecretsSheetBackend,
         now: @escaping @MainActor () -> Date = Date.init
@@ -139,6 +157,8 @@ final class CloudSecretsSheetModel {
         self.machineLabel = machineLabel.flatMap { $0.isEmpty ? nil : $0 } ?? machineID
         self.contextProjectKey = contextProjectKey ?? contextCheckout?.projectKey
         self.contextCheckout = contextCheckout
+        self.contextMachineID = machineID == nil ? contextMachineID : nil
+        self.contextDirectoryName = contextDirectoryName
         var labels = machineLabels
         if let machineID, let machineLabel, !machineLabel.isEmpty { labels[machineID] = machineLabel }
         self.machineLabels = labels
@@ -146,6 +166,8 @@ final class CloudSecretsSheetModel {
         self.now = now
         // Opened from a checkout: the Project tab starts on that project.
         if machineID == nil, let checkout = contextCheckout { projectKey = checkout.projectKey }
+        // Opened for a machine: Add writes to that machine unless another tab is chosen.
+        if machineID != nil { tab = .machine }
     }
 
     // MARK: Derived
@@ -157,12 +179,14 @@ final class CloudSecretsSheetModel {
         CloudSecretsSheetPresentation.records(records, tab: tab, projectKey: tab == .project ? projectKey : nil, machineID: machineID)
     }
 
+    /// What the tab lists when selected, so a segment's count always matches
+    /// its rows: the Project tab counts only the chosen project.
     func count(for tab: Tab) -> Int {
-        CloudSecretsSheetPresentation.records(records, tab: tab, projectKey: nil, machineID: machineID).count
+        CloudSecretsSheetPresentation.records(records, tab: tab, projectKey: tab == .project ? projectKey : nil, machineID: machineID).count
     }
 
     var projectKeys: [String] {
-        CloudSecretsSheetPresentation.projectKeys(records: records, deliveries: deliveries, machineID: machineID, context: contextProjectKey)
+        CloudSecretsSheetPresentation.projectKeys(records: records, deliveries: deliveries, machineID: machineID, context: contextProjectKey ?? declaredProjectKey)
     }
 
     /// The scope Add writes to on the current tab, or nil when the tab has no
@@ -226,33 +250,69 @@ final class CloudSecretsSheetModel {
 
     var hasModalCard: Bool { editor != nil || importDraft != nil }
 
-    /// On the Project tab, the names the context checkout declares that nothing
-    /// covers for its project (an all-machines secret or one for that project), in
-    /// declaration order. Empty on other tabs, or when another project is selected.
+    /// The machine whose linked projects the sheet is about: the one it was
+    /// opened for, or the Cloud workspace's.
+    private var linkedMachineID: String? { machineID ?? contextMachineID }
+
+    /// The project whose declared names the ghost rows list. A machine's sheet
+    /// (or a Cloud workspace's) uses the machine's linked project; otherwise the
+    /// local checkout's.
+    var requirementProjectKey: String? {
+        if let linkedMachineID {
+            let linked = deliveries.first { $0.machineID == linkedMachineID }?.projectKeys ?? []
+            if let key = CloudSecretsSheetPresentation.linkedProject(linked, directoryName: contextDirectoryName) {
+                return key
+            }
+            if isMachineMode { return nil }
+        }
+        return contextCheckout?.projectKey
+    }
+
+    /// The project whose unset names the current tab lists as ghost rows: the
+    /// chosen project on the Project tab (the sheet's own project under All
+    /// Projects), and the sheet's project on a machine's own tab, where the
+    /// sheet opens. None on the all-machines tab.
+    var ghostRowsProjectKey: String? {
+        switch tab {
+        case .project: return projectKey ?? declaredProjectKey
+        case .machine: return isMachineMode ? declaredProjectKey : nil
+        case .all: return nil
+        }
+    }
+
+    /// The names ``ghostRowsProjectKey`` declares that nothing covers for it,
+    /// in declaration order. A covering secret is one for all machines, for that
+    /// project, for another project the machine is linked to, or for the
+    /// machine itself.
     var unsetRequirements: [CloudSecretRequirement] {
-        guard tab == .project, let checkout = contextCheckout,
-              projectKey == nil || projectKey == checkout.projectKey else { return [] }
+        guard let key = ghostRowsProjectKey, let declared = declaredByProject[key] else { return [] }
+        var projectKeys = [key]
+        if isMachineMode {
+            projectKeys += (delivery?.projectKeys ?? []).filter { $0 != key }
+        }
         return CloudSecretRequirements.missing(
-            declaredRequirements,
+            declared,
             records: records,
-            projectKeys: [checkout.projectKey],
-            machineID: nil
+            projectKeys: projectKeys,
+            machineID: machineID
         )
     }
 
     /// "owner/repo" for the ghost rows' "Needed by …".
     var unsetRequirementsProjectLabel: String {
-        contextCheckout.map { projectLabel($0.projectKey) } ?? ""
+        ghostRowsProjectKey.map { projectLabel($0) } ?? ""
     }
 
     /// Set… on a ghost row: the add card with the name filled in, scoped to the
-    /// checkout's project, and the repository's description as its hint.
+    /// project that declares it, and the repository's description as its hint.
     func beginSetRequirement(_ requirement: CloudSecretRequirement) {
-        guard let checkout = contextCheckout, !hasModalCard else { return }
+        guard let key = ghostRowsProjectKey, !hasModalCard else { return }
+        let label = unsetRequirementsProjectLabel
         tab = .project
+        projectKey = key
         beginAdd(name: requirement.name)
-        editor?.projectText = checkout.projectKey
-        editor?.hint = CloudSecretsSheetPresentation.requirementHint(requirement, projectLabel: unsetRequirementsProjectLabel)
+        editor?.projectText = key
+        editor?.hint = CloudSecretsSheetPresentation.requirementHint(requirement, projectLabel: label)
     }
 
     // MARK: Loading
@@ -263,16 +323,38 @@ final class CloudSecretsSheetModel {
             let snapshot = try await backend.load()
             records = snapshot.records
             deliveries = snapshot.deliveries
-            if projectKey == nil, isMachineMode { projectKey = delivery?.projectKeys.first }
-            if let checkout = contextCheckout, let declared = backend.declared {
-                declaredRequirements = await declared(checkout.root)
-            }
+            let requirementKey = requirementProjectKey
+            // A machine's sheet, or a Cloud workspace's, starts the Project tab on
+            // the machine's linked project, as a local checkout does with its own.
+            if projectKey == nil, linkedMachineID != nil { projectKey = requirementKey }
+            await loadDeclared(projectKey: requirementKey)
             phase = .ready
         } catch {
             phase = .loadFailed(CloudSecretsSheetPresentation.message(for: error))
             return
         }
         await loadStatus()
+    }
+
+    /// Reads what each known project declares: the local checkout's files for
+    /// its project, and what the host remembers for the sheet's project and
+    /// every other project it offers.
+    private func loadDeclared(projectKey contextKey: String?) async {
+        declaredProjectKey = contextKey
+        var declared: [String: [CloudSecretRequirement]] = [:]
+        if let checkout = contextCheckout, checkout.projectKey == contextKey, let read = backend.declared {
+            let names = await read(checkout.root)
+            if !names.isEmpty { declared[checkout.projectKey] = names }
+        }
+        if let remembered = backend.declaredForProject {
+            var keys = contextKey.map { [$0] } ?? []
+            keys += projectKeys.filter { !keys.contains($0) }
+            for key in keys where declared[key] == nil {
+                let names = await remembered(key)
+                if !names.isEmpty { declared[key] = names }
+            }
+        }
+        declaredByProject = declared
     }
 
     func loadStatus() async {

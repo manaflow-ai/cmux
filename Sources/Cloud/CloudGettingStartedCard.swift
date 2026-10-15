@@ -15,14 +15,19 @@ struct CloudGettingStartedActions {
     var dismiss: () -> Void
     /// Opens the first-run tour that does all three steps at once. nil hides it.
     var startFirstAgent: (() -> Void)? = nil
+    /// Opens "Open Repository in Cloud", the agent step's primary action. nil
+    /// leaves that step with its command and the local agent.
+    var openRepository: (() -> Void)? = nil
 }
 
 /// The Cloud panel's "Get started" card, pinned under the machine list.
 ///
 /// One quiet card in Cursor's getting-started shape: the title is the
 /// strongest text, with a progress count and ring beside it; one row per
-/// step; and only the current step opens into one line of why, one compact
-/// action and a subtle "Learn more". Finished steps keep their row with a
+/// step; and only the current step opens into one line of why, its one
+/// accent action (sized to its label, never full width) and a subtle
+/// "Learn more". Everything else on the card is secondary, so there is
+/// always exactly one thing to press next. Finished steps keep their row with a
 /// check so the user sees what already happened; later steps stay one dim
 /// line. Once every step is done the card reads "You're set up" with a quiet
 /// check until the panel retires it on a later open. The close button shows
@@ -48,7 +53,8 @@ struct CloudGettingStartedCard: View {
                         stepRow(step)
                     }
                 }
-                if let startFirstAgent = actions.startFirstAgent, !checklist.isDone(.startAgent) {
+                // "All three" is only true before any step is done.
+                if let startFirstAgent = actions.startFirstAgent, checklist.completedCount == 0 {
                     allAtOnceButton(startFirstAgent)
                 }
             }
@@ -212,9 +218,11 @@ struct CloudGettingStartedCard: View {
         .accessibilityHidden(true)
     }
 
-    /// One line of why, one compact action, and a subtle "Learn more" on
-    /// the action's line. The action hugs its label: the card is a nudge
-    /// beside the tree, not a call to action that outweighs its title.
+    /// One line of why, the step's one accent action and a subtle "Learn
+    /// more" on its line. The action hugs its label: the card is a nudge
+    /// beside the tree, not a banner that outweighs its title. The agent step
+    /// adds the command to run instead and the local agent as quiet
+    /// alternatives under its action.
     @ViewBuilder
     private func currentStepBody(_ step: CloudGettingStartedChecklist.Step) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -227,7 +235,7 @@ struct CloudGettingStartedCard: View {
             case .addKeys:
                 if let openSecrets = actions.openSecrets {
                     actionLine(step) {
-                        compactButton(
+                        primaryButton(
                             String(localized: "cloud.gettingStarted.keys.action", defaultValue: "Add API Keys…"),
                             identifier: "CloudGettingStartedAddKeysButton",
                             action: openSecrets
@@ -239,31 +247,48 @@ struct CloudGettingStartedCard: View {
                 }
             case .createMachine:
                 actionLine(step) {
-                    compactButton(
+                    primaryButton(
                         String(localized: "cloudTree.action.newCloudMachine", defaultValue: "New Cloud Machine"),
                         identifier: "CloudGettingStartedNewMachineButton",
                         action: actions.createMachine
                     )
                 }
             case .startAgent:
-                commandRow(CloudGettingStartedChecklist.startAgentCommand())
-                actionLine(step) {
-                    if let openLocalAgent = actions.openLocalAgent {
-                        quietButton(
-                            String(
-                                localized: "cloud.gettingStarted.agent.askClaude",
-                                defaultValue: "Ask Claude Code Instead"
-                            ),
-                            help: String(
-                                localized: "cloud.gettingStarted.agent.askClaude.help",
-                                defaultValue: "Opens Claude Code on this Mac with the cmux Cloud skill, so it can start agents on your machines for you."
-                            ),
-                            identifier: "CloudGettingStartedAskClaudeButton",
-                            action: openLocalAgent
+                if let openRepository = actions.openRepository {
+                    actionLine(step) {
+                        primaryButton(
+                            String(localized: "cloudOpenRepository.panel.button", defaultValue: "Open Repository…"),
+                            identifier: "CloudGettingStartedOpenRepositoryButton",
+                            action: openRepository
                         )
                     }
+                    commandRow(CloudGettingStartedChecklist.startAgentCommand())
+                    askClaudeButton
+                } else {
+                    commandRow(CloudGettingStartedChecklist.startAgentCommand())
+                    actionLine(step) { askClaudeButton }
                 }
             }
+        }
+    }
+
+    /// "Ask Claude Code instead": a text-weight alternative, sentence case
+    /// like the "Learn more" beside it.
+    @ViewBuilder
+    private var askClaudeButton: some View {
+        if let openLocalAgent = actions.openLocalAgent {
+            quietButton(
+                String(
+                    localized: "cloud.gettingStarted.agent.askClaudeInstead",
+                    defaultValue: "Ask Claude Code instead"
+                ),
+                help: String(
+                    localized: "cloud.gettingStarted.agent.askClaude.help",
+                    defaultValue: "Opens Claude Code on this Mac with the cmux Cloud skill, so it can start agents on your machines for you."
+                ),
+                identifier: "CloudGettingStartedAskClaudeButton",
+                action: openLocalAgent
+            )
         }
     }
 
@@ -295,7 +320,9 @@ struct CloudGettingStartedCard: View {
                 Text(String(localized: "cloud.gettingStarted.allAtOnce", defaultValue: "Do all three at once\u{2026}"))
                     .cmuxFont(size: 11, weight: .medium)
             }
-            .foregroundStyle(Color.accentColor)
+            // Secondary, so the current step's button stays the card's one
+            // accent action.
+            .foregroundStyle(.secondary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -308,15 +335,18 @@ struct CloudGettingStartedCard: View {
         .accessibilityIdentifier("CloudGettingStartedAllAtOnceButton")
     }
 
-    /// A small bordered button sized to its label (Cursor's neutral fill).
-    private func compactButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
+    /// The current step's one accent action: small, filled with the accent
+    /// color and sized to its label.
+    private func primaryButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .cmuxFont(size: 11.5, weight: .medium)
                 .lineLimit(1)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.borderedProminent)
+        .tint(Color.accentColor)
         .controlSize(.small)
+        .fixedSize()
         .accessibilityIdentifier(identifier)
     }
 
@@ -333,6 +363,28 @@ struct CloudGettingStartedCard: View {
         .accessibilityIdentifier(identifier)
     }
 
+    /// The command with its `<repo>` placeholder dimmed, so it reads as the
+    /// part to replace.
+    static func commandText(_ command: String) -> Text {
+        let parts = commandParts(command)
+        return parts.reduce(Text(verbatim: "")) { text, part in
+            text + Text(verbatim: part.text).foregroundColor(part.isPlaceholder ? .secondary : .primary)
+        }
+    }
+
+    /// `command` split around `<…>` placeholders, in order.
+    static func commandParts(_ command: String) -> [(text: String, isPlaceholder: Bool)] {
+        var parts: [(text: String, isPlaceholder: Bool)] = []
+        var rest = Substring(command)
+        while let open = rest.firstIndex(of: "<"), let close = rest[open...].firstIndex(of: ">") {
+            if open > rest.startIndex { parts.append((String(rest[..<open]), false)) }
+            parts.append((String(rest[open...close]), true))
+            rest = rest[rest.index(after: close)...]
+        }
+        if !rest.isEmpty { parts.append((String(rest), false)) }
+        return parts
+    }
+
     /// The command in a monospace well with a copy button. The check stays
     /// until the pointer leaves the card, so no timer is needed to reset it.
     private func commandRow(_ command: String) -> some View {
@@ -340,13 +392,15 @@ struct CloudGettingStartedCard: View {
         let copyTitle = copied
             ? String(localized: "cloud.gettingStarted.copied", defaultValue: "Copied")
             : String(localized: "cloud.gettingStarted.copy", defaultValue: "Copy Command")
-        return HStack(spacing: 6) {
-            Text(command)
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            // Wraps at spaces instead of truncating, so the `<repo>` the person
+            // has to replace is never the part that disappears.
+            Self.commandText(command)
                 .cmuxFont(size: 11, design: .monospaced)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
+                .accessibilityLabel(command)
             Spacer(minLength: 0)
             Button {
                 let pasteboard = NSPasteboard.general

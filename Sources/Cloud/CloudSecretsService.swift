@@ -78,6 +78,12 @@ final class CloudSecretsService: ObservableObject {
     @Published private(set) var deliveries: [CloudSecretDelivery] = []
     /// Machines with a sync in flight.
     @Published private(set) var syncingMachineIDs: Set<String> = []
+    /// The names each project declares, as last read from a checkout of it by
+    /// `vm.secrets_check` (the check `cmux vm clone` runs). Names and
+    /// descriptions only, kept for this process, so the sheet opened from that
+    /// project's machine can list what is still unset without reading the
+    /// machine's files.
+    private(set) var declaredRequirementsByProject: [String: [CloudSecretRequirement]] = [:]
     /// Why the vault could not be read, already redacted; nil when it loaded.
     @Published private(set) var loadError: String?
 
@@ -152,6 +158,11 @@ final class CloudSecretsService: ObservableObject {
         } catch {
             loadError = Self.redactedMessage(for: error, values: [])
         }
+    }
+
+    /// Records what a checkout of `projectKey` declares; an empty list forgets it.
+    func rememberDeclaredRequirements(_ requirements: [CloudSecretRequirement], projectKey: String) {
+        declaredRequirementsByProject[projectKey] = requirements.isEmpty ? nil : requirements
     }
 
     /// The ledger entry for one machine, from the last reload.

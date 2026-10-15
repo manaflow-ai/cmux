@@ -360,6 +360,11 @@ extension TerminalController {
                     }
                     let service = await CloudSecretsService.shared
                     await service.reload()
+                    // The sheet opened later from this project's machine lists
+                    // the same names as ghost rows.
+                    if let project {
+                        await service.rememberDeclaredRequirements(declared, projectKey: project)
+                    }
                     let records = await service.records
                     var projectKeys: [String] = []
                     if let machine {

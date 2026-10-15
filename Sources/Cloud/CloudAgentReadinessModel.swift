@@ -105,7 +105,7 @@ final class CloudAgentReadinessModel {
     // MARK: - Presentation
 
     /// "Checked just now" / "Checked 5 min ago".
-    func checkedLabel(now: Date, locale: Locale = .current) -> String? {
+    func checkedLabel(now: Date, locale: Locale = CloudSecretsSheetPresentation.interfaceLocale()) -> String? {
         guard let checkedAt else { return nil }
         guard let relative = CloudSecretsSheetPresentation.relativePhrase(checkedAt, now: now, locale: locale) else {
             return String(localized: "cloudAgentReadiness.ui.checkedJustNow", defaultValue: "Checked just now")

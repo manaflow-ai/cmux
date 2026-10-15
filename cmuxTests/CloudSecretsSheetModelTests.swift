@@ -22,6 +22,9 @@ struct CloudSecretsSheetModelTests {
         var setCalls: [(names: [String], scope: CloudSecretScope)] = []
 
         var declaredReads: [URL] = []
+        /// What the host remembers each project declaring (a `vm clone` check).
+        var declaredByProject: [String: [CloudSecretRequirement]] = [:]
+        var declaredProjectReads: [String] = []
         /// When set, writes from the sheet run a background delivery; each run
         /// records what the sheet showed while it was in flight.
         var autoSyncEnabled = false
@@ -33,7 +36,9 @@ struct CloudSecretsSheetModelTests {
             label: String? = nil,
             withPreview: Bool = true,
             checkout: CloudSecretProjectCheckout? = nil,
-            declared: [CloudSecretRequirement] = []
+            declared: [CloudSecretRequirement] = [],
+            cloudMachineID: String? = nil,
+            directoryName: String? = nil
         ) -> CloudSecretsSheetModel {
             let vault = vault
             var preview: (@MainActor ([CloudSecretInput], CloudSecretScope) async throws -> [CloudSecretChange])?
@@ -44,6 +49,8 @@ struct CloudSecretsSheetModelTests {
                 machineID: machineID,
                 machineLabel: label,
                 contextCheckout: checkout,
+                contextMachineID: cloudMachineID,
+                contextDirectoryName: directoryName,
                 backend: CloudSecretsSheetBackend(
                     load: {
                         CloudSecretsSheetBackend.Snapshot(records: try await vault.records(), deliveries: try await vault.deliveries())
@@ -62,6 +69,10 @@ struct CloudSecretsSheetModelTests {
                     declared: { root in
                         self.declaredReads.append(root)
                         return declared
+                    },
+                    declaredForProject: { key in
+                        self.declaredProjectReads.append(key)
+                        return self.declaredByProject[key] ?? []
                     },
                     autoSync: {
                         guard self.autoSyncEnabled else { return nil }
@@ -87,6 +98,9 @@ struct CloudSecretsSheetModelTests {
         let model = harness.model(machineID: "vm-1", label: "Big Machine")
         await model.load()
 
+        #expect(model.tab == .machine, "a machine's sheet opens on that machine")
+        #expect(model.scopeForNewSecret == .machine("vm-1"), "so Add writes to that machine")
+        model.tab = .all
         #expect(model.visibleRecords.map(\.name) == ["OPENAI_API_KEY"])
         #expect(model.count(for: .project) == 1)
         model.tab = .machine
@@ -260,6 +274,7 @@ struct CloudSecretsSheetModelTests {
         ]
         let model = harness.model(machineID: "vm-1", label: "Big Machine")
         await model.load()
+        model.tab = .all
 
         let allToken = try #require(model.visibleRecords.first { $0.name == "TOKEN" })
         #expect(model.rowState(for: allToken) == .overridden(by: .machine("vm-1")))
@@ -290,6 +305,7 @@ struct CloudSecretsSheetModelTests {
         let model = harness.model(machineID: "vm-1", label: "Big Machine")
         harness.observed = model
         await model.load()
+        model.tab = .all
         #expect(!model.isDelivering)
 
         model.beginAdd(name: "OPENAI_API_KEY")
@@ -315,6 +331,7 @@ struct CloudSecretsSheetModelTests {
         ]
         let model = harness.model(machineID: "vm-1", label: "Big Machine")
         await model.load()
+        model.tab = .all
         let missing = try #require(model.visibleRecords.first { $0.name == "OPENAI_API_KEY" })
         let current = try #require(model.visibleRecords.first { $0.name == "GH_TOKEN" })
         #expect(model.rowState(for: missing) == .machine(.missing))
@@ -506,5 +523,136 @@ struct CloudSecretsSheetModelTests {
         let machineModel = harness.model(machineID: "vm-1", checkout: checkout)
         await machineModel.load()
         #expect(machineModel.projectKey != "local/x", "a machine's sheet keeps its linked project")
+    }
+    // MARK: Ghost rows away from a local checkout
+
+    @Test("A machine's sheet lists what its linked project declares, on its own tab, from the remembered check")
+    func machineSheetShowsLinkedProjectNeeds() async throws {
+        let harness = Harness()
+        let project = "github.com/acme/cgc-fixture"
+        try await harness.vault.linkMachine("vm-1", projectKey: project)
+        try await harness.vault.set([CloudSecretInput(name: "GH_TOKEN", value: "gh")], scope: .all, source: .manual)
+        try await harness.vault.set([CloudSecretInput(name: "REDIS_URL", value: "redis://x")], scope: .machine("vm-1"), source: .manual)
+        harness.declaredByProject[project] = [
+            CloudSecretRequirement(name: "DATABASE_URL", description: nil, source: ".cmux/cloud.json"),
+            CloudSecretRequirement(name: "GH_TOKEN", description: nil, source: ".cmux/cloud.json"),
+            CloudSecretRequirement(name: "REDIS_URL", description: nil, source: ".cmux/cloud.json"),
+        ]
+        let model = harness.model(machineID: "vm-1", label: "cgc-eval-r4")
+        await model.load()
+
+        #expect(harness.declaredProjectReads == [project])
+        #expect(harness.declaredReads.isEmpty, "a machine's sheet never reads a local folder")
+        #expect(model.tab == .machine)
+        #expect(model.projectKey == project)
+        // All-machines and machine secrets both reach the machine.
+        #expect(model.unsetRequirements.map(\.name) == ["DATABASE_URL"])
+        #expect(model.unsetRequirementsProjectLabel == "acme/cgc-fixture")
+        model.tab = .project
+        #expect(model.unsetRequirements.map(\.name) == ["DATABASE_URL"])
+        model.tab = .all
+        #expect(model.unsetRequirements.isEmpty, "ghost rows stay off the all-machines tab")
+
+        let databaseURL = try #require(harness.declaredByProject[project]?.first)
+        model.beginSetRequirement(databaseURL)
+        #expect(model.tab == .project)
+        #expect(model.editorScope == .project(project), "Set\u{2026} writes to the project that declares the name")
+    }
+
+    @Test("A Cloud workspace's sheet starts on the project its folder is checked out from")
+    func cloudWorkspaceSheetUsesFolderProject() async throws {
+        let harness = Harness()
+        try await harness.vault.linkMachine("vm-1", projectKey: "github.com/acme/web")
+        try await harness.vault.linkMachine("vm-1", projectKey: "github.com/acme/api")
+        harness.declaredByProject["github.com/acme/api"] = [
+            CloudSecretRequirement(name: "DATABASE_URL", description: "Postgres", source: ".cmux/cloud.json"),
+        ]
+        let model = harness.model(cloudMachineID: "vm-1", directoryName: "api")
+        await model.load()
+
+        #expect(!model.isMachineMode, "a workspace's sheet is still the all-machines sheet")
+        #expect(model.tab == .all)
+        #expect(model.projectKey == "github.com/acme/api")
+        #expect(model.unsetRequirements.isEmpty)
+        model.tab = .project
+        #expect(model.unsetRequirements.map(\.name) == ["DATABASE_URL"])
+        #expect(model.unsetRequirementsProjectLabel == "acme/api")
+    }
+
+    @Test("Opened from the Cloud panel, a chosen project shows the names its last check declared")
+    func chosenProjectShowsRememberedNeeds() async throws {
+        let harness = Harness()
+        try await harness.vault.set([CloudSecretInput(name: "A", value: "1")], scope: .project("github.com/acme/api"), source: .manual)
+        harness.declaredByProject["github.com/acme/api"] = [
+            CloudSecretRequirement(name: "A", description: nil, source: ".cmux/cloud.json"),
+            CloudSecretRequirement(name: "DATABASE_URL", description: nil, source: ".cmux/cloud.json"),
+        ]
+        let model = harness.model()
+        await model.load()
+        model.tab = .project
+        #expect(model.unsetRequirements.isEmpty, "All Projects with no project of its own lists none")
+        model.projectKey = "github.com/acme/api"
+        #expect(model.unsetRequirements.map(\.name) == ["DATABASE_URL"])
+    }
+
+    @Test("The Project segment counts what the tab lists for the chosen project")
+    func projectCountFollowsFilter() async throws {
+        let harness = Harness()
+        try await harness.vault.set([CloudSecretInput(name: "A", value: "1")], scope: .project("github.com/acme/api"), source: .manual)
+        try await harness.vault.set([CloudSecretInput(name: "B", value: "2")], scope: .project("github.com/acme/web"), source: .manual)
+        try await harness.vault.set([CloudSecretInput(name: "C", value: "3")], scope: .project("github.com/acme/web"), source: .manual)
+        let model = harness.model()
+        await model.load()
+        #expect(model.count(for: .project) == 3, "every project's secrets while none is chosen")
+        model.projectKey = "github.com/acme/web"
+        model.tab = .project
+        #expect(model.count(for: .project) == model.visibleRecords.count)
+        #expect(model.count(for: .project) == 2)
+    }
+
+    @Test("A machine's linked project is the one its workspace folder names, else the first")
+    func linkedProjectChoice() {
+        let keys = ["github.com/acme/web", "github.com/acme/api"]
+        #expect(CloudSecretsSheetPresentation.linkedProject(keys, directoryName: "API") == "github.com/acme/api")
+        #expect(CloudSecretsSheetPresentation.linkedProject(keys, directoryName: "elsewhere") == "github.com/acme/web")
+        #expect(CloudSecretsSheetPresentation.linkedProject(keys, directoryName: nil) == "github.com/acme/web")
+        #expect(CloudSecretsSheetPresentation.linkedProject([], directoryName: "api") == nil)
+    }
+
+    // MARK: Ages in other languages
+
+    @Test("Ages read as words in every language, never CLDR's narrow symbols")
+    func agesInOtherLocales() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fiveMinutes = now.addingTimeInterval(-300)
+        func age(_ identifier: String) -> String {
+            CloudSecretsSheetPresentation.ageLabel(fiveMinutes, now: now, locale: Locale(identifier: identifier))
+        }
+        #expect(age("en_US") == "5m ago")
+        let french = age("fr_FR")
+        #expect(french.hasPrefix("il y a 5"), "not \"-5 min\": \(french)")
+        #expect(!french.contains("-"))
+        let german = age("de_DE")
+        #expect(german.hasPrefix("vor 5 Min"), "not \"vor 5 m\": \(german)")
+        #expect(age("ja_JP").contains("5") && age("ja_JP").contains("\u{524D}"))
+        let russian = age("ru_RU")
+        #expect(!russian.hasPrefix("-"), "\(russian)")
+        // The full phrases use the same form.
+        let delivered = CloudSecretsSheetPresentation.relativePhrase(fiveMinutes, now: now, locale: Locale(identifier: "fr_FR"))
+        #expect(delivered == french)
+        #expect(CloudSecretsSheetPresentation.relativeUnitsStyle(for: Locale(identifier: "en_GB")) == .abbreviated)
+        #expect(CloudSecretsSheetPresentation.relativeUnitsStyle(for: Locale(identifier: "es_ES")) == .short)
+    }
+
+    @Test("Ages follow the app's language, with the person's region")
+    func interfaceLocaleFollowsAppLanguage() {
+        let english = Locale(identifier: "en_US")
+        let french = CloudSecretsSheetPresentation.interfaceLocale(preferredLocalizations: ["fr"], current: english)
+        #expect(french.language.languageCode == .french)
+        #expect(french.region == .unitedStates)
+        let same = CloudSecretsSheetPresentation.interfaceLocale(preferredLocalizations: ["en"], current: Locale(identifier: "en_GB"))
+        #expect(same.identifier == "en_GB")
+        let fallback = CloudSecretsSheetPresentation.interfaceLocale(preferredLocalizations: [], current: Locale(identifier: "de_DE"))
+        #expect(fallback.identifier == "de_DE")
     }
 }

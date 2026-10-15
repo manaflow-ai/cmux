@@ -11,7 +11,9 @@ struct CloudSecretsImportPreviewView: View {
     @Bindable var model: CloudSecretsSheetModel
     let draft: CloudSecretsSheetModel.ImportDraft
 
-    private static let maxUnscrolledRows = 8
+    /// Past this many rows the preview's list scrolls, so its title, summary
+    /// and Import button fit the sheet's fixed body without scrolling it.
+    private static let maxUnscrolledRows = 7
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

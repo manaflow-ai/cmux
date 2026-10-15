@@ -93,6 +93,12 @@ struct CloudGettingStartedPanelSection: View {
             dismiss: dismiss,
             startFirstAgent: {
                 CloudFirstRunPresenter.shared.present(preferredWindow: tabManager?.window)
+            },
+            openRepository: {
+                AppDelegate.shared?.performOpenRepositoryInCloudAction(
+                    preferredWindow: tabManager?.window,
+                    debugSource: "cloud.gettingStarted"
+                )
             }
         )
     }

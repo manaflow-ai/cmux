@@ -13,39 +13,67 @@ struct CloudSecretsSheet: View {
     @Bindable var model: CloudSecretsSheetModel
     @State private var isDropTargeted = false
 
-    /// The body area's floor, so the sheet keeps one size from the empty state
-    /// through the list, the add card and the import preview instead of
-    /// jumping as each appears. Taller content (a long list, the machine card
-    /// with the add card open) still grows it.
-    static let bodyMinHeight: CGFloat = 300
+    /// The body area's one height. The sheet keeps a single size through the
+    /// empty state, the list, the add card, the import preview and a machine's
+    /// view, and taller content scrolls inside it, so the sheet never re-centers
+    /// on its host as a card opens or closes.
+    static let bodyHeight: CGFloat = 320
+    /// The footer keeps its height while a card hides its buttons.
+    static let footerHeight: CGFloat = 28
+    /// Scroll target for the top of the body, where the add card opens.
+    private static let topAnchorID = "CloudSecretsSheet.top"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             CloudSecretsSheetHeader(machineLabel: model.machineLabel)
 
-            VStack(alignment: .leading, spacing: 14) {
-                switch model.phase {
-                case .loading:
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(String(localized: "cloudSecrets.sheet.loading", defaultValue: "Reading Cloud Secrets…"))
-                            .cmuxFont(size: 12)
-                            .foregroundStyle(.secondary)
-                    }
-                case .loadFailed(let message):
-                    CloudSecretsMessageBox(text: message, isError: true)
-                case .ready:
-                    content
-                }
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Color.clear.frame(height: 0).id(Self.topAnchorID)
+                        switch model.phase {
+                        case .loading:
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text(String(localized: "cloudSecrets.sheet.loading", defaultValue: "Reading Cloud Secrets…"))
+                                    .cmuxFont(size: 12)
+                                    .foregroundStyle(.secondary)
+                            }
+                        case .loadFailed(let message):
+                            CloudSecretsMessageBox(text: message, isError: true)
+                        case .ready:
+                            content
+                        }
 
-                if let error = model.actionError {
-                    CloudSecretsMessageBox(text: error, isError: true)
-                        .accessibilityIdentifier("CloudSecretsSheet.actionError")
+                        if let error = model.actionError {
+                            CloudSecretsMessageBox(text: error, isError: true)
+                                .id("CloudSecretsSheet.actionError")
+                                .accessibilityIdentifier("CloudSecretsSheet.actionError")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .scrollIndicators(.automatic)
+                .frame(height: Self.bodyHeight, alignment: .top)
+                // Keep what the person is acting on in view: the add or replace
+                // card (it opens at the top), the row the arrow keys selected,
+                // and an error.
+                .onChange(of: model.editor != nil) { _, isOpen in
+                    guard isOpen else { return }
+                    proxy.scrollTo(Self.topAnchorID, anchor: .top)
+                }
+                .onChange(of: model.selectionID) { _, id in
+                    guard let id else { return }
+                    proxy.scrollTo(id)
+                }
+                .onChange(of: model.actionError) { _, error in
+                    guard error != nil else { return }
+                    proxy.scrollTo("CloudSecretsSheet.actionError")
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: Self.bodyMinHeight, alignment: .top)
 
             CloudSecretsSheetFooter(model: model)
+                .frame(height: Self.footerHeight)
         }
         .padding(20)
         .frame(width: 580)

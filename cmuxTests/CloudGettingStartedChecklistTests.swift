@@ -216,7 +216,13 @@ struct CloudGettingStartedCardTests {
         let view: NSView
     }
 
-    private static func host(_ input: CloudGettingStartedChecklist.Input, log: Log, wiresSecrets: Bool = true) -> Hosted {
+    private static func host(
+        _ input: CloudGettingStartedChecklist.Input,
+        log: Log,
+        wiresSecrets: Bool = true,
+        wiresRepository: Bool = false,
+        wiresTour: Bool = false
+    ) -> Hosted {
         let view = NSHostingView(
             rootView: CloudGettingStartedCard(
                 checklist: CloudGettingStartedChecklist(input),
@@ -224,7 +230,9 @@ struct CloudGettingStartedCardTests {
                     openSecrets: wiresSecrets ? { log.events.append("secrets") } : nil,
                     createMachine: { log.events.append("machine") },
                     openLocalAgent: { log.events.append("agent") },
-                    dismiss: { log.events.append("dismiss") }
+                    dismiss: { log.events.append("dismiss") },
+                    startFirstAgent: wiresTour ? { log.events.append("tour") } : nil,
+                    openRepository: wiresRepository ? { log.events.append("repository") } : nil
                 )
             )
             // In-process there is no assistive client to switch SwiftUI's
@@ -310,6 +318,40 @@ struct CloudGettingStartedCardTests {
         let ask = try #require(Self.element("CloudGettingStartedAskClaudeButton", in: hosted))
         try #require(Self.press(ask))
         #expect(log.events == ["agent"])
+    }
+
+    @Test("the agent step's one primary action opens Open Repository, with the command and Claude Code as alternatives")
+    func agentStepOpensRepository() throws {
+        let log = Log()
+        let hosted = Self.host(Self.input(secretCount: 1, machineCount: 1), log: log, wiresRepository: true)
+        let open = try #require(Self.element("CloudGettingStartedOpenRepositoryButton", in: hosted))
+        #expect(Self.element("CloudGettingStartedCopyCommandButton", in: hosted) != nil)
+        #expect(Self.element("CloudGettingStartedAskClaudeButton", in: hosted) != nil)
+        try #require(Self.press(open))
+        #expect(log.events == ["repository"])
+#if DEBUG
+        // The debug socket's press_current presses the same button.
+        let actions = CloudGettingStartedActions(
+            openSecrets: nil, createMachine: {}, openLocalAgent: {}, dismiss: {}, openRepository: {}
+        )
+        #expect(CloudDebugGettingStartedProbe.press(for: .startAgent, actions: actions) == .openRepository)
+#endif
+    }
+
+    @Test("Do all three at once shows only before any step is done")
+    func allAtOnceOnlyAtStart() {
+        let fresh = Self.host(Self.input(), log: Log(), wiresTour: true)
+        #expect(Self.element("CloudGettingStartedAllAtOnceButton", in: fresh) != nil)
+        let started = Self.host(Self.input(secretCount: 1), log: Log(), wiresTour: true)
+        #expect(Self.element("CloudGettingStartedAllAtOnceButton", in: started) == nil)
+    }
+
+    @Test("the command keeps its <repo> placeholder whole")
+    func commandPlaceholderStaysWhole() {
+        let parts = CloudGettingStartedCard.commandParts(CloudGettingStartedChecklist.startAgentCommand())
+        #expect(parts.map(\.text).joined() == "cmux vm clone <repo> --agent claude")
+        #expect(parts.filter(\.isPlaceholder).map(\.text) == ["<repo>"])
+        #expect(CloudGettingStartedCard.commandParts("cmux vm secrets import --from-shell").allSatisfy { !$0.isPlaceholder })
     }
 }
 
