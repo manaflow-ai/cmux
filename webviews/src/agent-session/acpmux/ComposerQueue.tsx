@@ -8,6 +8,11 @@
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
+//
+// A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
+// "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
+// fold is a button (aria-expanded) on the queue's last line, so ↑ from the prompt reaches it first.
+// It stays open for its chat until closed (not across reloads); prompts sent now always show.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
@@ -19,6 +24,12 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
+/** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
+const FOLD_AT = 3;
+const FOLD_SHOWS = 2;
+/** The chats whose long queue is open, for this page's life. */
+const openQueues = new Set<string>();
+
 /** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
@@ -29,6 +40,7 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
 
 export function ComposerQueue({
   queue,
+  chat,
   paused,
   t,
   onRemove,
@@ -37,6 +49,8 @@ export function ComposerQueue({
   onLeave,
 }: {
   queue: AcpmuxSnapshot["queue"];
+  /// The chat the queue belongs to: a long queue opened stays open for it.
+  chat?: string;
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
   paused?: boolean;
   t: Translate;
@@ -65,6 +79,16 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
+  // Whether a long queue shows whole (the composer keys this component by chat).
+  const [unfolded, setUnfolded] = useState(() => chat !== undefined && openQueues.has(chat));
+  const unfold = (next: boolean) => {
+    setUnfolded(next);
+    if (chat === undefined) return;
+    if (next) openQueues.add(chat);
+    else openQueues.delete(chat);
+  };
+  // The row that takes focus once it draws: the next one after a row leaves, when it was folded.
+  const focusNext = useRef<string>(undefined);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
@@ -81,6 +105,14 @@ export function ComposerQueue({
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
     if (row && document.activeElement !== row) row.focus();
+    // Only while focus is still in the queue (or was dropped with the row that left).
+    const next = focusNext.current;
+    const into = next ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${next}"]`) : null;
+    const active = document.activeElement;
+    if (into && (!active || active === document.body || list.current?.contains(active))) {
+      focusNext.current = undefined;
+      into.focus();
+    }
   });
   const act = (id: string, action: () => Promise<boolean>) => {
     setLeaving((current) => new Set(current).add(id));
@@ -98,12 +130,29 @@ export function ComposerQueue({
   if (shown.length === 0) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
+  // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
+  const foldable = shown.length - steering > FOLD_AT;
+  const folded = foldable && !unfolded;
+  const visible = folded ? shown.slice(0, steering + FOLD_SHOWS) : shown;
 
-  const rows = () => [...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])];
+  // The rows, then the fold, in the order ↑ and ↓ walk them.
+  const rows = () => [...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued, .acpmux-queue-fold") ?? [])];
   const focusRow = (index: number) => {
     const all = rows();
     if (index >= all.length) onLeave?.();
     else all[Math.max(0, index)]?.focus();
+  };
+  // Focus after the row at `index` leaves: the prompt after it, which a folded queue shows only
+  // once that row has gone, or the prompt when it was the last.
+  const focusAfter = (index: number) => {
+    const next = shown[index + 1];
+    if (!next) return onLeave?.();
+    const row = list.current?.querySelector<HTMLElement>(`[data-prompt-id="${next.id}"]`);
+    if (row) return row.focus();
+    focusNext.current = next.id;
+    setTimeout(() => {
+      if (focusNext.current === next.id) focusNext.current = undefined;
+    }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
   // A prompt sent now stays in place: acpmux marks it next (`queue_order`), so its row reads
@@ -119,6 +168,8 @@ export function ComposerQueue({
     ((entry: QueuedEntry, index: number) => {
       const to = shown[index] && queue.findIndex((q) => q.id === shown[index].id);
       if (to === undefined || to < 0) return;
+      // A move into the folded part opens the queue, so the moved row stays in sight.
+      if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
       void onChange(entry.id, { op: "move", index: to }).finally(() =>
         setTimeout(() => {
@@ -146,7 +197,7 @@ export function ComposerQueue({
     if (event.key === "Enter" && event.metaKey && sendNow) {
       done();
       sendNow(entry);
-      focusRow(index + 1);
+      focusAfter(index);
     } else if (event.key === "Enter" && plain && onChange) {
       done();
       setEditing(entry.id);
@@ -159,11 +210,21 @@ export function ComposerQueue({
     } else if ((event.key === "Delete" || event.key === "Backspace") && plain && remove) {
       done();
       remove(entry);
-      focusRow(index + 1);
+      focusAfter(index);
     } else if (event.key === "Escape" && plain) {
       done();
       onLeave?.();
     }
+  };
+  // The fold's own keys: ↑ to the last row shown, ↓ and Esc to the prompt; Return and Space are
+  // the button's.
+  const foldKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "ArrowUp") focusRow(visible.length - 1);
+    else onLeave?.();
   };
   // The row's menu names each action's key on the row.
   const item = (id: string, label: string, key: string, onSelect: () => void): ContextMenuItem => ({
@@ -301,7 +362,7 @@ export function ComposerQueue({
         </li>
       )}
       {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
-      {shown.flatMap((entry, index) => [
+      {visible.flatMap((entry, index) => [
         // "Queued" heads the prompts that wait for the turn, under any sent now.
         index === steering && (
           <li key="queued" className="acpmux-queue-header" aria-hidden="true">
@@ -326,6 +387,19 @@ export function ComposerQueue({
           )}
         </li>,
       ])}
+      {foldable && (
+        <li key="fold" className="acpmux-queue-more">
+          <button
+            type="button"
+            className="acpmux-queue-fold"
+            aria-expanded={!folded}
+            {...rovingTabStopProps(true, foldKeyDown)}
+            onClick={() => unfold(folded)}
+          >
+            {folded ? t("composer.queueMore", { n: shown.length - visible.length }) : t("composer.queueLess")}
+          </button>
+        </li>
+      )}
     </ol>
   );
 }

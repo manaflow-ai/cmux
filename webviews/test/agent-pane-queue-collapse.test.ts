@@ -210,7 +210,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.keyboard.press("ArrowDown");
       expect(await focused(page)).toBe("fold");
       await page.keyboard.press("ArrowDown");
-      expect(await page.evaluate(() => document.activeElement?.classList.contains("acpmux-composer-prompt"))).toBe(true);
+      expect(await page.evaluate(() => !!document.activeElement?.closest(".acpmux-composer-prompt"))).toBe(true);
 
       // A click opens it too.
       await page.locator(".acpmux-queue-fold").click();
