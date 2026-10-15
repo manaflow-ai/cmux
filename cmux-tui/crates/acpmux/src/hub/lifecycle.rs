@@ -37,12 +37,38 @@ impl Hub {
         }
         let family = crate::config::derive_family(agent, &profile);
         let policy = policy.or(defaults.policy);
-        let model = model.or(defaults.model);
-        let effort = effort.or(defaults.effort);
         // `${model}` in argv or env: the model is a spawn parameter, not a
         // set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
+        // What a new chat starts on when nothing pins it (start_defaults.rs):
+        // the saved default (acpmux defaults or the person's pick), else the catalog default.
+        // A request value, a preset, a folder profile, a profile's own
+        // model/effort (or a model in its argv or env) and an adopted
+        // conversation keep today's chain (request, then `defaults`).
+        let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
+        // A harness that takes its model at spawn (Claude Code's `--model`)
+        // gets the start model there (`model_request` below).
+        let model_pinned = model.is_some()
+            || !eligible
+            || profile.model.is_some()
+            || super::start_defaults::profile_sets_model(&profile, &defaults.env);
+        let effort_pinned = effort.is_some() || !eligible || profile.effort.is_some();
+        let pinned_model =
+            if model_pinned { model.or_else(|| defaults.model.clone()) } else { None };
+        let (start_model, start_effort) = if eligible {
+            self.start_defaults(agent, &profile, &defaults, pinned_model.as_deref())
+        } else {
+            (None, None)
+        };
+        let (model, model_soft) = match (model_pinned, start_model) {
+            (true, _) | (false, None) => (pinned_model, false),
+            (false, Some(start)) => (Some(start.value), true),
+        };
+        let (effort, effort_soft) = match (effort_pinned, start_effort) {
+            (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
+            (false, Some(start)) => (Some(start.value), true),
+        };
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
@@ -54,7 +80,13 @@ impl Hub {
         // A fork resumes nothing as itself: its process forks the adopted id
         // into a new conversation, so the adopted id is not this session's.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
-        let cwd = session_cwd(cwd, recorded, &family)?;
+        // A gone recorded folder may be remapped: git runs to compare repositories.
+        let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
+        let fam = family.clone();
+        let (cwd, adopted_cwd) =
+            tokio::task::spawn_blocking(move || session_cwd(cwd, recorded, &fam, &cwd_map))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
             && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
@@ -80,7 +112,8 @@ impl Hub {
             policy,
             remote,
         });
-        (meta.session_env, meta.chat_store) = (session_env, chat_store);
+        (meta.session_env, meta.chat_store, meta.adopted_cwd) =
+            (session_env, chat_store, adopted_cwd);
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -182,17 +215,30 @@ impl Hub {
                     let full = format!("{head}/{m}");
                     let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.contains(&full) { full } else { m.clone() };
                     if let Err(e) = self.set_model(&session, &m).await {
-                        if e.message.contains("Method not found") {
+                        // A start value the harness refuses (start_defaults.rs): the
+                        // chat runs the harness's own default instead.
+                        if model_soft {
+                            tracing::warn!(harness = agent, model = %m, "start model skipped: {}", e.message);
+                            self.append(&session, "mux", "start_default_skipped", json!({"modelId": m, "error": e.message}));
+                        } else if e.message.contains("Method not found") {
                             return Err(RpcError::invalid_params(format!(
                                 "harness {agent} takes no model over ACP (no session/set_model); choose it in the harness's own settings, or give its profile a `${{model}}` argv or env entry in config.json"
                             )));
+                        } else {
+                            let hint = if catalog.is_empty() { String::new() } else { format!("; models: {}", catalog.join(", ")) };
+                            return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
                         }
-                        let hint = if catalog.is_empty() { String::new() } else { format!("; models: {}", catalog.join(", ")) };
-                        return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
                     }
                 }
             if let Some(e) = &effort {
-                self.set_config(&session, "effort", json!(e)).await.map_err(|err| RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message)))?;
+                match self.set_config(&session, "effort", json!(e)).await {
+                    Ok(_) => {}
+                    Err(err) if effort_soft => {
+                        tracing::warn!(harness = agent, effort = %e, "start effort skipped: {}", err.message);
+                        self.append(&session, "mux", "start_default_skipped", json!({"effort": e, "error": err.message}));
+                    }
+                    Err(err) => return Err(RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message))),
+                }
             }
             Ok(())
         }
@@ -276,6 +322,9 @@ impl Hub {
         }
 
         self.record_launch_roots(session, profile).await;
+        // A fresh agent: what acpmux set on the last one is replayed, not assumed.
+        *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Default::default();
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
@@ -486,25 +535,7 @@ impl Hub {
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
 
-        let init = child
-            .request(
-                method::INITIALIZE,
-                json!({
-                    "protocolVersion": 1,
-                    "clientCapabilities": {
-                        // File reads and writes come through acpmux, so the
-                        // permission policy and rules gate every harness's
-                        // edits, not only the ones it chooses to ask about.
-                        "fs": {"readTextFile": true, "writeTextFile": true},
-                        // Subagents arrive as their own sessions (ACP draft #1992),
-                        // attributed by `crate::subagents`.
-                        "subagents": {},
-                        "terminal": false
-                    },
-                    "clientInfo": {"name": "acpmux", "version": VERSION}
-                }),
-            )
-            .await?;
+        let init = child.request(method::INITIALIZE, super::pool::initialize_params()).await?;
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))

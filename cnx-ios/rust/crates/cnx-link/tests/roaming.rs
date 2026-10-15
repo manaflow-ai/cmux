@@ -74,6 +74,9 @@ struct Run {
     /// The phone's path before the change and at the end.
     before: LinkPath,
     after: LinkPath,
+    /// The Mac's label of the same path before the change and at the end.
+    mac_before: Option<LinkPath>,
+    mac_after: Option<LinkPath>,
     marks: Vec<(String, Duration)>,
 }
 
@@ -109,6 +112,8 @@ async fn stream_across(
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let mac_path = std::sync::Arc::new(std::sync::Mutex::new(None::<tokio::sync::watch::Receiver<LinkPath>>));
+    let mac_path_slot = std::sync::Arc::clone(&mac_path);
     tokio::spawn(async move {
         while let Some(session) = mac.next_session().await {
             let events = SessionEvents {
@@ -117,9 +122,11 @@ async fn stream_across(
                 session: session.events,
             };
             let (mac, options) = (mac.clone(), mac_options.clone());
+            let mac_path_slot = std::sync::Arc::clone(&mac_path_slot);
             tokio::spawn(async move {
                 let connected =
                     dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await.unwrap();
+                *mac_path_slot.lock().unwrap() = Some(connected.path.clone());
                 while let Some(mut incoming) = connected.link.accept().await {
                     tokio::spawn(async move {
                         while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
@@ -184,6 +191,8 @@ async fn stream_across(
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     let before = *connected.path.borrow();
+    let mac_label = || mac_path.lock().unwrap().as_ref().map(|path| *path.borrow());
+    let mac_before = mac_label();
     let changed_at = Instant::now();
     let mut _new_phone = None;
     let roam_task = match change {
@@ -229,7 +238,15 @@ async fn stream_across(
         last = *at;
     }
     let after = *connected.path.borrow();
-    Run { stall, before, after, marks: timeline.map(|t| t.marks()).unwrap_or_default() }
+    let mac_after = mac_label();
+    Run {
+        stall,
+        before,
+        after,
+        mac_before,
+        mac_after,
+        marks: timeline.map(|t| t.marks()).unwrap_or_default(),
+    }
 }
 
 fn names(run: &Run) -> Vec<&str> {
@@ -246,6 +263,7 @@ async fn wireguard_roams_to_a_new_socket_without_a_stall() {
     eprintln!("roam: {run:?}");
     assert_eq!(run.before, LinkPath::Direct);
     assert_eq!(run.after, LinkPath::Direct);
+    assert_eq!(run.mac_after, Some(LinkPath::Direct));
     assert!(run.stall < Duration::from_secs(1), "stalled {:?}", run.stall);
     for mark in ["network_changed", "roam_reasserted", "roam_first_packet", "roam_direct"] {
         assert!(names(&run).contains(&mark), "no {mark} in {:?}", run.marks);
@@ -276,6 +294,11 @@ async fn wireguard_roam_takes_a_fresh_turn_allocation() {
     eprintln!("turn roam: {run:?}");
     assert_eq!(run.before, LinkPath::Turn);
     assert_eq!(run.after, LinkPath::Turn);
+    // The Mac sends plain UDP to the phone's relayed address: still TURN,
+    // also after the roam's new allocation (wg-init and the roam's
+    // endpoint announcement say which address is relayed).
+    assert_eq!(run.mac_before, Some(LinkPath::Turn));
+    assert_eq!(run.mac_after, Some(LinkPath::Turn));
     assert!(run.stall < Duration::from_secs(1), "stalled {:?}", run.stall);
     for mark in ["roam_turn_allocated", "roam_first_packet", "roam_turn"] {
         assert!(names(&run).contains(&mark), "no {mark} in {:?}", run.marks);

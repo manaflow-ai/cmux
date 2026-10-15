@@ -134,6 +134,26 @@ describe("coderouter route token VM binding", () => {
     expect(joinSql.params).toEqual([vmId]);
   });
 
+  test("a machine-bound credential is not cut off by its expiry timestamp", async () => {
+    const vmId = "00000000-0000-4000-8000-000000000001";
+    const token = await vmToken(vmId, "team-1", "user-1");
+    const later = new Date(Date.now() + 90 * 24 * 60 * 60 * 1_000);
+    returnedRows = [{ poolId: "pool-1" }];
+    await expect(authenticateRouteToken(token, later)).resolves.toMatchObject({ vmId, poolId: "pool-1" });
+    returnedRows = [{ id: "token-a", teamId: "team-1", stackUserId: "user-1", vmId }];
+    await authenticateRouteToken(TOKEN, later);
+    const [signed, legacy] = statements.filter((statement) => statement.kind === "select");
+    // Revocation and live machine ownership still gate every request.
+    for (const statement of [signed, legacy]) {
+      const where = rendered(statement?.where ?? null).sql;
+      expect(where).toContain('"coderouter_route_tokens"."revoked_at" is null');
+    }
+    expect(rendered(signed?.where ?? null).sql).not.toContain("expires_at");
+    // An unbound CLI session still expires; a machine-bound one does not.
+    expect(rendered(legacy?.where ?? null).sql)
+      .toMatch(/\(+"coderouter_route_tokens"\."vm_id" is not null\)+ or \("coderouter_route_tokens"\."expires_at" > \$\d+\)/);
+  });
+
   test("a signed VM claim that is not a uuid fails closed before querying", async () => {
     const token = await vmToken("vm-1", "team-1", "user-1");
     await expect(authenticateRouteToken(token)).resolves.toBeNull();

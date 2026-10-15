@@ -70,8 +70,9 @@ elapsed() { python3 -I -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.a
 # ---- one major, inside the host lock ---------------------------------------
 if [[ -n "$CYCLE" ]]; then
   : "${RUN_DIR:?}" "${BUILD_ZIP:?}"
-  major=$CYCLE
-  out="$RUN_DIR/$major"
+  slot=$CYCLE          # a major, or major-N for a repeated major
+  major=${slot%%-*}
+  out="$RUN_DIR/$slot"
   mkdir -p "$out"
   source_ref="$(image_field "$major" ref)@$(image_field "$major" digest)"
   vm="os-smoke-$major-$$"
@@ -150,8 +151,13 @@ shasum -a 256 -b "$(readlink "$BUILD_ZIP" || echo "$BUILD_ZIP")" | cut -d' ' -f1
 "$TART_BIN" --version >"$RUN_DIR/tart.version"
 
 IFS=, read -r -a majors <<<"$MAJORS"
+slots=()
 for major in "${majors[@]}"; do
-  out="$RUN_DIR/$major"; mkdir -p "$out"
+  # A repeated major (--majors 14,14,14) gets its own directory: 14, 14-2, 14-3.
+  slot=$major; n=1
+  while [[ -e "$RUN_DIR/$slot" ]]; do n=$((n + 1)); slot="$major-$n"; done
+  slots+=("$slot")
+  out="$RUN_DIR/$slot"; mkdir -p "$out"
   ref=$(image_field "$major" ref); digest=$(image_field "$major" digest)
   t0=$(now)
   if ! "$TART_BIN" list --source oci --format json | python3 -I -c 'import json,sys
@@ -163,7 +169,7 @@ sys.exit(0 if any(sys.argv[1] in v.get("Name", "") for v in json.load(sys.stdin)
   oci_dir="$TART_HOME/cache/OCIs/${ref}/${digest}"
   echo "image_disk_kb=$(du -sk "$(readlink "$oci_dir" || echo "$oci_dir")" 2>/dev/null | cut -f1)" >>"$out/host.env"
   echo "== macOS $major: waiting for the host lock" >&2
-  cycle=("$0" --vm-cycle "$major" --work "$WORK")
+  cycle=("$0" --vm-cycle "$slot" --work "$WORK")
   [[ "$KEEP_VM" == 1 ]] && cycle+=(--keep-vm)
   rc=0
   if [[ "$LOCK" == none ]]; then
@@ -178,7 +184,7 @@ sys.exit(0 if any(sys.argv[1] in v.get("Name", "") for v in json.load(sys.stdin)
   echo "total_s=$(elapsed "$t0" "$(now)")" >>"$out/host.env"
 done
 
-python3 -I - "$RUN_DIR" "$MAJORS" <<'PY'
+python3 -I - "$RUN_DIR" "$(IFS=,; echo "${slots[*]}")" <<'PY'
 import json, os, sys
 run, majors = sys.argv[1], sys.argv[2].split(",")
 rows, failed = [], False

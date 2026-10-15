@@ -207,6 +207,9 @@ public final class AgentPaneShell {
         }
     }
 
+    /// A command ran in this pane (running, or its output kept): closing the pane ends it or drops its output.
+    public var hasRuns: Bool { !runs.isEmpty }
+
     /// Ends every running command (the pane closed): hangup, as a closed terminal sends.
     public func terminateAll() {
         for run in runs.values where run.exit == nil {

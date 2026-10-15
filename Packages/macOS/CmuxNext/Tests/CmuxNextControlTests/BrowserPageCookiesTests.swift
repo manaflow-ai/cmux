@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// `browser.page.cookies.*` and `browser.page.storage.*` follow the old

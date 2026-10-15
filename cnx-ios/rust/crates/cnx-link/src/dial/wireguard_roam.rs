@@ -56,12 +56,24 @@ pub(super) enum Control {
     /// A TURN allocation on the new network.
     Turn(TurnCarrier),
     /// The peer announced new endpoints.
-    PeerEndpoints(Vec<String>),
+    PeerEndpoints {
+        endpoints: Vec<String>,
+        /// Which of them are the peer's TURN relayed addresses.
+        relayed: Vec<String>,
+    },
     /// The session moved to a new signaling socket.
     Rehomed,
     /// Debug and tests: the socket's network is gone.
     Blackhole,
 }
+
+/// Relayed addresses one announcement carries (a phone has one TURN
+/// allocation), so the message stays within one tunnel datagram.
+const MAX_RELAYED: usize = 2;
+
+/// This side's endpoints to announce, and which of them are its TURN
+/// relayed addresses.
+type Announcement = (Vec<String>, Vec<String>);
 
 /// The roaming messages (JSON in one overlay UDP datagram).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +83,11 @@ enum RoamMessage {
     Endpoints {
         generation: u64,
         endpoints: Vec<String>,
+        /// Which of `endpoints` are this side's TURN relayed addresses (the
+        /// phone's new allocation), so the Mac keeps labeling a UDP route to
+        /// one as TURN after a roam; absent from older peers.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        relayed: Vec<String>,
     },
     Ack {
         generation: u64,
@@ -106,10 +123,13 @@ pub(super) struct Session {
     /// This side's endpoints as last offered to the peer.
     endpoints: Mutex<Vec<String>>,
     follow: Mutex<Option<JoinHandle<()>>>,
-    announce: Mutex<Option<mpsc::UnboundedSender<Vec<String>>>>,
+    announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
     roaming: tokio::sync::Mutex<()>,
     last_roam: Mutex<Option<Timeline>>,
+    /// Counts network changes on either side (the media lane asks for a
+    /// keyframe after each).
+    path_epoch: Arc<watch::Sender<u64>>,
     closed: AtomicBool,
 }
 
@@ -152,10 +172,17 @@ impl Session {
             control_task: Mutex::new(None),
             roaming: tokio::sync::Mutex::new(()),
             last_roam: Mutex::new(None),
+            path_epoch: Arc::new(watch::channel(0).0),
             closed: AtomicBool::new(false),
         });
         lock(registry()).push(Arc::downgrade(&session));
         session
+    }
+
+    /// Counts this session's network changes: its own roams and the peer's
+    /// endpoint announcements.
+    pub(super) fn path_changes(&self) -> watch::Receiver<u64> {
+        self.path_epoch.subscribe()
     }
 
     pub(super) fn net(&self) -> Result<Arc<WgNet>, DialError> {
@@ -210,8 +237,14 @@ impl Session {
         };
         let (announce_tx, announce_rx) = mpsc::unbounded_channel();
         let peer = SocketAddr::new(IpAddr::V4(self.peer_ip), ROAM_PORT);
-        let task =
-            tokio::spawn(run_control(socket, peer, self.control.clone(), Arc::clone(&self.net), announce_rx));
+        let task = tokio::spawn(run_control(
+            socket,
+            peer,
+            self.control.clone(),
+            Arc::clone(&self.net),
+            announce_rx,
+            Arc::clone(&self.path_epoch),
+        ));
         *lock(&self.announce) = Some(announce_tx);
         if let Some(old) = lock(&self.control_task).replace(task) {
             old.abort();
@@ -242,12 +275,13 @@ impl Session {
 
     /// Tell the peer this side's endpoints (an empty list: unchanged, but
     /// the network changed, so the peer resends what it sent lately).
-    fn announce(&self, endpoints: Vec<String>) {
+    /// `relayed`: which of `endpoints` are this side's TURN relayed addresses.
+    fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>) {
         if !endpoints.is_empty() {
             lock(&self.endpoints).clone_from(&endpoints);
         }
         if let Some(tx) = lock(&self.announce).as_ref() {
-            let _ = tx.send(endpoints);
+            let _ = tx.send((endpoints, relayed));
         }
     }
 
@@ -289,8 +323,9 @@ impl Session {
             return timeline;
         }
         timeline.mark("roam_reasserted");
+        self.path_epoch.send_modify(|epoch| *epoch += 1);
         let mut endpoints = host_endpoints(port, &self.options);
-        self.announce(offered(endpoints.iter().copied(), &self.options));
+        self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new());
         let turn =
             async { if self.dialer { TurnCarrier::allocate(&self.options.ice_servers).await } else { None } };
         let reflexive = async {
@@ -311,14 +346,16 @@ impl Session {
                 endpoints.push(address);
             }
         }
+        let mut relayed = Vec::new();
         if let Some(turn) = turn {
             timeline.mark("roam_turn_allocated");
             endpoints.push(turn.relayed);
+            relayed.push(turn.relayed.to_string());
             let _ = self.control.send(Control::Turn(turn));
             let _ = net.refresh().await;
         }
         if endpoints.len() != known {
-            self.announce(offered(endpoints, &self.options));
+            self.announce(offered(endpoints, &self.options), relayed);
         }
         timeline.mark("roam_gathered");
         tracing::info!(session = self.session_id, timings = %timeline.summary(), "WireGuard roamed");
@@ -332,7 +369,7 @@ impl Session {
         let _ = self.control.send(Control::Rehomed);
         // Relay frames toward this side's old socket were lost: the peer
         // resends what it sent lately.
-        self.announce(Vec::new());
+        self.announce(Vec::new(), Vec::new());
         tracing::debug!(session = self.session_id, "WireGuard session moved to a new signaling socket");
     }
 }
@@ -351,13 +388,20 @@ async fn run_control(
     peer: SocketAddr,
     control: mpsc::UnboundedSender<Control>,
     net: Arc<Mutex<Option<Arc<WgNet>>>>,
-    mut announce: mpsc::UnboundedReceiver<Vec<String>>,
+    mut announce: mpsc::UnboundedReceiver<Announcement>,
+    path_epoch: Arc<watch::Sender<u64>>,
 ) {
     let mut generation = 0u64;
     let mut pending: Option<RoamMessage> = None;
     let mut resends = 0usize;
     let mut resend_at: Option<Instant> = None;
     let mut applied = 0u64;
+    // The first endpoint the peer last announced (its new socket's host
+    // address, or its TURN address when relay only). A new one is a network
+    // change for the media lane; the same one again is not: a roam announces
+    // twice (host endpoints at once, then with the reflexive ones), and an
+    // empty list follows a mere signaling-socket move.
+    let mut peer_first: Option<String> = None;
     loop {
         let resend = async {
             match resend_at {
@@ -367,10 +411,11 @@ async fn run_control(
         };
         tokio::select! {
             endpoints = announce.recv() => {
-                let Some(mut endpoints) = endpoints else { return };
+                let Some((mut endpoints, relayed)) = endpoints else { return };
                 endpoints.truncate(MAX_ENDPOINTS);
                 generation += 1;
-                let message = RoamMessage::Endpoints { generation, endpoints };
+                let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
+                let message = RoamMessage::Endpoints { generation, endpoints, relayed };
                 send_message(&socket, peer, &message).await;
                 pending = Some(message);
                 resends = 0;
@@ -392,7 +437,7 @@ async fn run_control(
                     continue;
                 }
                 match serde_json::from_slice::<RoamMessage>(&payload) {
-                    Ok(RoamMessage::Endpoints { generation: theirs, endpoints }) => {
+                    Ok(RoamMessage::Endpoints { generation: theirs, endpoints, relayed }) => {
                         send_message(&socket, peer, &RoamMessage::Ack { generation: theirs }).await;
                         if theirs <= applied {
                             continue;
@@ -403,8 +448,17 @@ async fn run_control(
                             .filter(|text| text.parse::<SocketAddr>().is_ok())
                             .take(MAX_ENDPOINTS)
                             .collect();
-                        if control.send(Control::PeerEndpoints(endpoints)).is_err() {
+                        let moved = endpoints.first().is_some_and(|first| peer_first.as_ref() != Some(first));
+                        if moved {
+                            peer_first = endpoints.first().cloned();
+                        }
+                        let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
+                        if control.send(Control::PeerEndpoints { endpoints, relayed }).is_err() {
                             return;
+                        }
+                        if moved {
+                            // The peer's network changed.
+                            path_epoch.send_modify(|epoch| *epoch += 1);
                         }
                         // Send at once, so the spray opens this side's NAT
                         // toward the peer's new address.
@@ -487,13 +541,18 @@ mod tests {
 
     #[test]
     fn roam_messages_are_small_json() {
-        let message = RoamMessage::Endpoints { generation: 3, endpoints: vec!["203.0.113.7:40000".into()] };
+        let message = RoamMessage::Endpoints {
+            generation: 3,
+            endpoints: vec!["203.0.113.7:40000".into()],
+            relayed: Vec::new(),
+        };
         let text = serde_json::to_string(&message).unwrap();
         assert_eq!(text, r#"{"t":"endpoints","generation":3,"endpoints":["203.0.113.7:40000"]}"#);
         assert_eq!(serde_json::from_str::<RoamMessage>(&text).unwrap(), message);
         let many = RoamMessage::Endpoints {
             generation: u64::MAX,
             endpoints: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_ENDPOINTS],
+            relayed: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
         };
         // Fits one datagram of the 1280-byte tunnel.
         assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);

@@ -19,48 +19,84 @@ public enum CnxHostEvent: Sendable, Equatable {
     case phonePath(sessionID: String, path: String)
     /// A phone's link ended.
     case phoneDown(sessionID: String, reason: String)
+    /// A phone proved keys this Mac has not approved: ask the user (``CnxPairedDevices``).
+    case pairRequest(CnxPairRequest)
+    /// A paired phone signed out and asks this Mac to forget it.
+    case unpaired(phoneDeviceID: String)
     /// A phone opened a streamed browser tab: start a browser host for `tab`
     /// on `url` and answer `request` (``CnxHostLaunch/browserLine(request:port:secret:)``).
     case needBrowser(request: UInt64, tab: String, url: String)
     /// hostd no longer needs the browser host of `tab`.
     case browserStop(tab: String)
+    /// The owner removed this Mac from the account's devices; hostd exits and must not
+    /// be restarted until the person allows iPhone connections again.
+    case removed
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
-        guard let data = String(line).data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = object["type"] as? String else { return nil }
-        let text = { (key: String) -> String? in object[key] as? String }
-        switch type {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard let wire = try? decoder.decode(Wire.self, from: Data(String(line).utf8)) else { return nil }
+        switch wire.type {
         case "connecting":
             self = .connecting
         case "online":
-            guard let device = text("device_id"), let team = text("team_id") else { return nil }
+            guard let device = wire.deviceId, let team = wire.teamId else { return nil }
             self = .online(deviceID: device, teamID: team)
         case "waiting":
-            self = .waiting(reason: text("reason") ?? "", retryInSeconds: (object["retry_in_seconds"] as? NSNumber)?.intValue ?? 0)
+            self = .waiting(reason: wire.reason ?? "", retryInSeconds: wire.retryInSeconds ?? 0)
         case "need_token":
             self = .needToken
         case "need_acpmux":
             self = .needAcpmux
         case "phone_up":
-            guard let session = text("session_id"), let phone = text("phone_device_id") else { return nil }
+            guard let session = wire.sessionId, let phone = wire.phoneDeviceId else { return nil }
             self = .phoneUp(CnxPhoneLink(sessionID: session, phoneDeviceID: phone,
-                                         transport: text("transport") ?? "", path: text("path") ?? ""))
+                                         transport: wire.transport ?? "", path: wire.path ?? ""))
         case "phone_path":
-            guard let session = text("session_id"), let path = text("path") else { return nil }
+            guard let session = wire.sessionId, let path = wire.path else { return nil }
             self = .phonePath(sessionID: session, path: path)
         case "phone_down":
-            guard let session = text("session_id") else { return nil }
-            self = .phoneDown(sessionID: session, reason: text("reason") ?? "")
+            guard let session = wire.sessionId else { return nil }
+            self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
+        case "pair_request":
+            guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey else { return nil }
+            let registered = wire.registeredAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+            self = .pairRequest(CnxPairRequest(phoneDeviceID: phone, name: wire.name ?? "", identityKey: identity,
+                                               approvalKey: approval, registeredAt: registered))
+        case "unpaired":
+            guard let phone = wire.phoneDeviceId else { return nil }
+            self = .unpaired(phoneDeviceID: phone)
         case "need_browser":
-            guard let request = (object["request"] as? NSNumber)?.uint64Value, let tab = text("tab") else { return nil }
-            self = .needBrowser(request: request, tab: tab, url: text("url") ?? "about:blank")
+            guard let request = wire.request, let tab = wire.tab else { return nil }
+            self = .needBrowser(request: request, tab: tab, url: wire.url ?? "about:blank")
         case "browser_stop":
-            guard let tab = text("tab") else { return nil }
+            guard let tab = wire.tab else { return nil }
             self = .browserStop(tab: tab)
+        case "removed":
+            self = .removed
         default:
             return nil
         }
+    }
+
+    /// The line's fields (`control.rs` `Event`; snake case on the wire).
+    private struct Wire: Decodable {
+        var type: String
+        var deviceId: String?
+        var teamId: String?
+        var reason: String?
+        var retryInSeconds: Int?
+        var sessionId: String?
+        var phoneDeviceId: String?
+        var transport: String?
+        var path: String?
+        var name: String?
+        var identityKey: String?
+        var approvalKey: String?
+        var registeredAtMs: Int64?
+        var request: UInt64?
+        var tab: String?
+        var url: String?
     }
 }

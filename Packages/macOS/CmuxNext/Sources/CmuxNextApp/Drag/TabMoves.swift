@@ -53,7 +53,7 @@ enum TabMoves {
             guard tab.isFrontendOwned, case let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
                   case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
             else { return nil }
-            return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.snapshot.browserProfileID)
+            return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.browserProfileID)
         default:
             return nil
         }
@@ -130,13 +130,16 @@ enum TabMoves {
         })
     }
 
+    /// A new left dock's share of the window width (cx-ihyx2).
+    static let leftDockWidth = 0.5
+
     /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
     /// in one daemon commit (move-tab-to-column with `dock`: dock-columns-v1,
     /// and edge-docks-v1 for top and bottom; an older daemon would ignore
     /// `dock` and make a plain column, so it is refused here). The column that held the edge scrolls again. Top and
     /// bottom are edge docks; `mode` nil uses `layout.dockColumnMode`, and
-    /// `width` nil a third of the height for a band or the width of a new
-    /// column beside the anchor for a side. `role` marks the chat dock
+    /// `width` nil a third of the height for a band, half the window for a
+    /// left dock, or the width of a new column beside the anchor for a right dock. `role` marks the chat dock
     /// (dock-column-role-v1; an older daemon drops it).
     static func toNewDockColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.DockEdge,
                                   mode: CmuxNextLayout.DockMode? = nil, role: CmuxNextLayout.DockRole? = nil,
@@ -151,11 +154,14 @@ enum TabMoves {
         let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
         let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked,
                                role: role.map { _ in .agentChat })
-        // A band's size is a share of the screen height; a side column takes
-        // the width a new column next to the anchor would take.
-        let spawn = edge.isBand || width != nil ? nil
+        // A band's size is a share of the screen height. A left dock (the agent chat dock) takes
+        // half the window (cx-ihyx2, Lawrence 2026-10-14: "docked left columns needs to be 50% by
+        // default"); a resize is the column's own width and stays. A right dock takes the width a
+        // new column next to the anchor would take.
+        let half = edge == .left && width == nil ? Self.leftDockWidth : nil
+        let spawn = edge.isBand || width != nil || half != nil ? nil
             : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
-        let width = width ?? spawn?.width ?? 0.3
+        let width = width ?? half ?? spawn?.width ?? 0.3
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 if let respawn {

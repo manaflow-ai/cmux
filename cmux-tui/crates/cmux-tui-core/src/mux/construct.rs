@@ -220,6 +220,8 @@ impl Mux {
             #[cfg(test)]
             terminal_move_before_projection: Mutex::new(None),
             #[cfg(test)]
+            tab_changed_after_decorations: Mutex::new(None),
+            #[cfg(test)]
             client_rollback_before_wait: Mutex::new(None),
             #[cfg(test)]
             workspace_close_before_empty_check: Mutex::new(None),
@@ -318,6 +320,7 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
+            journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -369,6 +372,7 @@ impl Mux {
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
+            creating_inputs: Default::default(),
             terminal_reap_grace_ms: AtomicU64::new(
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
@@ -437,6 +441,8 @@ impl Mux {
         mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        mux.start_journal_maintenance()?;
+        crate::state::project_watch::start(&mux);
         Ok(mux)
     }
 

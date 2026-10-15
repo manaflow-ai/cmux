@@ -1,9 +1,13 @@
 //! Locates the cmux-tui binary and runs `cmux-tui --session <S> --json server
 //! ensure`, which returns the running owner or starts a detached one that
 //! outlives the app (the same contract as the Swift app's `DaemonLauncher`).
+//! With an install key it adds `--install-key-stdin` and writes the key on
+//! stdin, as the Swift launcher does: an owner this call starts holds the key
+//! and accepts the app's `client-hello` proof ([`crate::AppConnection`]).
 
+use crate::install_key::InstallKey;
 use std::fs::File;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -128,6 +132,10 @@ pub struct Launcher {
     /// `--terminal-reap-grace-seconds` (the Swift app uses 30).
     pub terminal_reap_grace_seconds: u32,
     pub timeout: Duration,
+    /// The app's install key, for an owner `ensure` starts (`server ensure
+    /// --install-key-stdin`, key on stdin). A running owner keeps whatever
+    /// key it was started with.
+    pub install_key: Option<InstallKey>,
 }
 
 impl Launcher {
@@ -138,6 +146,7 @@ impl Launcher {
             state_dir: None,
             terminal_reap_grace_seconds: 30,
             timeout: Duration::from_secs(20),
+            install_key: None,
         }
     }
 
@@ -162,10 +171,12 @@ impl Launcher {
             std::fs::create_dir_all(dir).map_err(LaunchError::Spawn)?;
         }
         let grace = self.terminal_reap_grace_seconds.to_string();
-        let output = run_with_timeout(
-            self.command(&["server", "ensure", "--terminal-reap-grace-seconds", &grace]),
-            self.timeout,
-        )?;
+        let mut args = vec!["server", "ensure", "--terminal-reap-grace-seconds", grace.as_str()];
+        if self.install_key.is_some() {
+            args.push("--install-key-stdin");
+        }
+        let payload = self.install_key.as_ref().map(InstallKey::payload);
+        let output = run_with_timeout(self.command(&args), self.timeout, payload.as_deref())?;
         parse_ensure(&output)
     }
 
@@ -176,7 +187,7 @@ impl Launcher {
         if end_terminals {
             args.push("--end-terminals");
         }
-        run_with_timeout(self.command(&args), self.timeout)
+        run_with_timeout(self.command(&args), self.timeout, None)
     }
 }
 
@@ -205,15 +216,30 @@ pub fn parse_ensure(stdout: &str) -> Result<EnsureResult, LaunchError> {
 /// Runs `command` with stdout/stderr in temp files (never pipes: the owner
 /// `server ensure` starts inherits them, and a pipe would never reach EOF),
 /// waiting on a helper thread with a deadline. Returns stdout on success.
-fn run_with_timeout(mut command: Command, timeout: Duration) -> Result<String, LaunchError> {
+/// `stdin` (the install key payload, a secret) goes to the child's stdin,
+/// which is then closed; without it stdin is null.
+fn run_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+    stdin: Option<&str>,
+) -> Result<String, LaunchError> {
     let mut stdout = tempfile().map_err(LaunchError::Spawn)?;
     let mut stderr = tempfile().map_err(LaunchError::Spawn)?;
     command
-        .stdin(Stdio::null())
+        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(stdout.try_clone().map_err(LaunchError::Spawn)?)
         .stderr(stderr.try_clone().map_err(LaunchError::Spawn)?);
     let mut child = command.spawn().map_err(LaunchError::Spawn)?;
     let pid = child.id();
+    // A few dozen bytes, far below a pipe buffer: the write never waits on
+    // the child. Dropping the handle closes the pipe (end of file).
+    if let (Some(payload), Some(mut pipe)) = (stdin, child.stdin.take())
+        && let Err(e) = pipe.write_all(payload.as_bytes())
+    {
+        kill(pid);
+        let _ = child.wait();
+        return Err(LaunchError::Spawn(e));
+    }
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("cmux-tui-ensure".into())

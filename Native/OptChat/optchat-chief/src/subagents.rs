@@ -52,7 +52,7 @@ pub const MAX_TASKS: usize = 8;
 /// start as others finish.
 pub const MAX_LIVE: usize = 16;
 /// Longest `spawn` waits for the view to settle (section 6), as a turn does
-/// (chief 2026-10-10: a user turn never waits more than 10 s on compaction):
+/// (a user turn never waits more than SETTLE_BOUND, 1 s, on compaction):
 /// then the subagent gets the view with the lines still building as the
 /// placeholder.
 pub const SETTLE_LIMIT: Duration = crate::brain::SETTLE_BOUND;

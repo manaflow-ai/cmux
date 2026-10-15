@@ -4,12 +4,9 @@ public import AppKit
 /// current one (real profiles are a later lane).
 public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     public var name: String
-    /// The avatar's initial.
-    public var initial: String
 
-    public init(name: String, initial: String) {
+    public init(name: String) {
         self.name = name
-        self.initial = initial
     }
 }
 
@@ -52,12 +49,14 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return menu
     }
 
-    /// The current profile: checked, its avatar, and a "…" submenu with its
-    /// options.
+    /// The current profile and a "…" submenu with its options. No checkmark
+    /// and no avatar: a checked row reserves a state column, and an image
+    /// reserves an image column, for every row of the menu, which pushed
+    /// them all right of the menu's inset (the sidebar control the menu
+    /// opens from shows the avatar). With one profile a checkmark meant
+    /// nothing.
     private func profileRow(_ profile: ProfileMenuProfile, actions: [ActionID]) -> NSMenuItem {
         let item = NSMenuItem(title: profile.name, action: nil, keyEquivalent: "")
-        item.state = .on
-        item.image = Self.avatarImage(initial: profile.initial)
         item.identifier = NSUserInterfaceItemIdentifier("profileMenu.currentProfile")
         let options = actions.compactMap(boundMenuItem)
         if !options.isEmpty {
@@ -84,22 +83,5 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
 
     private static func symbol(_ name: String, label: String) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: label)
-    }
-
-    /// The avatar as a menu image: the initial in a circle, a template so
-    /// the menu tints it for its appearance and highlight.
-    static func avatarImage(initial: String, side: CGFloat = 16) -> NSImage {
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            NSColor.black.withAlphaComponent(0.35).setFill()
-            NSBezierPath(ovalIn: rect).fill()
-            let font = NSFont.systemFont(ofSize: side * 0.56, weight: .semibold)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black]
-            let size = initial.size(withAttributes: attributes)
-            initial.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
-            return true
-        }
-        image.isTemplate = true
-        image.accessibilityDescription = initial
-        return image
     }
 }

@@ -1,6 +1,5 @@
 // "Share cmux…" (cx-7py7): the Share cmux modal with a message and the
-// public download link. The palette, the Help menu and the "cmux Updated!"
-// card's Share cmux row run this one action.
+// public download link. The palette and the Help menu run this one action.
 
 nonisolated enum ShareActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {

@@ -4,6 +4,7 @@ import CmuxNextUpdater
 import Foundation
 #if DEBUG
 import AppKit
+import CmuxNextBridge
 import CmuxNextSidebar
 import WebKit
 #endif
@@ -112,6 +113,15 @@ extension AppControl {
                 case "state":
                     var state = sidebar.debugUpdateSurfaceState().mapValues { JSONValue.string($0) }
                     state["sidebarWebViews"] = .number(Double(Self.webViewCount(in: sidebar)))
+                    // What the window shows (cx-cmge7 proofs): its top page, else the internal
+                    // page of the focused pane's selected tab ("" for none).
+                    let window = services.windows.active
+                    state["topPage"] = .string(window?.shownTopPage?.rawValue ?? "")
+                    state["holdsVisiblePageTab"] = .bool(window?.holdsVisiblePageTab ?? false)
+                    let pane = window?.content.flatMap { $0.focusedPane ?? $0.panes.values.first }
+                    let selected = pane?.stripModel.selectedID?.rawValue
+                    state["selectedPage"] = .string(selected.flatMap { services.pages.page(ofTab: $0)?.rawValue
+                        ?? pane?.tab(StripTabID($0))?.page } ?? "")
                     return .value(.object(state))
                 case "dismiss-updated":
                     services.updater.whatsNew.dismissUpdated()

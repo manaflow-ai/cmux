@@ -23,7 +23,13 @@ enum DebugBrowserExternal {
                 guard let chrome = entry(call.params, services: services)?.chrome else {
                     return .value(.object(["error": .string("no browser tab")]))
                 }
-                return .value(.object(PageStatusDebug(chrome, press: call.params["press"]?.stringValue).fields.mapValues { .string($0) }))
+                var fields = PageStatusDebug(chrome, press: call.params["press"]?.stringValue).fields
+                // How a restored page started (`BrowserHistoryStarts`) and whether its history keeps engine state.
+                if let key = chrome.addressBar.tabKey {
+                    fields["history_start"] = services.cache.browserTabs.historyStarts.outcomes[key] ?? ""
+                    fields["engine_state_saved"] = services.cache.browserTabs.historyWriters[key]?.savedEngineState == true ? "1" : "0"
+                }
+                return .value(.object(fields.mapValues { .string($0) }))
             },
         ])
         #endif

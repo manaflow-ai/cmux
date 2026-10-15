@@ -12,6 +12,9 @@
     "browser.attach",
     "browser.back",
     "browser.close",
+    "browser.devices.add_custom",
+    "browser.devices.list",
+    "browser.devices.remove_custom",
     "browser.forward",
     "browser.get",
     "browser.input.key",
@@ -21,6 +24,9 @@
     "browser.list",
     "browser.navigate",
     "browser.reload",
+    "browser.tab.emulate",
+    "browser.tab.emulate.clear",
+    "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.engine.get",
@@ -50,6 +56,7 @@
     "credential.verify",
     "frontend_projection.get",
     "frontend_projection.put",
+    "git.branches",
     "git.checkpoint.create",
     "git.checkpoint.diff",
     "git.checkpoint.get",
@@ -71,6 +78,7 @@
     "history.entries.remove",
     "history.restore",
     "history.site.remove",
+    "history.trail.record",
     "history.visit.import",
     "history.visit.record",
     "history.visit.remove",
@@ -113,6 +121,7 @@
     "project.list",
     "project.observe",
     "project.remove",
+    "project.source.update",
     "project.sync",
     "project.update",
     "request.cancel",
@@ -410,6 +419,7 @@
       "set-row-heights",
       "set-screen-metadata",
       "set-screen-pinned",
+      "set-session-icon",
       "set-size-counts",
       "set-size-policy",
       "set-split-ratio",
@@ -492,6 +502,7 @@
       "conversation-snapshot",
       "conversation-history",
       "conversation-thread",
+      "conversation-link-resolve",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -505,6 +516,8 @@
       "cloud-session-set",
       "cloud-session-clear",
       "cloud-session-status",
+      "page-credential",
+      "ws-listen",
       "cloud-inbox-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
@@ -853,6 +866,12 @@
       "name": "tab-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "terminal-input-unclaimed",
+      "streams": [
+        "control"
       ]
     },
     {

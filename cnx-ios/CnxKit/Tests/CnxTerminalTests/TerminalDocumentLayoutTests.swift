@@ -131,3 +131,44 @@ import Testing
         #expect(hold.hold(more, totalRows: 42, cursorRow: 8, screenTopRow: 0).endRow == 9)
     }
 }
+
+/// User report 2026-10-14 (real iPhone): "the bottom of the terminal isn't
+/// actually pinned to the composer bar, just the row above it". At the
+/// bottom offset, the last row's bottom edge is the composer card's top
+/// (0 pt gap, 0 pt overlap), keyboard up or down, composer 1, 3 or 6 lines.
+@Suite struct TerminalComposerPinTests {
+    @Test(arguments: [
+        // (page height, composer card top): keyboard down 1/3/6 lines, keyboard up 1/3/6 lines.
+        (CGFloat(874), CGFloat(737)), (874, 697), (874, 637),
+        (874, 437), (874, 397), (874, 337),
+    ])
+    func theLastRowRestsOnTheComposer(page: CGFloat, composerTop: CGFloat) {
+        let cell: CGFloat = 16
+        let topInset: CGFloat = 62
+        for rows in [3, 40, 600] {
+            let layout = TerminalDocumentLayout(originRow: 100, endRow: 100 + rows)
+            let content = layout.contentHeight(cellHeight: cell)
+            let inset = TerminalDocumentLayout.bottomInset(pageHeight: page, composerTop: composerTop)
+            let offset = TerminalDocumentLayout.bottomOffset(contentHeight: content, viewportHeight: page,
+                                                             topInset: topInset, bottomInset: inset)
+            // Page y of the last row's bottom edge.
+            let lastRowBottom = layout.contentY(ofRow: layout.endRow, cellHeight: cell) - offset
+            if content <= composerTop - topInset {
+                // A short document starts at the top inset and never floats down.
+                #expect(offset == -topInset)
+            } else {
+                #expect(abs(lastRowBottom - composerTop) <= 1, "rows \(rows): last row ends at \(lastRowBottom), composer at \(composerTop)")
+            }
+        }
+    }
+}
+
+@Suite struct TerminalDocumentGrowthTests {
+    @Test func aGestureGrowsTheEndByTheNewRows() {
+        let layout = TerminalDocumentLayout(originRow: 10, endRow: 500)
+        // 500 rows, the end 4 rows above the scrollback's end (a TUI's hints held).
+        #expect(layout.grown(fromTotal: 504, toTotal: 510) == TerminalDocumentLayout(originRow: 10, endRow: 506))
+        // No new rows (a viewport report while scrolling): unchanged.
+        #expect(layout.grown(fromTotal: 504, toTotal: 504) == layout)
+    }
+}

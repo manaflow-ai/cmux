@@ -98,7 +98,8 @@ impl CmuxClient {
 
     pub fn send_text(&mut self, surface: u64, text: impl Into<String>) -> Result<()> {
         self.send(SendRequest {
-            surface,
+            surface: Optional::Value(surface),
+            terminal_id: Optional::Missing,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
             paste: None,
@@ -108,7 +109,8 @@ impl CmuxClient {
 
     pub fn send_base64(&mut self, surface: u64, bytes: impl Into<String>) -> Result<()> {
         self.send(SendRequest {
-            surface,
+            surface: Optional::Value(surface),
+            terminal_id: Optional::Missing,
             text: Optional::Missing,
             bytes: Optional::Value(bytes.into()),
             paste: None,
@@ -118,7 +120,8 @@ impl CmuxClient {
 
     pub fn send_paste(&mut self, surface: u64, text: impl Into<String>) -> Result<()> {
         self.send(SendRequest {
-            surface,
+            surface: Optional::Value(surface),
+            terminal_id: Optional::Missing,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
             paste: Some(true),

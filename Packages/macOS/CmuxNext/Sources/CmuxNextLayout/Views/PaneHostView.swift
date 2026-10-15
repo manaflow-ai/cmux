@@ -4,8 +4,9 @@ import QuartzCore
 
 /// Wraps one App-provided pane view. The content sits in `clipView`, the
 /// cell inset by the pane padding. A view that reports a header
-/// (`PaneContentChrome`: the tab strip, a browser toolbar) rounds its own
-/// content area and the chrome traces that area only; any other view is
+/// (`PaneContentChrome`: the tab strip) rounds its own content area, one
+/// container for terminal, browser toolbar and page alike, and the chrome
+/// traces that area only; any other view is
 /// clipped to a rounded rect here, header and all. Layer clips take the
 /// Ghostty Metal layer and WebKit along; Chromium pages are child windows
 /// no clip reaches, so the browser module reads the rounded ancestor and
@@ -52,6 +53,10 @@ final class PaneHostView: NSView {
 
     /// Whether the pane sits in a docked (docked) column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
+    /// What of the host shows while a spring rect reveals it (a split's arriving pane, a zooming
+    /// one; superview coordinates); nil, its whole frame. Panes under it are clipped by this.
+    var revealRect: CGRect?
+
     var isDocked = false {
         didSet { if isDocked != oldValue { applyDockFill() } }
     }
@@ -136,23 +141,29 @@ final class PaneHostView: NSView {
 
     /// Clips the host to `rect` (its own coordinates) where a docked docked
     /// column covers it; nil removes the clip.
-    func setStripClip(_ rect: CGRect?) {
-        guard let layer else { return }
+    /// Returns true when the clip changed: a Chromium page in this pane then
+    /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
+    @discardableResult
+    func setStripClip(_ rect: CGRect?) -> Bool {
+        guard let layer else { return false }
         guard let rect else {
-            if layer.mask != nil { layer.mask = nil }
-            return
+            guard layer.mask != nil else { return false }
+            layer.mask = nil
+            return true
         }
         let mask = layer.mask ?? {
             let mask = CALayer()
+            mask.name = CALayer.cmuxStripClipName
             mask.backgroundColor = NSColor.black.cgColor
             layer.mask = mask
             return mask
         }()
-        guard mask.frame != rect else { return }
+        guard mask.frame != rect else { return false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mask.frame = rect
         CATransaction.commit()
+        return true
     }
 
     func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,

@@ -36,6 +36,43 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     }
 }
 
+/// What the hover card says about an agent chat beyond its state (acpmux's session summary):
+/// the model it runs, when its running turn started, and that turn's prompt.
+public nonisolated struct AgentChatDetail: Hashable, Sendable {
+    public var model: String?
+    /// When the running turn started (Unix ms, `turn.startedAt`); nil between turns.
+    public var turnStartedAtMs: UInt64?
+    /// The running turn's prompt preview (`turn.prompt`).
+    public var prompt: String?
+
+    public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil) {
+        self.model = model
+        self.turnStartedAtMs = turnStartedAtMs
+        self.prompt = prompt
+    }
+
+    /// A summary's detail; nil when it names none of them.
+    public static func of(summary: [String: Any]) -> AgentChatDetail? {
+        let turn = summary["turn"] as? [String: Any]
+        let text = { (value: Any?) -> String? in
+            guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+        let detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: (turn?["startedAt"] as? NSNumber)?.uint64Value,
+                                     prompt: text(turn?["prompt"]))
+        return detail == AgentChatDetail() ? nil : detail
+    }
+
+    /// The detail of every session of a watch result that has one.
+    public static func details(_ result: [String: Any]) -> [String: AgentChatDetail] {
+        var details: [String: AgentChatDetail] = [:]
+        for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+            if let id = summary["sessionId"] as? String, let detail = of(summary: summary) { details[id] = detail }
+        }
+        return details
+    }
+}
+
 /// Every local acpmux session's turn state, reduced from one `_acpmux/watch`
 /// result and its `_acpmux/session_changed` pushes (no poll). Pure.
 public nonisolated struct AgentTurnStates: Hashable, Sendable {
@@ -165,9 +202,14 @@ public final class AgentTurnStateStore {
     public var muted: Set<String> = []
     /// Each session's title (`AgentTurnStates.title`), for a chat tab the user has not named.
     public var titles: [String: String] = [:]
+    /// Each session's model and running turn (`AgentChatDetail`), for the hover card.
+    public var details: [String: AgentChatDetail] = [:]
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
+    /// The watch is up and `states` is acpmux's: false before its first page and after it
+    /// closes, when a chat with no state may still be working.
+    public var watching = false
 
     public init() {}
 
@@ -181,6 +223,12 @@ public final class AgentTurnStateStore {
     public func lastMessage(for ref: AgentSessionRef) -> String? {
         guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
         return lastMessages[session]
+    }
+
+    /// The model and running turn of the chat an agent chat tab shows; nil off this Mac.
+    public func detail(for ref: AgentSessionRef) -> AgentChatDetail? {
+        guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
+        return details[session]
     }
 
     /// The title of the chat an agent chat tab shows; nil when it has none yet or is not on

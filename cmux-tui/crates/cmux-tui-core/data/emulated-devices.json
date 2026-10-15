@@ -1,0 +1,3557 @@
+{
+ "format": 1,
+ "chrome": {
+  "repository": "https://chromium.googlesource.com/devtools/devtools-frontend",
+  "path": "front_end/models/emulation/EmulatedDevices.ts",
+  "ref": "chromium/8037",
+  "commit": "66df492aaa0129d090937e933dd44c5389ab24d2",
+  "chromium": "154",
+  "devices": 46
+ },
+ "devices": [
+  {
+   "order": 10,
+   "show-by-default": true,
+   "title": "iPhone SE",
+   "screen": {
+    "horizontal": {
+     "width": 667,
+     "height": 375
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 375,
+     "height": 667
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 12,
+   "show-by-default": false,
+   "title": "iPhone XR",
+   "screen": {
+    "horizontal": {
+     "width": 896,
+     "height": 414
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 414,
+     "height": 896
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 44,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "notch",
+      "x": 92,
+      "y": 0,
+      "width": 231,
+      "height": 33,
+      "upper-radius": 6,
+      "lower-radius": 25
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 44,
+      "top": 0,
+      "right": 44,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 14,
+   "show-by-default": false,
+   "title": "iPhone 12 Pro",
+   "screen": {
+    "horizontal": {
+     "width": 844,
+     "height": 390
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 390,
+     "height": 844
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 47,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "notch",
+      "x": 90,
+      "y": 0,
+      "width": 210,
+      "height": 32,
+      "upper-radius": 6,
+      "lower-radius": 23
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 47,
+      "top": 0,
+      "right": 47,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 15,
+   "show-by-default": false,
+   "title": "iPhone 14",
+   "screen": {
+    "horizontal": {
+     "width": 844,
+     "height": 390
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 390,
+     "height": 844
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 47,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "notch",
+      "x": 114,
+      "y": 0,
+      "width": 162,
+      "height": 34,
+      "upper-radius": 5,
+      "lower-radius": 22
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 47,
+      "top": 0,
+      "right": 47,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 16,
+   "show-by-default": false,
+   "title": "iPhone 14 Plus",
+   "screen": {
+    "horizontal": {
+     "width": 926,
+     "height": 428
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 428,
+     "height": 926
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 47,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "notch",
+      "x": 133,
+      "y": 0,
+      "width": 161,
+      "height": 34,
+      "upper-radius": 5,
+      "lower-radius": 22
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 47,
+      "top": 0,
+      "right": 47,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 17,
+   "show-by-default": false,
+   "title": "iPhone 14 Pro",
+   "screen": {
+    "horizontal": {
+     "width": 852,
+     "height": 393
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 393,
+     "height": 852
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 134,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 18,
+   "show-by-default": false,
+   "title": "iPhone 14 Pro Max",
+   "screen": {
+    "horizontal": {
+     "width": 932,
+     "height": 430
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 430,
+     "height": 932
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 153,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 19,
+   "show-by-default": false,
+   "title": "iPhone 15",
+   "screen": {
+    "horizontal": {
+     "width": 852,
+     "height": 393
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 393,
+     "height": 852
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 134,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 20,
+   "show-by-default": false,
+   "title": "iPhone 15 Plus",
+   "screen": {
+    "horizontal": {
+     "width": 932,
+     "height": 430
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 430,
+     "height": 932
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 153,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 21,
+   "show-by-default": false,
+   "title": "iPhone 15 Pro",
+   "screen": {
+    "horizontal": {
+     "width": 852,
+     "height": 393
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 393,
+     "height": 852
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 134,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 22,
+   "show-by-default": false,
+   "title": "iPhone 15 Pro Max",
+   "screen": {
+    "horizontal": {
+     "width": 932,
+     "height": 430
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 430,
+     "height": 932
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 153,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 23,
+   "show-by-default": false,
+   "title": "iPhone 16e",
+   "screen": {
+    "horizontal": {
+     "width": 844,
+     "height": 390
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 390,
+     "height": 844
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 47,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "notch",
+      "x": 114,
+      "y": 0,
+      "width": 162,
+      "height": 34,
+      "upper-radius": 5,
+      "lower-radius": 22
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 47,
+      "top": 0,
+      "right": 47,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 24,
+   "show-by-default": true,
+   "title": "iPhone 16",
+   "screen": {
+    "horizontal": {
+     "width": 852,
+     "height": 393
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 393,
+     "height": 852
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 134,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 25,
+   "show-by-default": false,
+   "title": "iPhone 16 Plus",
+   "screen": {
+    "horizontal": {
+     "width": 932,
+     "height": 430
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 430,
+     "height": 932
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 59,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 153,
+      "y": 11,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 59,
+      "top": 0,
+      "right": 59,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 26,
+   "show-by-default": false,
+   "title": "iPhone 16 Pro",
+   "screen": {
+    "horizontal": {
+     "width": 874,
+     "height": 402
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 402,
+     "height": 874
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 62,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 139,
+      "y": 14,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 62,
+      "top": 0,
+      "right": 62,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 27,
+   "show-by-default": true,
+   "title": "iPhone 16 Pro Max",
+   "screen": {
+    "horizontal": {
+     "width": 956,
+     "height": 440
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 440,
+     "height": 956
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 62,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 158,
+      "y": 14,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 62,
+      "top": 0,
+      "right": 62,
+      "bottom": 21
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 30,
+   "show-by-default": false,
+   "title": "Pixel 7",
+   "screen": {
+    "horizontal": {
+     "width": 915,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 915
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "13",
+    "architecture": "",
+    "model": "Pixel 7",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 52,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 183,
+      "y": 0,
+      "width": 55,
+      "height": 52,
+      "cx": 206,
+      "cy": 26,
+      "radius": 13
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 52,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 31,
+   "show-by-default": false,
+   "title": "Pixel 8",
+   "screen": {
+    "horizontal": {
+     "width": 915,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 915
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "Pixel 8",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 50,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 182,
+      "y": 0,
+      "width": 46,
+      "height": 50,
+      "cx": 206,
+      "cy": 25,
+      "radius": 14
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 50,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 32,
+   "show-by-default": false,
+   "title": "Pixel 8 Pro",
+   "screen": {
+    "horizontal": {
+     "width": 997,
+     "height": 448
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 448,
+     "height": 997
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "Pixel 8 Pro",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 50,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 205,
+      "y": 0,
+      "width": 37,
+      "height": 50,
+      "cx": 224,
+      "cy": 25,
+      "radius": 14
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 50,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 33,
+   "show-by-default": false,
+   "title": "Pixel 8a",
+   "screen": {
+    "horizontal": {
+     "width": 915,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 915
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "Pixel 8a",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 46,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 185,
+      "y": 0,
+      "width": 42,
+      "height": 46,
+      "cx": 206,
+      "cy": 26,
+      "radius": 13
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 46,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 34,
+   "show-by-default": true,
+   "title": "Pixel 9",
+   "screen": {
+    "horizontal": {
+     "width": 924,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 924
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "Pixel 9",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 58,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 188,
+      "y": 0,
+      "width": 37,
+      "height": 58,
+      "cx": 206,
+      "cy": 29,
+      "radius": 14
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 58,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 35,
+   "show-by-default": true,
+   "title": "Pixel 9 Pro",
+   "screen": {
+    "horizontal": {
+     "width": 952,
+     "height": 427
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 427,
+     "height": 952
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "Pixel 9 Pro",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 68,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 195,
+      "y": 0,
+      "width": 36,
+      "height": 68,
+      "cx": 213,
+      "cy": 34,
+      "radius": 16
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 68,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 36,
+   "show-by-default": false,
+   "title": "Pixel 9 Pro XL",
+   "screen": {
+    "horizontal": {
+     "width": 997,
+     "height": 448
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 448,
+     "height": 997
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 9 Pro XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "Pixel 9 Pro XL",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 66,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 205,
+      "y": 0,
+      "width": 38,
+      "height": 66,
+      "cx": 224,
+      "cy": 33,
+      "radius": 16
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 66,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 37,
+   "show-by-default": true,
+   "title": "Pixel 10",
+   "screen": {
+    "horizontal": {
+     "width": 924,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 924
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "Pixel 10",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 58,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 188,
+      "y": 0,
+      "width": 37,
+      "height": 58,
+      "cx": 206,
+      "cy": 29,
+      "radius": 14
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 58,
+      "bottom": 0
+     }
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 38,
+   "show-by-default": false,
+   "title": "Samsung Galaxy S8+",
+   "screen": {
+    "horizontal": {
+     "width": 740,
+     "height": 360
+    },
+    "device-pixel-ratio": 4,
+    "vertical": {
+     "width": 360,
+     "height": 740
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "8.0.0",
+    "architecture": "",
+    "model": "SM-G955U",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 39,
+   "show-by-default": false,
+   "title": "Samsung Galaxy S20 Ultra",
+   "screen": {
+    "horizontal": {
+     "width": 915,
+     "height": 412
+    },
+    "device-pixel-ratio": 3.5,
+    "vertical": {
+     "width": 412,
+     "height": 915
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "13",
+    "architecture": "",
+    "model": "SM-G981B",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 43,
+   "show-by-default": false,
+   "title": "Surface Pro 7",
+   "screen": {
+    "horizontal": {
+     "width": 1368,
+     "height": 912
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 912,
+     "height": 1368
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
+   "type": "tablet",
+   "origin": "chrome"
+  },
+  {
+   "order": 40,
+   "show-by-default": true,
+   "title": "iPad Mini",
+   "screen": {
+    "horizontal": {
+     "width": 1024,
+     "height": 768
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 768,
+     "height": 1024
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPad",
+    "mobile": true
+   },
+   "type": "tablet",
+   "origin": "chrome"
+  },
+  {
+   "order": 42,
+   "show-by-default": true,
+   "title": "iPad Pro 13",
+   "screen": {
+    "horizontal": {
+     "width": 1376,
+     "height": 1032
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 1032,
+     "height": 1376
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.5",
+    "architecture": "",
+    "model": "iPad",
+    "mobile": true
+   },
+   "type": "tablet",
+   "origin": "chrome"
+  },
+  {
+   "order": 43,
+   "show-by-default": true,
+   "title": "Surface Pro 10",
+   "screen": {
+    "horizontal": {
+     "width": 1440,
+     "height": 960
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 960,
+     "height": 1440
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
+   "type": "tablet",
+   "origin": "chrome"
+  },
+  {
+   "order": 44,
+   "show-by-default": false,
+   "dual-screen": true,
+   "title": "Surface Duo",
+   "screen": {
+    "horizontal": {
+     "width": 720,
+     "height": 540
+    },
+    "device-pixel-ratio": 2.5,
+    "vertical": {
+     "width": 540,
+     "height": 720
+    },
+    "vertical-spanned": {
+     "width": 1114,
+     "height": 720,
+     "hinge": {
+      "width": 34,
+      "height": 720,
+      "x": 540,
+      "y": 0,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 1
+      }
+     }
+    },
+    "horizontal-spanned": {
+     "width": 720,
+     "height": 1114,
+     "hinge": {
+      "width": 720,
+      "height": 34,
+      "x": 0,
+      "y": 540,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 1
+      }
+     }
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 11.0; Surface Duo) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "11.0",
+    "architecture": "",
+    "model": "Surface Duo",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical"
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    },
+    {
+     "title": "spanned",
+     "orientation": "vertical-spanned"
+    },
+    {
+     "title": "spanned",
+     "orientation": "horizontal-spanned"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 38,
+   "show-by-default": true,
+   "title": "Samsung Galaxy A55",
+   "screen": {
+    "horizontal": {
+     "width": 800,
+     "height": 360
+    },
+    "device-pixel-ratio": 2.25,
+    "vertical": {
+     "width": 360,
+     "height": 800
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; SM-A556B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "SM-A556B",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 45,
+   "show-by-default": true,
+   "foldable-screen": true,
+   "title": "Pixel 9 Pro Fold",
+   "screen": {
+    "horizontal": {
+     "width": 922,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 922
+    },
+    "vertical-spanned": {
+     "width": 836,
+     "height": 842,
+     "hinge": {
+      "width": 0,
+      "height": 842,
+      "x": 418,
+      "y": 0,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    },
+    "horizontal-spanned": {
+     "width": 842,
+     "height": 836,
+     "hinge": {
+      "width": 842,
+      "height": 0,
+      "x": 0,
+      "y": 418,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 9 Pro Fold) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "Pixel 9 Pro Fold",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical"
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    },
+    {
+     "title": "spanned",
+     "orientation": "vertical-spanned"
+    },
+    {
+     "title": "spanned",
+     "orientation": "horizontal-spanned"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 46,
+   "show-by-default": true,
+   "foldable-screen": true,
+   "title": "Galaxy Z Fold 6",
+   "screen": {
+    "horizontal": {
+     "width": 968,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 968
+    },
+    "vertical-spanned": {
+     "width": 744,
+     "height": 860,
+     "hinge": {
+      "width": 0,
+      "height": 860,
+      "x": 372,
+      "y": 0,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    },
+    "horizontal-spanned": {
+     "width": 860,
+     "height": 744,
+     "hinge": {
+      "width": 860,
+      "height": 0,
+      "x": 0,
+      "y": 372,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 14; SM-F956U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "14",
+    "architecture": "",
+    "model": "SM-F956U",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical"
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    },
+    {
+     "title": "spanned",
+     "orientation": "vertical-spanned"
+    },
+    {
+     "title": "spanned",
+     "orientation": "horizontal-spanned"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 46,
+   "show-by-default": false,
+   "foldable-screen": true,
+   "title": "Galaxy Z Fold 5",
+   "screen": {
+    "horizontal": {
+     "width": 882,
+     "height": 344
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 344,
+     "height": 882
+    },
+    "vertical-spanned": {
+     "width": 690,
+     "height": 829,
+     "hinge": {
+      "width": 0,
+      "height": 829,
+      "x": 345,
+      "y": 0,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    },
+    "horizontal-spanned": {
+     "width": 829,
+     "height": 690,
+     "hinge": {
+      "width": 829,
+      "height": 0,
+      "x": 0,
+      "y": 345,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "10.0",
+    "architecture": "",
+    "model": "SM-F946U",
+    "mobile": true
+   },
+   "type": "phone",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical"
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    },
+    {
+     "title": "spanned",
+     "orientation": "vertical-spanned"
+    },
+    {
+     "title": "spanned",
+     "orientation": "horizontal-spanned"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 47,
+   "show-by-default": false,
+   "foldable-screen": true,
+   "title": "Asus Zenbook Fold",
+   "screen": {
+    "horizontal": {
+     "width": 1280,
+     "height": 853
+    },
+    "device-pixel-ratio": 1.5,
+    "vertical": {
+     "width": 853,
+     "height": 1280
+    },
+    "vertical-spanned": {
+     "width": 1706,
+     "height": 1280,
+     "hinge": {
+      "width": 107,
+      "height": 1280,
+      "x": 800,
+      "y": 0,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    },
+    "horizontal-spanned": {
+     "width": 1280,
+     "height": 1706,
+     "hinge": {
+      "width": 1706,
+      "height": 107,
+      "x": 0,
+      "y": 800,
+      "contentColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.2
+      },
+      "outlineColor": {
+       "r": 38,
+       "g": 38,
+       "b": 38,
+       "a": 0.7
+      }
+     }
+    }
+   },
+   "capabilities": [
+    "touch"
+   ],
+   "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Windows",
+    "platformVersion": "11.0",
+    "architecture": "",
+    "model": "UX9702AA",
+    "mobile": false
+   },
+   "type": "tablet",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical"
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    },
+    {
+     "title": "spanned",
+     "orientation": "vertical-spanned"
+    },
+    {
+     "title": "spanned",
+     "orientation": "horizontal-spanned"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "order": 48,
+   "show-by-default": false,
+   "title": "Samsung Galaxy A51/71",
+   "screen": {
+    "horizontal": {
+     "width": 914,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625,
+    "vertical": {
+     "width": 412,
+     "height": 914
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "8.0.0",
+    "architecture": "",
+    "model": "SM-G955U",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 52,
+   "show-by-default": true,
+   "title": "Nest Hub Max",
+   "screen": {
+    "horizontal": {
+     "width": 1280,
+     "height": 800
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 1280,
+     "height": 800
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36 CrKey/1.54.250320",
+   "type": "smart-display",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "show-by-default": false,
+   "title": "Galaxy Tab S4",
+   "screen": {
+    "horizontal": {
+     "width": 1138,
+     "height": 712
+    },
+    "device-pixel-ratio": 2.25,
+    "vertical": {
+     "width": 712,
+     "height": 1138
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 8.1.0; SM-T837A) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "8.1.0",
+    "architecture": "",
+    "model": "SM-T837A",
+    "mobile": false
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 1,
+   "show-by-default": false,
+   "title": "JioPhone 2",
+   "screen": {
+    "horizontal": {
+     "width": 320,
+     "height": 240
+    },
+    "device-pixel-ratio": 1,
+    "vertical": {
+     "width": 240,
+     "height": 320
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Mobile; LYF/F300B/LYF-F300B-001-01-15-130718-i;Android; rv:48.0) Gecko/48.0 Firefox/48.0 KAIOS/2.5",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "",
+    "architecture": "",
+    "model": "LYF/F300B/LYF-F300B-001-01-15-130718-i",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "show-by-default": false,
+   "title": "Laptop with touch",
+   "screen": {
+    "horizontal": {
+     "width": 1280,
+     "height": 950
+    },
+    "device-pixel-ratio": 1,
+    "vertical": {
+     "width": 950,
+     "height": 1280
+    }
+   },
+   "capabilities": [
+    "touch"
+   ],
+   "user-agent": "",
+   "type": "notebook",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "show-by-default": false,
+   "title": "Laptop with HiDPI screen",
+   "screen": {
+    "horizontal": {
+     "width": 1440,
+     "height": 900
+    },
+    "device-pixel-ratio": 2,
+    "vertical": {
+     "width": 900,
+     "height": 1440
+    }
+   },
+   "capabilities": [],
+   "user-agent": "",
+   "type": "notebook",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "show-by-default": false,
+   "title": "Laptop with MDPI screen",
+   "screen": {
+    "horizontal": {
+     "width": 1280,
+     "height": 800
+    },
+    "device-pixel-ratio": 1,
+    "vertical": {
+     "width": 800,
+     "height": 1280
+    }
+   },
+   "capabilities": [],
+   "user-agent": "",
+   "type": "notebook",
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    }
+   ],
+   "origin": "chrome"
+  },
+  {
+   "show-by-default": false,
+   "title": "Moto G4",
+   "screen": {
+    "horizontal": {
+     "width": 640,
+     "height": 360
+    },
+    "device-pixel-ratio": 3,
+    "vertical": {
+     "width": 360,
+     "height": 640
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 6.0.1; Moto G (4)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "6.0.1",
+    "architecture": "",
+    "model": "Moto G (4)",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "show-by-default": false,
+   "title": "Moto G Power",
+   "screen": {
+    "device-pixel-ratio": 1.75,
+    "horizontal": {
+     "width": 823,
+     "height": 412
+    },
+    "vertical": {
+     "width": 412,
+     "height": 823
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "11",
+    "architecture": "",
+    "model": "moto g power (2022)",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 200,
+   "show-by-default": false,
+   "title": "Facebook on Android",
+   "screen": {
+    "horizontal": {
+     "width": 892,
+     "height": 412
+    },
+    "device-pixel-ratio": 3.5,
+    "vertical": {
+     "width": 412,
+     "height": 892
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 12; Pixel 6 Build/SQ3A.220705.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/%s Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/407.0.0.0.65;]",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "12",
+    "architecture": "",
+    "model": "Pixel 6",
+    "mobile": true
+   },
+   "type": "phone",
+   "origin": "chrome"
+  },
+  {
+   "order": 27.2,
+   "show-by-default": true,
+   "title": "iPhone 17",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 402,
+     "height": 874
+    },
+    "horizontal": {
+     "width": 874,
+     "height": 402
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 62,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 139,
+      "y": 14,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 62,
+      "top": 0,
+      "right": 62,
+      "bottom": 21
+     }
+    }
+   ],
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.apple.com/iphone-17/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Physical 1206x2622 @3x (Apple specs: 2622-by-1206 at 460 ppi; HIG: 402x874 pt). Safe-area insets and cutout copied from Chrome's 'iPhone 16 Pro' entry (identical CSS size 402x874); not measured on this device. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2025-09",
+   "origin": "cmux"
+  },
+  {
+   "order": 27.3,
+   "show-by-default": true,
+   "title": "iPhone Air",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 420,
+     "height": 912
+    },
+    "horizontal": {
+     "width": 912,
+     "height": 420
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.apple.com/iphone-air/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Physical 1260x2736 @3x (Apple specs: 2736-by-1260 at 460 ppi; HIG: 420x912 pt). No modes: no sourced safe-area insets for this CSS size. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2025-09",
+   "origin": "cmux"
+  },
+  {
+   "order": 27.4,
+   "show-by-default": false,
+   "title": "iPhone 17 Pro",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 402,
+     "height": 874
+    },
+    "horizontal": {
+     "width": 874,
+     "height": 402
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 62,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 139,
+      "y": 14,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 62,
+      "top": 0,
+      "right": 62,
+      "bottom": 21
+     }
+    }
+   ],
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.ios-resolution.com/",
+    "https://yesviz.com/viewport/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Physical 1206x2622 @3x (HIG: 402x874 pt, 1206x2622 px @3x). apple.com/iphone-17-pro/specs now shows the iPhone 18 Pro lineup, so the Apple pixel figure comes from the archived HIG table. Safe-area insets and cutout copied from Chrome's 'iPhone 16 Pro' entry (identical CSS size 402x874); not measured on this device. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2025-09",
+   "origin": "cmux"
+  },
+  {
+   "order": 27.5,
+   "show-by-default": true,
+   "title": "iPhone 17 Pro Max",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 440,
+     "height": 956
+    },
+    "horizontal": {
+     "width": 956,
+     "height": 440
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 62,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 158,
+      "y": 14,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 62,
+      "top": 0,
+      "right": 62,
+      "bottom": 21
+     }
+    }
+   ],
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.ios-resolution.com/",
+    "https://yesviz.com/viewport/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Physical 1320x2868 @3x (HIG: 440x956 pt, 1320x2868 px @3x). Safe-area insets and cutout copied from Chrome's 'iPhone 16 Pro Max' entry (identical CSS size 440x956); not measured on this device. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2025-09",
+   "origin": "cmux"
+  },
+  {
+   "order": 27.1,
+   "show-by-default": false,
+   "title": "iPhone 17e",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 390,
+     "height": 844
+    },
+    "horizontal": {
+     "width": 844,
+     "height": 390
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 47,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "notch",
+      "x": 114,
+      "y": 0,
+      "width": 162,
+      "height": 34,
+      "upper-radius": 5,
+      "lower-radius": 22
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 47,
+      "top": 0,
+      "right": 47,
+      "bottom": 21
+     }
+    }
+   ],
+   "sources": [
+    "https://www.apple.com/iphone-17e/specs/",
+    "https://www.ios-resolution.com/",
+    "https://yesviz.com/viewport/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Physical 1170x2532 @3x (Apple specs: 2532-by-1170 at 460 ppi). Not in the archived HIG table; 390x844 and scale 3 come from ios-resolution.com and yesviz.com. Safe-area insets and cutout copied from Chrome's 'iPhone 16e' entry (identical CSS size 390x844); not measured on this device. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2026-03",
+   "origin": "cmux"
+  },
+  {
+   "order": 27.6,
+   "show-by-default": true,
+   "title": "iPhone 18 Pro",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 402,
+     "height": 874
+    },
+    "horizontal": {
+     "width": 874,
+     "height": 402
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 62,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 139,
+      "y": 14,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 62,
+      "top": 0,
+      "right": 62,
+      "bottom": 21
+     }
+    }
+   ],
+   "sources": [
+    "https://www.apple.com/iphone-18-pro/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Physical 1206x2622 @3x (Apple specs: 2622-by-1206 at 460 ppi). Points and scale from ios-resolution.com (HIG device table was removed on 2026-09-09). Ships with iOS 27. Safe-area insets and cutout copied from Chrome's 'iPhone 16 Pro' entry (identical CSS size 402x874); not measured on this device. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2026-09",
+   "origin": "cmux"
+  },
+  {
+   "order": 27.7,
+   "show-by-default": false,
+   "title": "iPhone 18 Pro Max",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 440,
+     "height": 956
+    },
+    "horizontal": {
+     "width": 956,
+     "height": 440
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 62,
+      "right": 0,
+      "bottom": 34
+     },
+     "cutout": {
+      "shape": "pill",
+      "x": 158,
+      "y": 14,
+      "width": 125,
+      "height": 37,
+      "border-radius": 19
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 62,
+      "top": 0,
+      "right": 62,
+      "bottom": 21
+     }
+    }
+   ],
+   "sources": [
+    "https://www.apple.com/iphone-18-pro/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Physical 1320x2868 @3x (Apple specs: 2868-by-1320 at 460 ppi). Points and scale from ios-resolution.com. Ships with iOS 27. Safe-area insets and cutout copied from Chrome's 'iPhone 16 Pro Max' entry (identical CSS size 440x956); not measured on this device. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2026-09",
+   "origin": "cmux"
+  },
+  {
+   "order": 45.5,
+   "show-by-default": true,
+   "title": "iPhone Duo",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 466,
+     "height": 678
+    },
+    "horizontal": {
+     "width": 678,
+     "height": 466
+    },
+    "device-pixel-ratio": 3,
+    "vertical-spanned": {
+     "width": 890,
+     "height": 626,
+     "hinge": {
+      "width": 0,
+      "height": 626,
+      "x": 445,
+      "y": 0
+     }
+    },
+    "horizontal-spanned": {
+     "width": 626,
+     "height": 890,
+     "hinge": {
+      "width": 626,
+      "height": 0,
+      "x": 0,
+      "y": 445
+     }
+    }
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPhone",
+    "mobile": true
+   },
+   "sources": [
+    "https://www.apple.com/iphone-duo/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "Book-style foldable. vertical/horizontal: the 5.4-inch cover screen, 1398x2034 px at 460 ppi (Apple specs) = 466x678 CSS px @3x (scale from ios-resolution.com, not Apple). Spanned: the 7.6-inch inner screen, 1878x2670 px at 430 ppi (Apple specs) = 626x890 @3x; the open device is 164.6 mm wide x 117.8 mm high (Apple specs), so with the cover upright (vertical-spanned) it is 890x626. The inner screen is one continuous panel; the zero-width hinge at the centre follows Chrome's own Fold entries (Pixel 9 Pro Fold, Galaxy Z Fold). No sourced safe-area insets. ios-resolution.com lists release 2026-10-23. UA: the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6); the device ships with iOS 27 and no Safari 27 UA source was found.",
+   "released": "2026-10",
+   "foldable-screen": true,
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical"
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal"
+    },
+    {
+     "title": "spanned",
+     "orientation": "vertical-spanned"
+    },
+    {
+     "title": "spanned",
+     "orientation": "horizontal-spanned"
+    }
+   ],
+   "origin": "cmux"
+  },
+  {
+   "order": 41,
+   "show-by-default": true,
+   "title": "iPad Pro 11",
+   "type": "tablet",
+   "screen": {
+    "vertical": {
+     "width": 834,
+     "height": 1210
+    },
+    "horizontal": {
+     "width": 1210,
+     "height": 834
+    },
+    "device-pixel-ratio": 2
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPad",
+    "mobile": true
+   },
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.apple.com/ipad-pro/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "M5 (and M4) 11-inch: 2420x1668 px at 264 ppi (Apple specs), 834x1210 pt @2x (HIG). UA follows Chrome's 'iPad Pro 13' convention (desktop-class Mac UA). UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2025-10",
+   "origin": "cmux"
+  },
+  {
+   "order": 40.3,
+   "show-by-default": true,
+   "title": "iPad Air 11",
+   "type": "tablet",
+   "screen": {
+    "vertical": {
+     "width": 820,
+     "height": 1180
+    },
+    "horizontal": {
+     "width": 1180,
+     "height": 820
+    },
+    "device-pixel-ratio": 2
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPad",
+    "mobile": true
+   },
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.apple.com/ipad-air/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "M4 iPad Air 11-inch: 2360x1640 px at 264 ppi (Apple specs), 820x1180 pt @2x (HIG). Release month from ios-resolution.com (8th gen). Desktop-class Mac UA as in Chrome's 'iPad Pro 13'. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2026-03",
+   "origin": "cmux"
+  },
+  {
+   "order": 40.4,
+   "show-by-default": false,
+   "title": "iPad Air 13",
+   "type": "tablet",
+   "screen": {
+    "vertical": {
+     "width": 1024,
+     "height": 1366
+    },
+    "horizontal": {
+     "width": 1366,
+     "height": 1024
+    },
+    "device-pixel-ratio": 2
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPad",
+    "mobile": true
+   },
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.apple.com/ipad-air/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "M4 iPad Air 13-inch: 2732x2048 px at 264 ppi (Apple specs), 1024x1366 pt @2x (HIG). Desktop-class Mac UA as in Chrome's 'iPad Pro 13'. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2026-03",
+   "origin": "cmux"
+  },
+  {
+   "order": 40.1,
+   "show-by-default": false,
+   "title": "iPad mini (A17 Pro)",
+   "type": "tablet",
+   "screen": {
+    "vertical": {
+     "width": 744,
+     "height": 1133
+    },
+    "horizontal": {
+     "width": 1133,
+     "height": 744
+    },
+    "device-pixel-ratio": 2
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPad",
+    "mobile": true
+   },
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.apple.com/ipad-mini/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "8.3-inch: 2266x1488 px at 326 ppi (Apple specs), 744x1133 pt @2x (HIG archive). UA: the mobile iPad UA, by Chrome's 'iPad Mini' convention (Safari on iPad mini asks for mobile sites by default), with the Safari 26.0 version token quoted by WebKit (iOS version frozen at 18_6).",
+   "released": "2024-10",
+   "origin": "cmux"
+  },
+  {
+   "order": 40.2,
+   "show-by-default": false,
+   "title": "iPad (A16)",
+   "type": "tablet",
+   "screen": {
+    "vertical": {
+     "width": 820,
+     "height": 1180
+    },
+    "horizontal": {
+     "width": 1180,
+     "height": 820
+    },
+    "device-pixel-ratio": 2
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+   "user-agent-metadata": {
+    "platform": "iOS",
+    "platformVersion": "18.6",
+    "architecture": "",
+    "model": "iPad",
+    "mobile": true
+   },
+   "sources": [
+    "https://web.archive.org/web/20260702060104/https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json",
+    "https://www.apple.com/ipad-11/specs/",
+    "https://www.ios-resolution.com/",
+    "https://webkit.org/blog/17333/webkit-features-in-safari-26-0/"
+   ],
+   "notes": "iPad 11-inch (A16): 2360x1640 px at 264 ppi (Apple specs), 820x1180 pt @2x (HIG). Desktop-class Mac UA as in Chrome's 'iPad Pro 13'. UA is the Safari 26.0 string quoted by WebKit (iOS version frozen at 18_6). platformVersion mirrors the frozen UA OS version, like Chrome's entries mirror theirs. Devices that ship with iOS 27 would report a newer Version/ token; no WebKit source for the Safari 27 string was found, so the sourced 26.0 string is used.",
+   "released": "2025-03",
+   "origin": "cmux"
+  },
+  {
+   "order": 37.1,
+   "show-by-default": true,
+   "title": "Pixel 10 Pro",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 427,
+     "height": 952
+    },
+    "horizontal": {
+     "width": 952,
+     "height": 427
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; Pixel 10 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "Pixel 10 Pro",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 68,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 195,
+      "y": 0,
+      "width": 36,
+      "height": 68,
+      "cx": 213,
+      "cy": 34,
+      "radius": 16
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 68,
+      "bottom": 0
+     }
+    }
+   ],
+   "sources": [
+    "https://android.googlesource.com/platform/tools/base/+/refs/heads/mirror-goog-studio-main/sdklib/src/main/resources/com/android/sdklib/devices/nexus.xml",
+    "https://store.google.com/us/product/pixel_10_pro_specs?hl=en-US",
+    "https://blog.google/products/pixel/google-pixel-10-pro-xl/"
+   ],
+   "notes": "Physical 1280x2856 at 495 PPI (Google Store). Android Studio device definition: 1280x2856, xxhdpi (DPR 3). 1280/3 = 426.67, rounded to 427 like Chrome's identical 'Pixel 9 Pro'. Android 16 from Google Store specs. Safe-area insets and cutout copied from Chrome's 'Pixel 9 Pro' entry (identical CSS size 427x952 and DPR); not measured on this device.",
+   "released": "2025-08",
+   "origin": "cmux"
+  },
+  {
+   "order": 37.2,
+   "show-by-default": false,
+   "title": "Pixel 10 Pro XL",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 448,
+     "height": 997
+    },
+    "horizontal": {
+     "width": 997,
+     "height": 448
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; Pixel 10 Pro XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "Pixel 10 Pro XL",
+    "mobile": true
+   },
+   "modes": [
+    {
+     "title": "default",
+     "orientation": "vertical",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 66,
+      "right": 0,
+      "bottom": 0
+     },
+     "cutout": {
+      "shape": "circle",
+      "x": 205,
+      "y": 0,
+      "width": 38,
+      "height": 66,
+      "cx": 224,
+      "cy": 33,
+      "radius": 16
+     }
+    },
+    {
+     "title": "default",
+     "orientation": "horizontal",
+     "safe-area-insets": {
+      "left": 0,
+      "top": 0,
+      "right": 66,
+      "bottom": 0
+     }
+    }
+   ],
+   "sources": [
+    "https://android.googlesource.com/platform/tools/base/+/refs/heads/mirror-goog-studio-main/sdklib/src/main/resources/com/android/sdklib/devices/nexus.xml",
+    "https://store.google.com/us/product/pixel_10_pro_specs?hl=en-US",
+    "https://blog.google/products/pixel/google-pixel-10-pro-xl/"
+   ],
+   "notes": "Physical 1344x2992 at 486 PPI (Google Store). Android Studio: 1344x2992, xxhdpi (DPR 3). 2992/3 = 997.33 -> 997 like Chrome's identical 'Pixel 9 Pro XL'. Safe-area insets and cutout copied from Chrome's 'Pixel 9 Pro XL' entry (identical CSS size 448x997 and DPR); not measured on this device.",
+   "released": "2025-08",
+   "origin": "cmux"
+  },
+  {
+   "order": 37.3,
+   "show-by-default": false,
+   "title": "Pixel 10a",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 412,
+     "height": 924
+    },
+    "horizontal": {
+     "width": 924,
+     "height": 412
+    },
+    "device-pixel-ratio": 2.625
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; Pixel 10a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "Pixel 10a",
+    "mobile": true
+   },
+   "sources": [
+    "https://android.googlesource.com/platform/tools/base/+/refs/heads/mirror-goog-studio-main/sdklib/src/main/resources/com/android/sdklib/devices/nexus.xml",
+    "https://store.google.com/us/product/pixel_10a_specs?hl=en-US",
+    "https://en.wikipedia.org/wiki/Pixel_10a"
+   ],
+   "notes": "Physical 1080x2424 at 422 PPI (Google Store). Android Studio: 1080x2424, 420dpi (DPR 2.625). 1080/2.625 = 411.43, 2424/2.625 = 923.43; rounded to 412x924 like Chrome's 'Pixel 10'/'Pixel 9' (same panel and density). Modes omitted: Chrome's Pixel 10 insets were not reused because the 10a has a different front design. Release date (on sale 2026-03-05) from Wikipedia.",
+   "released": "2026-03",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.1,
+   "show-by-default": false,
+   "title": "Galaxy S25",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 360,
+     "height": 780
+    },
+    "horizontal": {
+     "width": 780,
+     "height": 360
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 15; SM-S931B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "15",
+    "architecture": "",
+    "model": "SM-S931B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-s25/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-s25/buy/"
+   ],
+   "notes": "Physical 1080x2340, DPR 3 (yesviz.com); 1080/3 x 2340/3 = 360x780 exact. Model SM-S931B from samsung.com/uk. Android 15 (yesviz.com).",
+   "released": "2025-01",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.2,
+   "show-by-default": false,
+   "title": "Galaxy S25+",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 412,
+     "height": 891
+    },
+    "horizontal": {
+     "width": 891,
+     "height": 412
+    },
+    "device-pixel-ratio": 3.5
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 15; SM-S936B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "15",
+    "architecture": "",
+    "model": "SM-S936B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-s25+/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-s25/buy/"
+   ],
+   "notes": "Physical 1440x3120, DPR 3.5 (yesviz.com). 1440/3.5 = 411.43, 3120/3.5 = 891.43; yesviz.com gives 412x891. Chrome-style ceil rounding (e.g. Chrome 'Samsung Galaxy S20 Ultra' 914.29 -> 915) would give 412x892, and yesviz itself lists the same panel on Pixel 7 Pro as 412x892, so the height may be off by 1. Samsung ships these at FHD+ by default; the 3.5 DPR models the WQHD+ setting, as Chrome's S20 Ultra entry does. Model SM-S936B from samsung.com/uk.",
+   "released": "2025-01",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.3,
+   "show-by-default": false,
+   "title": "Galaxy S25 Ultra",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 412,
+     "height": 891
+    },
+    "horizontal": {
+     "width": 891,
+     "height": 412
+    },
+    "device-pixel-ratio": 3.5
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 15; SM-S938B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "15",
+    "architecture": "",
+    "model": "SM-S938B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-s25-ultra/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-s25-ultra/buy/"
+   ],
+   "notes": "Physical 1440x3120, DPR 3.5 (yesviz.com). 1440/3.5 = 411.43, 3120/3.5 = 891.43; yesviz.com gives 412x891. Chrome-style ceil rounding (e.g. Chrome 'Samsung Galaxy S20 Ultra' 914.29 -> 915) would give 412x892, and yesviz itself lists the same panel on Pixel 7 Pro as 412x892, so the height may be off by 1. Samsung ships these at FHD+ by default; the 3.5 DPR models the WQHD+ setting, as Chrome's S20 Ultra entry does. Model SM-S938B from samsung.com/uk.",
+   "released": "2025-01",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.4,
+   "show-by-default": false,
+   "title": "Galaxy S25 Edge",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 412,
+     "height": 891
+    },
+    "horizontal": {
+     "width": 891,
+     "height": 412
+    },
+    "device-pixel-ratio": 3.5
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 15; SM-S937B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "15",
+    "architecture": "",
+    "model": "SM-S937B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-s25-edge/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-s25-ultra/buy/"
+   ],
+   "notes": "Physical 1440x3120, DPR 3.5 (yesviz.com). 1440/3.5 = 411.43, 3120/3.5 = 891.43; yesviz.com gives 412x891. Chrome-style ceil rounding (e.g. Chrome 'Samsung Galaxy S20 Ultra' 914.29 -> 915) would give 412x892, and yesviz itself lists the same panel on Pixel 7 Pro as 412x892, so the height may be off by 1. Samsung ships these at FHD+ by default; the 3.5 DPR models the WQHD+ setting, as Chrome's S20 Ultra entry does. Model SM-S937B from samsung.com/uk.",
+   "released": "2025-05",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.5,
+   "show-by-default": false,
+   "title": "Galaxy S26",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 360,
+     "height": 780
+    },
+    "horizontal": {
+     "width": 780,
+     "height": 360
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; SM-S942B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "SM-S942B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-s26/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-s26/buy/"
+   ],
+   "notes": "Physical 1080x2340, DPR 3 (yesviz.com); 360x780 exact. Model SM-S942B from samsung.com/uk. Android 16 (yesviz.com).",
+   "released": "2026-02",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.6,
+   "show-by-default": false,
+   "title": "Galaxy S26+",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 412,
+     "height": 891
+    },
+    "horizontal": {
+     "width": 891,
+     "height": 412
+    },
+    "device-pixel-ratio": 3.5
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; SM-S947B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "SM-S947B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-s26%2B/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-s26/buy/"
+   ],
+   "notes": "Physical 1440x3120, DPR 3.5 (yesviz.com). 1440/3.5 = 411.43, 3120/3.5 = 891.43; yesviz.com gives 412x891. Chrome-style ceil rounding (e.g. Chrome 'Samsung Galaxy S20 Ultra' 914.29 -> 915) would give 412x892, and yesviz itself lists the same panel on Pixel 7 Pro as 412x892, so the height may be off by 1. Samsung ships these at FHD+ by default; the 3.5 DPR models the WQHD+ setting, as Chrome's S20 Ultra entry does. Model SM-S947B from samsung.com/uk.",
+   "released": "2026-02",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.7,
+   "show-by-default": true,
+   "title": "Galaxy S26 Ultra",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 412,
+     "height": 891
+    },
+    "horizontal": {
+     "width": 891,
+     "height": 412
+    },
+    "device-pixel-ratio": 3.5
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; SM-S948B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "SM-S948B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-s26-ultra/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-s26-ultra/buy/"
+   ],
+   "notes": "Physical 1440x3120, DPR 3.5 (yesviz.com). 1440/3.5 = 411.43, 3120/3.5 = 891.43; yesviz.com gives 412x891. Chrome-style ceil rounding (e.g. Chrome 'Samsung Galaxy S20 Ultra' 914.29 -> 915) would give 412x892, and yesviz itself lists the same panel on Pixel 7 Pro as 412x892, so the height may be off by 1. Samsung ships these at FHD+ by default; the 3.5 DPR models the WQHD+ setting, as Chrome's S20 Ultra entry does. Model SM-S948B from samsung.com/uk.",
+   "released": "2026-02",
+   "origin": "cmux"
+  },
+  {
+   "order": 38.8,
+   "show-by-default": true,
+   "title": "Galaxy Z Flip 7",
+   "type": "phone",
+   "screen": {
+    "vertical": {
+     "width": 360,
+     "height": 840
+    },
+    "horizontal": {
+     "width": 840,
+     "height": 360
+    },
+    "device-pixel-ratio": 3
+   },
+   "capabilities": [
+    "touch",
+    "mobile"
+   ],
+   "user-agent": "Mozilla/5.0 (Linux; Android 16; SM-F766B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
+   "user-agent-metadata": {
+    "platform": "Android",
+    "platformVersion": "16",
+    "architecture": "",
+    "model": "SM-F766B",
+    "mobile": true
+   },
+   "sources": [
+    "https://yesviz.com/devices/samsung-z-flip7/",
+    "https://yesviz.com/viewport/",
+    "https://www.samsung.com/uk/smartphones/galaxy-z-flip7/buy/"
+   ],
+   "notes": "Main (unfolded) 6.9-inch display only: 1080x2520, DPR 3 (yesviz.com); 360x840 exact. The cover screen is not modeled (no sourced viewport). Model SM-F766B from samsung.com/uk. Android 16 (yesviz.com).",
+   "released": "2025-07",
+   "origin": "cmux"
+  }
+ ]
+}

@@ -200,9 +200,9 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 - `threads`: the field and the recent chats as a list.
 - `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: no page. Cmd-T, the + button and a new workspace open a terminal. New Tab Page (`newTab.page`) and Focus Location Bar (Cmd-L) still show the page, so you can pick another template.
+- `terminal`: the `default` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
-The template applies when `tabs.newTabKind` is `page` (the default). Change it in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -759,7 +759,12 @@ shows the same keys.
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
       "maxRows": 8,
-      "calculator": true
+      "calculator": true,
+      "glass": "transparent",
+      "glassTint": "background",
+      "glassTintStrength": 0.35,
+      "cornerRadius": "theme",
+      "shadow": false
     }
   }
 }
@@ -783,7 +788,21 @@ shows the same keys.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
-Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
+- `omnibar.glass`: the address bar's material. `transparent` (default) draws no fill: the toolbar
+  shows through, and only the hover lift, the focus ring and the suggestion card draw. `regular`
+  is Liquid Glass on macOS 26 and later and a blur before it; `clear` is glass that shows more of
+  what is behind the bar; `off` draws the flat theme color. With Reduce Transparency the glass
+  looks draw the flat color. Browser tabs and the New Tab page use the same bar.
+- `omnibar.glassTint`: the color over the glass (`regular` and `clear` only), from the terminal theme. `background`
+  (default) is the theme's background; `accent` is the theme's own accent color, or its
+  focus gray when the theme names none; `none` leaves the glass untinted.
+- `omnibar.glassTintStrength`: the tint's opacity, `0` to `1`. Default: `0.35`.
+- `omnibar.cornerRadius`: `theme` (default, the standard 8 pt bar radius), `capsule` (fully
+  round ends), or points from `0` to `16`.
+- `omnibar.shadow`: a soft shadow under the glass bar. Default: `false`.
+
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

@@ -200,7 +200,11 @@ extension AgentPaneTransport {
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
         else { return nil }
         let session = named as? String
-        guard let session, sessions.contains(session) else {
+        // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
+        let params = object["params"] as? [String: Any]
+        let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
+            .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
+        guard let session, sessions.contains(session), othersHeld else {
             return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         }
         return nil

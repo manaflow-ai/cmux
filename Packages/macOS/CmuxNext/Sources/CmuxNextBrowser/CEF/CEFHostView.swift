@@ -59,12 +59,22 @@ final class CEFHostView: NSView {
     /// pane's rounded clip and the window's rounded corners, so no square
     /// page corner shows past either. Nil when the page is a plain rect.
     @objc func cmuxClipPath() -> NSBezierPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self)).map { NSBezierPath(cgPath: $0) }
+        let shape = pageClip
+        // A page clipped away entirely is hidden by an occlusion hole over all of it
+        // (`allOcclusionRects`), the fork's documented way to keep a page from showing.
+        guard !CEFClipShape.showsNothing(shape) else { return nil }
+        return shape.map { NSBezierPath(cgPath: $0) }
+    }
+
+    /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
+    var pageClip: CGPath? {
+        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self))
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
     /// view, in this view's coordinates.
     var allOcclusionRects: [CGRect] {
+        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty { return [bounds] }
         var rects = occlusionRects
         if let provider = window as? any BrowserWindowOcclusionProviding {
             for rect in provider.browserOcclusionRectsInWindow {
@@ -130,6 +140,11 @@ final class CEFTabContentView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         tab?.pageThemeDidChange()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        tab?.deviceEmulationViewDidResize()
     }
 
     override func viewDidMoveToWindow() {

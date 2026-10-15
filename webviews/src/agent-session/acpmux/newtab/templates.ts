@@ -1,7 +1,7 @@
-// The New Tab page templates (cx-yabk, plans/cmux-next/new-tab-templates.md). The dots at the
-// bottom of the page switch between them in place; the choice is saved as `tabs.newTabTemplate`.
+// The New Tab page templates (cx-yabk, plans/cmux-next/new-tab-templates.md), set in Settings as
+// `tabs.newTabTemplate`.
 
-/// Template ids, in dot order. The names are neutral (`newTab.template.<id>`).
+/// Template ids. Terminal draws the default screen: New Tab never opens a terminal by itself.
 export const NEW_TAB_TEMPLATES = ["default", "composer", "threads", "console", "classic", "terminal"] as const;
 export type NewTabTemplate = (typeof NEW_TAB_TEMPLATES)[number];
 
@@ -36,8 +36,7 @@ export function screenSections(template: ScreenTemplate): ScreenSections {
   return SECTIONS[template];
 }
 
-/// The screen template a template draws with. Terminal (its page shows only when opened on
-/// purpose, by New Tab Page or Focus Location Bar) draws the default screen; Classic is not a screen.
+/// The screen template a template draws with. Terminal draws the default screen; Classic is not a screen.
 export function screenTemplate(template: NewTabTemplate): ScreenTemplate {
   return template === "terminal" || template === "classic" ? "default" : template;
 }
@@ -47,24 +46,26 @@ export function parseNewTabTemplate(value: unknown): NewTabTemplate | undefined 
   return NEW_TAB_TEMPLATES.includes(value as NewTabTemplate) ? (value as NewTabTemplate) : undefined;
 }
 
-/// The template to show: the saved one, else the Debug Settings design (`a` is Classic).
-export function shownTemplate(host: { template?: NewTabTemplate; layout: "a" | "b" }): NewTabTemplate {
-  return host.template ?? (host.layout === "a" ? "classic" : "default");
+/// The styles the page's style switch offers, in its order (Leo 2026-10-13, cx-txe89). Terminal is
+/// not one: New Tab never opens a terminal by itself.
+export const PAGE_STYLES = ["default", "composer", "threads", "console", "classic"] as const;
+export type PageStyle = (typeof PAGE_STYLES)[number];
+
+/// The style the switch marks for a template (Terminal draws the default screen).
+export function pageStyle(template: NewTabTemplate): PageStyle {
+  return template === "terminal" ? "default" : template;
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
-/// A dot was picked: save it, then show it in place, or, for Terminal, turn the page into a
-/// terminal through the same `tab.open` replace path as a terminal choice on the page.
-export function pickNewTabTemplate(
-  template: NewTabTemplate,
-  deps: { callNative: Native; cwd?: string; show(template: NewTabTemplate): void },
-): void {
-  const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
-  ignore(deps.callNative("newTab.setTemplate", { template }));
-  if (template === "terminal") {
-    ignore(deps.callNative("tab.open", { kind: "terminal", text: "", ...(deps.cwd ? { cwd: deps.cwd } : {}) }));
-    return;
-  }
-  deps.show(template);
+/// A style picked on the page: saved as `tabs.newTabTemplate` (the host checks the value), and
+/// shown in place at once.
+export function pickNewTabStyle(style: PageStyle, deps: { callNative: Native; show(style: PageStyle): void }): void {
+  void deps.callNative("newTab.setTemplate", { template: style }).catch(() => undefined);
+  deps.show(style);
+}
+
+/// The template to show: the saved one, else the Debug Settings design (`a` is Classic).
+export function shownTemplate(host: { template?: NewTabTemplate; layout: "a" | "b" }): NewTabTemplate {
+  return host.template ?? (host.layout === "a" ? "classic" : "default");
 }

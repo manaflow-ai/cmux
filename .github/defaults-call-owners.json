@@ -1,0 +1,5 @@
+{
+  "description": "Who may approve a change to a default (key binding, setting, Ghostty keybind, feature flag) so the defaults guard passes (scripts/ci/defaults_guard.py). The approval is a GitHub review on the pull request's head commit; the author's own never counts. The guard reads this file from the base branch.",
+  "classic": ["austinywang", "lawrencecchen"],
+  "cmux-next": ["lawrencecchen", "austinywang", "teamleaderleo"]
+}

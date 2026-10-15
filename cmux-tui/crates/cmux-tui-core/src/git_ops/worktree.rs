@@ -15,6 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use cmux_git::main_root;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -222,12 +223,6 @@ fn described(attempt: &Attempt, common_dir: &Path) -> Value {
         value["main_root"] = json!(main.to_string_lossy());
     }
     value
-}
-
-/// The main checkout's folder: the common git directory's parent, unless
-/// the repository is bare.
-pub(super) fn main_root(common_dir: &Path) -> Option<&Path> {
-    if common_dir.file_name()? == ".git" { common_dir.parent() } else { None }
 }
 
 /// The project's folder name under `~/.cmux/worktrees`: the main checkout's

@@ -1,6 +1,6 @@
 import Foundation
 import Network
-import Synchronization
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextAgentPane
 import CmuxNextPages

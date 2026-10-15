@@ -83,7 +83,7 @@ impl Brain {
             .name("turn".into())
             .spawn(move || {
                 // Section 6, as the chief changed it (2026-10-10: a user turn
-                // never waits more than 10 s on compaction): the turn waits
+                // never waits more than SETTLE_BOUND on compaction): the turn waits
                 // until every view line is a summary, at most SETTLE_BOUND.
                 // Then it starts anyway and reads the lines still building
                 // unsummarized (`PLACEHOLDER`, which `zoom` opens); the next
@@ -295,7 +295,7 @@ impl Brain {
     /// have lost acpmux (the turn would fail at once and consume the queue)
     /// or appended to the log (an orphan's fold), which can leave a view line
     /// unsummarized again; then the queue stays and the wait starts over.
-    /// Chief 2026-10-10: a user turn never waits more than 10 s on
+    /// A user turn never waits more than SETTLE_BOUND (1 s) on
     /// compaction (README, Deviations from the spec, Section 6).
     /// `deferred`: the worker waited SETTLE_BOUND and starts the turn with
     /// lines still building (they read as the placeholder).
@@ -461,7 +461,18 @@ impl Brain {
         // the subagents at work now (the reference client's line), before
         // the new messages. Never logged.
         let at_work = self.at_work_line();
-        let prompt_texts: Vec<String> = at_work.iter().chain(texts.iter()).cloned().collect();
+        // The person's Home workspace as it is now (home_view): after the view, never logged.
+        let home = self
+            .settings
+            .home_view
+            .as_ref()
+            .and_then(crate::home_view::HomeView::read);
+        let prompt_texts: Vec<String> = at_work
+            .iter()
+            .chain(home.iter())
+            .chain(texts.iter())
+            .cloned()
+            .collect();
         self.note_engine(&engine);
         let cached = cached.as_deref();
         let (blocks, system_prompt, preset) = match cached {
@@ -518,6 +529,9 @@ impl Brain {
         layout["images"] = serde_json::json!(image_count);
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
+        }
+        if let Some(block) = &home {
+            layout["home_workspace"] = serde_json::json!(block);
         }
         self.trace_start(
             &key,

@@ -29,7 +29,6 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        title={tool.command}
         ref={menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") })}
         onClick={() => setOpen((value) => !value)}
       >

@@ -42,7 +42,7 @@ public final class Commands {
     public static final CommandMetadata CLOSE_TAB_GROUP = new CommandMetadata("close-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
     public static final CommandMetadata CLOSE_TABS = new CommandMetadata("close-tabs", Authority.CONTROL, 12, "batch-close-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("reason", "close-reason-v1")));
     public static final CommandMetadata CLOSE_TERMINAL = new CommandMetadata("close-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1"), Map.entry("key", "workspace-registry-v1"), Map.entry("reason", "close-reason-v1")));
+    public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1"), Map.entry("if_empty", "close-workspace-if-empty-v1"), Map.entry("key", "workspace-registry-v1"), Map.entry("reason", "close-reason-v1")));
     public static final CommandMetadata CLOUD_CONVERSATION_HISTORY = new CommandMetadata("cloud-conversation-history", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_OP = new CommandMetadata("cloud-conversation-op", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_SNAPSHOT = new CommandMetadata("cloud-conversation-snapshot", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -66,6 +66,7 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_DRAFT = new CommandMetadata("conversation-draft", Authority.LOCAL_ADMIN, 12, "conversation-draft-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_HISTORY = new CommandMetadata("conversation-history", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_IMPORT = new CommandMetadata("conversation-import", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_LINK_RESOLVE = new CommandMetadata("conversation-link-resolve", Authority.LOCAL_ADMIN, 12, "conversation-tree-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_LIST = new CommandMetadata("conversation-list", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SEARCH = new CommandMetadata("conversation-search", Authority.LOCAL_ADMIN, 12, "conversation-search-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -162,6 +163,7 @@ public final class Commands {
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTE_SIZE_ACTIVITY = new CommandMetadata("note-size-activity", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("source", 12L)), Map.ofEntries(Map.entry("source", "notification-source-v1")));
+    public static final CommandMetadata PAGE_CREDENTIAL = new CommandMetadata("page-credential", Authority.LOCAL_ADMIN, 12, "page-credential-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PASTE_IMAGE = new CommandMetadata("paste-image", Authority.CONTROL, 12, "terminal-image-paste-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -201,7 +203,7 @@ public final class Commands {
     public static final CommandMetadata SELECT_SCREEN = new CommandMetadata("select-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_TAB = new CommandMetadata("select-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_WORKSPACE = new CommandMetadata("select-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.of());
+    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("terminal_id", "terminal-input-while-creating-v1")));
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -217,6 +219,7 @@ public final class Commands {
     public static final CommandMetadata SET_ROW_HEIGHTS = new CommandMetadata("set-row-heights", Authority.CONTROL, 12, "rows-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SCREEN_METADATA = new CommandMetadata("set-screen-metadata", Authority.CONTROL, 12, "screen-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SCREEN_PINNED = new CommandMetadata("set-screen-pinned", Authority.CONTROL, 12, "screen-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_SESSION_ICON = new CommandMetadata("set-session-icon", Authority.CONTROL, 12, "session-icon-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SIZE_COUNTS = new CommandMetadata("set-size-counts", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SIZE_POLICY = new CommandMetadata("set-size-policy", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
@@ -262,6 +265,7 @@ public final class Commands {
     public static final CommandMetadata URL_OPEN_SUBSCRIBE = new CommandMetadata("url-open-subscribe", Authority.FRONTEND, 12, null, StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata VT_STATE = new CommandMetadata("vt-state", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata WAIT_FOR = new CommandMetadata("wait-for", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata WS_LISTEN = new CommandMetadata("ws-listen", Authority.LOCAL_ADMIN, 12, "ws-listen-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ZOOM_PANE = new CommandMetadata("zoom-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
 
     public static final Map<String, CommandMetadata> ALL;
@@ -323,6 +327,7 @@ public final class Commands {
         values.put("conversation-draft", CONVERSATION_DRAFT);
         values.put("conversation-history", CONVERSATION_HISTORY);
         values.put("conversation-import", CONVERSATION_IMPORT);
+        values.put("conversation-link-resolve", CONVERSATION_LINK_RESOLVE);
         values.put("conversation-list", CONVERSATION_LIST);
         values.put("conversation-op", CONVERSATION_OP);
         values.put("conversation-search", CONVERSATION_SEARCH);
@@ -419,6 +424,7 @@ public final class Commands {
         values.put("new-workspace", NEW_WORKSPACE);
         values.put("note-size-activity", NOTE_SIZE_ACTIVITY);
         values.put("notify", NOTIFY);
+        values.put("page-credential", PAGE_CREDENTIAL);
         values.put("pairing-response", PAIRING_RESPONSE);
         values.put("pane-neighbor", PANE_NEIGHBOR);
         values.put("paste-image", PASTE_IMAGE);
@@ -474,6 +480,7 @@ public final class Commands {
         values.put("set-row-heights", SET_ROW_HEIGHTS);
         values.put("set-screen-metadata", SET_SCREEN_METADATA);
         values.put("set-screen-pinned", SET_SCREEN_PINNED);
+        values.put("set-session-icon", SET_SESSION_ICON);
         values.put("set-size-counts", SET_SIZE_COUNTS);
         values.put("set-size-policy", SET_SIZE_POLICY);
         values.put("set-split-ratio", SET_SPLIT_RATIO);
@@ -519,6 +526,7 @@ public final class Commands {
         values.put("url-open-subscribe", URL_OPEN_SUBSCRIBE);
         values.put("vt-state", VT_STATE);
         values.put("wait-for", WAIT_FOR);
+        values.put("ws-listen", WS_LISTEN);
         values.put("zoom-pane", ZOOM_PANE);
         ALL = Collections.unmodifiableMap(values);
     }

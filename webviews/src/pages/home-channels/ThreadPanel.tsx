@@ -2,11 +2,11 @@
 // "N replies" line, the replies and a reply composer. Escape (or the close button) closes it. The
 // replies come from the owner's thread read in pages ("Show More Replies"); the count is the
 // owner's (every reply), plus replies that arrived after it.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Composer } from "./Composer";
 import { HomeIcon } from "./icons";
-import { replyCount, threadMessages, type TimelineRow } from "./model";
+import { replyCount, threadMessages, threadTree, type TimelineRow } from "./model";
 import { Timeline } from "./Timeline";
 import type { HomeMessage, HomeParticipant, HomeThreadStats } from "./types";
 
@@ -28,7 +28,11 @@ export interface ThreadPanelProps {
   canSend: boolean;
   editing?: string;
   onClose(): void;
-  onSend(text: string): Promise<boolean>;
+  /** Sends in the thread; `parent` is the reply answered (absent: the root). */
+  onSend(text: string, parent?: string): Promise<boolean>;
+  onCopyLink?(message: HomeMessage): void;
+  /** The message a link opened. */
+  highlight?: string;
   onReact(message: HomeMessage, value: string): void;
   onEditStart?(message: HomeMessage): void;
   onEditEnd?(): void;
@@ -57,22 +61,30 @@ export function ThreadPanel({
   onEditEnd,
   onEdit,
   onRetract,
+  onCopyLink,
+  highlight,
 }: ThreadPanelProps) {
-  const { t } = strings;
+  const { t, format } = strings;
+  const [replyTo, setReplyTo] = useState<HomeMessage | undefined>();
   const rows = useMemo<TimelineRow[]>(() => {
     const thread = threadMessages(messages, root);
     const list: TimelineRow[] = [];
     if (thread.root) list.push({ kind: "message", key: thread.root.id, message: thread.root, head: true });
     const count = replyCount(thread.replies, stats);
     if (count > 0) list.push({ kind: "replies", key: `replies-${root}`, count });
-    thread.replies.forEach((message, index) =>
+    // Tree order: each reply after its parent, indented by depth (threads nest without a limit).
+    let previous: HomeMessage | undefined;
+    for (const node of threadTree(thread.replies, root)) {
       list.push({
         kind: "message",
-        key: message.id,
-        message,
-        head: index === 0 || thread.replies[index - 1]!.author !== message.author,
-      }),
-    );
+        key: node.message.id,
+        message: node.message,
+        head: previous?.author !== node.message.author || node.parent !== undefined,
+        depth: node.depth,
+        parent: node.parent,
+      });
+      previous = node.message;
+    }
     return list;
   }, [messages, root, stats]);
   return (
@@ -106,6 +118,9 @@ export function ThreadPanel({
         onEditEnd={onEditEnd}
         onEdit={onEdit}
         onRetract={onRetract}
+        onReply={(message) => setReplyTo(message.id === root ? undefined : message)}
+        onCopyLink={onCopyLink}
+        highlight={highlight}
         className="in-thread"
       />
       {hasMore && (
@@ -113,13 +128,31 @@ export function ThreadPanel({
           {t("thread.more")}
         </button>
       )}
+      {replyTo && (
+        <div className="hc-thread-replying">
+          <span>{format("thread.replyingTo", people.get(replyTo.author)?.name ?? replyTo.author)}</span>
+          <button
+            type="button"
+            className="hc-icon-button"
+            aria-label={t("thread.cancelReply")}
+            title={t("thread.cancelReply")}
+            onClick={() => setReplyTo(undefined)}
+          >
+            <HomeIcon name="close" size={14} />
+          </button>
+        </div>
+      )}
       <Composer
         strings={strings}
         placeholder={t("composer.thread")}
         label={t("composer.thread")}
         disabled={!canSend}
         people={mentionable}
-        onSend={onSend}
+        onSend={async (text) => {
+          const sent = await onSend(text, replyTo?.id);
+          if (sent) setReplyTo(undefined);
+          return sent;
+        }}
       />
     </aside>
   );

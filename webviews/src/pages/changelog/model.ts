@@ -2,7 +2,15 @@
 // its media and action) and the rest grouped New / Improved / Fixed / Security, then the raw
 // commit subjects. The notes carry up to three sources, best first: the release's What's New
 // document, the human highlights, the short summary lines. Pure: no DOM, no state.
-import type { ChangeItem, Highlight, IndexEntry, LocalizedText, ReleaseNotes, WhatsNewCategory, WhatsNewEntry } from "./types";
+import type {
+  ChangeItem,
+  Highlight,
+  IndexEntry,
+  LocalizedText,
+  ReleaseNotes,
+  WhatsNewCategory,
+  WhatsNewEntry,
+} from "./types";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -149,9 +157,10 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
-  const groups = CATEGORY_ORDER.map((category) => ({ category, items: rest.filter((i) => i.category === category) })).filter(
-    (g) => g.items.length > 0,
-  );
+  const groups = CATEGORY_ORDER.map((category) => ({
+    category,
+    items: rest.filter((i) => i.category === category),
+  })).filter((g) => g.items.length > 0);
   const changeSeen = new Set<string>();
   const changes = views
     .flatMap((v) => v.changes)

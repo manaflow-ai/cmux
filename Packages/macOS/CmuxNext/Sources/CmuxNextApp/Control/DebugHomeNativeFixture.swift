@@ -99,9 +99,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                             "hostRight": .number(Double(view.debugHostFrame.maxX)),
                             "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
         case "resize":
-            // Width changes of the transcript, one after another in this one main-thread turn (so in one
-            // display frame, as a divider drag or a live resize can make): after each, the width pass
-            // counters and the rows as drawn (home-resize-pace.py; MessagesLab f11642b resize-pace).
+            // Width changes in one main-thread turn (one display frame): the pass counters and rows after each.
             let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []
             func rowsJSON() -> JSONValue {
                 .array(view.debugRowFrames().map { r in

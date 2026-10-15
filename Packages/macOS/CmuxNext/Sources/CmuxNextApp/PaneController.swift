@@ -151,7 +151,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
                 if incognito {
                     let live = services.cache.incognitoDisplay(tab)
-                    (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url)
+                    (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID())
                     if services.cache.pageRequests.titleAttention.marks(tab, selected: stripModel.selectedID?.rawValue == tab.id, in: services.cache) { item.isUnread = true }
@@ -194,9 +194,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url, isWaiting: page?.isWaiting ?? false)
     }
 
-    /// Pushes daemon truth into the strip. `force` resets optimistic strip
-    /// state after a rejected command (order, membership, closes).
-    func apply(_ snapshot: Snapshot, force: Bool = false) {
+    /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
+    func apply(_ reported: Snapshot, force: Bool = false) {
+        let snapshot = NewTabSuccession.order(reported, in: self)
         if force { view.stripView.discardPendingReorder() }
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }

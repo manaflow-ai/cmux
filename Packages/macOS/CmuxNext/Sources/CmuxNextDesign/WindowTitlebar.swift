@@ -69,6 +69,16 @@ public struct WindowTitlebar {
         return frames.dropFirst().reduce(first) { $0.union($1) }
     }
 
+    /// The main pane card's top inset in `root` (the window's root view):
+    /// `gutter`, except under a minimal titlebar, where the top row's tab
+    /// pills center on the traffic lights' line (never more than `gutter`;
+    /// `PaneChromeMetrics.cardTop`).
+    public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat) -> CGFloat {
+        guard minimal, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
+        let centerFromTop = root.bounds.maxY - root.convert(lights, from: nil).midY
+        return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
+    }
+
     /// Whether `view` sits in the window's titlebar band (a full-size
     /// content view in the top row, even when the layout pads it a few
     /// points below the window's top edge).

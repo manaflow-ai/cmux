@@ -1,5 +1,5 @@
 // The App Store page's state on the page side: a projection of the app supervisor
-// (`cmux.apps.catalog.list`, `installed.list`, `grants.get`, the `watch` stream) plus view state
+// (`cmux.apps.catalog.list`, `installed.list`, `grants.get`, `logs`, `asset.get`) plus view state
 // (tab, query, category, selection). No optimistic copy: every mutation re-reads after the owner
 // answers, and install, uninstall, update and grant changes go through the host's native
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
@@ -9,12 +9,16 @@ import { fromDetail, listCatalog, listInstalled, type WireDetail } from "./wire"
 import { categories, filterApps, listedInStore, parseRoute, type StoreLayout, type StoreTab } from "./model";
 import {
   AppsOps,
+  OPEN_ACTION,
   type AppDetail,
+  type AppIconRef,
   type AppsChanged,
   type CatalogApp,
   type Grants,
   type InstalledApp,
   type LogLine,
+  type WireAsset,
+  type WireLogs,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -50,8 +54,9 @@ export class AppsStore {
   private snapshot: AppsSnapshot;
   private readonly listeners = new Set<() => void>();
   private unwatch?: () => void;
-  private unlog?: () => void;
   private unpage?: () => void;
+  /** Icon data URLs by `app\u0000asset`; a failed load is "" so it is not asked again. */
+  private readonly icons = new Map<string, string>();
   private starting = false;
   private generation = 0;
   private detailGeneration = 0;
@@ -139,8 +144,6 @@ export class AppsStore {
     this.starting = false;
     this.unwatch?.();
     this.unwatch = undefined;
-    this.unlog?.();
-    this.unlog = undefined;
   }
 
   /** Re-reads the catalog, the installed list, and the selected app's detail. */
@@ -151,17 +154,25 @@ export class AppsStore {
       const [catalog, installed] = await Promise.all([listCatalog(this.client), listInstalled(this.client)]);
       if (generation !== this.generation) return;
       const listed = catalog.apps.filter(listedInStore);
+      // Installed rows carry no icon: they take their listing's.
+      const iconOf = new Map(listed.map((app) => [app.id, app.icon]));
+      const installedRows = installed.apps
+        .filter(listedInStore)
+        .map((app) => (app.icon || !iconOf.get(app.id) ? app : { ...app, icon: iconOf.get(app.id) }));
       this.set({
         catalog: listed,
         visible: filterApps(listed, this.snapshot.query, this.snapshot.category),
         categories: categories(listed),
-        installed: installed.apps.filter(listedInStore),
+        installed: installedRows,
         loading: false,
         connection: "connected",
         error: undefined,
       });
       if (this.snapshot.selection) await this.loadDetail(this.snapshot.selection);
       if (this.snapshot.grantsShown) await this.loadGrants(this.snapshot.grantsShown);
+      if (this.snapshot.logsShown) await this.loadLogs(this.snapshot.logsShown);
+      this.showIcons();
+      void this.loadIcons(generation);
     } catch (error) {
       if (generation !== this.generation) return;
       this.set({ loading: false, ...failure(error) });
@@ -201,7 +212,8 @@ export class AppsStore {
     const generation = ++this.detailGeneration;
     try {
       const detail = fromDetail(await this.client.call<WireDetail>(AppsOps.catalogGet, { app }));
-      if (generation === this.detailGeneration && this.snapshot.selection === app) this.set({ detail });
+      if (generation === this.detailGeneration && this.snapshot.selection === app)
+        this.set({ detail: { ...detail, icon: this.withIcon(app, detail.icon) } });
       if (detail.installed) await this.loadGrants(app);
     } catch (error) {
       if (generation === this.detailGeneration) this.set(failure(error));
@@ -224,25 +236,70 @@ export class AppsStore {
     if (shown) await this.loadGrants(shown);
   }
 
-  /** Shows or hides an installed app's logs; shown logs follow the owner's stream. */
+  /** Shows or hides an installed app's logs: the owner's last lines, read again on each reload. */
   async toggleLogs(app: string): Promise<void> {
-    this.unlog?.();
-    this.unlog = undefined;
     const shown = this.snapshot.logsShown === app ? undefined : app;
     this.set({ logsShown: shown, logs: shown ? { ...this.snapshot.logs, [app]: [] } : this.snapshot.logs });
-    if (!shown || !this.client) return;
+    if (shown) await this.loadLogs(shown);
+  }
+
+  private async loadLogs(app: string): Promise<void> {
+    if (!this.client) return;
     try {
-      this.unlog = await this.client.subscribe<{ line: LogLine }>(
-        AppsOps.logs,
-        (event) => {
-          const lines = [...(this.snapshot.logs[app] ?? []), event.line].slice(-LOG_LINES);
-          this.set({ logs: { ...this.snapshot.logs, [app]: lines } });
-        },
-        { app, follow: true },
-      );
+      const wire = await this.client.call<WireLogs>(AppsOps.logs, { app, limit: LOG_LINES });
+      const lines: LogLine[] = wire.lines.map((line) => ({
+        level: line.level,
+        message: line.message,
+        at_ms: line.ts_ms,
+      }));
+      if (this.snapshot.logsShown === app) this.set({ logs: { ...this.snapshot.logs, [app]: lines } });
     } catch (error) {
       this.set(failure(error));
     }
+  }
+
+  /** The icon with its data URL when the store loaded it. */
+  private withIcon(app: string, icon: AppIconRef | undefined): AppIconRef | undefined {
+    if (!icon?.asset) return icon;
+    const url = this.icons.get(`${app}\u0000${icon.asset}`);
+    return url ? { ...icon, path: url } : icon;
+  }
+
+  /** Puts the loaded icons on every row that shows one. */
+  private showIcons(): void {
+    const patch = <T extends { id: string; icon?: AppIconRef }>(app: T): T => {
+      const icon = this.withIcon(app.id, app.icon);
+      return icon === app.icon ? app : { ...app, icon };
+    };
+    const { catalog, visible, installed, detail } = this.snapshot;
+    this.set({
+      catalog: catalog.map(patch),
+      visible: visible.map(patch),
+      installed: installed.map(patch),
+      detail: detail ? patch(detail) : detail,
+    });
+  }
+
+  /** Loads the icons no earlier reload loaded (`cmux.apps.asset.get`), then shows them. */
+  private async loadIcons(generation: number): Promise<void> {
+    if (!this.client) return;
+    const wanted = this.snapshot.catalog.filter(
+      (app) => app.icon?.asset && !this.icons.has(`${app.id}\u0000${app.icon.asset}`),
+    );
+    if (wanted.length === 0) return;
+    await Promise.all(
+      wanted.map(async (app) => {
+        const asset = app.icon?.asset ?? "";
+        try {
+          const wire = await this.client!.call<WireAsset>(AppsOps.assetGet, { app: app.id, path: asset });
+          this.icons.set(`${app.id}\u0000${asset}`, wire.data_url.startsWith("data:image/") ? wire.data_url : "");
+        } catch {
+          // No icon is not an error: the generic glyph stays.
+          this.icons.set(`${app.id}\u0000${asset}`, "");
+        }
+      }),
+    );
+    if (generation === this.generation) this.showIcons();
   }
 
   // Mutations. Install, uninstall, update and grant changes show a native confirmation in the
@@ -264,21 +321,30 @@ export class AppsStore {
     return this.intent(AppsOps.set, { app, enabled });
   }
 
-  /** Hides or shows an app in the app areas; the only way to put a first-party app away. */
+  /** Hides or shows an app in the app areas; the only way to put a first-party app away. It needs
+   * only the person's click (page-router.json `gesture`), never a sheet. */
   setHidden(app: string, hidden: boolean): Promise<void> {
-    return this.intent(AppsOps.set, { app, hidden });
+    return this.intent(AppsOps.hiddenSet, { app, hidden });
   }
 
   setSandboxed(app: string, sandboxed: boolean): Promise<void> {
     return this.intent(AppsOps.set, { app, sandboxed });
   }
 
+  /** Allowing a scope asks on the host's native sheet; revoking needs only the person's click. */
   setGranted(app: string, scope: string, granted: boolean): Promise<void> {
-    return this.intent(AppsOps.grantSet, { app, scope, granted });
+    return granted
+      ? this.intent(AppsOps.grantSet, { app, scope, granted })
+      : this.intent(AppsOps.grantRevoke, { app, scope });
   }
 
+  /** Opens the app's page: the host action `app.open` (a host verb, not a daemon op). */
   open(app: string): Promise<void> {
-    return this.intent(AppsOps.open, { app, focus: true }, { reread: false, mutation: false });
+    return this.intent(
+      OPEN_ACTION.op,
+      { action: OPEN_ACTION.action, args: { app } },
+      { reread: false, mutation: false },
+    );
   }
 
   private async intent(

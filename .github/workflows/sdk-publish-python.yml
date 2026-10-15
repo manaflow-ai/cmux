@@ -115,7 +115,10 @@ jobs:
           python-version: "3.12.8"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        shell: bash
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         run: |

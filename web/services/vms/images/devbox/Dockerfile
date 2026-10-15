@@ -71,6 +71,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     sudo \
     util-linux \
+    e2fsprogs \
     bubblewrap \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
@@ -342,11 +343,25 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+# Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
+# own-login mode per launch (agent-auth.sh) and execs
+# /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so
+# they point at the launchers too.
+COPY agent-auth.sh /etc/cmux/agent-auth.sh
+COPY cmux-claude /etc/cmux/claude
+COPY cmux-codex /etc/cmux/codex
 COPY cmux-opencode /etc/cmux/opencode
-RUN mkdir -p /usr/local/libexec \
-  && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real \
-  && rm -f /usr/local/bin/opencode \
-  && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode
+RUN sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec \
+  && for a in claude codex opencode; do \
+       bash -n /etc/cmux/$a \
+       && ln -s "$(readlink -f "$(mise which $a)")" /usr/local/libexec/cmux-$a-real \
+       && test -f /usr/local/libexec/cmux-$a-real \
+       && rm -f /usr/local/bin/$a \
+       && chmod 755 /etc/cmux/$a && ln -s /etc/cmux/$a /usr/local/bin/$a \
+       && ln -sfn /etc/cmux/$a /opt/mise/shims/$a \
+       && /usr/local/bin/$a --version >/dev/null || exit 1; \
+     done \
+  && for a in claude codex opencode; do test "$(readlink -f "$(command -v $a)")" = /etc/cmux/$a || exit 1; done
 RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
@@ -390,11 +405,14 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount
 # The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
 # TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
 # still record the pin). The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
+  && chmod 0755 /usr/local/bin/cmux-tui-state-mount \
   && sh -n /usr/local/bin/cmux-devbox-boot \
+  && sh -n /usr/local/bin/cmux-tui-state-mount \
   && mkdir -p /etc/cmux \
   && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
   && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version

@@ -77,13 +77,38 @@ fn main() {
             .unwrap_or_default(),
     };
     println!("cargo:rustc-env=ACPMUX_BUILD={hash}{dirty_tag} {date}");
-    for path in ["HEAD", "index"] {
-        if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", path]) {
+    // The commit: HEAD, the branch ref it names, packed-refs, and logs/HEAD
+    // (every commit, amend, reset, rebase and checkout appends to it, also
+    // when the branch ref is packed and no loose ref file exists yet). Not
+    // .git/index: `git status` and `git diff HEAD` rewrite it on a stat
+    // refresh, including the calls in this script and cmux-remote's, so
+    // tracking it reran both scripts on an unchanged tree (bin no-op 6.2-6.4 s,
+    // 0.22 s without it, measured on a Testbox 2026-10-13). Cost: staging
+    // alone (`git add` of a new file, `git rm --cached`) no longer refreshes
+    // the dirty tag until the next source change or commit; the binary is the
+    // same. Only paths that exist: Cargo reruns a script on every build for a
+    // missing path.
+    // reftable/tables.list is the ref store of a reftable repository.
+    let mut git_paths = vec![
+        "HEAD".to_owned(),
+        "packed-refs".to_owned(),
+        "logs/HEAD".to_owned(),
+        "reftable/tables.list".to_owned(),
+    ];
+    if let Some(reference) = git(&["symbolic-ref", "-q", "HEAD"]) {
+        git_paths.push(reference);
+    }
+    for path in &git_paths {
+        if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", path])
+            && std::path::Path::new(&p).exists()
+        {
             println!("cargo:rerun-if-changed={p}");
         }
     }
     // Everything the binary embeds, so the dirty check reruns for each.
-    for dir in ["src", "docs", "web", "skills"] {
+    for dir in
+        ["src", "docs", "web", "skills", "catalog", "data", "harnesses", "sandbox", "Cargo.toml"]
+    {
         println!("cargo:rerun-if-changed={dir}");
     }
 }

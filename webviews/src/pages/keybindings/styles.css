@@ -12,7 +12,7 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  padding: 18px 18px 10px;
+  padding: 18px var(--page-edge) 10px;
   border-bottom: 1px solid var(--page-separator);
 }
 

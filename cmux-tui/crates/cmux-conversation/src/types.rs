@@ -199,8 +199,10 @@ pub struct Message {
     /// The ids in `answers` whose work still runs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers_pending: Vec<String>,
-    /// The root message of the thread this message is a reply in. A root
-    /// has none; a thread has one level. Messages before threads have none
+    /// The top root of the thread tree this message is a reply in. A root
+    /// has none. Threads nest without a limit: `reply_to` names the parent
+    /// (the root or any reply of the same thread), so a reply of a reply
+    /// keeps the same `thread_root`. Messages before threads have none
     /// (their `reply_to` stays as it was).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_root: Option<String>,
@@ -278,7 +280,9 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         answers_pending: Vec<String>,
         /// The thread root this message replies in: a message of this
-        /// conversation that is not itself in a thread.
+        /// conversation that is not itself in a thread. With `reply_to`, it
+        /// must be the parent or the parent's own root; without it, a
+        /// `reply_to` parent in a thread gives its root (nested threads).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_root: Option<String>,
     },

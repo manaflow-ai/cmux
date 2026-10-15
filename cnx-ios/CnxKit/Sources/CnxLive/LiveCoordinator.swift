@@ -819,7 +819,11 @@ public final class LiveCoordinator {
             // own `daemon` channel of this link; open ones reattach now. Input-lane
             // channels may ride another stream, so they wait for pairing here.
             self.terminals.removeAll { $0.session == nil }
-            for terminal in self.terminals { terminal.session?.reconnect() }
+            let attach = Set(DaemonTerminalSession.surfacesToReattach(self.terminals.compactMap { $0.session?.surface },
+                                                     tree: self.workspaces.tree.map { Set($0.surfaces.values) }))
+            for terminal in self.terminals where terminal.session.map({ attach.contains($0.surface) }) == true {
+                terminal.session?.reconnect()
+            }
             // Streamed browser tabs that dropped open again on this link.
             StreamedBrowserDirectory.shared.linkChanged()
             do {
@@ -1042,6 +1046,22 @@ public final class LiveCoordinator {
         terminals.removeAll { $0.session == nil }
         terminals.append(WeakTerminal(session: session))
         return session
+    }
+
+    /// The Mac's screen of a terminal tab as plain text (`read-screen`, one
+    /// short-lived `daemon` channel), for the grid card of a tab not opened
+    /// in this launch (D5). Nil without a link or on any failure.
+    public func terminalScreenText(tabID: String) async -> String? {
+        guard let surface = workspaces.tree?.surfaces[tabID], let link = await servedLink,
+              let channel = try? await link.openChannel(service: "daemon", args: [:]) else { return nil }
+        let client = DaemonClient(channel: channel)
+        await client.start()
+        defer { Task { await client.close() } }
+        guard let reply = try? await client.request("read-screen", params: ["surface": surface]),
+              let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              object["ok"] as? Bool != false,
+              let data = object["data"] as? [String: Any] else { return nil }
+        return data["text"] as? String
     }
 
     /// Files and Links previews for a terminal tab: real files on the linked

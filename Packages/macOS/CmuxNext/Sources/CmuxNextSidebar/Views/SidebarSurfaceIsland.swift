@@ -147,7 +147,7 @@ extension SidebarView {
     /// popover as a hover would; whether it shows.
     public func debugShowUpdateHighlights() -> [String: String] {
         updateCardView.showNotes()
-        return ["shown": String(updateCardView.popover?.isShown == true),
+        return ["shown": String(updateCardView.notesAreShown),
                 "card": String(updateCardView.card != nil),
                 "highlights": String(updateCardView.highlights != nil),
                 "height": String(Double(updateCardView.highlights?.contentHeight ?? -1)),

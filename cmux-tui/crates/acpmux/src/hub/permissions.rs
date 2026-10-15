@@ -122,8 +122,13 @@ impl Hub {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                // A harness title made from the first input stops before a client context
+                // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
-                    m.title = Some(title.to_owned());
+                    let title = cmux_chat_index::without_client_context(title).trim_end();
+                    if !title.is_empty() {
+                        m.title = Some(title.to_owned());
+                    }
                 }
             }
             _ => {}
@@ -274,10 +279,9 @@ impl Hub {
         turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
         let mut path = Self::fs_path(session, &params)?;
-        // A read from a turn that ended (or was cancelled) is refused, as a
-        // permission request from it is cancelled.
-        if session.permission_epoch.load(Ordering::SeqCst) != epoch
-            || session.turn().map(|t| t.turn_id) != turn_id
+        // A read from a cancelled turn, or one that arrived before another
+        // turn began, is refused, as a permission request from it is cancelled.
+        if session.permission_epoch.load(Ordering::SeqCst) != epoch || stale_turn(session, &turn_id)
         {
             return Err(RpcError::new(-32000, "the turn of this read ended"));
         }
@@ -389,7 +393,7 @@ impl Hub {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
             if session.permission_epoch.load(Ordering::SeqCst) != epoch
-                || session.turn().map(|t| t.turn_id) != turn_id
+                || stale_turn(session, &turn_id)
             {
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
@@ -541,8 +545,7 @@ impl Hub {
                 && session.status() == SessionStatus::Waiting
                 && !self.secrets.waiting_in(&session.id)
             {
-                let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
-                self.set_status(session, next);
+                self.set_status(session, status_after_ask(session, prev));
             }
         }
         let mut out = json!({"outcome": outcome});
@@ -642,8 +645,30 @@ impl Hub {
                         }
                         _ => false,
                     };
-                    let spent = proved
-                        && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n));
+                    // A phone's signed allow or answer (`approvers.rs`): it
+                    // covers the answers, never `answeredBy`.
+                    let signed = !proved
+                        && answered_by.is_none()
+                        && match (&option_id, answerer.approver) {
+                            (Some(o), Some((nonce, decision))) => {
+                                cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                                    && self.person.approver_proves(
+                                        &session.id,
+                                        permission_id,
+                                        o,
+                                        nonce,
+                                        answers.as_ref(),
+                                        decision,
+                                    )
+                            }
+                            _ => false,
+                        };
+                    let spent = (proved
+                        && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n)))
+                        || (signed
+                            && answerer
+                                .approver
+                                .is_some_and(|(n, _)| self.person.spend_decision(n)));
                     if !spent {
                         return Err(super::person::person_required("allowing a permission"));
                     }
@@ -724,4 +749,32 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
         }
     }
     out
+}
+
+/// Whether a request that arrived during turn `then` (None: between turns) is
+/// stale: another turn runs now, and the request must not join its ask. A turn
+/// that only ended keeps it (cx-jo8yo): subagents and background shells outlive
+/// their turn and still ask, often in the moment between the harness's end of
+/// turn and acpmux's. A cancel bumps `permission_epoch`, and the remote floor
+/// still judges a request after a Web turn by that turn (`web_turn`).
+fn stale_turn(session: &Session, then: &Option<String>) -> bool {
+    // A turn the remote floor cancelled stays cancelled for every request
+    // from it, also after it ended and a local client restored an asking mode.
+    if then.is_some()
+        && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == *then
+    {
+        return true;
+    }
+    session.turn().is_some_and(|now| Some(&now.turn_id) != then.as_ref())
+}
+
+/// The status of a chat whose last ask (a permission or a secret) was just
+/// answered, from `prev`, its status when that ask came: running in a turn,
+/// ready between turns (an ask that outlived its turn), else as it was.
+pub(super) fn status_after_ask(session: &Session, prev: SessionStatus) -> SessionStatus {
+    match (session.turn().is_some(), prev) {
+        (true, _) => SessionStatus::Running,
+        (false, SessionStatus::Running | SessionStatus::Waiting) => SessionStatus::Ready,
+        (false, prev) => prev,
+    }
 }

@@ -8,6 +8,11 @@ use super::*;
 impl Hub {
     /// Refresh the configured catalog while keeping all session processes alive.
     pub async fn reload_catalog(self: &Arc<Self>) -> Result<Value, RpcError> {
+        // One reload at a time: each drops idle pooled sessions and probes the
+        // model lists again, and several pages (or the profile watcher) may
+        // ask at once after an install. The next waits for the one running.
+        static RELOADING: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let _one = RELOADING.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
         let (path, sources) = self.config_sources().await?;
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.

@@ -133,6 +133,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("project.update", PROJECT_REASON),
     ("project.remove", PROJECT_REASON),
     ("project.sync", PROJECT_REASON),
+    ("project.source.update", PROJECT_REASON),
     ("palette_usage.get", PALETTE_USAGE_REASON),
     ("palette_usage.record", PALETTE_USAGE_REASON),
     ("palette_usage.import", PALETTE_USAGE_REASON),
@@ -145,6 +146,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("history.visit.record", HISTORY_VISIT_REASON),
     ("history.visit.title", HISTORY_VISIT_REASON),
     ("history.visit.import", HISTORY_VISIT_REASON),
+    ("history.trail.record", HISTORY_VISIT_REASON),
     ("history.visit.summaries", HISTORY_OMNIBOX_REASON),
     ("history.visit.remove", HISTORY_OMNIBOX_REASON),
     ("workspace.agent_start.get", AGENT_START_REASON),
@@ -193,9 +195,9 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
-const HISTORY_VISIT_REASON: &str = "Page visits, their titles and the app's older visit logs come \
-     from the verified app that hosts the browser (gate A2); agents read history, they never add a \
-     visit.";
+const HISTORY_VISIT_REASON: &str = "Page visits, their titles, the app's older visit logs and the \
+     location trail's steps come from the verified app that hosts the browser and windows (gate \
+     A2); agents read history, they never add a visit or a step.";
 const HISTORY_OMNIBOX_REASON: &str = "The omnibox's own seed and Remove suggestion: `cmux history` \
      lists history and removes entries by id or site.";
 const HISTORY_MCP_PENDING_REASON: &str = "The person's page, command and agent history: MCP \

@@ -23,20 +23,28 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
     let files: HomeChiefFiles
     /// The Chief home's owner daemon; nil while it is not connected.
     let connection: @MainActor @Sendable () -> DaemonConnection?
+    /// Starts this Mac's brain when it does not answer (Home need not be
+    /// open); whether a start (or the watch of a starting host) is underway.
+    let startBrain: @MainActor @Sendable () -> Bool
     public var isLocal: Bool { true }
     public var place: String? { nil }
 
-    public init(files: HomeChiefFiles, connection: @escaping @MainActor @Sendable () -> DaemonConnection?) {
+    public init(files: HomeChiefFiles, connection: @escaping @MainActor @Sendable () -> DaemonConnection?,
+                startBrain: @escaping @MainActor @Sendable () -> Bool = { false }) {
         self.files = files
         self.connection = connection
+        self.startBrain = startBrain
     }
 
     /// The files, with the brain's offered models and efforts when its
     /// daemon answers.
     public func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         let snapshot = files.snapshot()
-        guard let connection = await connection(),
-              let report = try? await ChiefControlClient(connection).chiefEngine() else { return snapshot }
+        guard let connection = await connection() else { return snapshot }
+        guard let report = try? await ChiefControlClient(connection).chiefEngine() else {
+            _ = await startBrain()
+            return snapshot
+        }
         return snapshot.offering(report)
     }
 
@@ -45,7 +53,7 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         do {
             return files.snapshot().offering(try await HomeChiefEngineSet.send(key, value, on: connection))
         } catch .unreachable {
-            throw .localUnreachable
+            throw await startBrain() ? .localStarting : .localUnreachable
         }
     }
 }

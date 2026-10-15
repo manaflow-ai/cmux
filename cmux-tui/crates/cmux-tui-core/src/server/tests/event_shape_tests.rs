@@ -1,29 +1,6 @@
 use super::*;
 
 #[test]
-fn agent_changed_event_preserves_the_scoped_agent_state() {
-    assert_eq!(
-        subscribed_event_json(&MuxEvent::AgentChanged {
-            surface: 7,
-            state: Arc::<str>::from("working"),
-            source: Arc::<str>::from("hook"),
-            session: Some(Arc::<str>::from("review")),
-            agent: Some(Arc::<str>::from("claude")),
-            updated_at_ms: 41,
-        }),
-        json!({
-            "event": "agent-changed",
-            "surface": 7,
-            "state": "working",
-            "source": "hook",
-            "session": "review",
-            "agent": "claude",
-            "updated_at_ms": 41,
-        })
-    );
-}
-
-#[test]
 fn agent_presence_changed_event_carries_the_target_and_clears_with_nulls() {
     let presence = crate::AgentPresence {
         activity: crate::AgentActivity::Reading,

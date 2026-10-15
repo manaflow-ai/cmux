@@ -24,7 +24,9 @@ public struct TabItemMapping {
         var item = StripTabItem(
             id: StripTabID(tab.id),
             title: title,
-            subtitle: isConversation ? nil : isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
+            // The New Tab and blank pages' addresses are no place a person went: no address line.
+            subtitle: isConversation ? nil : isBrowser ? tab.url.flatMap { Self.isBlankPageAddress($0) ? nil : $0 }
+                : tab.cwd.map(SidebarMapping.shared.abbreviate),
             icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,

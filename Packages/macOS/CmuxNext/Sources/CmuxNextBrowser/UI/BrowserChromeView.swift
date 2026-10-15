@@ -44,7 +44,8 @@ public final class BrowserChromeView: NSView {
         }
     }
 
-    let toolbar = NSView()
+    /// The arrow over the whole row (`OmnibarPointer`).
+    let toolbar = ArrowCursorView()
     let separator = NSView()
     /// Holds an optional bar under the toolbar (the bookmarks bar); zero high when empty.
     let accessoryBar = NSView()
@@ -53,11 +54,10 @@ public final class BrowserChromeView: NSView {
     let forwardButton: ChromeIconButton
     let reloadButton: ChromeIconButton
     private let progressLine = ProgressLineView()
-    /// The page area: the page, docked DevTools and the page overlays. The
-    /// pane's rounded corners clip it (`PaneContentChrome`).
+    /// The page area: the page, docked DevTools and the page overlays. It is
+    /// square; the pane's one rounded content area clips this whole view.
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
-    private var reportedHeader: CGFloat = -1
     /// The band under the toolbar rows for the pane's tab strip (R109).
     let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
@@ -78,6 +78,8 @@ public final class BrowserChromeView: NSView {
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
+        // With no extension pinned the Extensions menu opens from More.
+        toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
         return toolbar
     }()
 
@@ -118,9 +120,9 @@ public final class BrowserChromeView: NSView {
         self.tab = tab
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
-        backButton = ChromeIconButton(icon: .navBack, label: Strings.back, action: nil, target: nil, toolbar: true)
-        forwardButton = ChromeIconButton(icon: .navForward, label: Strings.forward, action: nil, target: nil, toolbar: true)
-        reloadButton = ChromeIconButton(icon: .actionReload, label: Strings.reload, action: nil, target: nil, toolbar: true)
+        backButton = ChromeIconButton(icon: .navBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
+        forwardButton = ChromeIconButton(icon: .navForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false)
+        reloadButton = ChromeIconButton(icon: .actionReload, label: Strings.reload, action: nil, target: nil, toolbar: true, toolTip: false)
         super.init(frame: .zero)
         wantsLayer = true
         backButton.setAccessibilityIdentifier(BrowserChromeView.backIdentifier)
@@ -363,10 +365,6 @@ public final class BrowserChromeView: NSView {
         addressBar.followLayout()
         updateOcclusion()
         syncPageOverlays()
-        if pageAreaTop != reportedHeader {
-            reportedHeader = pageAreaTop
-            onPaneHeaderHeightChange?()
-        }
     }
 
     /// Child-window pages draw above this view; tell them where the find

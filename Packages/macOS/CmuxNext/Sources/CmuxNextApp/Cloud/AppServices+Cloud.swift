@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextMobileHost
 import Observation
 
 extension AppServices {
@@ -36,7 +37,13 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         cloud.confirmWindow = { [weak self] in self?.windows.active?.window }
         cloud.start()
-        wireIPhoneHost()
+        iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
+                    agentTabHost: { [weak self] in self?.agentTabs.localHost }, settings: { [weak self] in self?.settings },
+                    bundleID: environment.launch.bundleID, computerName: { await MacName.computerName() })
+        iphone.pairWindow = { [weak self] in self?.windows.active?.window }
+        iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
+            body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
+            withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: String?
@@ -44,8 +51,6 @@ extension AppServices {
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
-                // The cnx iPhone host follows the account too (it stops itself while signed out).
-                self.iphone.accountChanged(self.iphoneAccount)
                 // The local model relay follows the signed-in user (ModelRouterLease).
                 let user = state.0 ? state.2 : nil
                 if routerUser != .some(user) {

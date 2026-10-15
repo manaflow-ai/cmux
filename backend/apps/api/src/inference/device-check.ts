@@ -3,15 +3,17 @@ import type { Env } from "../env.ts"
 
 /**
  * Apple DeviceCheck (two bits per device that survive a reinstall) for the free tier
- * (plans/cmux-next/model-router.md, cx-dna4.3). Bit 0 = "this device took a free grant", with
- * Apple's `last_update_time` (YYYY-MM) as the month of that grant. A new install on a device whose
- * bit 0 was set this month gets no new grant; the earlier install keeps its grant.
+ * (plans/cmux-next/model-router.md, cx-dna4.3, cx-ds09i). Bit 0 = "this device took a free grant",
+ * bit 1 = "this device also took its one replacement key", with Apple's `last_update_time`
+ * (YYYY-MM) as the month of the last write. One grant and one replacement key per device per
+ * month; an earlier key keeps its grant until its month ends (accepted gap: Apple names no device,
+ * so the old key cannot be revoked; a device has at most two live keys in one month).
  *
  * Needs the secrets INFERENCE_DEVICECHECK_KEY_P8 + INFERENCE_DEVICECHECK_KEY_ID (a key with the
  * DeviceCheck capability) and the var APPLE_TEAM_ID. Without them the free tier refuses (dark).
  */
 
-export type DeviceBits = { readonly ok: true; readonly bit0: boolean; readonly month: string | null } | { readonly ok: false; readonly reason: string }
+export type DeviceBits = { readonly ok: true; readonly bit0: boolean; readonly bit1: boolean; readonly month: string | null } | { readonly ok: false; readonly reason: string }
 
 export const deviceCheckConfigured = (env: Env) => Boolean(env.INFERENCE_DEVICECHECK_KEY_P8 && env.INFERENCE_DEVICECHECK_KEY_ID && env.APPLE_TEAM_ID)
 
@@ -43,18 +45,18 @@ export const queryBits = async (env: Env, deviceToken: string): Promise<DeviceBi
     if (r.status === 400) return { ok: false, reason: "devicecheck.bad_token" }
     if (!r.ok) return { ok: false, reason: `devicecheck.http_${r.status}` }
     const text = await r.text()
-    if (!text.trim().startsWith("{")) return { ok: true, bit0: false, month: null }
-    const j = JSON.parse(text) as { bit0?: unknown; last_update_time?: unknown }
-    return { ok: true, bit0: j.bit0 === true, month: typeof j.last_update_time === "string" ? j.last_update_time : null }
+    if (!text.trim().startsWith("{")) return { ok: true, bit0: false, bit1: false, month: null }
+    const j = JSON.parse(text) as { bit0?: unknown; bit1?: unknown; last_update_time?: unknown }
+    return { ok: true, bit0: j.bit0 === true, bit1: j.bit1 === true, month: typeof j.last_update_time === "string" ? j.last_update_time : null }
   } catch {
     return { ok: false, reason: "devicecheck.unreachable" }
   }
 }
 
-/** Sets bit 0 (grant taken); Apple stamps the month. */
-export const markGranted = async (env: Env, deviceToken: string): Promise<boolean> => {
+/** Sets bit 0 (grant taken) and bit 1 (`replacement`: the month's replacement key taken); Apple stamps the month. */
+export const markGranted = async (env: Env, deviceToken: string, replacement = false): Promise<boolean> => {
   try {
-    const r = await call(env, "update_two_bits", { device_token: deviceToken, bit0: true, bit1: false })
+    const r = await call(env, "update_two_bits", { device_token: deviceToken, bit0: true, bit1: replacement })
     await r.body?.cancel()
     return r.ok
   } catch {

@@ -28,6 +28,9 @@ final class TabCell {
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab has no fill.
     var isWindowMain = true { didSet { if oldValue != isWindowMain { updateColors(animated: false) } } }
+    /// The strip's window is on screen and not fully covered: a busy indicator spins only then
+    /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
+    var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
     /// The selected (or lifted) tab's fill shows.
     var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
     /// Hover may start the title marquee (off while a drag or rename runs).
@@ -38,7 +41,6 @@ final class TabCell {
     var closingVisibility: TabChromeVisibility?
     /// Created on the first occlusion (`occlude(by:)`).
     lazy var occlusionMask = CALayer()
-    var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
     var metrics: TabStripMetrics = .standard {
         didSet {
@@ -84,7 +86,6 @@ final class TabCell {
     /// Fades the clipped title and runs its hover marquee (one mask layer,
     /// present only while the title is clipped).
     private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
-    private let separatorLayer = CALayer()
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
@@ -142,15 +143,12 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        separatorLayer.opacity = 0
-        for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
+        for sublayer in [backgroundLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
         }
         // Fills fade; geometry never implicitly animates.
         backgroundLayer.actions = ["backgroundColor": Self.fade, "shadowOpacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
-        // Separators switch at once (Chrome): no fade lag behind hover.
-        separatorLayer.actions = ["opacity": NSNull(), "bounds": NSNull(), "position": NSNull()]
     }
 
     static let noActions: [String: any CAAction] = [
@@ -248,7 +246,6 @@ final class TabCell {
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
-            separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
         }
         applyCloseColors()
@@ -290,16 +287,10 @@ final class TabCell {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        let hairline = 1 / scale
+        // No separators between tabs (quiet hierarchy): the selected pill
+        // and the hover fill already tell neighbors apart.
         backgroundLayer.frame = bounds
         backgroundLayer.cornerRadius = m.cornerRadius
-        // The separator sits in the middle of the gap after the pill.
-        separatorLayer.frame = CGRect(
-            x: pixel(bounds.maxX + (slot.width - bounds.maxX - hairline) / 2),
-            y: pixel((slot.height - m.separatorHeight) / 2),
-            width: hairline,
-            height: m.separatorHeight
-        )
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize

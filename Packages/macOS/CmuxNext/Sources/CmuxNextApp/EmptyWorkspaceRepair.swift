@@ -32,6 +32,8 @@ import os
 ///
 /// Observable through `states` (`isSettling`): a window shows nothing,
 /// rather than the new-workspace actions, while its workspace is settling.
+/// A failed first terminal is kept in `failures` and shown with a retry,
+/// not refilled by itself on that connection (cx-tzlqb).
 @MainActor @Observable
 final class EmptyWorkspaceRepair {
     /// Who is giving a workspace its first terminal.
@@ -58,6 +60,12 @@ final class EmptyWorkspaceRepair {
     /// Whether commands can run now. Tests replace it.
     @ObservationIgnored var canCreate: @MainActor () -> Bool
     private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
+    /// Why a workspace's first terminal failed, until a pane shows or New.
+    private(set) var failures: [WorkspaceKey: String] = [:]
+    /// Each failure's connection epoch: a reconnect lifts the refill hold.
+    @ObservationIgnored private var failureEpochs: [WorkspaceKey: Int] = [:]
+    /// Created workspaces whose terminal and then close failed: released.
+    @ObservationIgnored private var keptAfterFailedClose: Set<WorkspaceKey> = []
     /// The last emptied workspaces and what this app did with each (closed,
     /// or kept with a new terminal), newest last, for `debug.windows`: a
     /// workspace that disappears is always explained.
@@ -156,6 +164,8 @@ final class EmptyWorkspaceRepair {
         let present = Set(store.workspaces.compactMap(\.key))
         populated = populated.filter { present.contains($0.key) }
         for key in states.keys where !present.contains(key) && states[key] == .closing { states[key] = nil }
+        for key in failures.keys where !present.contains(key) { clearFailure(key) }
+        keptAfterFailedClose.formIntersection(present)
     }
 
     /// The store's home workspace (workspace-kind-v1) starts empty on
@@ -171,6 +181,7 @@ final class EmptyWorkspaceRepair {
 
     private func notePopulated(_ key: WorkspaceKey) {
         populated[key] = epoch()
+        if failures[key] != nil { clearFailure(key) }
         // Whoever created the terminal is done, unless this app is still
         // inside its own populate call or closing it.
         if states[key] == .awaitingPane { states[key] = nil }
@@ -196,7 +207,7 @@ final class EmptyWorkspaceRepair {
                 do {
                     _ = try await create(key)
                 } catch {
-                    if states[key] == .awaitingPane { states[key] = nil }
+                    if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
                     logger.error("refilling a workspace with a lost terminal failed: \(String(describing: error), privacy: .public)")
                 }
                 return
@@ -226,7 +237,8 @@ final class EmptyWorkspaceRepair {
     func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
         guard let key = workspace.key, isLive(), !Self.isHome(workspace) else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
-        guard states[key] == nil, !closeIfEmptied(key), everPopulated.contains(key) else { return }
+        if let failed = failureEpochs[key], failed != epoch() { clearFailure(key) }
+        guard states[key] == nil, !closeIfEmptied(key), everPopulated.contains(key), failures[key] == nil else { return }
         createTab(key, create: create, created: created)
     }
 
@@ -234,6 +246,8 @@ final class EmptyWorkspaceRepair {
     /// The state claim makes repeated key presses idempotent while the daemon
     /// delta is still in flight.
     func createFirstTab(_ key: WorkspaceKey, created: @escaping @MainActor (SurfaceID) -> Void = { _ in }) {
+        guard states[key] == nil, canCreate() else { return }
+        clearFailure(key)
         createTab(key, create: createFirst ?? create, created: created)
     }
 
@@ -246,7 +260,7 @@ final class EmptyWorkspaceRepair {
             do {
                 if let surface = try await create(key) { created(surface) }
             } catch {
-                if states[key] == .awaitingPane { states[key] = nil }
+                if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
                 logger.error("creating a terminal for an empty workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
@@ -257,6 +271,9 @@ final class EmptyWorkspaceRepair {
     /// empty workspace that is settling is not waiting for the user.
     func isSettling(_ key: WorkspaceKey) -> Bool { states[key] != nil }
 
+    /// Why `key`'s first terminal did not start, while it is still empty.
+    func failure(_ key: WorkspaceKey) -> String? { failures[key] }
+
     /// `key` is emptied on purpose (its tabs are moving to another
     /// workspace) and will close: no repair until `endClosing`.
     func beginClosing(_ key: WorkspaceKey) { states[key] = .closing }
@@ -264,6 +281,20 @@ final class EmptyWorkspaceRepair {
     /// The move failed (the tabs stayed): repairs apply again.
     func endClosing(_ key: WorkspaceKey) {
         if states[key] == .closing { states[key] = nil }
+    }
+
+    /// A person's first tab in an existing empty workspace (Cmd-T): a failure
+    /// releases it with its reason; `populating` would leave it `.closing`
+    /// (blank, every later Cmd-T dropped, cx-tzlqb).
+    func fillFirstTab<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async throws -> T {
+        states[key] = .awaitingPane
+        clearFailure(key)
+        do {
+            return try await body()
+        } catch {
+            if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
+            throw error
+        }
     }
 
     /// Marks `key` as being populated by this app for the duration of
@@ -278,15 +309,31 @@ final class EmptyWorkspaceRepair {
             finishPopulating(key, succeeded: true)
             return value
         } catch {
-            finishPopulating(key, succeeded: false)
+            finishPopulating(key, succeeded: false, error: error)
             throw error
         }
     }
 
-    private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool) {
+    /// `WorkspaceCreation` could not close `key` after its terminal failed.
+    func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
+
+    private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+        failures[key] = String(describing: error)
+        failureEpochs[key] = epoch()
+    }
+
+    private func clearFailure(_ key: WorkspaceKey) {
+        failures[key] = nil
+        failureEpochs[key] = nil
+    }
+
+    private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
         guard case .populating(let count) = states[key] else { return }
         if count > 1 {
             states[key] = .populating(count - 1)
+        } else if !succeeded, keptAfterFailedClose.remove(key) != nil {
+            states[key] = nil
+            if let error { recordFailure(key, error) }
         } else {
             // A failed create was closed again by its creator
             // (`WorkspaceCreation`): it is empty on purpose and never

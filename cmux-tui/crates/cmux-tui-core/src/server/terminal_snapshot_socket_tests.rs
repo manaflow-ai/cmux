@@ -147,14 +147,29 @@ fn a_client_without_snapshot_gets_the_replay_stream() {
 // ---- terminal-snapshot-history-v1 -------------------------------------
 
 /// A surface running `cat` (it prints nothing on its own) whose primary
-/// screen holds `lines` lines of scrollback.
+/// screen holds `lines` lines of scrollback, at the default scrollback limit.
 fn quiet_surface_with_scrollback(
     session: &str,
     lines: usize,
 ) -> (std::sync::Arc<Mux>, std::sync::Arc<crate::Surface>) {
+    quiet_surface_with_scrollback_limit(session, lines, SurfaceOptions::default().scrollback)
+}
+
+/// [`quiet_surface_with_scrollback`] with an explicit scrollback limit in
+/// bytes (`scrollback-limit-bytes`), for tests that need more history than
+/// the default limit keeps.
+fn quiet_surface_with_scrollback_limit(
+    session: &str,
+    lines: usize,
+    scrollback: usize,
+) -> (std::sync::Arc<Mux>, std::sync::Arc<crate::Surface>) {
     let mux = Mux::new_for_test(
         session,
-        SurfaceOptions { command: Some(vec!["cat".to_string()]), ..SurfaceOptions::default() },
+        SurfaceOptions {
+            command: Some(vec!["cat".to_string()]),
+            scrollback,
+            ..SurfaceOptions::default()
+        },
     );
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let mut chunk = String::new();
@@ -287,7 +302,11 @@ fn every_ready_is_followed_by_its_history_through_finish() {
 /// ends before the new READY, and the new READY gets a full history.
 #[test]
 fn live_output_overtakes_history_and_a_new_ready_cancels_the_old_history() {
-    let (mux, surface) = quiet_surface_with_scrollback("snapshot-history-priority", 60_000);
+    // 50 MB, not the 10 MB default (about 15,000 rows, #20257): the default
+    // keeps too few of the 60k lines for the history to outlast the
+    // mid-history request below.
+    let (mux, surface) =
+        quiet_surface_with_scrollback_limit("snapshot-history-priority", 60_000, 50_000_000);
     let (writer, outbound, client) = attach_snapshot_viewer(&mux, &surface);
     let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
     assert_eq!(ready["phase"], "ready", "{ready}");

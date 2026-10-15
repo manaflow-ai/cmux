@@ -38,7 +38,7 @@ env:
 jobs:
   render:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Keep all three evidence stages, but shard each stage. A broad gallery change can select
     # thousands of browser states; sequential rendering otherwise consumes the whole hour.
     # Isolated jobs also avoid competing for renderer memory or CPU while measuring play steps.
@@ -194,7 +194,7 @@ jobs:
   compare:
     needs: render
     if: ${{ needs.render.result == 'success' && needs.render.outputs.touched != '0' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - name: Checkout the PR diff scripts

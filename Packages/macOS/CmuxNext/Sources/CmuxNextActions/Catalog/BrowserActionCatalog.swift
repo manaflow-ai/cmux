@@ -389,6 +389,16 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 surfaces: [.keyboard], requires: [.diffViewerFocused], targets: [.pane],
                 cliName: "browser diff-previous-file"
             ),
+            // Chrome's device toolbar devices (cx-ocbf3): the daemon's list
+            // (browser.devices.list) and the tab's emulation (browser.tab.emulate).
+            ActionDescriptor(
+                id: "browserDevice",
+                title: String(localized: "action.browserDevice", defaultValue: "Emulate Device…", bundle: .module),
+                keywords: ["browser", "device", "responsive", "mobile", "viewport", "emulation", "iphone", "android", "toolbar"],
+                category: .browser, symbol: "iphone", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                arguments: [CatalogArgument.deviceString, CatalogArgument.orientationString], targets: [.pane],
+                cliName: "browser device"
+            ),
         ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + pinnedPageDescriptors()
     }
 }

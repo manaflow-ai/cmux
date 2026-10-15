@@ -134,8 +134,34 @@ export type IPhoneHostState = {
   how: string;
   phones_title: string;
   phones_empty: string;
-  /** `transport` (`webrtc`, `wireguard`) and `path` (`direct`, `relay`, `turn`) are read-only facts. */
-  phones: Array<{ id: string; title: string; subtitle: string; transport: string; path: string }>;
+  /**
+   * The account's phones (with their live link when connected), then live links of phones the list
+   * does not have yet. `transport` (`webrtc`, `wireguard`) and `path` (`direct`, `relay`, `turn`)
+   * are read-only facts of a live link; only a `removable` row has Remove.
+   */
+  phones: Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    connected: boolean;
+    removable: boolean;
+    transport: string | null;
+    path: string | null;
+  }>;
+  /** Why the list could not load or a removal failed; null when it worked. */
+  phones_error: string | null;
+  remove_title: string;
+  remove_help: string;
+  /** With phase `removed` (the owner removed this Mac): the button that allows connections again. */
+  allow_again_title?: string;
+  /** Phones asking to pair, oldest first; Allow and Don't Allow are the person's own gesture. */
+  pending_title?: string;
+  pending?: Array<{ id: string; title: string; subtitle: string }>;
+  pair_allow_title?: string;
+  pair_deny_title?: string;
+  /** "Blocked requests: N" after a Don't Allow quieted prompts (or too many asked); null when none. */
+  blocked?: string | null;
+  blocked_help?: string;
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
@@ -315,6 +341,12 @@ export type SettingsOps = {
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
+  /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
+  "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
+  /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
+  "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
+  /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
+  "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

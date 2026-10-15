@@ -5,10 +5,14 @@
 // the transcript.
 import { createContext, useContext, useEffect, useState } from "react";
 import { Icon } from "../icons/Icon";
-import { useT } from "../i18n";
+import { AgentMark, agentBrand } from "../../shared/AgentMark";
+import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
+
+/// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
+export const SubagentHarnessContext = createContext<string | undefined>(undefined);
 
 /// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
 export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
@@ -51,12 +55,34 @@ export function useNow(live: boolean): number {
 }
 
 function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
+  const harness = useContext(SubagentHarnessContext);
   return (
     <span className="cv-subagent-avatar" data-state={agent.state}>
-      <Icon name="agent.session" size={14} />
+      {agentBrand(harness) ? <AgentMark agent={harness} size={14} /> : <Icon name="agent.session" size={14} />}
       {dot && <span className="cv-subagent-avatar__dot" aria-hidden="true" />}
     </span>
   );
+}
+
+/// The group's one line (Leo 2026-10-13): "1 subagent running", "3 subagents done", or the count
+/// and what is still going, "2 subagents, 1 running" (and any failed; done ones once none run).
+/// Each count takes the pane language's plural form.
+function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subagent[]): string {
+  const n = agents.length;
+  const count = (state: string) => agents.filter((agent) => agent.state === state).length;
+  const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
+  if (n > 0 && runningCount === n) return t("subagents.allRunning", { n });
+  if (n > 0 && done === n) return t("subagents.allDone", { n });
+  if (n > 0 && failed === n) return t("subagents.allFailed", { n });
+  const states = [
+    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
+    failed > 0 && t("summary.subagents.failed", { n: failed }),
+    runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
+  ].filter((part): part is string => typeof part === "string");
+  const total = t("subagents.count", { n });
+  if (states.length === 0) return total;
+  const list = new Intl.ListFormat(language, { type: "unit", style: "short" }).format(states);
+  return t("subagents.countAndStates", { count: total, states: list });
 }
 
 export function SubagentGroupHeader({
@@ -69,17 +95,10 @@ export function SubagentGroupHeader({
   onToggle: () => void;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const agents = row.subagents ?? [];
   const live = agents.some(running);
   const now = useNow(live);
-  const count = (state: string) => agents.filter((agent) => agent.state === state).length;
-  const status = [
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("completed") > 0 && t("summary.subagents.done", { n: count("completed") }),
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const controls = expanded ? agents.map((agent) => `${row.id}:${agent.id}`).join(" ") : undefined;
   return (
     <button type="button" className="cv-subagents" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
@@ -90,10 +109,7 @@ export function SubagentGroupHeader({
         {agents.length > STACK && <span className="cv-subagents__more">+{agents.length - STACK}</span>}
       </span>
       <span className="cv-subagents__text">
-        <span className="cv-subagents__title">{t("subagents.count", { n: agents.length })}</span>
-        <span className="cv-subagents__status" data-live={live || undefined}>
-          {status}
-        </span>
+        <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
       </span>
       <span className="cv-subagents__time">{formatDuration(groupElapsed(agents, now))}</span>
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
@@ -115,7 +131,10 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     <>
       <Avatar agent={agent} dot />
       <span className="cv-subagent__text">
-        <span className="cv-subagent__name">{agent.name}</span>
+        <span className="cv-subagent__name">
+          {agent.name}
+          {agent.kind && agent.kind !== agent.name && <span className="cv-subagent__kind">{agent.kind}</span>}
+        </span>
         <span className="cv-subagent__state">{state}</span>
       </span>
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>

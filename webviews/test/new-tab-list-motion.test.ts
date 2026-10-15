@@ -170,29 +170,4 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
       await page.close();
     }
   });
-
-  test("with reduced motion a template switch fades its new parts in and moves nothing", async () => {
-    const page = await recordingPage();
-    try {
-      await page.goto(url("switcher-keys", true));
-      await ready(page);
-      await page.locator('.nt-screen[data-template="default"]').waitFor();
-      await page.waitForTimeout(400); // the page settles
-      await forget(page);
-      // Console adds the prompt glyph, which fades in; the field and the chats move.
-      await page.locator('.nt-template-dot[data-template="console"]').click();
-      await page.locator('.nt-screen[data-template="console"]').waitFor();
-      const started = await page.evaluate(() =>
-        (window as unknown as { startedMotion: { properties: string[] }[] }).startedMotion.flatMap(
-          (entry) => entry.properties,
-        ),
-      );
-      expect({ fades: started.includes("opacity"), moves: started.includes("transform") }).toEqual({
-        fades: true,
-        moves: false,
-      });
-    } finally {
-      await page.close();
-    }
-  });
 });

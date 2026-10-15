@@ -116,8 +116,9 @@ impl Mux {
     ) {
         let provider_bootstrap = matches!(&bootstrap, BrowserBootstrap::Provider { .. });
         // The frontend renders this page itself; the daemon never waits for
-        // or attaches a CDP target for it.
+        // or attaches a CDP target for it, so it is live now.
         if provider_bootstrap && self.is_frontend_browser_surface(&surface) {
+            surface.mark_browser_frontend_rendered();
             return;
         }
         let weak_mux = Arc::downgrade(self);

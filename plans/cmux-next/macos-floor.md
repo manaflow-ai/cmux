@@ -1,16 +1,23 @@
 # cmux-next minimum macOS
 
 Status: decided 2026-10-10 by Lawrence: **cmux-next supports macOS 14 Sonoma
-and newer.** Work: bead epic cx-s6wi (steps: .1 Tart launch smoke 14/15/26,
-.2 exact measurement, .3 Mutex/Atomic in CmuxNextCompat, .4 Observations
-helper, .5 Liquid Glass fallback, .6 Speech fallback, .7 other API sites,
-.8 deployment target flip, .9 CI compile at floor 14). Until step .8 lands,
-cmux-next still requires macOS 26
-(`Packages/macOS/CmuxNext/Package.swift` `.macOS(.v26)`, the `cmux-next` Xcode
-target `MACOSX_DEPLOYMENT_TARGET = 26.0`, and `MACOSX_DEPLOYMENT_TARGET=26.0` in
-`scripts/cmux-next/build-app-ffi.sh`, `build-rd-ffi.sh`,
-`build-layout-reducer-ffi.sh`, `embed-cef.sh`, `bundle-server-helper.sh`).
-Classic cmux requires macOS 14.
+and newer.** Work: bead epic cx-s6wi (label macos14). Since 2026-10-13 the
+deployment target is 14.0: `Packages/macOS/CmuxNext/Package.swift`
+`.macOS(.v14)`, the `cmux-next` Xcode target `MACOSX_DEPLOYMENT_TARGET = 14.0`,
+14.0 in `scripts/cmux-next/build-app-ffi.sh`, `build-rd-ffi.sh`,
+`build-layout-reducer-ffi.sh`, `embed-cef.sh`, `bundle-server-helper.sh`,
+`build-cef-shim.sh` and `scripts/ci/macos-cross.sh`, and CCmuxAppFFI released
+at minos 14.0. Every compile of CmuxNext is now a floor-14 check: a new use of
+a macOS 15 or 26 API fails at the source push unless it is under
+`if #available` with a fallback (put shared fallbacks in CmuxNextCompat or
+CmuxNextDesign). The Computer Use helper is also at 14 (cx-s6wi.10). VM proof
+on 14, 15 and 26: `scripts/cmux-next/os-smoke/run.sh` (hq
+`build-host/macos-vm-smoke.md`).
+
+Known risk (UNVERIFIED): `withValueInTask` (CmuxNextActions) binds a task
+local without a task below macOS 26 (no `Task.immediate`). macOS 15.4 to 15.x
+have the isolated-deinit marker path that made this binding corrupt the heap
+on 26; the VM smoke on 15.7 covers Home and tabs but not every caller.
 
 ## Recommendation
 

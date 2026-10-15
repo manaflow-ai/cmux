@@ -36,12 +36,14 @@ nonisolated struct RoutedAppCall: Sendable, Equatable {
     /// bare object answer resolved every Mac-side op to `undefined` (the
     /// CodeRouter page stayed on "Loading…").
     func answer(with capabilities: AppHostCapabilities) async -> (ok: Bool, body: AppJSON) {
+        let ok: Bool, body: AppJSON // one return: swiftlang/swift#92698 drops `ok` at -O (cx-21wc5)
         do throws(AppHostCapabilityError) {
             let value = try await capabilities.handle(AppHostCapabilityRequest(app: app, op: op, params: params, origin: origin))
-            return (true, .object(["value": value]))
+            (ok, body) = (true, .object(["value": value]))
         } catch {
-            return (false, Self.errorBody(code: error.code, message: error.message, retryable: error.retryable, details: error.details))
+            (ok, body) = (false, Self.errorBody(code: error.code, message: error.message, retryable: error.retryable, details: error.details))
         }
+        return (ok, body)
     }
 
     /// The answer while an administrator turned apps off on this Mac.

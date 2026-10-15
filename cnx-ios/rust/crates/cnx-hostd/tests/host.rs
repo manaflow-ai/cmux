@@ -302,7 +302,10 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     assert_eq!(value["link"], 2);
     assert!(value["hostd"].is_string());
     // This fixture has a browser host: a phone may offer browser tabs.
-    assert_eq!(value["capabilities"], serde_json::json!(["removal-v1", "browser-stream-v1"]));
+    assert_eq!(
+        value["capabilities"],
+        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1"])
+    );
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.
@@ -497,6 +500,130 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     assert_eq!(drain(&mut shell).await.1, "unknown_service");
 
     link.close("done");
+}
+
+/// `browser {"video": "track"}` on a link with a media lane: the page's
+/// frames ride the lane (a WebRTC video track, or RTP inside the WireGuard
+/// tunnel; hostd is the main stream's viewer), rb control stays on the
+/// channel. A second tab takes the lane over and the first gets its video
+/// on its channel again. Without the lane (an older phone) the same request
+/// streams on the channel.
+async fn browser_video(kind: TransportKind, phone_lane: bool) {
+    let fixture = fixture(FakeOptions::default()).await;
+    let phone = DialOptions { video_lane: phone_lane, ..options() };
+    let connected =
+        cnx_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, &phone, LinkConfig::default())
+            .await
+            .expect("dial");
+    let link = &connected.link;
+    let lane = match link.media() {
+        Some(cnx_link::media::MediaLane::In(input)) => Some(input),
+        None => None,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(lane.is_some(), phone_lane);
+    if let Some(lane) = &lane {
+        let carrier = if kind == TransportKind::WebRtc { "webrtc-track" } else { "wireguard-udp" };
+        assert_eq!(lane.kind().name(), carrier);
+    }
+    let mut frames = match &lane {
+        Some(lane) => Some(lane.subscribe().await),
+        None => None,
+    };
+    let mut tab_a = link
+        .open(
+            "browser",
+            serde_json::json!({"tab": "sA", "url": "https://example.com/", "video": "track", "video_tag": 0xa1}),
+        )
+        .await
+        .unwrap();
+    let mut rd = RdReader::default();
+    assert_eq!(rd.control(&mut tab_a).await["t"], "welcome");
+    assert_eq!(rd.control(&mut tab_a).await["t"], "started");
+    assert_eq!(rd.control(&mut tab_a).await["body"]["t"], "rb.opened");
+    let Some(frames) = frames.as_mut() else {
+        // No lane: the shards come on the channel.
+        let datagram = rd.datagram(&mut tab_a).await;
+        let (header, _) = cmux_rd_proto::DatagramHeader::decode(&datagram).unwrap();
+        assert_eq!(header.kind, cmux_rd_proto::DatagramKind::Video);
+        link.close("done");
+        return;
+    };
+    // Frames on the track, starting at a keyframe, in order.
+    let mut got = Vec::new();
+    while got.len() < 10 {
+        let frame = tokio::time::timeout(Duration::from_secs(10), frames.frames.recv())
+            .await
+            .expect("frame")
+            .unwrap();
+        got.push(frame);
+    }
+    assert!(got[0].keyframe);
+    assert!(got.iter().skip(1).any(|f| !f.keyframe));
+    // Each lane frame carries tab A's tag, after its slices.
+    for frame in &mut got {
+        assert_eq!(cnx_link::media::tag::strip(&mut frame.access_unit), Some(0xa1));
+    }
+    assert!(cnx_link::media::h264::is_keyframe(&got[0].access_unit));
+    // The channel carries no main-stream video meanwhile.
+    let quiet = tokio::time::Instant::now() + Duration::from_millis(500);
+    loop {
+        let Ok(Some(event)) = tokio::time::timeout_at(quiet, tab_a.recv()).await else { break };
+        if let ChannelEvent::Data(data) = event {
+            rd.0.extend(&data);
+            while let Some((kind, payload)) = rd.0.next_frame().unwrap() {
+                if kind == cmux_rd_proto::STREAM_DATAGRAM {
+                    let (header, _) = cmux_rd_proto::DatagramHeader::decode(&payload).unwrap();
+                    assert!(!matches!(
+                        header.kind,
+                        cmux_rd_proto::DatagramKind::Video | cmux_rd_proto::DatagramKind::Fec
+                    ));
+                }
+            }
+        }
+    }
+    // Tab B takes the lane; tab A's video returns to its channel.
+    let mut tab_b = link
+        .open("browser", serde_json::json!({"tab": "sB", "video": "track", "video_tag": 0xb2}))
+        .await
+        .unwrap();
+    let mut rd_b = RdReader::default();
+    assert_eq!(rd_b.control(&mut tab_b).await["t"], "welcome");
+    // The lane goes over to tab B: its frames carry B's tag, and A's stop.
+    loop {
+        let mut frame = tokio::time::timeout(Duration::from_secs(10), frames.frames.recv())
+            .await
+            .expect("a lane frame after the takeover")
+            .unwrap();
+        match cnx_link::media::tag::strip(&mut frame.access_unit) {
+            Some(0xa1) => continue,
+            Some(0xb2) => break,
+            other => panic!("a lane frame tagged {other:?}"),
+        }
+    }
+    loop {
+        let datagram = rd.datagram(&mut tab_a).await;
+        let (header, _) = cmux_rd_proto::DatagramHeader::decode(&datagram).unwrap();
+        if header.kind == cmux_rd_proto::DatagramKind::Video {
+            break;
+        }
+    }
+    link.close("done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_video_rides_the_webrtc_track() {
+    browser_video(TransportKind::WebRtc, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_video_rides_rtp_inside_the_wireguard_tunnel() {
+    browser_video(TransportKind::WireGuard, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_video_stays_on_the_channel_for_an_older_phone_over_wireguard() {
+    browser_video(TransportKind::WireGuard, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -102,15 +102,6 @@ impl RecoveryHarness {
         harness
     }
 
-    /// A harness whose daemon runs with `env` added.
-    fn start_with_env(name: &str, env: &[(&str, &str)]) -> Self {
-        let mut harness = Self::start_unstarted(name);
-        harness.extra_env =
-            env.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect();
-        harness.restart();
-        harness
-    }
-
     /// A harness whose daemon never respawns a lost terminal (L2 off).
     fn start_without_respawn(name: &str) -> Self {
         let mut harness = Self::start_unstarted(name);
@@ -5288,6 +5279,9 @@ mod upgrade;
 
 #[path = "terminal_host_recovery/program_status_restart.rs"]
 mod program_status_restart;
+
+#[path = "terminal_host_recovery/command_activity.rs"]
+mod command_activity;
 
 #[path = "terminal_host_recovery/process_support.rs"]
 mod process_support;

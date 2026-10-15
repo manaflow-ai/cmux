@@ -186,7 +186,7 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
     let Some(branch) = attempt.branch.as_deref().filter(|_| attempt.delete_branch) else {
         return Ok(false);
     };
-    let main = Repository::open(&attempt.main_root, OPERATION)?;
+    let main = super::open_repository(&attempt.main_root, OPERATION)?;
     let reference = format!("refs/heads/{branch}");
     if main.commit(&reference).is_none() {
         return Ok(true);

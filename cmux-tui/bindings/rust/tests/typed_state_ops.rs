@@ -725,6 +725,7 @@ fn keyed_frontend_browser_tab_create_identifies_then_sends_the_key_and_decodes_r
             url: Some("https://cmux.com/docs".into()),
             title: Some("Docs".into()),
             favicon_url: Update::Clear,
+            profile_id: Update::Unchanged,
             owner: None,
         })
         .unwrap();

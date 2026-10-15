@@ -1,4 +1,4 @@
-.acpmux-shell{position:relative;height:100%;display:flex;color:var(--agent-text);font:13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;background:var(--agent-page-bg);overflow:hidden}.acpmux-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:0 0 44px;box-sizing:border-box;padding:0 8px;white-space:nowrap}.acpmux-scroll{flex:1;overflow:auto;contain:strict}.acpmux-spacer{position:relative;min-height:100%}.acpmux-thread{position:absolute;inset:0 0 auto;padding:16px max(18px,calc((100% - 760px)/2));}.acpmux-row{position:absolute;left:max(18px,calc((100% - 760px)/2));right:max(18px,calc((100% - 760px)/2));min-height:34px;box-sizing:border-box;padding-bottom:8px;contain:layout paint}.acpmux-row.acpmux-user,.acpmux-row.acpmux-assistant{padding-bottom:16px}.acpmux-user{display:flex;justify-content:flex-end}.acpmux-bubble,.acpmux-user-bubble{max-width:78%;padding:9px 12px;box-sizing:border-box;border-radius:16px;background:color-mix(in srgb,var(--agent-accent) 20%,transparent);white-space:pre-wrap}.acpmux-markdown{line-height:20px}.acpmux-markdown>*{margin:8px 0 0}.acpmux-markdown>:first-child{margin-top:0}.acpmux-markdown code{font:11.5px var(--font-mono)}.acpmux-markdown blockquote{padding-left:12px;border-left:2px solid var(--agent-border);color:var(--agent-soft)}.acpmux-markdown pre,.acpmux-activity-item pre{padding:9px;border-radius:8px;overflow:auto;background:var(--agent-input-bg);font:12px var(--font-mono)}.acpmux-summary,.acpmux-muted{color:var(--agent-muted);font-size:11px;padding:8px 0}.acpmux-activity-toggle{border:0;background:none;color:var(--agent-muted);padding:5px 0;cursor:pointer}.acpmux-activity-items{border-left:1px solid var(--agent-border);padding-left:12px;color:var(--agent-soft)}.acpmux-activity-item{padding:3px 0}.acpmux-glyph{display:inline-block;width:18px;color:var(--agent-accent)}.acpmux-permission{padding:0 max(18px,calc((100% - 760px)/2))}.acpmux-permission-card{padding:11px;border:1px solid var(--agent-accent);border-radius:12px;background:var(--agent-surface-elevated)}.acpmux-permission-buttons{display:flex;gap:7px;margin-top:9px}.acpmux-permission-buttons button{border:0;border-radius:6px;padding:7px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-shell{position:relative;height:100%;display:flex;color:var(--agent-text);font:13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;background:var(--agent-page-bg);overflow:hidden}.acpmux-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:0 0 44px;box-sizing:border-box;padding:0 8px;white-space:nowrap}.acpmux-scroll{flex:1;overflow:auto;contain:strict}.acpmux-spacer{position:relative;min-height:100%}.acpmux-thread{position:absolute;inset:0 0 auto;padding:16px var(--cv-inset,max(18px,calc((100% - 760px)/2)));}.acpmux-row{position:absolute;left:var(--cv-inset,max(18px,calc((100% - 760px)/2)));right:var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-height:34px;box-sizing:border-box;padding-bottom:8px;contain:layout paint}.acpmux-row.acpmux-user,.acpmux-row.acpmux-assistant{padding-bottom:16px}.acpmux-user{display:flex;justify-content:flex-end}.acpmux-bubble,.acpmux-user-bubble{max-width:78%;padding:9px 12px;box-sizing:border-box;border-radius:16px;background:color-mix(in srgb,var(--agent-accent) 20%,transparent);white-space:pre-wrap}.acpmux-markdown{line-height:20px}.acpmux-markdown>*{margin:8px 0 0}.acpmux-markdown>:first-child{margin-top:0}.acpmux-markdown code{font:11.5px var(--font-mono)}.acpmux-markdown blockquote{padding-left:12px;border-left:2px solid var(--agent-border);color:var(--agent-soft)}.acpmux-markdown pre,.acpmux-activity-item pre{padding:9px;border-radius:8px;overflow:auto;background:var(--agent-input-bg);font:12px var(--font-mono)}.acpmux-summary,.acpmux-muted{color:var(--agent-muted);font-size:11px;padding:8px 0}.acpmux-activity-toggle{border:0;background:none;color:var(--agent-muted);padding:5px 0;cursor:pointer}.acpmux-activity-items{border-left:1px solid var(--agent-border);padding-left:12px;color:var(--agent-soft)}.acpmux-activity-item{padding:3px 0}.acpmux-glyph{display:inline-block;width:18px;color:var(--agent-accent)}.acpmux-permission{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-width:0;min-height:0;flex-shrink:0}.acpmux-asks-stack{display:flex;flex-direction:column;gap:8px;padding-bottom:calc(10px + var(--acpmux-queue-space,0px))}.acpmux-asks-stack .acpmux-trust-ask{margin-bottom:0}.acpmux-permission-card{min-inline-size:0;margin:0;padding:11px;border:1px solid var(--agent-accent);border-radius:12px;background:var(--agent-surface-elevated)}.acpmux-permission-buttons{display:flex;gap:7px;margin-top:9px}.acpmux-permission-buttons button{border:0;border-radius:6px;padding:7px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:hidden}
 
 .acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
@@ -18,8 +18,11 @@
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 .ui-positioner{--ui-popup-fg:var(--agent-text)}
+/* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the composer's hairline edge over the shared popup shadow (ui/popupSurface.css), no border of their own. A popup portaled straight to the body (ui/ContextMenu.tsx) has no composer edge, so it takes the shared hairline. A Base UI popup with no surface class of its own still gets it. */
+:root,.acpmux-shell,.ui-positioner{--acpmux-popup-elevation:inset 0 0 0 .5px var(--acpmux-composer-edge,color-mix(in srgb,currentColor 12%,transparent)),var(--ui-popup-shadow)}
+:where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
-.ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
+.ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
 .ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap;cursor:default}
 .ui-context-menu .ui-menu-item[data-highlighted]{background:var(--acpmux-menu-hover);outline:none}
 .ui-context-menu .ui-menu-item:disabled{color:var(--agent-muted)}
@@ -30,7 +33,7 @@
 @media (prefers-reduced-motion:no-preference){.ui-popup.ui-context-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
-.acpmux-composer{position:relative;padding:0 max(16px,calc((100% - 760px)/2)) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
+.acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge)}
 .acpmux-composer-box button{font:inherit;cursor:pointer}
 .acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
@@ -63,7 +66,7 @@
 .acpmux-dictation-gallery .acpmux-dictation-notice-host{flex:0 0 38px;min-height:38px}
 .acpmux-dictation-gallery .acpmux-dictation-settings-receipt{position:absolute;right:16px;bottom:2px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);pointer-events:none}
 .acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
-.acpmux-chips-spacer{flex:1}
+.acpmux-chips-spacer{display:none}
 /* A registry composerChips override that still draws native selects. */
 .acpmux-composer-bar select{height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
 .acpmux-icon{flex:none;display:block}
@@ -96,7 +99,7 @@
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
-.acpmux-context-pop{width:240px;box-sizing:border-box;padding:12px;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin,bottom);color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+.acpmux-context-pop{width:240px;box-sizing:border-box;padding:12px;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin,bottom);color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
 .acpmux-context-title{font-size:12px;color:var(--agent-muted)}
 .acpmux-context-percent{margin-top:2px;font-size:14px;font-weight:500}
 .acpmux-context-bar{height:4px;margin-top:8px;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 14%,transparent);overflow:hidden}
@@ -121,7 +124,7 @@
 .acpmux-send .acpmux-icon{width:16px;height:16px}
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 34%,var(--acpmux-base))}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
-.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
+.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
@@ -136,7 +139,7 @@
 .acpmux-menu-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
-.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);font-size:13px;transform-origin:bottom}
+.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);font-size:13px;transform-origin:bottom}
 .acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;cursor:default;white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
@@ -166,14 +169,12 @@
 .acpmux-newtab-context{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}
 .acpmux-newtab-context .acpmux-chips{flex:none}
 .acpmux-newtab-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:var(--acpmux-composer-dim);white-space:nowrap}
-.acpmux-newtab-default{flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
-.acpmux-newtab-default:hover{color:var(--agent-text);background:color-mix(in srgb,var(--agent-text) 7%,transparent)}
 .acpmux-newtab-all{--ui-ghost-end-bearing:5px;border:0;background:none;color:inherit;font-family:inherit;cursor:pointer}
 .acpmux-newtab-all:hover{color:var(--agent-text)}
-.acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible,.acpmux-newtab-default:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-newtab-anchor{position:relative}
-.acpmux-omni{--popup-scroll-cap:420px;position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:var(--layer-dropdown);box-sizing:border-box;padding:6px;border-radius:16px;background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);max-height:min(60vh,420px);overflow:auto;overscroll-behavior:contain}
-.acpmux-omni-row{display:flex;align-items:center;gap:11px;height:40px;padding:0 10px 0 12px;border-radius:10px;color:var(--agent-soft);cursor:default;font-size:13.5px}
+.acpmux-omni{--popup-scroll-cap:420px;position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:var(--layer-dropdown);box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);max-height:min(60vh,420px);overflow:auto;overscroll-behavior:contain}
+.acpmux-omni-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);cursor:default;font-size:var(--text-control)}
 .acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .acpmux-omni-row.is-selected>.acpmux-icon{color:var(--agent-text)}
@@ -189,11 +190,10 @@
 .acpmux-newtab-actions .acpmux-newtab-all{width:auto;font-size:12.5px;color:var(--acpmux-composer-dim)}
 /* Hover, press and focus: a tonal step from the theme, on the Motion `hover` fade (0.08 s, plans/cmux-next/motion.md). The host does not pass ui.animationSpeed to the page yet, so this is the fast default. Under Reduce Motion the fills change at once. Fills only, never size, so nothing shifts. */
 .acpmux-newtab{--acpmux-motion-hover:80ms}
-@media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-default,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
+@media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
 .acpmux-newtab-kind:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .acpmux-newtab-kind:not(.is-selected):active{background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text)}
 .acpmux-newtab-kind.is-selected:active{background:color-mix(in srgb,var(--agent-text) 4%,var(--acpmux-composer-bg))}
-.acpmux-newtab-default:active{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}
 .acpmux-newtab-all:active{color:var(--agent-soft)}
 .acpmux-omni-row:active{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
 .acpmux-newtab .acpmux-send:hover{background:color-mix(in srgb,var(--acpmux-composer-dim) 75%,var(--agent-accent,var(--agent-text)))}
@@ -202,7 +202,7 @@
 @container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}}
 /* Queue (ComposerQueue.tsx): prompts waiting for the running turn, as compact rows attached to the composer's top edge, inset so the composer's rounded corners lead into them. Laid over the transcript's foot (absolute), so queuing, sending or removing one never moves the composer or the transcript. */
-.acpmux-composer-queue{position:absolute;left:16px;right:16px;bottom:100%;display:flex;flex-direction:column;max-height:122px;overflow-y:auto;margin:0;padding:4px 0;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;background:var(--acpmux-composer-tray);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge),inset .5px 0 0 var(--acpmux-composer-edge),inset -.5px 0 0 var(--acpmux-composer-edge);font-size:13px;line-height:18px}
+.acpmux-composer-queue{position:absolute;left:16px;right:16px;bottom:100%;display:flex;flex-direction:column;max-height:122px;overflow-y:auto;margin:0;padding:4px 0;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;background:var(--acpmux-composer-tray);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge),inset .5px 0 0 var(--acpmux-composer-edge),inset -.5px 0 0 var(--acpmux-composer-edge);font-size:13px;line-height:18px;z-index:var(--layer-raised)}
 .acpmux-queued{position:relative;display:flex;align-items:center;gap:8px;min-width:0;min-height:26px;padding:0 12px;box-sizing:border-box;color:var(--agent-text)}
 .acpmux-queued-mark{flex:none;min-width:14px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;text-align:right}
 .acpmux-queued-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -389,7 +389,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-edited-more{display:flex;align-items:center;gap:8px;width:100%;height:34px;box-sizing:border-box;padding:0 12px;border:0;background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));color:var(--agent-muted);font:inherit;cursor:pointer}
 .acpmux-edited-more:hover{color:var(--agent-text)}
 
-.acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;max-height:45%;overflow:auto;padding-bottom:calc(10px + var(--acpmux-queue-space,0px));font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
+.acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;min-height:0;max-height:45%;overflow:auto;padding-bottom:0;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
+.acpmux-asks-stack>.acpmux-permission-panel{padding-left:0;padding-right:0}
 .acpmux-permission-panel .acpmux-permission-card{padding:var(--acp-row-pad-y,11px);border-radius:6px}
 /* An approval's answers stay in the panel's view: a tall request (an edit's diff) scrolls in its own
    list above them, as the card shrinks to the panel's height. */
@@ -433,14 +434,14 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-live-chat-actions{display:flex;gap:12px}
 .acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
-.acpmux-host-error{padding:0 max(18px,calc((100% - 760px)/2)) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:6px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
+.acpmux-host-error{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:6px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}
 .acpmux-harness-notice{display:block}.acpmux-harness-notice .acpmux-host-error-card{border-color:color-mix(in srgb,var(--agent-text) 14%,transparent);background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg))}.acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:6px}.acpmux-harness-notice button[data-notice-action=skip],.acpmux-harness-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
-.acpmux-switch-notice{display:block;padding:0 max(18px,calc((100% - 760px)/2)) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
+.acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:pointer}
-.acpmux-side-question{margin:0 max(18px,calc((100% - 760px)/2)) 8px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font-size:var(--text-body);line-height:var(--text-body--line-height)}
+.acpmux-side-question{margin:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font-size:var(--text-body);line-height:var(--text-body--line-height)}
 .acpmux-side-question-asked{margin:0 0 4px}
 .acpmux-side-question-label{color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-side-question-status{margin:0;color:var(--agent-muted)}
@@ -513,9 +514,11 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-context-pop,
 .acpmux-slash-menu,
 .acpmux-mp {
-  border: 1px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  border: 0;
+  border-radius: var(--ui-popup-radius);
   background-color: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: var(--acpmux-popup-elevation);
+  color: var(--agent-text);
 }
 
 .acpmux-menu,
@@ -539,3 +542,16 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-past-chat{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;width:100%;max-width:760px;margin:0 auto;padding:16px 24px;box-sizing:border-box}
 .acpmux-past-chat-label{margin:0;text-align:center;font-size:var(--text-detail);line-height:var(--text-detail--line-height);color:var(--acpmux-composer-placeholder)}
 .acpmux-past-chat-turn{display:flex;flex-direction:column;gap:8px}
+/* A secret card (cx-ncc.42): among the chat's asks, what the agent asks for and why, a private field. */
+.acpmux-secret-card{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;padding:8px 8px 8px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:var(--text-control)}
+.acpmux-secret-card-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.acpmux-secret-card-ask{color:var(--agent-text);overflow-wrap:anywhere}
+.acpmux-secret-card-reason{overflow-wrap:anywhere}
+.acpmux-secret-card-private{font-size:var(--text-detail)}
+.acpmux-secret-card-row{display:flex;align-items:center;gap:4px}
+.acpmux-secret-card-field{flex:1;min-width:0;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;outline:none}
+.acpmux-secret-card-field::placeholder{color:var(--acpmux-composer-dim)}
+.acpmux-secret-card-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}
+.acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
+.acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
+.acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}

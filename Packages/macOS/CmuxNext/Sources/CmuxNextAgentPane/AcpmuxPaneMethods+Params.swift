@@ -9,7 +9,9 @@ nonisolated extension AcpmuxPaneMethods {
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt"]),
+        // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
+        // agent and keeps it out of the transcript text.
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         "_acpmux/watch": (["enabled"], []),
@@ -42,6 +44,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_groups": (["sessionId"], []),
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
+        // No `value` declines the card.
+        "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        "_acpmux/archive": (["sessionId", "archived"], []),
+        "_acpmux/markUnread": (["sessionId"], []),
+        "_acpmux/harness/health": (["refresh", "rescan"], []),
+        "_acpmux/side": (["sessionId", "chat"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

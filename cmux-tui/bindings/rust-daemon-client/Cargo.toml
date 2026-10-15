@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "cmux2 as a client of the cmux-tui daemon: launch, connect, a read-only mirror of the session tree, and terminal byte attachments."
+description = "cmux2 as a client of the cmux-tui daemon: launch, connect, a verified app connection, a read-only mirror of the session tree, and terminal byte attachments."
 
 [lints]
 workspace = true
@@ -13,6 +13,9 @@ workspace = true
 [dependencies]
 # In-repo path so this crate always builds against the SDK at the same commit.
 cmux-sdk = { path = "../rust" }
+# The install-key proof math the daemon checks (frontend_proof; no I/O).
+cmux-local-auth = { workspace = true }
+getrandom = { workspace = true }
 log = "0.4"
 serde_json = { workspace = true }
 

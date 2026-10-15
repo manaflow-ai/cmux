@@ -9,12 +9,17 @@ import { utcDay } from "./spend-guard-do.ts"
  * (cx-dna4.3): the attested public key and its counter, the day's token quota with open
  * reservations, and a per-minute request window. A request reserves its token bound before the
  * upstream call and settles with the real count; an unsettled reservation counts in full.
+ * Storage ends 60 days after the device's last use (register, assert or an admitted request):
+ * the alarm deletes everything (cx-ds09i), so an abandoned install leaves nothing behind.
  */
 
 export type FreeAdmit = { readonly ok: true } | { readonly ok: false; readonly code: "free.quota" | "free.rate" | "free.unknown_device" | "free.expired"; readonly retryAfterS?: number }
 
 /** UTC month of an instant, YYYY-MM: a grant is good for the month DeviceCheck stamped it in. */
 export const utcMonth = (ms: number) => new Date(ms).toISOString().slice(0, 7)
+
+/** Days after the last use when a device's storage is deleted. */
+export const FREE_DEVICE_RETENTION_MS = 60 * 86_400_000
 
 const intVar = (v: string | undefined, d: number) => {
   const n = Number(v)
@@ -28,6 +33,32 @@ export class FreeDeviceDO extends DurableObject<Env> {
    */
   private hasTables(): boolean {
     return this.ctx.storage.sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'device'`).toArray().length > 0
+  }
+
+  /**
+   * Records today as the last use and moves the deletion alarm, at most once per UTC day (one
+   * extra write a day, never one per request).
+   */
+  private async touch(now: number): Promise<void> {
+    const sql = this.ctx.storage.sql
+    sql.exec(`CREATE TABLE IF NOT EXISTS seen (id INTEGER PRIMARY KEY CHECK (id = 1), day TEXT NOT NULL)`)
+    const day = utcDay(now)
+    if (sql.exec<{ day: string }>(`SELECT day FROM seen WHERE id = 1`).toArray()[0]?.day === day) return
+    sql.exec(`INSERT INTO seen (id, day) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET day = excluded.day`, day)
+    await this.ctx.storage.setAlarm(Date.parse(`${day}T00:00:00Z`) + FREE_DEVICE_RETENTION_MS)
+  }
+
+  /** Deletes all storage once the last use is 60 days old; else arms the alarm again for that time. */
+  override async alarm(): Promise<void> {
+    const now = Date.now()
+    const day = this.hasTables() ? this.ctx.storage.sql.exec<{ day: string }>(`SELECT day FROM seen WHERE id = 1`).toArray()[0]?.day : undefined
+    const due = day ? Date.parse(`${day}T00:00:00Z`) + FREE_DEVICE_RETENTION_MS : 0
+    if (due > now) {
+      await this.ctx.storage.setAlarm(due)
+      return
+    }
+    await this.ctx.storage.deleteAlarm()
+    await this.ctx.storage.deleteAll()
   }
 
   private device(): (AppAttestKey & { grant_month: string }) | undefined {
@@ -58,9 +89,11 @@ export class FreeDeviceDO extends DurableObject<Env> {
     if (have) {
       if (JSON.stringify(have.jwk) !== JSON.stringify(key.jwk) || have.app_id_hash !== key.app_id_hash) return false
       sql.exec(`UPDATE device SET grant_month = ? WHERE id = 1`, utcMonth(now))
+      await this.touch(now)
       return true
     }
     sql.exec(`INSERT INTO device (id, jwk, app_id_hash, counter, platform, created_at, grant_month) VALUES (1, ?, ?, 0, ?, ?, ?)`, JSON.stringify(key.jwk), key.app_id_hash, platform, now, utcMonth(now))
+    await this.touch(now)
     return true
   }
 
@@ -71,6 +104,7 @@ export class FreeDeviceDO extends DurableObject<Env> {
     const r = verifyAppAttestData(key, clientData, assertion)
     if (!r.ok) return false
     this.ctx.storage.sql.exec(`UPDATE device SET counter = ? WHERE id = 1 AND counter < ?`, r.counter, r.counter)
+    await this.touch(now)
     return true
   }
 
@@ -94,6 +128,7 @@ export class FreeDeviceDO extends DurableObject<Env> {
     sql.exec(`INSERT INTO minute (id, minute, n) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET minute = excluded.minute, n = excluded.n`, minute, n + 1)
     sql.exec(`INSERT OR REPLACE INTO open (id, day, tokens, at) VALUES (?, ?, ?, ?)`, id, day, tokenBound, now)
     sql.exec(`DELETE FROM usage WHERE day < ?`, utcDay(now - 7 * 86_400_000))
+    await this.touch(now)
     return { ok: true }
   }
 

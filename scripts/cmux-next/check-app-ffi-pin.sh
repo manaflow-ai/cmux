@@ -105,6 +105,7 @@ elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
       cmux-tui/crates/cmux-rd-*) owners+=$'\n  remote desktop lane (cmux-rd-core/proto/ffi)' ;;
       cmux-tui/crates/cmux-layout-reducer*) owners+=$'\n  sidebar lane (cmux-layout-reducer, -ffi)' ;;
       cmux-tui/crates/cmux-remote-browser/*) owners+=$'\n  remote browser lane (cmux-remote-browser)' ;;
+      cmux-tui/crates/cmux-palette-ranker/*) owners+=$'\n  palette lane (cmux-palette-ranker, cx-6loo3)' ;;
       *) owners+=$'\n  app FFI packaging (test triage lane: cmux-app-ffi, build-app-ffi.sh, toolchain)' ;;
     esac
   done

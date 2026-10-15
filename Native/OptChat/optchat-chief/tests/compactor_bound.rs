@@ -1,4 +1,5 @@
-//! Chief 2026-10-10: a user turn never waits more than 10 s on compaction.
+//! A user turn never waits more than 1 s on compaction (chief 2026-10-10:
+//! 10 s; hq-6d 2026-10-14, "the chief responds too slow": 1 s).
 //! The brain, its memory and its turn loop run end to end; only the
 //! compactor model is held. A turn whose view lines are still building
 //! starts after `SETTLE_BOUND` and reads them as the placeholder; the next
@@ -18,7 +19,7 @@ use optchat_host::{
 use serde_json::Value;
 
 /// The chief's bound (brain `SETTLE_BOUND`).
-const SETTLE_BOUND: Duration = Duration::from_secs(10);
+const SETTLE_BOUND: Duration = Duration::from_secs(1);
 
 /// A compactor that builds normally, but only once it is let go.
 #[derive(Default)]
@@ -119,7 +120,7 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     let waited = until_prompt(&mut h, 1);
     assert!(waited >= SETTLE_BOUND, "it waited the bound: {waited:?}");
     assert!(
-        waited < SETTLE_BOUND + Duration::from_secs(5),
+        waited < SETTLE_BOUND + Duration::from_secs(2),
         "and not longer: {waited:?}"
     );
     assert!(

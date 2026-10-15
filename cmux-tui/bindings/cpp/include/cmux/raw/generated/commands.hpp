@@ -97,6 +97,7 @@ public:
     [[nodiscard]] Result<ConversationDraftResult> conversation_draft(const ConversationDraftRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationHistoryResult> conversation_history(const ConversationHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationImportResult> conversation_import(const ConversationImportRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationLinkResolveResult> conversation_link_resolve(const ConversationLinkResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationListResult> conversation_list(const ConversationListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationOpResult> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSearchResult> conversation_search(const ConversationSearchRequest& request, RequestOptions options = {});
@@ -193,6 +194,7 @@ public:
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<NoteSizeActivityResult> note_size_activity(const NoteSizeActivityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NotifyResult> notify(const NotifyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> page_credential(const PageCredentialRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
@@ -232,7 +234,7 @@ public:
     [[nodiscard]] Result<EmptyResult> select_screen(const SelectScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> select_tab(const SelectTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> select_workspace(const SelectWorkspaceRequest& request = {}, RequestOptions options = {});
-    [[nodiscard]] Result<EmptyResult> send(const SendRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SendResult> send(const SendRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> send_key(const SendKeyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ServerStatsResult> server_stats(const ServerStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetCellPixelsResult> set_cell_pixels(const SetCellPixelsRequest& request, RequestOptions options = {});
@@ -248,6 +250,7 @@ public:
     [[nodiscard]] Result<JsonValue> set_row_heights(const SetRowHeightsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_screen_metadata(const SetScreenMetadataRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_screen_pinned(const SetScreenPinnedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> set_session_icon(const SetSessionIconRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizeCountsResult> set_size_counts(const SetSizeCountsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizePolicyResult> set_size_policy(const SetSizePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_split_ratio(const SetSplitRatioRequest& request, RequestOptions options = {});
@@ -293,6 +296,7 @@ public:
     [[nodiscard]] Result<EventStream> url_open_subscribe(const UrlOpenSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<VtStateResult> vt_state(const VtStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WaitForResult> wait_for(const WaitForRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> ws_listen(const WsListenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ZoomPaneResult> zoom_pane(const ZoomPaneRequest& request = {}, RequestOptions options = {});
 
     [[nodiscard]] Result<DeltaStream> subscribe_deltas(

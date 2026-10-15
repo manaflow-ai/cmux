@@ -94,6 +94,10 @@ export const localCases = (c: Corpus): void => {
   c.op(threads, "thread: a human behind the last seq replies and keeps its cursor", ALICE, "th2", send("th2", parts("me too"), undefined, root.id), "commit")
   c.op(threads, "thread: read_cursor.set catches the human up", ALICE, "th3", { kind: "read_cursor.set", seq: threads.head.last_seq }, "commit")
   c.op(threads, "thread: reply_to and thread_root together; the caught-up sender's cursor moves", ALICE, "th4", send("th4", parts("quoting"), { message_id: reply.id, part_index: 0 }, root.id), "commit")
+  // Nested threads (conversation-tree-v1): a parent in a thread passes its root on; a named root must be the parent's own.
+  c.op(threads, "thread: a reply to a thread reply with no root joins the parent's thread", ALICE, "th9", send("th9", parts("nested"), { message_id: reply.id, part_index: 0 }), "commit")
+  c.op(threads, "thread: a named root that is not the parent's own is refused", ALICE, "th5", send("th5", parts("x"), { message_id: reply.id, part_index: 0 }, "msg_other"), "invalid_thread_root", { thread_target: { ...root, id: "msg_other" } })
+  c.op(threads, "thread: the parent itself as the root", ALICE, "th10", send("th10", parts("to the root"), { message_id: root.id, part_index: 0 }, root.id), "commit")
   c.op(threads, "thread: an unknown root", ALICE, "th5", send("th5", parts("x"), undefined, "msg_nope"), "invalid_thread_root")
   c.op(threads, "thread: a root that is itself in a thread", ALICE, "th5", send("th5", parts("x"), undefined, reply.id), "invalid_thread_root")
   c.op(threads, "thread: a root of another conversation", ALICE, "th5", send("th5", parts("x"), undefined, root.id), "invalid_thread_root", {

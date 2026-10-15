@@ -36,8 +36,25 @@ public struct BrowserStreamStats: Sendable, Equatable {
     public var framesLost: UInt64 = 0
     public var clockOffsetMicros: Int64?
     public var clockRTTMicros: UInt32?
+    /// The newest frame came on the link's media lane (RTP), not the
+    /// reliable `browser` channel (verify/browser-video-track.md).
+    public var videoTrack = false
+    /// What carried the newest frame: `track` (a WebRTC video track),
+    /// `wg-rtp` (RTP inside the WireGuard tunnel) or `channel`.
+    public var videoCarrier = "channel"
+    /// Track frames skipped to a keyframe after an unrecoverable loss.
+    public var trackFramesDropped: UInt64 = 0
+    /// Track packets a NACK brought back.
+    public var trackPacketsRecovered: UInt64 = 0
 
     public init() {}
+
+    /// The carrier name for a frame that came on the media lane (or not)
+    /// of a link over `transport`.
+    public static func carrier(videoTrack: Bool, transport: TransportKind) -> String {
+        guard videoTrack else { return "channel" }
+        return transport == .wireGuard ? "wg-rtp" : "track"
+    }
 }
 
 /// Where a stream delivers, on a library thread: hand off quickly.

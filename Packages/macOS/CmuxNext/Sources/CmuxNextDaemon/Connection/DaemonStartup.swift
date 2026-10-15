@@ -72,11 +72,13 @@ public struct DaemonStartup: Sendable {
         // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only)
         while !Task.isCancelled {
             let connection = makeConnection()
+            // The tuple is built after the do/catch: Swift -O drops tuple elements returned
+            // from an awaiting do (swiftlang/swift#92698, cx-21wc5).
+            var identity: DaemonIdentity?
             do {
                 DaemonLaunchTimings.shared.mark("daemon.connect_start")
-                let identity = try await connection.start()
+                identity = try await connection.start()
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
-                return (connection, identity)
             } catch {
                 await connection.close()
                 if Task.isCancelled { return nil }
@@ -84,6 +86,7 @@ public struct DaemonStartup: Sendable {
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
             }
+            if let identity { return (connection, identity) }
             guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
         }
         return nil

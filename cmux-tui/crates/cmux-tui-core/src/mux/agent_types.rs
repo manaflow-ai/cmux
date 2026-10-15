@@ -165,6 +165,9 @@ pub struct AgentRecord {
     /// claimed the terminal; absent for socket-only reports.
     pub agent: Option<String>,
     pub updated_at_ms: u64,
+    /// When the terminal's agent entered `state` (Unix ms). A report that
+    /// keeps the state keeps it; it restarts at a daemon restart.
+    pub since_ms: u64,
 }
 
 /// Longest hook session id published for resume. Claude session ids are
@@ -207,6 +210,8 @@ pub(super) struct TerminalAgentRecord {
     /// resume it. Absent for agents without a native hook session.
     pub(super) agent_session_id: Option<String>,
     pub(super) updated_at_ms: u64,
+    /// When the record entered `state` (Unix ms); see `AgentRecord::since_ms`.
+    pub(super) since_ms: u64,
 }
 
 /// Who initiated an agent projection commit: a direct socket/SDK report

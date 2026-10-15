@@ -31,6 +31,12 @@ and render-server field animation, blurred header and native scrolling.
   - Not vendored (MessagesLab test drivers or app shell): App, Host, Bench,
     SelfTest, FlashCheck, AttachCheck, ResolutionAudit, LiveRecord,
     tools/diff-harness, PagedSource, Pager.
+  - Not ported from Host.swift: the live-resize bitmap keep (780934c,
+    `MessagesWindowView.setLiveResizing`, `RowCell.liveResizing`). Home never
+    sets the flag, so rows draw at every width in a window resize and a
+    divider drag (decision hq-6d, 2026-10-14). The flag is one static per
+    process, and Home has a window view per pane: one pane's resize end
+    would redraw only its own kept rows.
 - `Patches/`: one unified diff per edited vendored file. Every edit is also
   marked `cmux:` in the source.
 - `Sources/MessagesLabHome/Cmux/`: cmux code in the same module (the upstream
@@ -79,7 +85,7 @@ and render-server field animation, blurred header and native scrolling.
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | WindowView | `setRenderScale` guards on the view's own `appliedRenderScale` as well as the shared `Fixture.renderScale`: Home has a window view per pane, and a second pane (or a tab shown again) must still re-rasterize and re-snap (82ccac1) after the first pane set the shared scale. Two windows on displays of different scales still share one `Fixture.renderScale` (upstream) |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
-| TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in. MessagesLab 2281879's selection outline is ported: the selected bubble's path is the drawn balloon (`RowDraw.balloon`, its frame's corners) |
+| TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in. MessagesLab 2281879's selection outline is ported: the selected bubble's path is the drawn balloon (`RowDraw.balloon`, its frame's corners), with 267d218's half-circle ends of a 1-line text (`RowDraw.circularEnds`) |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
 
 ## Updating

@@ -1,5 +1,6 @@
-// The chat menu's Archive row: archiving tags the chat `archived` in acpmux and closes its tab
-// (the app does both, `chat.archive`); an archived chat opened from search offers Unarchive.
+// The chat menu's Archive row: the pane asks acpmux to archive the chat (`_acpmux/archive`, the
+// `archived` tag) over its own connection, then asks the app to close the tab; an archived chat
+// opened from search offers Unarchive.
 import { type Translate, translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 
@@ -18,8 +19,8 @@ export function archiveRow(
   };
 }
 
-// The chat menu's Mark as Unread (cx-ncc.78, Codex parity): the app asks acpmux to mark the chat
-// unread (`chat.markUnread`), and it stays unread until the chat is hidden and shown again.
+// The chat menu's Mark as Unread (cx-ncc.78, Codex parity): the pane asks acpmux to mark the chat
+// unread (`_acpmux/markUnread`), and it stays unread until the chat is hidden and shown again.
 export function markUnreadRow(
   chat: { sessionId: string | undefined; archived: boolean; local: boolean; unread: boolean },
   markUnread: () => void,

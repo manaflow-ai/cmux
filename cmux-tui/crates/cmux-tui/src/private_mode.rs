@@ -21,6 +21,11 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
                 1
             }
         }),
+        // The machine side of `cmux link machine update` (cx-rppd.13).
+        #[cfg(unix)]
+        Some(crate::link::machine_update::apply::MODE) => {
+            Some(crate::link::machine_update::apply::run(&args[1..]))
+        }
         _ => None,
     }
 }

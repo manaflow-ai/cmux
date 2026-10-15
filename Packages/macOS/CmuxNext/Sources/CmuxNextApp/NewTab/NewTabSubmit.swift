@@ -72,13 +72,11 @@ extension NewTabSubmit {
         case .page:
             pane.newTabPage(reusingShown: true)
         case .terminal(let command):
-            services.newTabKinds.record(.terminal, folder: cwd)
             pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
         case .browser(let url):
             guard let open = browserInvocation(url, from: invocation) else { return }
             TabLifecycle.newBrowser(ctx, open)
         case .chat(let prompt, let harness):
-            services.newTabKinds.record(.agent, folder: cwd)
             // The prompt goes out by itself only when a person typed it here (palette, menu);
             // a CLI, MCP or script prompt waits in the composer for a Send (cx-k21v gap 4).
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt,

@@ -103,7 +103,7 @@ import Testing
         #expect(Self.isEditing(field, in: window), "and again when it comes back")
     }
 
-    /// A field's box follows a height change (a live density change of `Metrics.tabHeight`).
+    /// A field's box follows a height change (a live density change of `Metrics.controlHeight`).
     @Test func aFieldsBoxFollowsItsHeight() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let text = Binding.constant("")

@@ -2,7 +2,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Records every request and answers with a fixed outcome.
 final class RecordingExecutor: ControlActionExecutor {

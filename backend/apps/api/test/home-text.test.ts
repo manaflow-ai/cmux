@@ -27,11 +27,38 @@ const op = async (token: string, name: string, params: unknown) => {
 }
 const PHONE = "+14155550123"
 const ON = {
-  HOME_INVITES_SEND: "on", ENVIRONMENT: "staging", WORKER_NAME: "cmux-api-staging", HOME_INVITE_ORIGIN: "https://console-staging.cmux.dev", HOME_INVITE_ALLOWLIST_PHONES: PHONE,
+  HOME_INVITES_SEND: "on", HOME_INVITES_TEXT: "on", ENVIRONMENT: "staging", WORKER_NAME: "cmux-api-staging", HOME_INVITE_ORIGIN: "https://console-staging.cmux.dev", HOME_INVITE_ALLOWLIST_PHONES: PHONE,
   SENDBLUE_API_KEY: "sb_key", SENDBLUE_API_SECRET: "sb_secret", SENDBLUE_FROM_NUMBER: "+14155550199"
 }
 
 describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
+  it("with the text channel off (HOME_INVITES_TEXT not \"on\"), a phone invite sends nothing to SendBlue and fails", async () => {
+    const token = await sessionToken("text-off-owner")
+    await op(token, "user.ensure", {})
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "text-off-owner")
+    const phone = "+14155550127"
+    const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizePhone(phone) as invites.Address)
+    const addr = testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address))
+    expect((await op(token, "dm.open", { peer: { phone } })).ok).toBe(true)
+    const sends: Array<unknown> = []
+    await runInDurableObject(addr, async (instance) => {
+      const { HOME_INVITES_TEXT: _on, ...textOff } = ON
+      instance.env = { ...instance.env, ...textOff, HOME_INVITE_ALLOWLIST_PHONES: phone }
+      instance.fetcher = async (_url: string, init: { body: string }) => {
+        sends.push(JSON.parse(init.body))
+        return { status: 200, json: async () => ({ message_handle: "h-off", status: "QUEUED" }) }
+      }
+    })
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address)))
+    const state = () => runInDurableObject(addr, async (i) => String(i.boundEngine.currentState.deliveries[0]?.state))
+    for (let i = 0; i < 10 && (await state()) !== "failed"; i++) {
+      await fireAlarm(conv)
+      await fireAlarm(addr)
+    }
+    expect(sends).toHaveLength(0)
+    expect(await state()).toBe("failed")
+  })
+
   it("first contact: card, then the text only after the card is reported; later invites: text only", async () => {
     const token = await sessionToken("text-owner")
     await op(token, "user.ensure", {})

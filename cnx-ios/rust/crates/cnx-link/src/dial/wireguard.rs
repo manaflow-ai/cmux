@@ -383,6 +383,19 @@ struct Route {
     addr: SocketAddr,
 }
 
+/// The path label of a confirmed route (`None`: the backend relay). Plain
+/// UDP to one of the peer's TURN relayed addresses rides the peer's TURN
+/// server: the answering Mac reaches a relay-only phone that way, so it is
+/// [`LinkPath::Turn`] even though this side sends plain UDP.
+fn path_of(route: Option<Route>, peer_relayed: &HashSet<SocketAddr>) -> LinkPath {
+    match route {
+        Some(Route { carrier: Carrier::Udp, addr }) if peer_relayed.contains(&addr) => LinkPath::Turn,
+        Some(Route { carrier: Carrier::Udp, .. }) => LinkPath::Direct,
+        Some(Route { carrier: Carrier::Turn, .. }) => LinkPath::Turn,
+        None => LinkPath::Relay,
+    }
+}
+
 /// How long after a roam (this side's or the peer's) every datagram also
 /// goes to the peer's plain UDP candidates, so a new NAT mapping opens on
 /// both sides while the route settles.
@@ -437,6 +450,9 @@ struct HybridUnderlay {
     turn: Option<TurnCarrier>,
     /// Peer endpoints this side reaches through its TURN allocation.
     turn_targets: Vec<SocketAddr>,
+    /// Peer endpoints that are the peer's own TURN relayed addresses: a
+    /// plain UDP route to one of them is labeled [`LinkPath::Turn`].
+    peer_relayed: HashSet<SocketAddr>,
     /// The route of the latest authenticated peer datagram (peer→us works).
     direct: Option<Route>,
     last_direct: Option<Instant>,
@@ -482,6 +498,7 @@ impl HybridUnderlay {
         socket: UdpSocket,
         options: &DialOptions,
         peer_endpoints: &[String],
+        peer_relayed: &[String],
         turn: Option<TurnCarrier>,
         relay_out: RelaySend,
         relay_in: mpsc::UnboundedReceiver<Bytes>,
@@ -495,6 +512,7 @@ impl HybridUnderlay {
             candidates: Vec::new(),
             turn,
             turn_targets: Vec::new(),
+            peer_relayed: peer_relayed.iter().filter_map(|text| text.parse().ok()).collect(),
             direct: None,
             last_direct: None,
             last_udp: None,
@@ -577,11 +595,18 @@ impl HybridUnderlay {
                 self.turn = Some(turn);
                 self.retarget_turn();
             }
-            Control::PeerEndpoints(endpoints) => {
-                tracing::debug!(?endpoints, "WireGuard peer announced new endpoints");
+            Control::PeerEndpoints { endpoints, relayed } => {
+                tracing::debug!(?endpoints, ?relayed, "WireGuard peer announced new endpoints");
                 // An empty list says only that the peer's network changed.
                 if !endpoints.is_empty() {
                     self.set_peer_endpoints(endpoints);
+                    // A roaming relay-only phone announces its new TURN
+                    // address; an older peer lists none, and the old ones stay
+                    // (a stale entry only matters for a datagram from it).
+                    if !relayed.is_empty() {
+                        self.peer_relayed = relayed.iter().filter_map(|text| text.parse().ok()).collect();
+                    }
+                    self.publish_path();
                 }
                 self.spray_until = Some(now + ROAM_SPRAY);
                 self.next_spray = None;
@@ -730,13 +755,7 @@ impl HybridUnderlay {
     }
 
     fn publish_path(&mut self) {
-        let path = match self.direct {
-            Some(route) if self.confirmed => match route.carrier {
-                Carrier::Udp => LinkPath::Direct,
-                Carrier::Turn => LinkPath::Turn,
-            },
-            _ => LinkPath::Relay,
-        };
+        let path = path_of(self.direct.filter(|_| self.confirmed), &self.peer_relayed);
         if path != LinkPath::Relay
             && let Some(roam) = self.roam.take()
         {
@@ -977,6 +996,9 @@ struct TunnelSpec<'a> {
     own_ip: Ipv4Addr,
     peer_ip: Ipv4Addr,
     peer_endpoints: &'a [String],
+    /// Which peer endpoints are its TURN relayed addresses (the dialer's,
+    /// told in `wg-init`): plain UDP to them is a TURN path.
+    peer_relayed: &'a [String],
     /// What this side offered the peer.
     own_endpoints: Vec<String>,
     turn: Option<TurnCarrier>,
@@ -1014,6 +1036,7 @@ fn start_tunnel(
         spec.socket,
         options,
         spec.peer_endpoints,
+        spec.peer_relayed,
         spec.turn,
         relay_out,
         relay_rx,
@@ -1074,9 +1097,8 @@ impl Dialer for WireGuardDialer {
             let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(transport_error)?;
             let ((mut endpoints, stun), turn) =
                 tokio::join!(gather_endpoints(&socket, options), TurnCarrier::allocate(&options.ice_servers));
-            if let Some(turn) = &turn {
-                endpoints.push(turn.relayed.to_string());
-            }
+            let relayed: Vec<String> = turn.iter().map(|turn| turn.relayed.to_string()).collect();
+            endpoints.extend(relayed.iter().cloned());
             options.timeline.mark("endpoints_gathered");
             let (private_key, public_key) = keypair();
             let own_endpoints = endpoints.clone();
@@ -1088,13 +1110,15 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&public_key),
                         endpoints,
                         overlay_ip: DIALER_OVERLAY.to_string(),
-                        lanes: super::offered_lanes(options),
+                        lanes: super::offered_lanes(options, options.video_lane),
+                        relayed,
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             options.timeline.mark("wg_init_sent");
             let mut early_relay = Vec::new();
             let agreed;
+            let video_agreed;
             let (peer_key, peer_endpoints, peer_ip) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
@@ -1104,6 +1128,7 @@ impl Dialer for WireGuardDialer {
                                 .parse()
                                 .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                             agreed = super::input_lane_agreed(options, &lanes);
+                            video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                             break (parse_key(&public_key)?, endpoints, ip);
                         }
                         SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
@@ -1125,6 +1150,7 @@ impl Dialer for WireGuardDialer {
                 own_ip: DIALER_OVERLAY,
                 peer_ip,
                 peer_endpoints: &peer_endpoints,
+                peer_relayed: &[],
                 own_endpoints,
                 turn,
                 dialer: true,
@@ -1138,6 +1164,32 @@ impl Dialer for WireGuardDialer {
             let guard = Guard { session: Arc::clone(&tunnel.session) };
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
+            // The media lane's port is bound before the link stream opens, so
+            // the Mac's first frames (sent once a browser tab claims the lane)
+            // find it.
+            let media = if video_agreed {
+                match crate::media::wireguard::WgCarrier::open(
+                    &net,
+                    IpAddr::V4(peer_ip),
+                    crate::media::wireguard::Direction::Receive,
+                    crate::media::wireguard::StreamSpec::h264_video(),
+                    tunnel.session.path_changes(),
+                    crate::media::wireguard::Impairment::default(),
+                )
+                .await
+                {
+                    Ok(carrier) => {
+                        options.timeline.mark("video_lane");
+                        Some(super::PendingMedia::Receive(carrier))
+                    }
+                    Err(error) => {
+                        tracing::info!(%error, "no media lane on this tunnel; video stays on the channel");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
             let stream = net.connect(link_addr).await.map_err(transport_error)?;
             // The input lane: a second TCP stream to the same port, opened
@@ -1157,7 +1209,7 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane })
+            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane, media })
         })
     }
 
@@ -1169,12 +1221,13 @@ impl Dialer for WireGuardDialer {
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let SignalPayload::WgInit { public_key, endpoints: peer_endpoints, overlay_ip, lanes } =
+            let SignalPayload::WgInit { public_key, endpoints: peer_endpoints, overlay_ip, lanes, relayed } =
                 first.payload
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let peer_key = parse_key(&public_key)?;
             let peer_ip: Ipv4Addr = overlay_ip
                 .parse()
@@ -1192,6 +1245,7 @@ impl Dialer for WireGuardDialer {
                 own_ip,
                 peer_ip,
                 peer_endpoints: &peer_endpoints,
+                peer_relayed: &relayed,
                 own_endpoints: endpoints.clone(),
                 turn: None,
                 dialer: false,
@@ -1203,6 +1257,33 @@ impl Dialer for WireGuardDialer {
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
+            // The media lane: listed back only once its port is bound, so a
+            // phone never expects a lane this side cannot serve.
+            let media = if video_wanted {
+                let impairment = crate::media::wireguard::Impairment {
+                    drop_permille: options.video_drop_permille,
+                    cap_bps: options.video_cap_bps,
+                    blackout: options.video_blackout,
+                };
+                match crate::media::wireguard::WgCarrier::open(
+                    &net,
+                    IpAddr::V4(peer_ip),
+                    crate::media::wireguard::Direction::Send,
+                    crate::media::wireguard::StreamSpec::h264_video(),
+                    tunnel.session.path_changes(),
+                    impairment,
+                )
+                .await
+                {
+                    Ok(carrier) => Some(carrier),
+                    Err(error) => {
+                        tracing::info!(%error, "no media lane on this tunnel; video stays on the channel");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             drop(net);
             signaling
                 .send_signal(
@@ -1212,7 +1293,7 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&own_public),
                         endpoints,
                         overlay_ip: own_ip.to_string(),
-                        lanes: super::offered_lanes(options),
+                        lanes: super::offered_lanes(options, media.is_some()),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -1230,7 +1311,38 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane })
+            Ok(Dialed {
+                stream: Box::new(stream),
+                path: tunnel.path,
+                guard: Box::new(guard),
+                lane,
+                media: media.map(|carrier| {
+                    options.timeline.mark("video_lane");
+                    super::PendingMedia::Send(carrier)
+                }),
+            })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Mac reaches a relay-only phone by plain UDP to the phone's TURN
+    /// relayed address: that path is TURN, not direct (hostd logged a
+    /// relay-only WireGuard link as `path=Direct`).
+    #[test]
+    fn udp_to_the_peers_relayed_address_is_a_turn_path() {
+        let relayed: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let lan: SocketAddr = "192.168.1.20:41000".parse().unwrap();
+        let peer_relayed: HashSet<SocketAddr> = [relayed].into_iter().collect();
+        let udp = |addr| Some(Route { carrier: Carrier::Udp, addr });
+        assert_eq!(path_of(udp(relayed), &peer_relayed), LinkPath::Turn);
+        assert_eq!(path_of(udp(lan), &peer_relayed), LinkPath::Direct);
+        assert_eq!(path_of(Some(Route { carrier: Carrier::Turn, addr: lan }), &peer_relayed), LinkPath::Turn);
+        assert_eq!(path_of(None, &peer_relayed), LinkPath::Relay);
+        // An older phone lists no relayed addresses: the label stays as before.
+        assert_eq!(path_of(udp(relayed), &HashSet::new()), LinkPath::Direct);
     }
 }

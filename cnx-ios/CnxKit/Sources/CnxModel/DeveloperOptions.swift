@@ -13,6 +13,10 @@ public enum DeveloperOptions {
     /// skip every direct path (WebRTC over TURN, WireGuard over the relay).
     /// Applies live: changing it redials.
     public static let relayOnlyKey = "cnx.dev.relayOnly"
+    /// `UserDefaults` key: streamed browser tabs keep their video on the
+    /// reliable `browser` channel even over WebRTC (no media lane), the
+    /// baseline of verify/browser-video-track.md. Applies at the next dial.
+    public static let browserVideoOnChannelKey = "cnx.dev.browserVideoOnChannel"
     /// `UserDefaults` key: mock approvals wait 2 s for "Face ID" so the waiting state
     /// can be seen and captured (`-cnx.dev.slowFaceID YES`). DEBUG mock content only.
     public static let slowFaceIDKey = "cnx.dev.slowFaceID"
@@ -22,7 +26,9 @@ public enum DeveloperOptions {
     /// Every stored developer setting. A build without the Developer page
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
-    public static let storedKeys = [mockDataKey, launchDemoKey, relayOnlyKey, terminalDemoPhasesKey, slowFaceIDKey]
+    public static let storedKeys = [
+        mockDataKey, launchDemoKey, relayOnlyKey, browserVideoOnChannelKey, terminalDemoPhasesKey, slowFaceIDKey,
+    ]
 
     /// Removes every stored developer setting (Production launch).
     public static func removeStoredValues(from defaults: UserDefaults = .standard) {
@@ -53,6 +59,16 @@ public enum DeveloperOptions {
     public static var relayOnly: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: relayOnlyKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether browser video stays on its channel (no WebRTC video track).
+    /// Always off in Release builds.
+    public static var browserVideoOnChannel: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: browserVideoOnChannelKey)
         #else
         false
         #endif

@@ -253,6 +253,7 @@ fn dispatch_resource_request(
         OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::History => crate::history_ops::dispatch(mux, request),
+        OperationOwner::BrowserProfile => crate::browser_profile_ops::dispatch(mux, request),
         OperationOwner::Credential => credential::dispatch(mux, request),
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::Machine => {

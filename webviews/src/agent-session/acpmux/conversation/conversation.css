@@ -24,11 +24,16 @@
   --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
   /* Type and column: system-ui at 14px on 22.75px lines, 13px code (reference
-     shell/tokens.css and conversation.css), in the taste bar's 720px column. */
+     shell/tokens.css and conversation.css). The transcript, the composer and everything between
+     them share one column: 720px, widening with a wide pane to an 800px cap as Codex and Claude
+     desktop do, centered, never nearer the pane's sides than the page edge (--page-edge, #20121).
+     model.ts transcriptColumn mirrors it. */
   --cv-font-size: 14px;
   --cv-line-height: 22.75px;
-  --cv-column: 720px;
-  --cv-gutter: 26.5px;
+  --cv-column: clamp(720px, 62.5%, 800px);
+  --cv-edge: var(--page-edge, 18px);
+  /* Resolved where it is used: 100% is the pane's width there. */
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
   --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
@@ -54,20 +59,27 @@
   flex-direction: column;
   align-items: flex-end;
 }
+/* A prompt sits on the composer's surface, solid so it reads over a wallpaper (Leo 2026-10-13): the
+   composer's tint mixed into the opaque base, a small radius, and text inset evenly, 12px from
+   each side (8px of padding plus the line's half-leading above and below). model.ts measures it. */
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
-  padding: var(--cv-bubble-padding, 10.5px 16px 9.5px);
-  border-radius: 16px;
+  padding: var(--cv-bubble-padding, 8px 12px);
+  border-radius: 10px;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
   background: var(--cv-bubble);
+  box-shadow: inset 0 0 0 0.5px var(--acpmux-composer-edge, transparent);
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
+}
+.acpmux-shell .cv-user__bubble {
+  background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
@@ -684,16 +696,24 @@ pre.cv-math-source {
 
 /* ---------- Column ---------- */
 
-/* The transcript column and what lines up with it (styles.css keeps the older 760px). */
+/* The transcript column; styles.css lines the composer and the cards above it up with it.
+   The queued prompts lie over the transcript's foot (ComposerQueue.tsx): the transcript ends above
+   them, so a followed reply's latest line is never under the queue. The size change is the
+   scroller's, which keeps a followed view at its end before the frame paints. A question waiting
+   for an answer keeps the space clear itself (.acpmux-asks-stack). */
 .acpmux-scroll {
+  margin-bottom: var(--acpmux-queue-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
+.acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
+  margin-bottom: 0;
+}
 .acpmux-row {
-  left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
-  right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  left: var(--cv-inset);
+  right: var(--cv-inset);
 }
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
@@ -715,7 +735,8 @@ pre.cv-math-source {
   right: 0;
   opacity: 0;
 }
-.acpmux-row:hover .acpmux-row__copy,
+/* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
+   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
 .acpmux-row:focus-within .acpmux-row__copy,
 .acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
   opacity: 1;
@@ -726,8 +747,8 @@ pre.cv-math-source {
   }
 }
 .acpmux-permission {
-  padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
-  padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  padding-left: var(--cv-inset);
+  padding-right: var(--cv-inset);
 }
 
 /* ---------- Turn rows (TurnRows.tsx) ---------- */
@@ -846,34 +867,26 @@ pre.cv-math-source {
 .cv-tool__detail {
   color: var(--cv-text-dim);
 }
+/* Quiet and always there: a transcript row shows nothing more on hover (Leo 2026-10-13). */
 .cv-tool__chevron {
   margin-left: -4px;
+  color: var(--cv-text-dim);
 }
-/* A thought: "Thought" and its first line on one row, the full text below once opened (cx-ncc.73). */
-.cv-thought .cv-tool__text {
-  display: flex;
+/* A thought in full: a muted "Thought", then its text wrapped on the tool rows' 20px lines, the
+   first line where a single-line row's text sits (Leo 2026-10-13). */
+.cv-thought {
+  align-items: flex-start;
   gap: 6px;
-  min-width: 0;
+  padding-block: 3px;
 }
 .cv-thought__label {
   flex: none;
 }
-.cv-thought__title {
+.cv-thought__text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--cv-text-muted);
-}
-.cv-thought__body {
-  margin: 2px 0 6px 22px;
   color: var(--cv-text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.cv-worked.is-toggle:hover,
-.cv-tool.is-toggle:hover {
-  color: var(--cv-text);
 }
 .cv-tool.is-toggle {
   cursor: pointer;
@@ -887,7 +900,7 @@ pre.cv-math-source {
   outline-offset: -1.5px;
   border-radius: 4px;
 }
-/* One right chevron, turned a quarter when open; on settled rows it shows on hover. */
+/* One right chevron, turned a quarter when open; a message head's shows on hover. */
 .cv-rotor {
   flex: none;
 }
@@ -900,12 +913,8 @@ pre.cv-math-source {
 .cv-rotor.is-open {
   transform: rotate(90deg);
 }
-.cv-rotor.is-hover {
+.cv-rotor.is-hover:not(.cv-tool__chevron) {
   visibility: hidden;
-}
-.cv-tool.is-toggle:hover .cv-rotor.is-hover,
-.cv-tool.is-toggle:focus-visible .cv-rotor.is-hover {
-  visibility: visible;
 }
 /* A shell call's card: "Shell", then the command and its output in mono, then a failed exit code. */
 .cv-shell {
@@ -1170,14 +1179,15 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. A long failure note (a gateway 503) wraps
- * and grows the row instead of overflowing a fixed 28px box, which cut its first and last lines. */
+/* Copy under an answer; the row's height is reserved. One quiet line at the column's right edge,
+   as a prompt's actions under its bubble (2px in, .cv-user__actions). */
 .cv-turn-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   min-height: 28px;
-  margin-left: -4.5px;
+  padding-right: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
@@ -1243,18 +1253,47 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
-.cv-turn-summary {
-  margin-left: 4.5px;
+/* Hidden, its space kept, but for the last turn, a failed one, the turn the reader points at
+   (data-turn-revealed, VirtualTranscript) or keyboard focus. */
+.acpmux-turnSummary .cv-turn-actions {
+  opacity: 0;
+}
+.acpmux-turnSummary[data-last-turn] .cv-turn-actions,
+.acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
+.acpmux-turnSummary:hover .cv-turn-actions,
+.acpmux-turnSummary .cv-turn-actions:focus-within,
+.acpmux-turnSummary .cv-turn-actions--failed {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-turnSummary .cv-turn-actions {
+    transition: opacity 120ms ease-out;
+  }
 }
 .cv-turn-summary,
 .cv-turn-time {
   flex: none;
   white-space: nowrap;
 }
+/* Its Details fold: the chat's chevron after the label, no browser triangle. */
+.cv-turn-note__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-turn-note__summary::-webkit-details-marker {
+  display: none;
+}
+.cv-turn-note__summary:hover {
+  color: var(--cv-text);
+}
+/* A failed turn's note: a block above its footer row, where an answer would be. */
 .cv-turn-note {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding-block: 5px;
+  padding-block: 2px 4px;
   line-height: 18px;
   overflow-wrap: anywhere;
 }
@@ -2046,24 +2085,20 @@ pre.cv-math-source {
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
-.cv-bgtask {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 22px;
-  margin: 4px 0;
-  color: var(--cv-text-muted);
-  font-size: var(--text-caption);
-}
-.cv-bgtask > svg {
-  flex: none;
-}
-.cv-bgtask__text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cv-bgtask[data-state="failed"] > svg {
+.cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
+}
+
+/* One rhythm for steps (tool calls, thoughts, a background task's end) across transcript rows:
+   a step row next to another adds no gap, so they sit 26px apart as inside one row (Leo 2026-10-13). */
+.acpmux-row.acpmux-row--before-step,
+.acpmux-row.acpmux-row--after-step {
+  /* A row's 34px floor would put the gap back under a one-step row. */
+  min-height: 0;
+}
+.acpmux-row.acpmux-row--before-step {
+  padding-bottom: 0;
+}
+.acpmux-row--after-step > .cv-tools {
+  margin-top: 0;
 }

@@ -2,10 +2,9 @@
 /// Settings. `enabled` false hides them for good (Settings or the palette's
 /// Show Announcements brings them back); `fetch` false means no network for them.
 public nonisolated struct AnnouncementsSettings: Sendable, Equatable {
-    public static let enabledPath = ["announcements", "enabled"]
-    public static let fetchPath = ["announcements", "fetch"]
-    public var enabled = true
-    public var fetch = true
+    // Paths and defaults: schemas/settings/source/updates.json (SettingsSchema+Updates.generated.swift).
+    public var enabled = AnnouncementsSettings.enabledDefault
+    public var fetch = AnnouncementsSettings.fetchDefault
 
     public init() {}
 

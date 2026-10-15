@@ -153,7 +153,7 @@ public class HomeSheetController: NSViewController {
 
     /// `field` on the theme's field fill, as wide as the sheet.
     static func boxed(_ field: NSTextField) -> ThemedFieldBox {
-        let box = ThemedFieldBox(field: field, height: Metrics.tabHeight)
+        let box = ThemedFieldBox(field: field, height: Metrics.controlHeight)
         box.widthAnchor.constraint(equalToConstant: 420 - 2 * Metrics.space6).isActive = true
         return box
     }

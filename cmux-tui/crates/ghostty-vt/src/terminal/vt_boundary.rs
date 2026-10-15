@@ -294,3 +294,35 @@ impl C1Normalizer {
         output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
     }
 }
+
+/// Claude and a few other clients use an empty Kitty graphics APC as a
+/// capability probe. libghostty-vt does not give that malformed no-op a
+/// stable replay representation on every build; retaining it can make a
+/// later formatter report `OutOfSpace` even though the terminal has no image
+/// state. It has no display semantics, so discard the complete probe before
+/// feeding the parser and all replay trackers. `C1Normalizer` converts 8-bit
+/// C1 forms to this same 7-bit spelling first.
+#[derive(Default)]
+pub(super) struct EmptyKittyProbeFilter;
+
+impl EmptyKittyProbeFilter {
+    pub(super) fn write<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
+        const EMPTY_PROBE: &[u8] = b"\x1b_G\x1b\\";
+        if !data.as_ref().windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
+            return data;
+        }
+
+        let data = data.as_ref();
+        let mut output = Vec::with_capacity(data.len());
+        let mut cursor = 0;
+        while cursor < data.len() {
+            if data[cursor..].starts_with(EMPTY_PROBE) {
+                cursor += EMPTY_PROBE.len();
+                continue;
+            }
+            output.push(data[cursor]);
+            cursor += 1;
+        }
+        Cow::Owned(output)
+    }
+}

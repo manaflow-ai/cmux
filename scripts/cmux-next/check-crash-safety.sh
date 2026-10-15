@@ -13,6 +13,16 @@
 #                      (ChildSignalDefaults: caught by a no-op handler, so a
 #                      write fails with EPIPE and children still get the
 #                      default; ChildSignalDefaultsTests proves both).
+#   tuple do/catch:    every tracked Swift file in the repo: no `do` with an
+#                      `await` that returns a tuple while one of its `catch`
+#                      clauses returns a tuple too. Swift 6.3 and 6.4 at -O never
+#                      write the first element on the success path
+#                      (swiftlang/swift#92698, #93118); a String there is garbage
+#                      and copying it crashed the nightly (cx-21wc5). A catch
+#                      that returns nil (optional tuple) counts too. Assign a
+#                      local in the do/catch and return once, or return a struct.
+#                      Heuristic: a catch that returns the tuple through a call
+#                      (`return try await retry()`) is not seen.
 #   ratchet:           crash_ratchet.py (plans/cmux-next/crash-elimination.md):
 #                      no module or crate gains a force unwrap, as!, fatalError,
 #                      precondition, assumeIsolated, unowned, implicitly
@@ -75,6 +85,63 @@ for path in swift_sources():
             failures.append(f"{rel}:{index + 1}: force unwrap or as! in a module that decodes external data")
     if SOCKET.search(text) and not NOSIGPIPE.search(text):
         failures.append(f"{rel}: makes or accepts a socket without SO_NOSIGPIPE or MSG_NOSIGNAL")
+
+# swiftlang/swift#92698 (cx-21wc5): a tuple returned from an awaiting `do` and
+# from its `catch` loses its first element at -O. Brace matching, not a regex:
+# only the do body's own text and each catch body count.
+DO_OPEN = re.compile(r"\bdo(?:\s+throws\s*(?:\([^)]*\))?)?\s*\{")
+CATCH_OPEN = re.compile(r"(?:\s|//[^\n]*\n)*catch\b[^{]*\{")
+TUPLE_RETURN = re.compile(r"\breturn\s*\(")
+# The catch side also counts when it returns nil: the optional-tuple shape
+# (`(A, B)?` from the do, nil from the catch) is untested upstream; keep the
+# tuple out of the do/catch there too.
+CATCH_RETURN = re.compile(r"\breturn\s*(?:\(|nil\b)")
+
+def block_end(text, open_brace):
+    depth = 0
+    for i in range(open_brace, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+def tuple_do_catch_hits(text):
+    for match in DO_OPEN.finditer(text):
+        end = block_end(text, match.end() - 1)
+        if end < 0:
+            continue
+        body = text[match.end():end]
+        if "await" not in body or not TUPLE_RETURN.search(body):
+            continue
+        cursor = end + 1
+        while (clause := CATCH_OPEN.match(text, cursor)):
+            clause_end = block_end(text, clause.end() - 1)
+            if clause_end < 0:
+                break
+            if CATCH_RETURN.search(text[clause.end():clause_end]):
+                yield text.count("\n", 0, match.start())
+                break
+            cursor = clause_end + 1
+
+repo = os.path.abspath(os.path.join(root, "..", "..", ".."))
+try:
+    tracked = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", "*.swift"],
+                             check=True, capture_output=True).stdout.decode("utf-8", "replace")
+except (OSError, subprocess.CalledProcessError) as error:
+    print(f"check-crash-safety: refused: {repo} is not in a git checkout ({error})", file=sys.stderr)
+    sys.exit(2)
+for rel in sorted(p for p in tracked.split("\0") if p.endswith(".swift")):
+    path = os.path.join(repo, rel)
+    if not os.path.isfile(path):
+        continue
+    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    for index in tuple_do_catch_hits("\n".join(lines)):
+        if not allowed(lines, index):
+            failures.append(f"{rel}:{index + 1}: tuple returned from an awaiting do and its catch "
+                            "(swiftlang/swift#92698 drops its first element at -O): assign a local, return once")
 
 entry = os.path.join(sources, "CmuxNextApp", "CmuxNextApp.swift")
 if "ChildSignalDefaults.installAppSignalPolicy()" not in open(entry, encoding="utf-8").read():

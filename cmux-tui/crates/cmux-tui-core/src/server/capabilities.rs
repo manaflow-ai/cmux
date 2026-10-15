@@ -15,9 +15,15 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
+    capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
+        capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
+    }
+    if mux.serves_ws_listen() {
+        capabilities.push(WS_LISTEN_CAPABILITY);
+        capabilities.push(WS_LISTEN_ORIGINS_CAPABILITY);
     }
     if mux.history_search().is_some() {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
@@ -78,6 +84,7 @@ pub(super) fn advertised_capabilities(
         "attach-identity-v1",
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
+        creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -120,6 +127,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_REAP_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
+        CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
         TERMINAL_RESOURCES_CAPABILITY,
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
@@ -130,6 +138,7 @@ pub(super) fn advertised_capabilities(
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
+        FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_WORKSPACE_NAME_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
@@ -141,6 +150,7 @@ pub(super) fn advertised_capabilities(
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
+        personal::SESSION_ICON_CAPABILITY,
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         PERSONAL_REMOTE_LOCALHOST_CAPABILITY,
@@ -156,7 +166,9 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
+        conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
+        conversations::WS_CONVERSATIONS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
@@ -184,7 +196,10 @@ pub(super) fn advertised_capabilities(
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
+        crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
+        crate::state::browser_devices::CAPABILITY,
+        crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
@@ -198,12 +213,15 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
+        crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::COMMIT_CAPABILITY,
         crate::git_ops::PUSH_CAPABILITY,
         crate::git_ops::WORKTREE_CAPABILITY,
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
+        crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
+        crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,

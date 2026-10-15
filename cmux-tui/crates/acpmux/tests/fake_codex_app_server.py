@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""A fake `codex app-server` for live model list tests: JSON-RPC lines
-without the `jsonrpc` field. `model/list` answers in two pages.
+"""A fake `codex app-server` for live model list tests and the in-process
+Codex bridge (`codex_app_server.rs`): JSON-RPC lines without the `jsonrpc`
+field. `model/list` answers in two pages; `thread/start` makes one thread and
+`turn/start` streams one message ("ok") and completes the turn.
 FAKE_CODEX=unauth refuses `model/list` as a signed-out Codex does;
 FAKE_CODEX=hang never answers; FAKE_DELAY waits before each answer.
 """
@@ -69,5 +71,15 @@ for line in sys.stdin:
             continue
         data, cursor = PAGES[message.get("params", {}).get("cursor")]
         reply({"id": rid, "result": {"data": data, "nextCursor": cursor}})
+    elif method == "thread/start":
+        thread = {"id": "fake-thread-1", "cwd": message.get("params", {}).get("cwd"), "turns": []}
+        reply({"id": rid, "result": {"thread": thread, "model": "gpt-6.1-sol", "reasoningEffort": None}})
+    elif method == "turn/start":
+        params = message.get("params", {})
+        thread, turn = params.get("threadId"), "fake-turn-%s" % rid
+        reply({"id": rid, "result": {"turn": {"id": turn, "status": "inProgress", "items": []}}})
+        reply({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn, "status": "inProgress", "items": []}}})
+        reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "ok"}})
+        reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "completed", "items": []}}})
     else:
         reply({"id": rid, "error": {"code": -32601, "message": "unknown method"}})

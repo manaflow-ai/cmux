@@ -2,8 +2,8 @@ import AppKit
 @testable import CmuxNextActions
 import Testing
 
-/// The workspace, tab and pane menus show the few rows people use, then one More submenu with
-/// everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
+/// The workspace, tab and pane menus show the few rows people use, their group rows, then one
+/// More submenu with everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
 @MainActor
 struct ContextMenuEssentialsTests {
     /// Each top-level row as the action it runs (a choices row: its submenu's action), "More"
@@ -36,8 +36,9 @@ struct ContextMenuEssentialsTests {
 
     @Test func theWorkspaceMenuShowsTheFrequentRowsThenMore() {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
-                               "moveWorkspaceToGroup", "More", "—", "closeWorkspace"])
+        // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "—",
+                               "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
@@ -59,7 +60,8 @@ struct ContextMenuEssentialsTests {
         let registry = registry()
         let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
         #expect(tab.suffix(3) == ["More", "—", "closeTab"])
-        #expect(tab.filter { $0 != "—" }.count <= 7)
+        #expect(tab.filter { $0 != "—" }.count <= 10)
+        #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy(tab.contains))
         #expect(tab.contains("renameTab") && tab.contains("palette.toggleTabPin"))
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
         #expect(pane.suffix(3) == ["More", "—", "closePane"])

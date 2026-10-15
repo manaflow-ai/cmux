@@ -16,6 +16,10 @@ struct WorkspaceHoverCardContent: Equatable {
         var mark: String?
         /// A status entry's stored image or SVG, drawn instead of both.
         var image: SidebarFavicon?
+        /// A running fact's start: the card appends how long it has run, live.
+        var since: Date?
+        /// How many lines the text may wrap to (a task or a waiting reason reads in full).
+        var lines: Int = 1
     }
 
     var title: String
@@ -26,6 +30,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// The workspace's merged status and its style hint (the row's indicator).
     var activity: StatusIndicatorState = .idle
     var activityStyle: StatusIndicatorStyle?
+    /// When that status began; the status row appends how long it has held, live (cx-swovq).
+    var activitySince: Date?
 
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
@@ -34,11 +40,27 @@ struct WorkspaceHoverCardContent: Equatable {
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date) -> Self {
         let remote = machine.flatMap { $0.kind == .local ? nil : $0 }
         var facts: [Fact] = []
+        let detail = workspace.detail
+        if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3)) }
+        if let agent = workspace.agentName {
+            facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · ")))
+        }
+        if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3)) }
+        // The agent chat's last reply line, when no task says more.
+        if detail.task == nil, let message = workspace.lastMessage, !message.isEmpty {
+            facts.append(Fact(icon: .agentChatList, text: message, lines: 2))
+        }
+        for presence in workspace.presence.prefix(2) {
+            facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence)))
+        }
+        if let command = detail.command { facts.append(Fact(icon: .terminal, text: command, since: detail.commandSince)) }
         if let folder = workspace.directory.flatMap({ $0.isEmpty ? nil : folderName($0) }) { facts.append(Fact(icon: .folder, text: folder)) }
         if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch)) }
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
-        if let remote { facts.append(Fact(icon: hostIcon(remote), text: remote.name)) }
-        if let agent = workspace.agentName { facts.append(Fact(icon: .agentChat, text: agent)) }
+        if let remote {
+            let own = ownIcon(remote.icon)
+            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image))
+        }
         // As many entries as the row shows, then how many more (the daemon keeps up to 64).
         let entries = workspace.reported?.entries ?? []
         for entry in entries.prefix(SidebarWorkspaceStatus.visibleEntryLimit) {
@@ -50,7 +72,39 @@ struct WorkspaceHoverCardContent: Equatable {
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts,
-            activity: workspace.activity, activityStyle: workspace.activityStyle)
+            activity: workspace.activity, activityStyle: workspace.activityStyle, activitySince: detail.activitySince)
+    }
+
+    /// The icon of what an agent is doing (`SidebarPresence.Activity`).
+    private static func toolIcon(_ activity: SidebarPresence.Activity) -> IconName {
+        switch activity {
+        case .editing: .toolEdit
+        case .reading: .toolRead
+        case .running: .toolShell
+        case .browsing: .toolWeb
+        case .thinking, .computerUse, .waiting: .agentActivity
+        }
+    }
+
+    private static let elapsedFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        formatter.allowedUnits = [.day, .hour, .minute, .second]
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter
+    }()
+
+    /// How long since `date`, live on the card: "12s", "4m 12s", "1h 3m"; at least one second,
+    /// also for a start ahead of this clock (another machine's daemon).
+    static func elapsed(since date: Date, now: Date) -> String {
+        elapsedFormatter.string(from: max(1, now.timeIntervalSince(date).rounded(.down))) ?? ""
+    }
+
+    /// `text · 4m 12s` for a running fact, else `text`.
+    static func withElapsed(_ text: String, since: Date?, now: Date) -> String {
+        guard let since else { return text }
+        return text + " · " + elapsed(since: since, now: now)
     }
 
     /// The one resource line, or nil while the workspace is quiet.
@@ -66,6 +120,17 @@ struct WorkspaceHoverCardContent: Equatable {
         let path = (directory as NSString).expandingTildeInPath
         let name = (path as NSString).lastPathComponent
         return name.isEmpty ? directory : name
+    }
+
+    /// A machine's own icon (`SidebarMachine.icon`) as a fact's mark (an emoji or SF Symbol
+    /// name) or image (a stored asset); neither without one, so the kind's symbol draws.
+    private static func ownIcon(_ icon: WorkspaceIcon?) -> (mark: String?, image: SidebarFavicon?) {
+        switch icon {
+        case .symbol(let name, _)?: (name, nil)
+        case .emoji(let text, _)?: (text, nil)
+        case .favicon(let image)?: (nil, image)
+        case .swatch?, nil: (nil, nil)
+        }
     }
 
     private static func hostIcon(_ machine: SidebarMachine) -> IconName {

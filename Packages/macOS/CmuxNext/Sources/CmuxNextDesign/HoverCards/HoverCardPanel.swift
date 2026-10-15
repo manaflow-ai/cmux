@@ -23,6 +23,9 @@ final class HoverCardPanel: NSPanel {
     /// The card's material; its `contentView` holds the body.
     let glass: OverlaySurfaceView
     private weak var body: NSView?
+    /// The shown card's text, one entry per line (`debug.hover_cards`); empty for a body that
+    /// does not report it.
+    var bodyLines: [String] { (body as? any HoverCardTextReporting)?.reportedLines ?? [] }
     private weak var parentWindowRef: NSWindow?
     private var anchor: CGRect = .zero
     private var placement: HoverCardPlacement = .below

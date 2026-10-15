@@ -5,6 +5,7 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
 
     vec![
         (vec!["git", "status", "--path", "/repo"], "git.status"),
+        (vec!["git", "branches", "--path", "/repo", "--limit", "50"], "git.branches"),
         (
             vec![
                 "git",

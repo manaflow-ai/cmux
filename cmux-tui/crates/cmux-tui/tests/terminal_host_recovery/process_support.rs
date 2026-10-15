@@ -92,6 +92,9 @@ mod standby_host;
 #[path = "split_client_keys.rs"]
 mod split_client_keys;
 
+#[path = "creating_input.rs"]
+mod creating_input;
+
 #[path = "remote_terminal_tabs.rs"]
 mod remote_terminal_tabs;
 

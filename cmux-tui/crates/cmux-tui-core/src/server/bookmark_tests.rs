@@ -17,7 +17,11 @@ fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     let mut request = request;
     request["id"] = json!(7);
     let request: Request = serde_json::from_str(&request.to_string())?;
-    handle_command(mux, mux.local_test_client(0), request.cmd, &writer)
+    // The cmux app's own connection: only it may delete a browser profile.
+    let client = mux.local_test_client(0);
+    origin_gate::set_role_for_test(mux, client, "main");
+    origin_gate::set_verified_app_for_test(mux, client, true);
+    handle_command(mux, client, request.cmd, &writer)
 }
 
 fn bookmarks_mux() -> Arc<Mux> {
