@@ -331,11 +331,13 @@ fn agents_retry_browser_profile_create_and_open_with_their_keys_through_mcp() {
     assert_ne!(id(2), id(0), "another key found the first profile: {}", created[2]);
     let work = id(0);
 
+    // A fresh headless daemon has no workspace until something opens one.
+    ok(&server, &["tab", "create", "terminal"]);
     let tree = raw_json(&server, serde_json::json!({"id": "tree", "cmd": "list-workspaces"}));
     let pane = text(
         find(&tree, "panes").and_then(|panes| panes.get(0)).and_then(|p| p.get("resource_id")),
     );
-    assert!(pane.starts_with("pane_"), "{pane}");
+    assert!(pane.starts_with("pane_"), "{tree}");
     let long_key = "k".repeat(128);
     let open = serde_json::json!({"url": "https://example.com/keys", "profile": work,
         "pane": pane, "activate": false, "idempotency_key": long_key});
