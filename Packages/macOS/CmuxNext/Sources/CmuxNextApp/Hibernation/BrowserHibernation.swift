@@ -205,7 +205,11 @@ final class BrowserHibernation {
     /// A fresh picture (never one from an earlier sleep), scaled so that several fit the 32 MB
     /// `previews` cache, which refuses a picture larger than itself (a big pane at 2x).
     private func snapshot(_ tab: any BrowserTab, key: String) async -> CGImage? {
-        await capture(tab).map { PreviewImageCache.fitted($0, maxBytes: (cache?.previews.capacityBytes ?? 32 << 20) / 4) }
+        guard let image = await capture(tab) else { return nil }
+        // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
+        let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
+        let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
+        return await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
     }
 
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
@@ -352,10 +356,8 @@ struct PageProbe {
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
-            // The person's edits, or any changed field once the person used the page (a widget or script may have set
-            // it for them) or when the recorder is missing. A page nobody used whose script fills fields hibernates.
-            let edited = busy.editedForm == true || ((busy.used ?? true) && (object["form"] ?? true))
-            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: edited,
+            // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
+            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio)
         } catch {
             return PageProbe(playingMedia: true)

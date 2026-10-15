@@ -39,22 +39,6 @@ public final class PreviewImageCache {
         order.removeAll { $0 == key }
     }
 
-    /// `image` scaled down (aspect kept) to at most `maxBytes` decoded; itself when it fits or
-    /// cannot be redrawn.
-    public static func fitted(_ image: CGImage, maxBytes: Int) -> CGImage {
-        let bytes = cost(image)
-        guard bytes > maxBytes, image.width > 0, image.height > 0 else { return image }
-        let scale = (Double(maxBytes) / Double(bytes)).squareRoot()
-        // Whole 64-byte rows, so the drawn image costs no more than `maxBytes`.
-        let width = max(16, Int(Double(image.width) * scale) & ~15), height = max(1, Int(Double(image.height) * scale))
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
-        context.interpolationQuality = .medium
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return context.makeImage() ?? image
-    }
-
     static func cost(_ image: CGImage) -> Int {
         max(image.bytesPerRow * image.height, image.width * image.height * 4)
     }
