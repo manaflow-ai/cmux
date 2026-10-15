@@ -992,6 +992,7 @@ test "$daemon_pid" = fixture
       const env = {
         ...process.env,
         HOME: home,
+        PATH: "/usr/bin:/bin",
         OPENAI_BASE_URL: "https://example.invalid/v1",
         OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: "https://example.invalid",
