@@ -449,6 +449,12 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
     }
 }
 
+/// The build-session kill switch, the test of acpmux launch_policy.rs.
+fn agent_launch_disabled() -> bool {
+    env("ACPMUX_AGENT_LAUNCH").is_some_and(|v| v.trim().eq_ignore_ascii_case("deny"))
+        || env("CMUX_AGENTS_DISABLED").is_some_and(|v| v.trim() == "1")
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
@@ -477,6 +483,13 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     if let Err(e) = paths.create() {
         log(format!("creating {}: {e}", paths.root.display()));
         return 1;
+    }
+    // cx-tgf4h: agents are off in this build session (acpmux refuses every
+    // launch), so no turn could start; the host would only hold messages.
+    if agent_launch_disabled() {
+        log("not starting: agents are disabled in this build session \
+             (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1)");
+        return 0;
     }
     let _lock = match HostLock::take(&paths.host_lock, started_ms) {
         Ok(lock) => {

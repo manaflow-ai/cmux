@@ -26,7 +26,7 @@ impl BuildFixture {
             .as_nanos();
         let root = env::temp_dir()
             .join(format!("cmux-build-identity-{}-{nanos}-{unique}", std::process::id()));
-        let manifest_dir = root.join("cmux-tui/crates/cmux-remote");
+        let manifest_dir = root.join("cmux-tui/crates/cmux-build-identity");
         fs::create_dir_all(&manifest_dir).unwrap();
         fs::write(root.join(".gitignore"), "cmux-tui/target/\n").unwrap();
         fs::write(root.join("cmux-tui/source.txt"), "clean\n").unwrap();
@@ -37,7 +37,7 @@ impl BuildFixture {
         .unwrap();
         fs::write(
             root.join("cmux-tui/Cargo.toml"),
-            "[package]\nname = \"cmux-tui-source-watch\"\nversion = \"0.0.0\"\nedition = \"2024\"\nbuild = \"source-watch-build.rs\"\n\n[lib]\npath = \"source-watch.rs\"\n\n[workspace]\nmembers = [\"crates/cmux-remote\"]\nresolver = \"2\"\n",
+            "[package]\nname = \"cmux-tui-source-watch\"\nversion = \"0.0.0\"\nedition = \"2024\"\nbuild = \"source-watch-build.rs\"\n\n[lib]\npath = \"source-watch.rs\"\n\n[workspace]\nmembers = [\"crates/cmux-build-identity\"]\nresolver = \"2\"\n",
         )
         .unwrap();
         fs::write(root.join("cmux-tui/source-watch.rs"), "pub const ACTIVE: () = ();\n").unwrap();
