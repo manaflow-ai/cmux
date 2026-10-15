@@ -129,6 +129,7 @@ struct BrowserToolbar: View {
                 .allowsHitTesting(history.visible)
                 .accessibilityHidden(!history.visible)
             }
+            if local == nil && !chrome.editing { addressElement(layout.capsule) }
             capsule(layout.capsule)
                 .position(x: layout.capsule.midX, y: layout.capsule.midY)
             if !chrome.controlsGone {
@@ -403,6 +404,7 @@ struct BrowserToolbar: View {
         // placeholder may use the whole capsule ("Search or enter website"
         // was cut to "Search or ente…" in the middle third).
         let maxW = max(40, r.width - (showsStartPage ? 24 : 2 * style.metrics.control + 8))
+        let width = collapsed ? r.width : max(0, r.width - (showsStartPage ? 0 : 2 * style.metrics.control))
         Button(action: unlessSwiped {
             if collapsed { chrome.expand(tap: true) } else { onBeginEditing() }
         }) {
@@ -426,11 +428,29 @@ struct BrowserToolbar: View {
             .scaleEffect(collapsed ? style.metrics.collapsedScale : 1)
             // Expanded, the label owns only the middle; the 48 pt slots
             // at either end belong to the menu and reload buttons.
-            .frame(width: collapsed ? r.width : max(0, r.width - (showsStartPage ? 0 : 2 * style.metrics.control)), height: r.height)
+            .frame(width: width, height: r.height)
             .contentShape(.rect)
         }
         .buttonStyle(GlassContentButtonStyle())
-        .accessibilityLabel(collapsed ? "Show toolbar, \(labelText)" : "Address, \(labelText)")
+        // Inside the glass its accessibility frame grew to the whole capsule
+        // after a collapse and expand (over the page menu); `addressElement`
+        // stands for it.
+        .accessibilityHidden(true)
+    }
+
+    /// The address label's accessibility element, outside the glass so its
+    /// frame is exactly the label's slot (the middle of the capsule, or the
+    /// whole pill).
+    @ViewBuilder private func addressElement(_ r: CGRect) -> some View {
+        let slot = collapsed ? r : r.insetBy(dx: showsStartPage ? 0 : style.metrics.control, dy: 0)
+        Color.clear
+            .frame(width: max(1, slot.width), height: max(1, slot.height))
+            .accessibilityElement()
+            .accessibilityLabel(collapsed ? "Show toolbar, \(labelText)" : "Address, \(labelText)")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { if collapsed { chrome.expand(tap: true) } else { onBeginEditing() } }
+            .position(x: slot.midX, y: slot.midY)
+            .allowsHitTesting(false)
     }
 
     /// A button action that does nothing when the touch was a bar swipe.
