@@ -19,6 +19,17 @@ fn attach_sized(
     stream.set_read_timeout(Some(test_timeout(Duration::from_secs(10)))).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
+    // The phone is narrower than the Mac in these tests; it says it is one.
+    if cols < 100 {
+        stream_request(
+            &mut writer,
+            &mut reader,
+            serde_json::json!({
+                "id": request_id + 1000, "cmd": "set-client-info", "name": "phone",
+                "kind": "ios", "device_kind": "iphone",
+            }),
+        );
+    }
     writeln!(
         writer,
         "{}",
@@ -128,8 +139,8 @@ fn sized_attach_that_narrows_the_grid_replays_once_at_the_effective_size() {
     wait_for_no_host_records(&harness.host_root());
 }
 
-/// A view whose connection drops keeps the grid from growing for a grace
-/// period. A phone that reattaches inside it finds the grid it left, so the
+/// A phone or tablet view whose connection drops keeps the grid from growing
+/// for a grace period (a Mac or TUI view that leaves does not). A phone that reattaches inside it finds the grid it left, so the
 /// PTY is never resized: an inline TUI such as Codex sees no width change, and
 /// does not rebuild (and truncate) its scrollback twice per drop (cnx-ios
 /// termqa V2-5). After the grace the grid follows the remaining views.

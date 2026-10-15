@@ -76,6 +76,7 @@ pub(super) fn detach_client(
         // A relay sub-view leaves alone; its relay stays attached and
         // forwards the notice to that leaf only.
         mux.detach_terminal_sub_view(placement, relay, &view);
+        mux.release_terminal_grid_holds();
         let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
         mux.control_clients.send_surface_event(
             relay,
@@ -136,7 +137,10 @@ pub(super) fn detach_attached_view(
     let lease = match (lease, view) {
         (Some(lease), None) => lease,
         (None, Some(view)) => {
-            return Ok(match mux.detach_terminal_sub_view(surface, client, &view) {
+            let detached = mux.detach_terminal_sub_view(surface, client, &view);
+            // A relay detaches its leaf on purpose: no departed-view hold.
+            mux.release_terminal_grid_holds();
+            return Ok(match detached {
                 Some(_) => json!({"outcome": "applied"}),
                 None => json!({"outcome": "superseded"}),
             });
@@ -452,7 +456,7 @@ pub(super) fn attach_surface(
         // (cnx-ios termqa D4). A host that keeps another size times out here
         // and the replay is built at the current grid.
         surface
-            .wait_for_hosted_viewer_size(std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT);
+            .settle_hosted_viewer_size(std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT);
     }
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),

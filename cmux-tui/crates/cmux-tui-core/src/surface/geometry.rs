@@ -95,31 +95,47 @@ impl Surface {
         }
     }
 
-    /// Wait, at most until `deadline`, for a hosted PTY's mirror to reach
-    /// the grid last asked of its host. A hosted resize returns once the
+    /// Wait, at most until `deadline`, until a hosted PTY's mirror has
+    /// applied every grid asked of its host. A hosted resize returns once the
     /// size is sent; the host's resize arrives later on its stream. An attach
     /// that sized the grid waits here so its replay is built at the new grid
     /// instead of being followed by a second, `resized` replay. Returns
-    /// whether the mirror matches (always for a local or idle PTY).
-    pub(crate) fn wait_for_hosted_viewer_size(&self, deadline: Instant) -> bool {
+    /// whether the mirror is settled (always for a local or idle PTY).
+    pub(crate) fn settle_hosted_viewer_size(&self, deadline: Instant) -> bool {
         let Surface::Pty(pty) = self else { return true };
-        loop {
-            let observed = pty.stream_progress.revision();
-            #[cfg(any(unix, windows))]
-            let target = match &*pty.runtime.lock().unwrap() {
-                PtyRuntime::Hosted(host) => host.viewer_size(),
-                _ => None,
+        #[cfg(any(unix, windows))]
+        {
+            // Only the request is sent under the runtime lock; the wait is not.
+            let barrier = match &*pty.runtime.lock().unwrap() {
+                PtyRuntime::Hosted(host) => host.begin_viewer_size_barrier(),
+                _ => return true,
             };
-            #[cfg(not(any(unix, windows)))]
-            let target: Option<(u16, u16)> = None;
-            let Some(target) = target else { return true };
-            let geometry = *pty.geometry.lock().unwrap();
-            if (geometry.cols, geometry.rows) == target {
-                return true;
+            if let Some(acknowledged) = barrier {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                return acknowledged.recv_timeout(remaining).is_ok();
             }
-            if pty.stream_progress.wait_for_change_until(observed, Some(deadline)).is_none() {
-                return false;
+            // A host without viewer size acknowledgements: wait for the
+            // mirror to reach the size last asked.
+            loop {
+                let observed = pty.stream_progress.revision();
+                let target = match &*pty.runtime.lock().unwrap() {
+                    PtyRuntime::Hosted(host) => host.viewer_size(),
+                    _ => None,
+                };
+                let Some(target) = target else { return true };
+                let geometry = *pty.geometry.lock().unwrap();
+                if (geometry.cols, geometry.rows) == target {
+                    return true;
+                }
+                if pty.stream_progress.wait_for_change_until(observed, Some(deadline)).is_none() {
+                    return false;
+                }
             }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (pty, deadline);
+            true
         }
     }
 
