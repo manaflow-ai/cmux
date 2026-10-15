@@ -52,6 +52,22 @@ import Testing
         #expect(CEFRuntimeLayout.locate(environment: ["CMUX_CEF_RUNTIME": dir.path]) == nil)
     }
 
+    /// A Release build ignores CMUX_CEF_RUNTIME: it never loads a runtime
+    /// from outside its own bundle.
+    @Test func releaseIgnoresTheRuntimeOverride() throws {
+        let frameworks = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cef-layout-\(UUID().uuidString)").appendingPathComponent("x.app/Contents/Frameworks")
+        for item in [CEFRuntimeLayout.frameworkName, "x Helper.app"] {
+            try FileManager.default.createDirectory(at: frameworks.appendingPathComponent(item), withIntermediateDirectories: true)
+        }
+        FileManager.default.createFile(atPath: frameworks.appendingPathComponent(CEFRuntimeLayout.shimName).path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: frameworks.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
+        let environment = ["CMUX_CEF_RUNTIME": frameworks.path]
+        #expect(CEFRuntimeLayout.locate(environment: environment, allowsRuntimeOverride: true) != nil)
+        // The test bundle embeds no runtime, so without the override there is none.
+        #expect(CEFRuntimeLayout.locate(environment: environment, allowsRuntimeOverride: false) == nil)
+    }
+
     @Test func embeddedRuntimeResolvesTheBaseHelper() throws {
         let app = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cef-layout-\(UUID().uuidString)").appendingPathComponent("cmux DEV.app")
