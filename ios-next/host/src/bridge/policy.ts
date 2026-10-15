@@ -23,6 +23,7 @@ const isWebUrl: FieldRule = (v) => {
     return false;
   }
 };
+const isDim: FieldRule = (v) => typeof v === "number" && Number.isInteger(v) && v >= 2 && v <= 1000;
 const isString = (max: number): FieldRule => (v) => typeof v === "string" && v.length <= max;
 const isBase64 = (max: number): FieldRule => (v) => typeof v === "string" && v.length <= max && /^[A-Za-z0-9+/=]*$/.test(v);
 const isStringArray: FieldRule = (v) => Array.isArray(v) && v.every((x) => typeof x === "string" && x.length <= 128);
@@ -41,15 +42,19 @@ export const DAEMON_ALLOW: Record<string, Record<string, FieldRule>> = {
   "set-client-info": { name: isString(128), kind: (v) => v === "frontend", capabilities: isStringArray, device_kind: isString(32), device_name: isString(128) },
   subscribe: { tree_events: (v) => v === "deltas" },
   "list-workspaces": {},
-  // Byte stream only: the phone's Ghostty consumes raw VT. No cols/rows, so
-  // attaching never takes the Mac's grid.
-  "attach-surface": { surface: isSurface, mode: (v) => v === "bytes" },
-  // Only ever opt the bridge's view out of sizing.
+  // Byte stream only: the phone's Ghostty consumes raw VT. cols/rows only
+  // for a terminal the phone created (its initial size claim).
+  "attach-surface": { surface: isSurface, mode: (v) => v === "bytes", cols: isDim, rows: isDim },
+  // Only ever opt the bridge's view out of sizing (Mac terminals).
   "set-size-counts": { surface: isSurface, counts: (v) => v === false },
+  // The phone's grid for its own leased view of a terminal it created.
+  "resize-attached-view": { surface: isSurface, lease: isString(256), cols: isDim, rows: isDim },
+  "note-size-activity": { surface: isSurface },
   "detach-attached-view": { surface: isSurface, lease: isString(256) },
   send: { surface: isSurface, bytes: isBase64(1024 * 1024) },
-  // A plain new tab runs the user's default shell (no cwd/env/shell_args).
-  "new-tab": {},
+  // A plain new tab runs the user's default shell (no cwd/env/shell_args),
+  // at the phone's grid.
+  "new-tab": { cols: isDim, rows: isDim },
   // term.close: close one tab and end its shell now (plain close-surface
   // leaves the pty running for the daemon's reap grace).
   "close-tabs": { surfaces: (v) => Array.isArray(v) && v.length === 1 && isSurface(v[0]), end_terminals: (v) => v === true },

@@ -71,7 +71,16 @@ async function fakeDaemon() {
     const ok = (data: unknown = {}) => conn.send({ id: m.id, ok: true, data });
     switch (m.cmd) {
       case "identify":
-        return ok({ app: "cmux-tui", protocol: 12 });
+        return ok({ app: "cmux-tui", protocol: 12, capabilities: ["attach-initial-size"] });
+      case "resize-attached-view": {
+        const tab = tabs.find((t) => t.surface === m.surface);
+        if (tab) tab.size = { cols: m.cols, rows: m.rows };
+        ok({ accepted: true, reservation_id: null, outcome: "applied" });
+        srv.broadcast({ event: "surface-resized", surface: m.surface });
+        return;
+      }
+      case "note-size-activity":
+        return ok({ participant: "c9", changed: false });
       case "set-client-info":
       case "subscribe":
       case "set-size-counts":
@@ -109,7 +118,7 @@ async function fakeDaemon() {
       }
       case "new-tab": {
         const surface = nextSurface++;
-        tabs.push({ surface, kind: "pty", name: null, title: "zsh", size: { cols: 104, rows: 40 }, cwd: "/Users/me", dead: false });
+        tabs.push({ surface, kind: "pty", name: null, title: "zsh", size: { cols: m.cols ?? 104, rows: m.rows ?? 40 }, cwd: "/Users/me", dead: false });
         ok({ surface });
         srv.broadcast({ event: "tab-added", surface });
         return;
@@ -133,7 +142,9 @@ describe("bridge policy", () => {
       ["new-tab", { env: { X: "1" } }],
       ["split", { dir: "right" }],
       ["attach-surface", { surface: 2, mode: "render" }],
-      ["attach-surface", { surface: 2, mode: "bytes", cols: 10, rows: 10 }],
+      ["attach-surface", { surface: 2, mode: "bytes", cols: 1, rows: 10 }],
+      ["new-tab", { cols: 50000, rows: 10 }],
+      ["resize-attached-view", { surface: 2, lease: "l", cols: 10, rows: 10, view: "x" }],
       ["set-size-counts", { surface: 2, counts: true }],
       ["shutdown-daemon", {}],
       ["pairing-response", {}],
@@ -269,6 +280,8 @@ describe("daemon terminals bridge", () => {
 
     const sent = d.commands.map((c) => c.cmd);
     expect(sent).not.toContain("resize-surface");
+    expect(sent).not.toContain("resize-attached-view");
+    expect(sent).not.toContain("note-size-activity");
     expect(d.commands.find((c) => c.cmd === "attach-surface")).toEqual({ id: expect.any(Number), cmd: "attach-surface", surface: 2, mode: "bytes" });
     expect(d.commands.find((c) => c.cmd === "set-size-counts")).toMatchObject({ surface: 2, counts: false });
     expect(d.commands.find((c) => c.cmd === "send")).toMatchObject({ surface: 2, bytes: Buffer.from("ls\r").toString("base64") });
@@ -291,7 +304,7 @@ describe("daemon terminals bridge", () => {
       await expect(client.request("term.create", { cols: 80, rows: 24, ...extra })).rejects.toMatchObject({ code: "unsupported" });
     const { terminal } = await client.request("term.create", { cols: 80, rows: 24, cwd: null });
     expect(terminal.id).toBe("s10");
-    expect(d.commands.filter((c) => c.cmd === "new-tab")).toEqual([{ id: expect.any(Number), cmd: "new-tab" }]);
+    expect(d.commands.filter((c) => c.cmd === "new-tab")).toEqual([{ id: expect.any(Number), cmd: "new-tab", cols: 80, rows: 24 }]);
     // A tab opened on the Mac reaches the phone through tab-added.
     d.tabs.push({ surface: 42, kind: "pty", name: "mac tab", title: "zsh", size: { cols: 90, rows: 30 }, cwd: "/Users/me", dead: false });
     d.srv.broadcast({ event: "tab-added", surface: 42 });
@@ -307,6 +320,33 @@ describe("daemon terminals bridge", () => {
     expect(exited.map((e) => e.terminalId)).toContain("s10");
     expect((await client.request("term.list")).terminals.map((t: any) => t.id)).not.toContain("s10");
     await expect(client.request("term.close", { terminalId: "s10" })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("sizes a terminal the phone created to the phone's grid, and only that one", async () => {
+    const d = await fakeDaemon();
+    cleanups.push(() => d.srv.close());
+    const terminals = new DaemonTerminals(() => d.path);
+    const { core, client } = await connectedCore({ bridge: { terminals } });
+    cleanups.push(() => core.shutdown());
+    const { terminal } = await client.request("term.create", { cols: 50, rows: 36 });
+    expect(terminal).toMatchObject({ id: "s10", cols: 50, rows: 36 });
+    const { streamId } = await client.request("term.attach", { terminalId: "s10", cols: 50, rows: 36 });
+    expect(d.commands.find((c) => c.cmd === "attach-surface" && c.surface === 10)).toMatchObject({ mode: "bytes", cols: 50, rows: 36 });
+    expect(d.commands.some((c) => c.cmd === "set-size-counts" && c.surface === 10)).toBe(false);
+    // Rotation: the phone's new grid reaches the daemon through its lease.
+    const updates: any[] = [];
+    client.peer.on("event", (t, p) => t === "term.updated" && updates.push(p.terminal));
+    await client.request("term.resize", { terminalId: "s10", cols: 90, rows: 20 });
+    expect(d.commands.filter((c) => c.cmd === "resize-attached-view").at(-1)).toMatchObject({ surface: 10, lease: "lease-1", cols: 90, rows: 20 });
+    expect(d.commands.some((c) => c.cmd === "note-size-activity" && c.surface === 10)).toBe(true);
+    await waitFor(() => updates.some((t) => t.id === "s10" && t.cols === 90 && t.rows === 20));
+    // A Mac terminal is still never resized from the phone.
+    const before = d.commands.filter((c) => c.cmd === "resize-attached-view").length;
+    await client.request("term.attach", { terminalId: "s2", cols: 50, rows: 36 });
+    await client.request("term.resize", { terminalId: "s2", cols: 50, rows: 36 });
+    expect(d.commands.find((c) => c.cmd === "attach-surface" && c.surface === 2)).toEqual({ id: expect.any(Number), cmd: "attach-surface", surface: 2, mode: "bytes" });
+    expect(d.commands.filter((c) => c.cmd === "resize-attached-view").length).toBe(before);
+    await client.request("term.detach", { streamId });
   });
 
   it("maps a terminal that ended on the Mac to not_found and drops it from the list", async () => {

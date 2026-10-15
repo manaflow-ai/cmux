@@ -38,11 +38,13 @@ Daemon (`DAEMON_ALLOW`), with the only fields each may carry:
 | `identify`, `set-client-info` | `name`, `kind:"frontend"`, `capabilities`, `device_kind`, `device_name` | handshake |
 | `subscribe` | `tree_events:"deltas"` | terminal list changes made on the Mac |
 | `list-workspaces` | none | terminal list (pty tabs only are exposed) |
-| `attach-surface` | `surface`, `mode:"bytes"` | mirror a terminal; no `cols`/`rows`, so attaching never resizes |
-| `set-size-counts` | `surface`, `counts:false` only | the phone's view never takes the Mac's grid |
+| `attach-surface` | `surface`, `mode:"bytes"`, `cols`/`rows` (2 to 1000) | mirror a terminal; `cols`/`rows` only for a terminal the phone created (see Sizing) |
+| `set-size-counts` | `surface`, `counts:false` only | the phone's view never takes a Mac terminal's grid |
+| `resize-attached-view` | `surface`, `lease`, `cols`/`rows` (2 to 1000) | the phone's grid for its own view of a terminal it created |
+| `note-size-activity` | `surface` | that view takes the grid (the daemon's `latest` policy) |
 | `send` | `surface`, `bytes` (base64, 1 MiB) | typing into an existing terminal |
 | `detach-attached-view` | `surface`, `lease` | end a mirror |
-| `new-tab` | none | a new tab running the user's default shell |
+| `new-tab` | `cols`/`rows` (2 to 1000) | a new tab running the user's default shell, at the phone's grid |
 | `close-tabs` | `surfaces` (exactly one), `end_terminals:true` | `term.close`: close the tab and end its shell (plain `close-surface` left the pty running for the daemon's 30 s reap grace) |
 | `rename-surface` | `surface`, `name` | phone terminal rename |
 | `select-workspace`, `select-screen` | `index` | `layout.focusTab`: bring the pane's workspace/screen forward |
@@ -170,10 +172,19 @@ reachable.
 
 ## Sizing
 
-The phone never resizes the Mac's terminal. Attaches carry no size, the
-bridge's view is set to `counts:false`, and `term.resize` from the phone is
-answered with the Mac's current grid (`term.updated`) instead of resizing.
-The phone renders at the Mac's grid.
+The phone never resizes a terminal opened on the Mac. Those attaches carry
+no size, the bridge's view is set to `counts:false`, and `term.resize` from
+the phone is answered with the Mac's current grid (`term.updated`) instead
+of resizing. The phone renders at the Mac's grid.
+
+A terminal the phone created (`term.create`, remembered in memory for the
+bridge's lifetime) opens at the phone's grid and is sized by the phone: its
+attach carries the phone's grid, its view counts toward sizing, and
+`term.resize` reaches the daemon through that view's own lease
+(`resize-attached-view`, then `note-size-activity`). Under the daemon's
+default `latest` policy the side that was active last sets the grid, so
+using the tab on the Mac takes it back. The bridge never sends
+`resize-surface`, and never sizes a terminal it did not create.
 
 ## Tests
 
@@ -181,7 +192,8 @@ The phone renders at the Mac's grid.
 - **Daemon policy:** denies `run`, `create-terminal`,
   `create-surface-with-receipt`, `apply-layout`, `split`, `shutdown-daemon`,
   `pairing-response` and `agent-session-*`. Also denies `new-tab` with `cwd`,
-  `shell_args` or `env`; render mode or sized attaches; `counts:true`; wrong
+  `shell_args` or `env`; render mode; grids outside 2 to 1000; `counts:true`;
+  relay sub-views (`view`) on `resize-attached-view`; wrong
   id types; extra fields; and prototype keys.
 - **acpmux policy:** denies peers, import/export, policy/rules/defaults and
   shutdown. Also denies `session/new` with MCP servers or extra `_meta`

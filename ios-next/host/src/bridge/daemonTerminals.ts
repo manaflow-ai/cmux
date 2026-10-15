@@ -1,8 +1,11 @@
 // term.* served from the cmux-next daemon: the phone sees the Mac's terminal
 // tabs and types into them. Each phone attachment gets its own daemon
-// connection with a bytes-mode attach (raw VT for the phone's Ghostty) whose
-// view does not count toward sizing, so the phone never resizes the Mac's
-// grid; the phone renders at the Mac's grid (term.updated carries it).
+// connection with a bytes-mode attach (raw VT for the phone's Ghostty). For a
+// terminal opened on the Mac that view does not count toward sizing, so the
+// phone never resizes it; the phone renders at the Mac's grid (term.updated
+// carries it). A terminal the phone created is sized by the phone: the tab
+// opens at the phone's grid and the phone's view counts (the daemon's
+// `latest` policy: whichever side was active last sets the grid).
 
 import { EventEmitter } from "node:events";
 import { FrameKind, type Terminal } from "../protocol.ts";
@@ -63,14 +66,24 @@ export interface DaemonTerminalsEvents {
 
 const RIS = Buffer.from("\x1bc");
 
-/** term.create params a mirrored terminal accepts (cols/rows are ignored: the Mac owns the grid; cwd is refused above). */
+/** term.create params a mirrored terminal accepts (cwd is refused above). */
 const TERM_CREATE_PARAMS = new Set(["cols", "rows", "cwd"]);
+
+/** A phone grid, or undefined when absent or out of range. */
+export function phoneGrid(cols: unknown, rows: unknown): { cols: number; rows: number } | undefined {
+  const ok = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 2 && v <= 1000;
+  return ok(cols) && ok(rows) ? { cols: cols as number, rows: rows as number } : undefined;
+}
 
 export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
   private control: DaemonConn | null = null;
   private connecting: Promise<DaemonConn> | null = null;
   private readonly terminals = new Map<number, Terminal>();
   private refreshTimer: NodeJS.Timeout | null = null;
+  /** Surfaces the phone created: the phone sizes these (in memory only). */
+  private readonly phoneSized = new Set<number>();
+  /** Live phone views of phone-sized terminals (connection and lease). */
+  private readonly phoneViews = new Map<number, Set<{ stream: DaemonConn; lease: string }>>();
   private readonly log: Logger;
 
   constructor(
@@ -177,9 +190,10 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
     return { surface, t };
   }
 
-  async create(): Promise<Terminal> {
+  async create(grid?: { cols: number; rows: number }): Promise<Terminal> {
     const c = await this.conn();
-    const res = await c.request<{ surface: number }>("new-tab", {});
+    const res = await c.request<{ surface: number }>("new-tab", grid ? { cols: grid.cols, rows: grid.rows } : {});
+    this.phoneSized.add(res.surface);
     await this.refresh();
     const t = this.terminals.get(res.surface);
     if (!t) throw new RpcError("internal", "the new terminal did not appear");
@@ -240,8 +254,9 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
    * Returns the input writer and a disposer (closing the connection drops
    * the daemon lease).
    */
-  async attach(id: string, sink: (data: Uint8Array) => void): Promise<{ terminal: Terminal; write: (data: Uint8Array) => void; dispose: () => void }> {
+  async attach(id: string, sink: (data: Uint8Array) => void, grid?: { cols: number; rows: number }): Promise<{ terminal: Terminal; write: (data: Uint8Array) => void; dispose: () => void }> {
     const { surface, t } = await this.known(id);
+    const phoneSized = this.phoneSized.has(surface);
     const path = this.socketPath();
     if (!path) throw new RpcError("unavailable", "the cmux-next app is not running on this Mac");
     const stream = await DaemonConn.open(path);
@@ -282,11 +297,23 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
       }
     });
     let lease: string | undefined;
+    let view: { stream: DaemonConn; lease: string } | undefined;
     try {
-      const res = await stream.request<{ lease?: string }>("attach-surface", { surface, mode: "bytes" });
+      // A phone-sized terminal claims the phone's grid as it attaches (when
+      // the daemon takes an initial size), else right after.
+      const initial = phoneSized && grid && this.takesInitialSize(stream) ? { cols: grid.cols, rows: grid.rows } : {};
+      const res = await stream.request<{ lease?: string }>("attach-surface", { surface, mode: "bytes", ...initial });
       lease = res.lease;
-      // The phone types into the Mac's terminal but never takes its grid.
-      await stream.request("set-size-counts", { surface, counts: false });
+      if (!phoneSized) {
+        // The phone types into the Mac's terminal but never takes its grid.
+        await stream.request("set-size-counts", { surface, counts: false });
+      } else if (lease) {
+        view = { stream, lease };
+        let views = this.phoneViews.get(surface);
+        if (!views) this.phoneViews.set(surface, (views = new Set()));
+        views.add(view);
+        if (grid) await this.sizeView(surface, view, grid);
+      }
     } catch (err) {
       stream.close();
       throw this.mapError(err, surface);
@@ -300,10 +327,37 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
       dispose: () => {
         if (disposed) return;
         disposed = true;
+        if (view) this.phoneViews.get(surface)?.delete(view);
         if (lease) void stream.request("detach-attached-view", { surface, lease }, 2_000).catch(() => {}).finally(() => stream.close());
         else stream.close();
       },
     };
+  }
+
+  private takesInitialSize(stream: DaemonConn): boolean {
+    const caps = (stream.identity as { capabilities?: unknown }).capabilities;
+    return Array.isArray(caps) && caps.includes("attach-initial-size");
+  }
+
+  /** Reports the phone's grid for one view and marks it active (it takes the grid under `latest`). */
+  private async sizeView(surface: number, view: { stream: DaemonConn; lease: string }, grid: { cols: number; rows: number }): Promise<void> {
+    await view.stream.request("resize-attached-view", { surface, lease: view.lease, cols: grid.cols, rows: grid.rows });
+    await view.stream.request("note-size-activity", { surface });
+  }
+
+  /**
+   * term.resize: a phone-sized terminal takes the phone's grid through its
+   * attached views; any other terminal keeps the Mac's grid, which the phone
+   * gets back as term.updated.
+   */
+  async resize(id: string, grid: { cols: number; rows: number } | undefined): Promise<void> {
+    const { surface, t } = await this.known(id);
+    const views = this.phoneViews.get(surface);
+    if (grid && this.phoneSized.has(surface) && views && views.size > 0) {
+      for (const view of views) await this.sizeView(surface, view, grid).catch((err) => this.log(`resize ${id} failed: ${(err as Error).message}`));
+      return;
+    }
+    this.emit("event", "term.updated", { terminal: { ...t } });
   }
 
   register(server: RpcServer): void {
@@ -315,17 +369,21 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
       if (optStr(p, "cwd") !== undefined) throw new RpcError("unsupported", "a working directory cannot be chosen from the phone; the Mac picks it");
       const extra = Object.keys(p).filter((k) => !TERM_CREATE_PARAMS.has(k) && p[k] !== null && p[k] !== undefined);
       if (extra.length > 0) throw new RpcError("unsupported", `term.create on the Mac takes no ${extra.join(", ")}: new terminals run the default shell`);
-      return { terminal: await this.create() };
+      return { terminal: await this.create(phoneGrid(p.cols, p.rows)) };
     });
     server.register("term.attach", async (p, session: ClientSession) => {
       const terminalIdParam = str(p, "terminalId");
       let streamId = 0;
       const early: Uint8Array[] = [];
       let ready = false;
-      const att = await this.attach(terminalIdParam, (data) => {
-        if (!ready) early.push(Uint8Array.from(data));
-        else session.sendFrame(FrameKind.termOutput, streamId, data);
-      });
+      const att = await this.attach(
+        terminalIdParam,
+        (data) => {
+          if (!ready) early.push(Uint8Array.from(data));
+          else session.sendFrame(FrameKind.termOutput, streamId, data);
+        },
+        phoneGrid(p.cols, p.rows),
+      );
       streamId = session.addStream({ kind: "term", target: terminalIdParam, onInput: (d) => att.write(d), dispose: () => att.dispose() });
       // Replay after the response so the phone knows the stream id first.
       setImmediate(() => {
@@ -339,10 +397,10 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
       session.removeStream(num(p, "streamId"));
       return {};
     });
-    // The Mac owns the grid; the phone renders at it (term.updated reports it).
+    // The Mac owns a Mac terminal's grid (term.updated reports it); the
+    // phone sizes the terminals it created.
     server.register("term.resize", async (p) => {
-      const { t } = await this.known(str(p, "terminalId"));
-      this.emit("event", "term.updated", { terminal: { ...t } });
+      await this.resize(str(p, "terminalId"), phoneGrid(p.cols, p.rows));
       return {};
     });
     server.register("term.close", async (p) => {
