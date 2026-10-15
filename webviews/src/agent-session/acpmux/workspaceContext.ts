@@ -5,7 +5,7 @@
 // workspace through the cmux CLI, which finds this chat's workspace from the agent's session
 // (`CMUX_AGENT_SESSION`, `cmux app identify`), so nothing in it goes stale.
 //
-// It is text for the agent, not the person, so it is not localized.
+// l10n-allow-file: it is text for the agent, not the person, so it is not localized.
 
 export const WORKSPACE_CONTEXT = `<cmux-workspace-context>
 This chat is docked on the left of a cmux workspace. The person opened it with Cmd-I to work on what that workspace shows: its terminals, browser tabs and project files. The person did not type this note; do not quote it.
