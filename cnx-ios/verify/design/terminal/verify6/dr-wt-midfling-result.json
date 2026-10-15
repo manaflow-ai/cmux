@@ -1,0 +1,46 @@
+{
+ "tag": "dr-wt-midfling",
+ "mode": "midfling",
+ "kills_v": [
+  3.73
+ ],
+ "hostd": [
+  [
+   1.79,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.73,
+   "NFO cnx_hostd::host: link up session_id=\"17ba5c9f-369b-4cc6-9adc-14d7c11c7a81\" kind=WebRtc path=Turn phone=\"0e42baa6-d13"
+  ]
+ ],
+ "before": [
+  "GEN-5773",
+  "GEN-577",
+  "GEN-5775",
+  "GEN-5776",
+  "GEN-5777",
+  "GEN-5778"
+ ],
+ "after": [
+  "GEN-5655",
+  "GEN-5656",
+  "GEN-565",
+  "GEN-5658",
+  "GEN-5659",
+  "GEN-5660"
+ ],
+ "jump_visible_after": true,
+ "replays": [
+  "surface 16: mirror reset cause=reattach",
+  "surface 17: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [
+  "reading mark row 15598 of 17229: kept",
+  "reading mark restored row 15598 -> 15598 of 17327"
+ ],
+ "black_runs": [],
+ "flashes_foreign": 0,
+ "valid_fps": false
+}

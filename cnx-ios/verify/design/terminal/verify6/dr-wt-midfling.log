@@ -1,0 +1,96 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-15 01:38:58.028 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17619)
+2026-10-15 01:38:58.034 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17620)
+2026-10-15 01:38:58.048 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17621)
+2026-10-15 01:38:58.070 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17622)
+2026-10-15 01:38:58.117 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17623)
+2026-10-15 01:38:58.146 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17624)
+2026-10-15 01:38:58.151 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17625)
+2026-10-15 01:38:58.168 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17626)
+2026-10-15 01:38:58.194 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17627)
+2026-10-15 01:38:58.238 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17628)
+2026-10-15 01:38:58.267 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17630)
+2026-10-15 01:38:58.286 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17631)
+2026-10-15 01:38:58.310 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17632)
+2026-10-15 01:38:58.357 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17633)
+2026-10-15 01:38:58.387 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17634)
+2026-10-15 01:38:58.401 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17635)
+2026-10-15 01:38:58.410 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17636)
+2026-10-15 01:38:58.436 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17637)
+2026-10-15 01:38:58.456 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17638)
+2026-10-15 01:38:58.507 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17639)
+2026-10-15 01:38:58.518 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17640)
+2026-10-15 01:38:58.533 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17641)
+2026-10-15 01:38:58.558 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17642)
+2026-10-15 01:38:58.583 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17643)
+2026-10-15 01:38:58.628 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17644)
+2026-10-15 01:38:58.657 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17645)
+2026-10-15 01:38:58.668 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17646)
+2026-10-15 01:38:58.672 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17647)
+2026-10-15 01:38:58.718 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17648)
+2026-10-15 01:38:58.746 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17649)
+2026-10-15 01:38:58.751 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17650)
+2026-10-15 01:38:58.769 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17651)
+2026-10-15 01:38:58.792 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17652)
+2026-10-15 01:38:58.837 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17653)
+2026-10-15 01:38:58.867 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17654)
+2026-10-15 01:38:58.896 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17655)
+2026-10-15 01:38:58.901 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17656)
+2026-10-15 01:38:58.919 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17657)
+2026-10-15 01:38:58.941 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17658)
+2026-10-15 01:38:58.986 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17659)
+2026-10-15 01:38:59.017 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17661)
+2026-10-15 01:38:59.037 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17662)
+2026-10-15 01:38:59.059 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17663)
+2026-10-15 01:38:59.106 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17664)
+2026-10-15 01:38:59.136 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17665)
+2026-10-15 01:38:59.167 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17666)
+2026-10-15 01:38:59.197 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17667)
+2026-10-15 01:38:59.200 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17668)
+2026-10-15 01:38:59.213 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17669)
+2026-10-15 01:38:59.236 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17670)
+2026-10-15 01:38:59.254 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17671)
+2026-10-15 01:38:59.278 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17672)
+2026-10-15 01:38:59.299 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17673)
+2026-10-15 01:38:59.346 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17674)
+2026-10-15 01:38:59.376 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17675)
+2026-10-15 01:38:59.384 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17676)
+2026-10-15 01:38:59.401 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17677)
+2026-10-15 01:38:59.427 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17678)
+2026-10-15 01:38:59.455 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17679)
+2026-10-15 01:38:59.477 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17680)
+2026-10-15 01:38:59.526 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17681)
+2026-10-15 01:38:59.534 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17682)
+2026-10-15 01:38:59.546 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17683)
+2026-10-15 01:38:59.569 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17684)
+2026-10-15 01:38:59.616 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17685)
+2026-10-15 01:38:59.646 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17686)
+2026-10-15 01:39:00.881 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] history pruned 887 rows at the top (total 17740): rows held move up
+2026-10-15 01:39:05.015 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] scroll pacing: 304 frames, longest 66.9 ms, 17 over 17 ms, longest main-thread step 0.0 ms
+2026-10-15 01:39:05.015 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 15717, delta: 4.0)) (offset 251476, bottom 271844)
+2026-10-15 01:39:05.032 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (gesture end): following+streaming n=177 p50=16.7 p95=16.7 p99=27.3 max=39.3 hitches=2 work_p95=1.72
+2026-10-15 01:39:05.032 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (gesture end): interacting+streaming n=314 p50=16.7 p95=16.7 p99=26.2 max=61.4 hitches=4 work_p95=0.57
+2026-10-15 01:39:11.700 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-15 01:39:11.776 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-15 01:39:11.776 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-15 01:39:11.784 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 654.0, composer top 736.0, gap 82.0 pt (keyboard down, composer 48 pt, rows 37)
+2026-10-15 01:39:11.796 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 1283)
+2026-10-15 01:39:11.806 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-15 01:39:11.806 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-15 01:39:11.806 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] scroll pacing: 105 frames, longest 46.3 ms, 11 over 17 ms, longest main-thread step 0.0 ms
+2026-10-15 01:39:11.806 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 15598, delta: 11.333333333343035)) (offset 249579, bottom 274964)
+2026-10-15 01:39:11.806 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] reading mark row 15598 of 17229: kept
+2026-10-15 01:39:11.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (gesture end): interacting n=108 p50=16.7 p95=16.7 p99=43.0 max=73.9 hitches=4 work_p95=0.02
+2026-10-15 01:39:11.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (gesture end): reading n=13 p50=16.7 p95=68.1 p99=68.1 max=68.1 hitches=1 work_p95=0.01
+2026-10-15 01:39:11.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (gesture end): reading+streaming n=272 p50=16.7 p95=16.7 p99=23.8 max=47.0 hitches=2 work_p95=0.08
+2026-10-15 01:39:11.817 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 700.0, composer top 700.0, gap 0.0 pt (keyboard down, composer 84 pt, rows 17229)
+2026-10-15 01:39:11.824 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 84 pt, rows 17229)
+2026-10-15 01:39:11.827 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 48 pt, rows 17327)
+2026-10-15 01:39:11.828 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] reading mark restored row 15598 -> 15598 of 17327
+2026-10-15 01:39:16.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following+streaming n=1 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.26
+2026-10-15 01:39:16.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading+streaming n=296 p50=16.7 p95=16.7 p99=33.3 max=50.3 hitches=3 work_p95=0.08
+2026-10-15 01:39:21.566 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] history pruned 887 rows at the top (total 17740): rows held move up
+2026-10-15 01:39:21.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading+streaming n=296 p50=16.7 p95=16.7 p99=26.5 max=44.7 hitches=3 work_p95=0.08
+2026-10-15 01:39:26.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading+streaming n=298 p50=16.7 p95=16.7 p99=16.7 max=40.4 hitches=2 work_p95=0.08
+2026-10-15 01:39:31.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading+streaming n=296 p50=16.7 p95=16.7 p99=20.0 max=47.8 hitches=2 work_p95=0.08
+2026-10-15 01:39:36.815 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading+streaming n=296 p50=16.7 p95=16.7 p99=20.3 max=49.5 hitches=2 work_p95=0.09

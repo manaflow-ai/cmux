@@ -1,0 +1,61 @@
+{
+ "tag": "dr-gd-twoquick",
+ "mode": "twoquick",
+ "kills_v": [
+  3.71,
+  7.29
+ ],
+ "hostd": [
+  [
+   1.69,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.7,
+   "NFO cnx_hostd::host: link up session_id=\"4513de5c-72de-40de-9e17-091967f77cb8\" kind=WireGuard path=Direct phone=\"0e42baa"
+  ],
+  [
+   5.9,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   6.74,
+   "NFO cnx_hostd::host: link up session_id=\"8b058fdc-91be-4e63-af0f-477bed9f433e\" kind=WireGuard path=Direct phone=\"0e42baa"
+  ]
+ ],
+ "before": [
+  "GEN-39202",
+  "GEN-39203",
+  "GEN-39204",
+  "GEN-39205",
+  "GEN-39206",
+  "GEN-39207"
+ ],
+ "after": [
+  "GEN-39202",
+  "GEN-39203",
+  "GEN-39204",
+  "GEN-39205",
+  "GEN-39206",
+  "GEN-39207"
+ ],
+ "jump_visible_after": true,
+ "replays": [
+  "surface 22: mirror reset cause=reattach",
+  "surface 16: mirror reset cause=reattach",
+  "surface 17: mirror reset cause=reattach",
+  "surface 16: mirror reset cause=reattach",
+  "surface 22: mirror reset cause=reattach",
+  "surface 17: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [
+  "reading mark row 9231 of 17456: kept",
+  "reading mark restored row 9231 -> 9231 of 17558",
+  "reading mark row 9231 of 17614: kept",
+  "reading mark restored row 9231 -> 9231 of 17734"
+ ],
+ "black_runs": [],
+ "flashes_foreign": 0,
+ "valid_fps": false
+}

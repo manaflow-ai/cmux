@@ -1,0 +1,86 @@
+<Application 'cmux' id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 62, 402, 778)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (0, 62, 402, 778)>
+<ScrollArea None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (-12.060000000000002, -26.220000000000027, 426.12, 926.44)>
+<Group None id=None v=None (-12.060000000000002, -26.220000000000027, 426.12, 827.5066666666667)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 62)>
+<Group None id=None v=None (0, 0, 402, 62)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<ScrollArea None id=None v=None (0, 0, 402, 874)>
+<TextArea 'Terminal' id=None v='\u200b' (6, -1152, 390, 2416)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 671.2000000000007, 402, 202.79999999999927)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Slider 'Vertical scroll bar, 41 pages' id=None v='100%' (369, 124, 30, 578)>
+<Group None id=None v=None (396, 663, 3, 36)>
+<Slider 'Horizontal scroll bar, 1 page' id=None v='0%' (62, 841, 278, 30)>
+<Group None id=None v=None (65, 868, 272, 3)>
+<Slider 'Vertical scroll bar, 41 pages' id=None v='100%' (369, 124, 30, 578)>
+<Group None id=None v=None (396, 663, 3, 36)>
+<Slider 'Horizontal scroll bar, 1 page' id=None v='0%' (62, 841, 278, 30)>
+<Group None id=None v=None (65, 868, 272, 3)>
+<Group None id=None v=None (0, 736, 402, 56)>
+<Group None id=None v=None (0, 736, 402, 48)>
+<Group None id=None v=None (0, 736, 402, 48)>
+<PopUpButton 'Add attachment' id=None v=None (14, 742, 36, 36)>
+<Button None id=None v=None (14.000000000000028, 742, 36, 36)>
+<Image 'Add' id=plus v=None (14, 742, 36, 36)>
+<TextArea 'Send to Terminal' id=terminal.composer.field v=None (60.00000000000003, 742, 286, 36)>
+<Group None id=_UITextSelectionRangeAdjustmentContainerView v=None (60.00000000000003, 742, 0, 0)>
+<Group None id=com.apple.text.grabber.leading v=None (60.00000000000003, 742, 0, 0)>
+<Group None id=None v=None (52.75000000000003, 728.5, 16.5, 16.5)>
+<Group None id=None v=None (60.00000000000003, 742, 2, 0)>
+<Group None id=com.apple.text.grabber.leading v=None (60.00000000000003, 742, 0, 0)>
+<Group None id=None v=None (52.75000000000003, 728.5, 16.5, 16.5)>
+<Group None id=None v=None (60.00000000000003, 742, 2, 0)>
+<Slider 'Vertical scroll bar, 1 page' id=None v='0%' (313, 742, 30, 36)>
+<Group None id=None v=None (340, 739, 3, 36)>
+<Slider 'Horizontal scroll bar, 1 page' id=None v='0%' (60.00000000000003, 757, 286, 18)>
+<Group None id=None v=None (63.00000000000003, 772, 280, 3)>
+<Button 'Return' id=terminal.composer.send v=None (352, 742, 36, 36)>
+<Group None id=None v=None (0, 736, 402, 138)>
+<Button 'Close ⠦ Print lighthouse sentences | proj' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (372, 0, 30, 30)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (34, 792, 334, 48)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (34, 792, 48, 48)>
+<Button 'Back' id=chevron.left v=None (34, 792, 48, 48)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (90, 792, 222, 48)>
+<Button 'Page Menu' id=None v=None (90, 792, 48, 48)>
+<Button '⠧ Print lighthouse sentences | proj, ~/cnx-ios-e2e/termqa/proj' id=None v=None (90, 792, 222, 48)>
+<StaticText '⠧ Print lighthouse sentences | proj' id=None v=None (139, 800.3333333333334, 124, 18)>
+<StaticText '~/cnx-ios-e2e/termqa/proj' id=None v=None (139.66666666666669, 818.3333333333334, 122.66666666666669, 13.333333333333371)>
+<Button 'Reload' id=arrow.clockwise v=None (268, 792, 44, 48)>
+<Button 'Tabs' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (320, 792, 48, 48)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (0, 0, 402, 874)>
+<ScrollArea None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (90, 792, 48, 82)>
+<Group None id=None v=None (90, 792, 48, 48)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 791, 402, 83)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 791, 402, 83)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>

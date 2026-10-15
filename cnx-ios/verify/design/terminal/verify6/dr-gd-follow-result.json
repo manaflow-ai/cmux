@@ -1,0 +1,44 @@
+{
+ "tag": "dr-gd-follow",
+ "mode": "follow",
+ "kills_v": [
+  3.81
+ ],
+ "hostd": [
+  [
+   1.79,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.86,
+   "NFO cnx_hostd::host: link up session_id=\"01867a97-0447-47f8-8669-88ee1598dd87\" kind=WireGuard path=Direct phone=\"0e42baa"
+  ]
+ ],
+ "before": [
+  "GEN-49462",
+  "GEN-49463",
+  "GEN-49464",
+  "GEN-49465",
+  "GEN-49466",
+  "GEN-49467"
+ ],
+ "after": [
+  "GEN-50051",
+  "GEN-50052",
+  "GEN-50053",
+  "GEN-50054",
+  "GEN-50055",
+  "GEN-50056"
+ ],
+ "jump_visible_after": false,
+ "replays": [
+  "surface 16: mirror reset cause=reattach",
+  "surface 22: mirror reset cause=reattach",
+  "surface 17: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [],
+ "black_runs": [],
+ "flashes_foreign": 0,
+ "valid_fps": false
+}

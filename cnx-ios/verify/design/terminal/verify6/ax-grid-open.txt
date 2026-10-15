@@ -1,0 +1,49 @@
+<Application 'cmux' id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 62, 402, 778)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (0, 62, 402, 778)>
+<ScrollArea None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 780.6666666666666)>
+<Button 'e2e-t1, tab' id=None v=None (16, 122, 177, 274.3333333333333)>
+<Button 'e2e-t2, tab' id=None v=None (209, 122, 177, 274.3333333333333)>
+<Button '⠼ Print lighthouse sentences | proj, tab' id=None v=None (16, 410.3333333333333, 177, 274.3333333333333)>
+<PopUpButton 'More' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (346, 66, 36, 36)>
+<Button None id=None v=None (346, 66, 36, 36)>
+<Image 'More' id=ellipsis v=None (346, 66, 36, 36)>
+<PopUpButton 'New Tab' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (38, 788, 48, 48)>
+<Button None id=None v=None (38, 788, 48, 48)>
+<Image 'Add' id=plus v=None (38, 788, 48, 48)>
+<StaticText '3 Tabs' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (174.66666666666666, 801.8333333333334, 52.66666666666666, 20.33333333333337)>
+<Button 'Done' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (316, 788, 48, 48)>
+<Group None id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (16, 410.3333333333333, 177, 384.82089552238807)>
+<Button 'Close ⠇ Print lighthouse sentences | proj' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (163, 410.3333333333333, 30, 30)>
+<StaticText 'e2e-143502' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (151.66666666666669, 66, 98.66666666666666, 20.33333333333333)>
+<StaticText 'cmux’s Mac mini (2) · 3 tabs' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (115.83333333333334, 87.33333333333333, 170.3333333333333, 15.666666666666671)>
+<Button 'Workspaces' id=workspace.d414370c-946d-478e-9398-04a6a7c80da3 v=None (20, 66.66666666666666, 36, 36)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 791, 402, 83)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 791, 402, 83)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>

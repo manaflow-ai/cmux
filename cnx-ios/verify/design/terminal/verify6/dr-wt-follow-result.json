@@ -1,0 +1,41 @@
+{
+ "tag": "dr-wt-follow",
+ "mode": "follow",
+ "kills_v": [
+  3.73
+ ],
+ "hostd": [
+  [
+   1.53,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.51,
+   "NFO cnx_hostd::host: link up session_id=\"1b97eccf-5d3b-4f50-bdf0-34b777342be7\" kind=WebRtc path=Turn phone=\"0e42baa6-d13"
+  ]
+ ],
+ "before": [
+  "GEN-9107",
+  "GEN-9108",
+  "GEN-9109",
+  "GEN-9110",
+  "GEN-9111",
+  "GEN-911"
+ ],
+ "after": [],
+ "jump_visible_after": false,
+ "replays": [
+  "surface 16: mirror reset cause=reattach",
+  "surface 17: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [],
+ "black_runs": [
+  [
+   12.0,
+   17.3333
+  ]
+ ],
+ "flashes_foreign": 0,
+ "valid_fps": false
+}

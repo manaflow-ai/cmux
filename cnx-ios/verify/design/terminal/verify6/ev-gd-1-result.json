@@ -1,0 +1,52 @@
+{
+ "tag": "ev-gd-1",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv6/ev-gd-1.mp4",
+ "flings": 10,
+ "jumps": 1,
+ "fling_reached_bottom": 0,
+ "history_pruned": 2,
+ "settled_following": 0,
+ "settled_reading": 1,
+ "jump_logs": 1,
+ "trips": [
+  {
+   "trip": 0,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-50351",
+    "GEN-50352",
+    "GEN-50353"
+   ],
+   "before": [
+    "GEN-50351",
+    "GEN-50352",
+    "GEN-50353",
+    "GEN-50354",
+    "GEN-50355",
+    "GEN-50356"
+   ],
+   "kill": 1792054594.8446982,
+   "after": [
+    "GEN-50351",
+    "GEN-50352",
+    "GEN-50353",
+    "GEN-50354",
+    "GEN-50355",
+    "GEN-50356"
+   ],
+   "hostd": [
+    [
+     2.17,
+     "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+    ],
+    [
+     3.07,
+     "NFO cnx_hostd::host: link up session_id=\"2016fbc1-7a3a-40ae-b37c-1689ca2327a3\" kind=WireGuard path=Direct phone=\"0e42baa"
+    ]
+   ],
+   "jump_visible_after_drop": true,
+   "jump_tap": 38.58,
+   "jump_visible_after": false
+  }
+ ]
+}
