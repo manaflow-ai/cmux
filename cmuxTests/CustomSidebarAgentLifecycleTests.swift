@@ -160,6 +160,19 @@ struct CustomSidebarAgentLifecycleTests {
         ) == nil)
     }
 
+    @Test("a pending Claude alias accepts the hook-store session identity")
+    func pendingClaudeAliasUsesHookStoreSessionID() {
+        #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: "surface"),
+            currentSessionID: AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: "surface"),
+            sessionAliases: ["real-claude-session"],
+            state: .idle,
+            agentSource: "claude",
+            panelLifecycles: ["claude_code": .backgroundWorkPending],
+            lifecycleSessionIDs: ["claude_code": "real-claude-session"]
+        ) == "background_work_pending")
+    }
+
     @Test("Dock lifecycle ownership survives the panel owner routing")
     func dockOwnerPreservesSessionID() throws {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
