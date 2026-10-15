@@ -2136,6 +2136,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
     let pageOverlays = BrowserPageOverlayCoordinator()
+    /// Answers a non-WebKit page's requests (new pages, permissions,
+    /// dialogs, downloads); the page holds it weakly.
+    let enginePageDelegate = BrowserPanelEnginePageDelegate()
     private var webKitPageAdapter: WebKitBrowserPage?
     private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
@@ -2156,6 +2159,10 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
+    /// Geolocation and offline emulation set by `browser.geolocation.set` /
+    /// `browser.offline.set`; follows the tab across web view replacements
+    /// the same way automation init scripts do.
+    let browserEmulation = BrowserWebKitEmulationController()
     var webViewDidRequestClose: (() -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
@@ -6160,7 +6167,8 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
         takeBrowserDialogOwnership(dialogOwner)
-        if openCmuxPageForChromiumRoute(input) { return nil }
+        // Only a person's address bar opens Settings; automation never takes focus.
+        if dialogOwner == .user, openCmuxPageForChromiumRoute(input) { return nil }
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
         return navigate(
             to: navigation.url,
@@ -6843,7 +6851,7 @@ extension BrowserPanel {
     }
 
     /// Opens a request in a sibling browser tab without dropping request metadata.
-    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
+    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil, focus: Bool = true) {
         guard let seed = browserNewTabNavigationSeed(
             from: request,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
@@ -6890,10 +6898,13 @@ extension BrowserPanel {
             inPane: paneId,
             url: seed.url,
             initialRequest: seed.initialRequest,
-            focus: true,
+            focus: focus,
             preferredProfileID: profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
-            websiteDataStore: explicitEphemeralWebsiteDataStoreForSibling
+            websiteDataStore: explicitEphemeralWebsiteDataStoreForSibling,
+            // A Chromium page's links open in Chromium (window.opener and
+            // cookies live in one engine); WebKit panels keep the default.
+            engine: engineKind == .chromium ? .chromium : nil
         ) else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")

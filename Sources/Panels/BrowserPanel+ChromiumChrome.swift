@@ -42,6 +42,64 @@ extension BrowserPanel {
             pageOverlays.attach(contentView: contentView, target: nil)
             return
         }
+        // Its page window can take the keyboard from now on: shortcut routing
+        // must recognize it (`NSWindow.chromiumActingWindow`).
+        NSWindow.noteChromiumRuntimeLoaded()
         pageOverlays.attach(contentView: contentView, target: target)
+    }
+
+    /// Where a page a Chromium page asks to open goes (`target=_blank`,
+    /// `window.open`, Cmd-click, middle-click): a Chromium tab next to this
+    /// panel in its pane, like a WebKit panel's new-tab links. A background
+    /// tab (Cmd-click) does not take focus.
+    ///
+    /// A sized popup (`window.open` with features) also opens as a tab for
+    /// now: keeping `window.opener` needs the engine to hand over the popup's
+    /// own page (`allowPopup`), which the Chromium adapter does not offer yet.
+    ///
+    /// References: design spec §2 (Classic's pane tab bar is the tab strip),
+    /// cmux Next `CEF/CEFWindowPolicy.swift`, `browser-link-tabs-chrome-order.md`.
+    func openChromiumPageRequest(_ request: BrowserPageOpenRequest) -> BrowserPageOpenDisposition {
+        guard let url = request.url else { return .block }
+        switch request.placement {
+        case .foregroundTab, .popup:
+            openLinkInNewTab(request: URLRequest(url: url))
+        case .backgroundTab:
+            openLinkInNewTab(request: URLRequest(url: url), focus: false)
+        }
+        return .handled
+    }
+}
+
+/// Answers a non-WebKit page's requests for its panel.
+///
+/// Chrome UI owns new pages (`openChromiumPageRequest`). Until their owners
+/// wire them, the rest answer the way a page with no handler would be safest
+/// for: navigations proceed (typed loads already passed the panel's policy),
+/// permission requests and dialogs are declined, and downloads are not
+/// saved. Permissions, dialogs and downloads belong to the data and safety
+/// parity rows, which replace these answers.
+@MainActor
+final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
+    weak var panel: BrowserPanel?
+
+    func page(_ page: any BrowserPage, decidePolicyFor action: BrowserPageNavigationAction) async -> BrowserPageNavigationDecision {
+        .allow
+    }
+
+    func page(_ page: any BrowserPage, requestPermission request: BrowserPagePermissionRequest) async -> BrowserPagePermissionDecision {
+        .deny
+    }
+
+    func page(_ page: any BrowserPage, runJavaScriptDialog dialog: BrowserPageJavaScriptDialog) async -> BrowserPageJavaScriptDialogResponse {
+        .dismiss
+    }
+
+    func page(_ page: any BrowserPage, openNewPage request: BrowserPageOpenRequest) -> BrowserPageOpenDisposition {
+        panel?.openChromiumPageRequest(request) ?? .block
+    }
+
+    func page(_ page: any BrowserPage, destinationForDownload download: BrowserPageDownload) async -> URL? {
+        nil
     }
 }
