@@ -15,9 +15,10 @@
 # dogfood it carry it):
 #   CMUX_SKIP_CEF=1    never (also removes an earlier embed)
 #   CMUX_EMBED_CEF=1   always; CMUX_EMBED_CEF=0 never
-#   otherwise          Debug builds outside CI (CI=true): tagged reload.sh
-#                      builds and fleet dev builds. Release, nightly and CI
-#                      builds embed nothing and stay as they were before CEF.
+#   otherwise          never: plain Xcode, Release, nightly and CI builds embed
+#                      nothing and stay as they were before CEF. scripts/reload.sh
+#                      sets CMUX_EMBED_CEF=1 for tagged builds outside CI (local
+#                      and fleet dogfood builds).
 #
 # The artifact ships CEF's flat framework (binary, Libraries/, Resources/ at
 # the top). Xcode's product validation rejects that layout ("did not contain
@@ -64,7 +65,7 @@ remove_invalid_embed() {
 remove_all_embed() {
   local removed=0 item
   for item in "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" \
-    "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; do
+    "$frameworks/${PRODUCT_NAME:-cmux} Helper.app" "$frameworks/${PRODUCT_NAME:-cmux} Helper ("*").app"; do
     [[ -e "$item" || -L "$item" ]] || continue
     rm -rf "$item"
     removed=1
@@ -81,9 +82,7 @@ embed_policy() {
     0) echo "skip:CMUX_EMBED_CEF=0"; return ;;
   esac
   if [[ "${CMUX_REQUIRE_CEF:-0}" == "1" ]]; then echo "embed"; return; fi
-  if [[ "${CONFIGURATION:-}" != "Debug" ]]; then echo "skip:CONFIGURATION=${CONFIGURATION:-unset}"; return; fi
-  if [[ "${CI:-}" == "true" ]]; then echo "skip:CI=true"; return; fi
-  echo "embed"
+  echo "skip:CMUX_EMBED_CEF unset"
 }
 
 policy="$(embed_policy)"
