@@ -62,6 +62,9 @@ final class PaneHeaderView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        // Own layers for the controls: an open thread view fades them (setThreadBlur), also before the
+        // header is in a window, when AppKit has made no layer for a subview yet.
+        for v in [avatar, pill] as [NSView] { v.wantsLayer = true }
         avatar.imageScaling = .scaleProportionallyUpOrDown
         // Back to front: the host's backing, the pill's glass, the pill's title and chevron, the avatar:
         // the disc draws whole over the pill's top edge.
