@@ -370,6 +370,8 @@ struct TabOverview: View {
                     guard tabs.gridAcceptsCloseTaps else { return }
                     Task { _ = await onClose(tab.id) }
                 })
+            // Under its lifted long-press preview the card is hidden.
+            .opacity(swipes.menuCard == tab.id ? 0 : 1)
             .overlay(alignment: .topLeading) {
                 if selecting { SelectionMark(selected: tabs.selection.contains(tab.id), width: r.width, height: r.height, radius: layout.cardRadius) }
             }
@@ -387,6 +389,7 @@ struct TabOverview: View {
                     },
                     previewScale: CardMenuPreview.scale,
                     dragKey: selecting ? nil : tab.id,
+                    onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: {
                         // During the zoom to the grid a tap is kept and opens the
                         // card once the grid has settled (Safari queues it).
@@ -438,6 +441,7 @@ struct TabOverview: View {
         let r = layout.card(index)
         let selecting = tabs.selecting
         PinnedCard(item: tab, width: r.width, height: r.height, selected: selecting ? tabs.selection.contains(tab.id) : nil)
+            .opacity(swipes.menuCard == tab.id ? 0 : 1)
             .overlay {
                 CardInteraction(
                     card: r.size, radius: r.height / 2, passThrough: nil,
@@ -446,6 +450,7 @@ struct TabOverview: View {
                         AnyView(PinnedCard(item: tab, width: r.width * scale, height: r.height * scale, selected: nil))
                     },
                     previewScale: 1.15, dragKey: nil,
+                    onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: { if selecting { tabs.toggleSelected(tab.id) } else if gridInteractive { onSelect(tab.id) } },
                     onPan: { _ in }, onDragStart: {}, onDragEnd: {})
             }

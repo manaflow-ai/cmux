@@ -659,7 +659,9 @@ struct BrowserScreen: View {
             .accessibilityLabel("Close \(tabs.activeItem?.title ?? "Terminal")")
         }
         .modifier(GridFollowOffset(origin: place.rect.origin, scroll: place.followsGrid ? gridScroll : nil))
-        .opacity(chrome.swiping || asCard ? 0 : (zoomState.phase == .overview ? cardSwipes.opacity(key) : 1))
+        // Hidden under its lifted long-press preview too.
+        .opacity(chrome.swiping || asCard || (zoomState.phase == .overview && cardSwipes.menuCard == key) ? 0
+                 : (zoomState.phase == .overview ? cardSwipes.opacity(key) : 1))
         .allowsHitTesting(!asCard)
         .accessibilityHidden(!onPage)
     }
