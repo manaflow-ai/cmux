@@ -16,7 +16,7 @@
   --ui-popup-drop: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
   --ui-popup-shadow:
     var(--ui-popup-drop),
-    inset 0 0 0 0.5px var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
   --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
   --ui-row-radius: 5px;
   --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));

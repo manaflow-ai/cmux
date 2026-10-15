@@ -295,6 +295,7 @@
     "setting.appearance.surfaces.terminal.opacity": null,
     "setting.appearance.theme": null,
     "setting.appearance.themeEdits": {},
+    "setting.browser.builtInAdBlocker": true,
     "setting.browser.customSearchEngine.search": "",
     "setting.browser.customSearchEngine.suggest": "",
     "setting.browser.defaultEngine": "chromium",
