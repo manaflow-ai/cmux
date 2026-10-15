@@ -333,7 +333,9 @@ final class CloudTreeNode: NSObject {
     /// materialized without moving them out of the source workspace.
     var isDragSource: Bool {
         switch kind {
-        case .terminal, .display: return true
+        // A failed tabless run has nothing to project.
+        case .terminal(let row): return row.exitFailure == nil
+        case .display: return true
         case .workspace(let machine, _, _, _, _) where !machine.isLocal:
             guard let group = dragGroup, !group.isEmpty else { return false }
             return group.resources.allSatisfy { !$0.machine.isLocal }
@@ -406,6 +408,13 @@ struct CloudTreeTerminalRow: Equatable {
 
     /// True when no daemon tab currently contains this terminal.
     var isDetached: Bool { resource.isDetachedTerminal }
+
+    /// A failed run that no tab shows any more: the row explains the failure
+    /// instead of opening a pane (`CloudTerminalExitPresentation`).
+    var exitFailure: CloudTerminalExitPresentation? {
+        guard resource.isFailedExitedTerminal, let exit = resource.exit else { return nil }
+        return CloudTerminalExitPresentation(exit: exit)
+    }
 }
 
 /// A browser row (this Mac's browser panes, or a cloud machine's browsers).
@@ -851,7 +860,9 @@ enum CloudTreeNodeBuilder {
     ) -> [CloudTreeNode] {
         var children: [CloudTreeNode] = []
         let resources = machineResources ?? snapshot.resources(on: machine)
-        let terminals = resources.filter { $0.kind == .terminal }
+        // A failed run with no tab stays listed for a while so its failure is
+        // visible; past the retention window it ages out.
+        let terminals = resources.filter { $0.kind == .terminal && CloudTerminalExitPresentation.isListed($0, now: now) }
         let displays = info.map { CloudMachineSurfacePresentation.displays(resources: resources, info: $0) } ?? []
         if let info {
             switch info.linkState {
@@ -1055,7 +1066,8 @@ enum CloudTreeNodeBuilder {
                 id: nodeID(workspacesPlaceholder: machine),
                 kind: .placeholder(machine: machine, CloudTreePlaceholder(
                     text: String(localized: "cloudTree.placeholder.noWorkspaces", defaultValue: "No workspaces yet"),
-                    style: .dimmed
+                    style: .dimmed,
+                    action: .newWorkspace
                 ))
             )]
             : workspaceNodes
@@ -1194,7 +1206,8 @@ enum CloudTreeNodeBuilder {
                 id: nodeID(terminalsPlaceholder: machine),
                 kind: .placeholder(machine: machine, CloudTreePlaceholder(
                     text: String(localized: "cloudTree.placeholder.noTerminals", defaultValue: "No terminals yet"),
-                    style: .dimmed
+                    style: .dimmed,
+                    action: .newTerminal
                 ))
             ))
         }

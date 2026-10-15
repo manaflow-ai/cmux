@@ -627,6 +627,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 // A Ports status row's text never acts; only its own button refreshes or wakes.
                 guard placeholder.portStatus == nil else { return }
+                // "No terminals yet — New Terminal": the empty category's next step.
+                if let action = placeholder.action {
+                    CloudTreePlaceholderActionDispatch.perform(action, machine: machineID, actions: nodeActions)
+                    return
+                }
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
             }
@@ -770,6 +775,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     items.append(item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(.local, group, .split, nil) })
                 }
                 return items
+            case .terminal(let row) where row.exitFailure != nil:
+                // A failed tabless run cannot be opened, renamed or killed.
+                return [
+                    item(String(localized: "cloudTree.menu.showExitDetails", defaultValue: "Show Last Lines\u{2026}")) { [weak self] in self?.open(node) },
+                    item(String(localized: "cloudTree.menu.copySurfaceID", defaultValue: "Copy Surface ID")) { [nodeActions] in nodeActions.copyToPasteboard(row.resource.id.rawValue) },
+                ]
             case .terminal(let row):
                 var items = resourceMenuItems(
                     row.resource,

@@ -27,6 +27,26 @@ public struct CloudMachinesUsage: Equatable, Sendable {
     /// The vCPU and memory pool the active machines share; nil without a pool.
     public let resourcePool: CloudVMResourcePool?
 
+    /// This usage, counting at least the active machines the list shows.
+    ///
+    /// The plan's count comes from the last list read, while machine rows also
+    /// arrive from the change stream and the surface catalog. A row that
+    /// arrived after that read holds a slot the stale count omits, so the
+    /// header read "0/5" beside one running machine while `cmux vm ls` said
+    /// "1 of 5". The header never counts fewer active machines than it lists;
+    /// a larger server count (machines this list does not show) still wins.
+    /// - Parameter listedActiveCount: Active machines among the rows the tree shows.
+    /// - Returns: The usage with `activeCount` raised to at least that many.
+    public func reconciled(listedActiveCount: Int) -> CloudMachinesUsage {
+        guard listedActiveCount > activeCount else { return self }
+        return CloudMachinesUsage(
+            activeCount: listedActiveCount,
+            maxActiveVms: maxActiveVms,
+            isPaidPlan: isPaidPlan,
+            resourcePool: resourcePool
+        )
+    }
+
     /// An uncapped plan is never at the limit.
     public var isAtLimit: Bool {
         guard let maxActiveVms else { return false }

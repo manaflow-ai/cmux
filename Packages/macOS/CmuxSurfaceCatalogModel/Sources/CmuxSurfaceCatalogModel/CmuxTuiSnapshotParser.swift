@@ -190,7 +190,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 lifecycle: (raw["lifecycle"] as? String) ?? ((raw["running"] as? Bool) == true ? "running" : "exited"),
                 cols: integer(raw["cols"]),
                 rows: integer(raw["rows"]),
-                running: raw["running"] as? Bool
+                running: raw["running"] as? Bool,
+                exit: SurfaceTerminalExit(receipt: raw["exit"])
             )
         }
         let browsers = ((snapshot["browsers"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMBrowserState? in
@@ -550,9 +551,13 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 // only as a fallback when a matching tab row is present.
                 let viewTabs = terminalTabs(terminal, index: state.lookupIndex)
                 let declaredTabIDs = uniquePreservingOrder(terminal.tabIDs)
+                // A tabless exited terminal is unreachable, so it is not a
+                // surface, except a failed run: that row is the only place
+                // its failure stays visible (`isFailedExitedTerminal`).
                 if terminal.lifecycle == SurfaceLifecycle.exited.rawValue,
                    viewTabs.isEmpty,
-                   declaredTabIDs.isEmpty { continue }
+                   declaredTabIDs.isEmpty,
+                   terminal.exit?.isFailure != true { continue }
                 var resource = SurfaceResource(
                     id: resourceID,
                     title: terminal.title,
@@ -566,6 +571,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
                     port: nil,
                     url: nil
                 )
+                resource.exit = terminal.exit
                 resource.remoteViews = viewTabs.compactMap(view)
                 resource.remoteWorkspace = resource.remoteViews?.first?.workspace
                 resources.append(resource)
@@ -1018,7 +1024,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
             lifecycle: (value["lifecycle"] as? String) ?? ((value["running"] as? Bool) == true ? "running" : "exited"),
             cols: integer(value["cols"]),
             rows: integer(value["rows"]),
-            running: value["running"] as? Bool
+            running: value["running"] as? Bool,
+            exit: SurfaceTerminalExit(receipt: value["exit"])
         )
     }
 
@@ -1499,7 +1506,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
             // gone; nothing can open or close it any more (its selector no longer resolves),
             // so it is not a surface. An exited terminal that still has a tab stays listed —
             // that one can be closed.
-            if terminal.lifecycle == .exited, tabIDs.isEmpty { continue }
+            // A failed run is the exception: its row is the only place the failure stays visible.
+            if terminal.lifecycle == .exited, tabIDs.isEmpty, terminal.exit?.isFailure != true { continue }
             // Keep the PTY-derived title on the shared resource. User names belong to
             // each SurfaceRemoteView, because one terminal can have different tab labels.
             terminal.remoteViews = tabIDs.compactMap { tabID in
@@ -1694,7 +1702,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
             ?? (((raw["running"] as? Bool) ?? false) ? .running : .exited)
         let title = (raw["title"] as? String) ?? ""
         let cwd = (raw["cwd"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return SurfaceResource(
+        var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: id),
             title: title,
             detail: cwd,
@@ -1704,6 +1712,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
             port: nil,
             url: nil
         )
+        resource.exit = lifecycle == .exited ? SurfaceTerminalExit(receipt: raw["exit"]) : nil
+        return resource
     }
 
     public struct CreatedTerminalPath: Equatable, Sendable {

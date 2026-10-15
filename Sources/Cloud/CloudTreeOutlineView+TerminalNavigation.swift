@@ -3,6 +3,11 @@ import Foundation
 extension CloudTreeOutlineView.Coordinator {
     /// Resolves a terminal row's workspace parent before dispatching its open verb.
     func openTerminalRow(_ node: CloudTreeNode, row: CloudTreeTerminalRow) {
+        // A failed run with no tab left has no pane to open; show why it ended.
+        if row.exitFailure != nil {
+            showTerminalExitDetails(node, row: row)
+            return
+        }
         if let parent = outlineView?.parent(forItem: node) as? CloudTreeNode,
            case .workspace(let machine, let workspace, _, _, let openIn) = parent.kind {
             guard machine == row.resource.machine,

@@ -847,7 +847,9 @@ extension TerminalController {
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
-            var screen = try await provider.readScreen(terminalID: terminalID)
+            // An exited terminal answers with its final screen and exit receipt
+            // (`exited`, `exit_code`) instead of a generic request failure.
+            var screen = try await provider.readScreenReportingExit(terminalID: terminalID)
             screen["machine"] = vmId
             screen["terminal_id"] = terminalID
             return screen

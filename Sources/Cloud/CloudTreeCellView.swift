@@ -325,7 +325,8 @@ final class CloudTreeCellView: NSTableCellView {
             return false
         case .placeholder(_, let placeholder):
             // A Ports status row is information; only its own button responds.
-            return placeholder.portStatus == nil && (placeholder.opensMachine || placeholder.style == .createMachine)
+            return placeholder.portStatus == nil
+                && (placeholder.opensMachine || placeholder.style == .createMachine || placeholder.action != nil)
         default:
             return true
         }

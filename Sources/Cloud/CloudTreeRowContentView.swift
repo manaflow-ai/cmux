@@ -9,6 +9,8 @@ enum CloudTreeIconPalette {
     static let display = Color.teal
     static let browser = Color.orange
     static let machine = Color.accentColor
+    /// Needs the user: a failed agent run (amber, like an agent waiting on input).
+    static let attention = Color.orange
 }
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
@@ -419,15 +421,19 @@ struct CloudTreeTerminalRowContent: View {
         }
     }
 
+    /// A failed run keeps its row in the attention color with its exit status,
+    /// instead of greying out like an ordinary exited shell.
+    private var failure: CloudTerminalExitPresentation? { row.exitFailure }
+
     var body: some View {
         CloudTreeLeafRow(
             style: style,
-            icon: glyph,
-            tint: CloudTreeIconPalette.terminal,
-            iconAsset: terminal.terminalAgentIconAssetName,
+            icon: failure == nil ? glyph : "exclamationmark.triangle.fill",
+            tint: failure == nil ? CloudTreeIconPalette.terminal : CloudTreeIconPalette.attention,
+            iconAsset: failure == nil ? terminal.terminalAgentIconAssetName : nil,
             title: resolvedTitle,
-            titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
-            detail: row.workspaceLabel
+            titleDimmed: failure == nil && (terminal.lifecycle == .exited || showsDetachedState),
+            detail: failure?.shortStatus ?? row.workspaceLabel
         )
         .help(toolTip)
         .accessibilityElement(children: .ignore)
@@ -441,7 +447,9 @@ struct CloudTreeTerminalRowContent: View {
     /// Keep secondary information on hover so the narrow row gives its width to the title.
     var toolTip: String {
         var details = [row.directoryHelp, agentLabel].compactMap { $0 }
-        if showsDetachedState {
+        if let failure {
+            details.append(failure.help)
+        } else if showsDetachedState {
             details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
         } else if let views = Self.multiplierBadge(row.viewBadge) {
             details.append(Self.viewsHelp(views))

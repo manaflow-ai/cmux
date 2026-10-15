@@ -898,7 +898,8 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshStats()
         refreshUsage()
         readCatalog()
-        plan = MachineSnapshotBuilder.planSnapshot(activeCount: rows.count, limits: lastLimits, machines: rows)
+        // Count slots the way the server does: paused machines are listed but free theirs.
+        plan = MachineSnapshotBuilder.planSnapshot(activeCount: MachineSnapshotBuilder.activeCount(of: rows), limits: lastLimits, machines: rows)
         #if DEBUG
         cmuxDebugLog("cloud.machines.list stream upserts=\(upserts.count) deletions=\(deletions.count) authoritative=\(authoritative) count=\(rows.count)")
         #endif
