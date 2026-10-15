@@ -184,7 +184,16 @@ def start_agent(j, agent, args, phase="streaming"):
             if not wait_mac(lambda t: codex_working(t) and sum(l.strip()[:3].rstrip(".").isdigit() for l in t.splitlines()) >= 8, 300):
                 raise RuntimeError("codex never streamed its answer")
         else:
-            if not wait_mac(lambda t: not codex_working(t) and "400" in t, 600, every=3):
+            # Working first (the prompt's own "400" is on screen at once), then two
+            # reads in a row with no working indicator and the answer's rows on screen.
+            if not wait_mac(codex_working, 120):
+                raise RuntimeError("codex never started working")
+            calm = [0]
+
+            def done(t):
+                calm[0] = calm[0] + 1 if not codex_working(t) and (tq.max_item(t) or 0) >= 20 else 0
+                return calm[0] >= 2
+            if not wait_mac(done, 900, every=3):
                 raise RuntimeError("codex never finished its answer")
     time.sleep(1)
     touch("key")
