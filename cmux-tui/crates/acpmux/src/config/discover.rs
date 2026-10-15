@@ -311,12 +311,9 @@ pub fn discover_harnesses_from(
         // Names the bridge stands in for, so sessions, presets and model picks
         // that recorded them run it: its name before it became `codex`, and
         // `codex-acp` when no adapter is on PATH.
-        agents
-            .entry(CODEX_APP_SERVER.to_owned())
-            .or_insert_with(|| bridge("Codex through codex app-server, in process (same as codex)"));
-        agents
-            .entry(CODEX_ACP.to_owned())
-            .or_insert_with(|| bridge("Codex through codex app-server, in process (same as codex)"));
+        let alias = "Codex through codex app-server, in process (same as codex)";
+        agents.entry(CODEX_APP_SERVER.to_owned()).or_insert_with(|| bridge(alias));
+        agents.entry(CODEX_ACP.to_owned()).or_insert_with(|| bridge(alias));
         agents.insert("codex".to_owned(), bridge("Codex through codex app-server, in process"));
     }
     agents
