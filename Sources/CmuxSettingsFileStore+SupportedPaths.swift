@@ -141,6 +141,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showProgress",
         "sidebar.showAgentUsage",
         "sidebar.showAgentActivity",
+        "sidebar.showAgentSessions",
         "sidebar.loadingSpinnerPosition",
         "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
