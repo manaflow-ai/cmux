@@ -16,11 +16,20 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
     public let kinds: [BrowserPagePermissionRequest.Kind]
     /// The requesting origin.
     public let origin: URL
+    /// The top-level page's origin when an embedded frame of another site
+    /// asks (the prompt names both sites); `nil` when the page itself asks.
+    public let embeddingOrigin: URL?
 
-    public init(id: UUID = UUID(), kinds: [BrowserPagePermissionRequest.Kind], origin: URL) {
+    public init(id: UUID = UUID(), kinds: [BrowserPagePermissionRequest.Kind], origin: URL, topLevelURL: URL? = nil) {
         self.id = id
         self.kinds = kinds
         self.origin = origin
+        let key = BrowserSitePermissionStore.originKey(for: origin)
+        if let topLevelURL, let topKey = BrowserSitePermissionStore.originKey(for: topLevelURL), topKey != key {
+            embeddingOrigin = topLevelURL
+        } else {
+            embeddingOrigin = nil
+        }
     }
 
     /// The prompt's buttons: capture devices get Chrome's three answers.
@@ -28,10 +37,37 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
         kinds.allSatisfy { $0 == .camera || $0 == .microphone } ? .captureDevices : .blockOrAllow
     }
 
+    /// What "Allow" means in the ``Style/blockOrAllow`` bar: remembered for
+    /// the site, except clipboard read, which WebKit asks about on every read
+    /// (its Paste callout), so a Chromium tab never grants it for good.
+    public var allowAnswer: BrowserPermissionPromptAnswer {
+        kinds == [.clipboardRead] ? .allowOnce : .allowAndRemember
+    }
+
+    /// Whether `other` asks the same origin about the same kinds.
+    func asksSameQuestion(as other: BrowserPermissionPrompt) -> Bool {
+        Set(kinds) == Set(other.kinds)
+            && Self.key(origin) == Self.key(other.origin)
+            && embeddingOrigin.map(Self.key) == other.embeddingOrigin.map(Self.key)
+    }
+
+    private static func key(_ url: URL) -> String {
+        BrowserSitePermissionStore.originKey(for: url) ?? url.absoluteString
+    }
+
+    /// The embedding page's origin as shown in the bar, or `nil`.
+    public var displayEmbeddingOrigin: String? {
+        embeddingOrigin.map(Self.display)
+    }
+
     /// The origin as shown in the bar: host and non-default port, no scheme.
     public var displayOrigin: String {
-        guard let host = origin.host, !host.isEmpty else { return origin.absoluteString }
-        if let port = origin.port, port != (origin.scheme?.lowercased() == "https" ? 443 : 80) {
+        Self.display(origin)
+    }
+
+    private static func display(_ url: URL) -> String {
+        guard let host = url.host, !host.isEmpty else { return url.absoluteString }
+        if let port = url.port, port != (url.scheme?.lowercased() == "https" ? 443 : 80) {
             return "\(host):\(port)"
         }
         return host
@@ -49,8 +85,10 @@ public enum BrowserPermissionPromptAnswer: Equatable, Sendable {
 }
 
 /// A panel's permission questions, shown one at a time in the prompt bar.
-/// Later requests wait their turn; navigating away ends every question
-/// without an answer.
+/// Later requests wait their turn, and a request asking the same origin about
+/// the same kinds as a waiting one shares its answer (one question, not two).
+/// Navigating away or closing the panel must call ``cancelAll()``, which
+/// ends every question without an answer.
 @MainActor
 @Observable
 public final class BrowserPermissionPromptQueue {
@@ -59,7 +97,7 @@ public final class BrowserPermissionPromptQueue {
     /// The question the bar shows, or `nil` when the bar is hidden.
     public var current: BrowserPermissionPrompt? { prompts.first }
 
-    @ObservationIgnored private var completions: [UUID: (BrowserPermissionPromptAnswer?) -> Void] = [:]
+    @ObservationIgnored private var completions: [UUID: [(BrowserPermissionPromptAnswer?) -> Void]] = [:]
 
     public init() {}
 
@@ -68,8 +106,13 @@ public final class BrowserPermissionPromptQueue {
     ///   - prompt: The question.
     ///   - completion: Called once with the answer, or `nil` when the question ended unanswered.
     public func enqueue(_ prompt: BrowserPermissionPrompt, completion: @escaping (BrowserPermissionPromptAnswer?) -> Void) {
-        guard completions[prompt.id] == nil else { return }
-        completions[prompt.id] = completion
+        // A reused id is a caller bug: end the new question at once rather than lose it.
+        guard completions[prompt.id] == nil else { return completion(nil) }
+        if let same = prompts.first(where: { $0.asksSameQuestion(as: prompt) }) {
+            completions[same.id, default: []].append(completion)
+            return
+        }
+        completions[prompt.id] = [completion]
         prompts.append(prompt)
     }
 
@@ -88,7 +131,7 @@ public final class BrowserPermissionPromptQueue {
 
     /// Ends every question without an answer (navigation, panel closed).
     public func cancelAll() {
-        let ended = prompts.compactMap { completions[$0.id] }
+        let ended = prompts.flatMap { completions[$0.id] ?? [] }
         guard !ended.isEmpty else { return }
         prompts.removeAll()
         completions.removeAll()
@@ -98,9 +141,11 @@ public final class BrowserPermissionPromptQueue {
     }
 
     private func finish(_ id: UUID, _ answer: BrowserPermissionPromptAnswer?) -> Bool {
-        guard let completion = completions.removeValue(forKey: id) else { return false }
+        guard let ended = completions.removeValue(forKey: id) else { return false }
         prompts.removeAll { $0.id == id }
-        completion(answer)
+        for completion in ended {
+            completion(answer)
+        }
         return true
     }
 }

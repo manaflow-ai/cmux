@@ -400,6 +400,18 @@ final class BrowserProfileStore: ObservableObject {
         repository.builtInDefaultProfileID
     }
 
+    /// Registers another engine's per-profile store (the Chromium engine's),
+    /// so clearing, deleting and importing into a profile reach it too.
+    func addEngineStore(_ store: any BrowserProfileEngineStoreManaging) {
+        repository.addEngineStore(store)
+    }
+
+    /// Writes imported cookies into every other engine's store of a profile.
+    @discardableResult
+    func importCookiesIntoEngineStores(_ cookies: [HTTPCookie], profileID: UUID) async -> [String: Int] {
+        await repository.importCookiesIntoEngineStores(cookies, profileID: profileID)
+    }
+
     var effectiveLastUsedProfileID: UUID {
         repository.effectiveLastUsedProfileID
     }
@@ -4526,6 +4538,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func clearRecentDownloads() {
         recentDownloads.removeAll()
+    }
+
+    /// Shows or hides a running download's Pause/Resume and Cancel controls
+    /// (downloads of an engine that supports them; never WebKit's).
+    func setRecentDownloadControls(id: String, controls: BrowserDownloadRecord.Controls?) {
+        guard let index = recentDownloads.firstIndex(where: { $0.id == id }),
+              recentDownloads[index].controls != controls else { return }
+        recentDownloads[index].controls = controls
     }
 
     func noteRenderedPDFDocument(_ url: URL, isMainFrame: Bool) {
@@ -9094,6 +9114,20 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         #if DEBUG
         cmuxDebugLog("download.finished file=<redacted>")
         #endif
+        finishTemporaryDownload(
+            downloadID: info.downloadID,
+            tempURL: info.tempURL,
+            suggestedFilename: info.suggestedFilename,
+            sourceURL: info.sourceURL
+        )
+    }
+
+    /// Saves a download whose file is complete in the temporary directory:
+    /// to the REPL session that keeps it there, through the save panel, or
+    /// into Downloads. Shared by WebKit downloads and other engines'
+    /// downloads (``BrowserPageDownloadLedger``), so both save the same way.
+    func finishTemporaryDownload(downloadID: String, tempURL: URL, suggestedFilename rawSuggestedFilename: String, sourceURL: URL) {
+        let info = (downloadID: downloadID, tempURL: tempURL, suggestedFilename: rawSuggestedFilename, sourceURL: sourceURL)
         let filenameResolver = BrowserDownloadFilenameResolver()
         Task { @MainActor in
             let imageType = await Task.detached(priority: .utility) {
@@ -10858,6 +10892,9 @@ enum BrowserDataImporter {
                 await Task.yield()
             }
         }
+        // The same profile's Chromium store, when the Chromium engine is
+        // available; a no-op otherwise. The reported count stays WebKit's.
+        _ = await BrowserProfileStore.shared.importCookiesIntoEngineStores(cookies, profileID: destinationProfileID)
         return importedCount
     }
 

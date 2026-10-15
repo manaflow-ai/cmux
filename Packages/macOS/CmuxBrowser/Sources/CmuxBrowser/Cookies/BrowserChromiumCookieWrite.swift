@@ -49,14 +49,21 @@ public struct BrowserChromiumCookieWrite: Sendable, Equatable, CustomStringConve
     public init?(cookie: HTTPCookie) {
         let rawDomain = cookie.domain.trimmingCharacters(in: .whitespaces)
         let host = rawDomain.hasPrefix(".") ? String(rawDomain.dropFirst()) : rawDomain
+        let path = cookie.path.hasPrefix("/") ? cookie.path : "/"
         guard !host.isEmpty, !host.contains("/"),
-              let url = URL(string: "\(cookie.isSecure ? "https" : "http")://\(host)\(cookie.path.hasPrefix("/") ? cookie.path : "/")")
+              let url = URL(string: "\(cookie.isSecure ? "https" : "http")://\(host)\(path)")
         else { return nil }
         let sameSite: SameSite
         if cookie.sameSitePolicy == .sameSiteLax {
             sameSite = .lax
         } else if cookie.sameSitePolicy == .sameSiteStrict {
             sameSite = .strict
+        } else if cookie.isSecure {
+            // Foundation has no "None": a secure cookie without a policy is
+            // most likely SameSite=None (which requires Secure). Unspecified
+            // would make Chromium treat it as Lax and drop it cross-site
+            // (embedded sign-in, payment frames).
+            sameSite = .noRestriction
         } else {
             sameSite = .unspecified
         }
@@ -65,7 +72,7 @@ public struct BrowserChromiumCookieWrite: Sendable, Equatable, CustomStringConve
             name: cookie.name,
             value: cookie.value,
             domain: rawDomain.hasPrefix(".") ? rawDomain : "",
-            path: cookie.path.isEmpty ? "/" : cookie.path,
+            path: path,
             secure: cookie.isSecure,
             httpOnly: cookie.isHTTPOnly,
             sameSite: sameSite,

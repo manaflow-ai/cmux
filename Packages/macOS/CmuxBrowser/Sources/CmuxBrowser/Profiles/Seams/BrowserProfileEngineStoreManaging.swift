@@ -22,4 +22,9 @@ public protocol BrowserProfileEngineStoreManaging: AnyObject {
     /// not opened it in this process, otherwise at the next launch.
     /// - Parameter profileID: The deleted profile's id.
     func profileWasDeleted(_ profileID: UUID)
+
+    /// Writes imported cookies (browser import) into the engine's store of a
+    /// profile, as the importer writes them into the profile's WebKit store.
+    /// - Returns: How many cookies the engine stored.
+    func importCookies(_ cookies: [HTTPCookie], intoProfileID profileID: UUID) async -> Int
 }

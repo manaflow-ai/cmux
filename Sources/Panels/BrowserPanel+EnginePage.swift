@@ -170,6 +170,11 @@ extension BrowserPanel {
             }
             finishEngineNavigation(failure: "navigation failed")
             applyEnginePageNavigationFailure(url: url)
+        case .navigationStarted:
+            // A question about the page being left goes with it (spec §4).
+            enginePageDelegate.permissionQueue.cancelAll()
+        case .downloadUpdated(let download):
+            enginePageDelegate.applyDownload(download)
         default:
             break
         }
@@ -268,6 +273,7 @@ extension BrowserPanel {
     func closeEnginePage() {
         enginePageEventsTask?.cancel()
         enginePageEventsTask = nil
+        enginePageDelegate.endPageDownloads()
         enginePage?.close()
     }
 }

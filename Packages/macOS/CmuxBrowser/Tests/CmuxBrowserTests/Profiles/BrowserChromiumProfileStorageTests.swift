@@ -75,15 +75,49 @@ struct BrowserChromiumProfileStorageCleanupTests {
         }
         let removable = cleanup.takeRemovable { $0 == opened }
         #expect(removable == [cleanup.storage.cachePath(forProfileID: closed)])
-        #expect(cleanup.pendingProfileIDs == [opened])
+        // Both stay pending until their directories are gone (crash safety).
+        #expect(cleanup.pendingProfileIDs == [closed, opened])
         BrowserChromiumProfileStorageCleanup.removeDirectories(removable)
         #expect(!FileManager.default.fileExists(atPath: cleanup.storage.cachePath(forProfileID: closed).path))
         #expect(FileManager.default.fileExists(atPath: cleanup.storage.cachePath(forProfileID: opened).path))
 
-        // Next launch: nothing is opened yet.
+        // Next launch: nothing is opened yet; the removed one is pruned.
         let next = cleanup.takeRemovable { _ in false }
         #expect(next == [cleanup.storage.cachePath(forProfileID: opened)])
+        #expect(cleanup.pendingProfileIDs == [opened])
+        BrowserChromiumProfileStorageCleanup.removeDirectories(next)
+        #expect(cleanup.takeRemovable { _ in false }.isEmpty)
         #expect(cleanup.pendingProfileIDs.isEmpty)
+    }
+
+    @Test func moveAsideEmptiesTheProfileAtOnceAndDeletionOrSweepFinishesIt() throws {
+        let (cleanup, root, _) = try makeCleanup()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let id = UUID()
+        let profile = cleanup.storage.cachePath(forProfileID: id)
+        try FileManager.default.createDirectory(at: profile.appendingPathComponent("Cache"), withIntermediateDirectories: true)
+        try Data("c".utf8).write(to: profile.appendingPathComponent("Cookies"))
+        let items = [profile.appendingPathComponent("Cache"), profile.appendingPathComponent("Cookies"), profile.appendingPathComponent("Missing")]
+        let aside = BrowserChromiumProfileStorageCleanup.moveAside(items, in: cleanup.storage)
+        #expect(aside.count == 2)
+        #expect(!FileManager.default.fileExists(atPath: profile.appendingPathComponent("Cookies").path))
+        #expect(aside.allSatisfy { $0.deletingLastPathComponent() == cleanup.storage.root && $0.lastPathComponent.hasPrefix(".deleted-") })
+        BrowserChromiumProfileStorageCleanup.deleteAside([aside[0]])
+        #expect(!FileManager.default.fileExists(atPath: aside[0].path))
+        // An interrupted deletion is finished by the launch sweep.
+        BrowserChromiumProfileStorageCleanup.removeLeftovers(in: cleanup.storage)
+        #expect(!FileManager.default.fileExists(atPath: aside[1].path))
+        #expect(FileManager.default.fileExists(atPath: profile.path))
+    }
+
+    @Test func aCrashBeforeDeletionLeavesTheProfilePending() throws {
+        let (cleanup, root, _) = try makeCleanup()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let id = UUID()
+        try FileManager.default.createDirectory(at: cleanup.storage.cachePath(forProfileID: id), withIntermediateDirectories: true)
+        cleanup.markDeleted(id)
+        _ = cleanup.takeRemovable { _ in false } // "crash": never deleted
+        #expect(cleanup.takeRemovable { _ in false } == [cleanup.storage.cachePath(forProfileID: id)])
     }
 
     @Test func builtInDefaultIsNeverMarkedAndDuplicatesCollapse() throws {

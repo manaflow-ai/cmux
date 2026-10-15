@@ -110,6 +110,11 @@ public final class BrowserPageDownloadLedger {
         }
     }
 
+    /// The staged download with a panel download id (for its row's controls).
+    public func stagedDownload(downloadID: String) -> Staged? {
+        staged.values.first { $0.downloadID == downloadID }
+    }
+
     /// Forgets every staged download (the page closed); returns them so the
     /// panel can end their activity and remove their temporary files.
     public func drain() -> [Staged] {

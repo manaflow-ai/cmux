@@ -81,6 +81,14 @@ class ContextHandler : public CefRequestContextHandler {
       CefString error;
       context->SetPreference("extensions.ui.developer_mode", value, error);
     }
+    // Downloads show in cmux's own downloads button and popover; Chromium's
+    // download bubble would float over the pane with the temporary file name.
+    {
+      CefRefPtr<CefValue> off = CefValue::Create();
+      off->SetBool(false);
+      CefString error;
+      context->SetPreference("download_bubble.partial_view_enabled", off, error);
+    }
     // Remote localhost: before any browser of this context navigates.
     ApplyContextProxy(context, cache_path_);
     initialized_contexts().insert(cache_path_);

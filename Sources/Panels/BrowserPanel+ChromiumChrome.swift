@@ -73,22 +73,28 @@ extension BrowserPanel {
 
 /// Answers a non-WebKit page's requests for its panel.
 ///
-/// Chrome UI owns new pages (`openChromiumPageRequest`). Until their owners
-/// wire them, the rest answer the way a page with no handler would be safest
-/// for: navigations proceed (typed loads already passed the panel's policy),
-/// permission requests and dialogs are declined, and downloads are not
-/// saved. Permissions, dialogs and downloads belong to the data and safety
-/// parity rows, which replace these answers.
+/// Chrome UI owns new pages (`openChromiumPageRequest`); permissions and
+/// downloads are data's (`BrowserPanelEnginePageDelegate+Data.swift`).
+/// Until their owners wire them, the rest answer the way a page with no
+/// handler would be safest for: navigations proceed (typed loads already
+/// passed the panel's policy) and dialogs are declined.
 @MainActor
 final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
     weak var panel: BrowserPanel?
+    /// The panel's permission prompt bar questions (data: design spec §4).
+    let permissionQueue = BrowserPermissionPromptQueue()
+    /// Engine downloads staged into temporary files (data: design spec §3b).
+    /// Lazy: a WebKit panel never stages one (and never creates the directory here).
+    lazy var downloadLedger = BrowserPageDownloadLedger(temporaryDirectory: BrowserDownloadDelegate.tempDir)
+    /// Engine download ids the person paused.
+    var pausedDownloadIDs: Set<String> = []
 
     func page(_ page: any BrowserPage, decidePolicyFor action: BrowserPageNavigationAction) async -> BrowserPageNavigationDecision {
         .allow
     }
 
     func page(_ page: any BrowserPage, requestPermission request: BrowserPagePermissionRequest) async -> BrowserPagePermissionDecision {
-        .deny
+        await decidePermission(request).decision
     }
 
     func page(_ page: any BrowserPage, runJavaScriptDialog dialog: BrowserPageJavaScriptDialog) async -> BrowserPageJavaScriptDialogResponse {
@@ -100,6 +106,6 @@ final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
     }
 
     func page(_ page: any BrowserPage, destinationForDownload download: BrowserPageDownload) async -> URL? {
-        nil
+        stageDownload(download)
     }
 }
