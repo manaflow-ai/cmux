@@ -83,9 +83,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
   return (
     <div className="acpmux-render-card">
       <div className="acpmux-render-card-head">
-        <span className="acpmux-render-card-title" title={title}>
-          {title}
-        </span>
+        <span className="acpmux-render-card-title">{title}</span>
         {!running && (
           <button type="button" className="acpmux-review-changes" onClick={run}>
             {t("render.run")}
