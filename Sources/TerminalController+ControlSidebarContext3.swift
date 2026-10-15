@@ -220,7 +220,7 @@ extension TerminalController {
             return .routedToRemote
         case .noSpace:
             return .noSpace
-        case .failed:
+        case .failed, .moshTmuxSplitUnsupported:
             return .failed
         }
     }
@@ -276,7 +276,7 @@ extension TerminalController {
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
-        case .failed, .noSpace:
+        case .failed, .noSpace, .moshTmuxSplitUnsupported:
             return .failed
         }
     }

@@ -19,13 +19,16 @@ enum TerminalPanelCreationOutcome {
     /// A split was refused because a resulting pane would fall below the
     /// minimum pane size, even after borrowing room from its run (#15371).
     case noSpace
+    /// A Mosh workspace using tmux has no native split transport yet. Creating
+    /// a local terminal here would silently escape the remote workspace.
+    case moshTmuxSplitUnsupported
 
     /// Whether the action was handled, so callers must not issue a fallback create.
     /// Acceptance does not mean the remote terminal is already usable.
     var isAccepted: Bool {
         switch self {
         case .created, .routedToRemote: return true
-        case .failed, .noSpace: return false
+        case .failed, .noSpace, .moshTmuxSplitUnsupported: return false
         }
     }
 
