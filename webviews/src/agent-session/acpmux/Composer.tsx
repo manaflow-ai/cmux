@@ -38,6 +38,7 @@ import {
   PlanIcon,
   SlashIcon,
   StopIcon,
+  type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
 import { Icon } from "./icons/Icon";
@@ -138,7 +139,7 @@ export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean
 
 type Props = {
   snapshot: AcpmuxSnapshot;
-  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
+  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
@@ -158,6 +159,8 @@ type Props = {
   sessionId?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
+  /// Granted folder trust and chat-wide permission state, rendered inside Access.
+  permissionAccess?: ComposerPermissionAccess;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
@@ -231,6 +234,7 @@ export function Composer({
   onQueueLost,
   draft,
   leading,
+  permissionAccess,
   accessory,
   prompt,
   onEdit,
@@ -1218,9 +1222,9 @@ export function Composer({
                 ]}
               />
             )}
-            {/* The granted-permission status gets no slot in this row (hq#1957 item 15 compact row):
-                one lock, the permission mode's. */}
-            <Chips snapshot={snapshot} />
+            {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
+                compact row): grants live in the permission mode's Access menu, one lock. */}
+            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
             <span className="acpmux-composer-actions">
               {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
                   when typing during a turn turns Stop into Steer and Send (hq#1957). */}

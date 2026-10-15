@@ -14,7 +14,7 @@
    the bridge's accent text, which AgentPaneTheme.swift sets to the page color made
    opaque (the accent is the text color). A host that sends a different accent text must
    change this base too; without the bridge the base is the system Canvas. */
-.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger))}
+.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger));--acpmux-send-off-bg:color-mix(in srgb,var(--agent-text) 18%,transparent);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 60%,transparent)}
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 .ui-positioner{--ui-popup-fg:var(--agent-text)}
@@ -101,7 +101,7 @@
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
 .acpmux-context-pop{width:240px;box-sizing:border-box;padding:12px;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin,bottom);color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
 .acpmux-context-title{font-size:12px;color:var(--agent-muted)}
-.acpmux-context-percent{margin-top:2px;font-size:14px;font-weight:500}
+.acpmux-context-percent{margin-top:2px;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-emphasis)}
 .acpmux-context-bar{height:4px;margin-top:8px;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 14%,transparent);overflow:hidden}
 .acpmux-context-bar span{display:block;height:100%;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 55%,transparent)}
 .acpmux-context-pop.acpmux-context-full .acpmux-context-bar span{background:var(--acpmux-warning)}
@@ -122,11 +122,12 @@
 /* Send fills with the accent (the text color, or the theme's hue with appearance.accent). */
 .acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-accent,var(--agent-text));color:var(--agent-on-accent,var(--acpmux-base))}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
-/* An empty draft's Send is a faint disc, clearly off; a draft brings the accent fill back (.acpmux-send-ready). */
-.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel){background:color-mix(in srgb,var(--agent-text) 9%,transparent);color:color-mix(in srgb,var(--agent-text) 45%,transparent)}
-.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
+/* The one off look, for an empty draft and for Send turned off (composerStates.css): 18% text over the composer surface, so the disc stays a visible step off the near-white light field and off the dark composer fill (9% vanished in both), with a 60% arrow. A draft brings the accent fill back (.acpmux-send-ready). */
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel){background:var(--acpmux-send-off-bg);color:var(--acpmux-send-off-fg)}
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover{background:color-mix(in srgb,var(--agent-text) 22%,transparent)}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
-.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
+/* A picker on the dropdown layer (ui/README.md, "Layers and transparency"): above a field's suggestions on the New Tab page (Leo 10-15: the model menu opened under them). */
+.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:var(--layer-dropdown);width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
@@ -264,7 +265,7 @@
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
-.acpmux-project-badge{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:10px;font-weight:650;letter-spacing:.02em;line-height:1}
+.acpmux-project-badge{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:.02em;line-height:1}
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
@@ -404,7 +405,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-edited-more{display:flex;align-items:center;gap:4px;width:100%;height:26px;box-sizing:border-box;padding:0 12px;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer}
 .acpmux-edited-more:hover{color:var(--agent-text)}
 
-.acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;min-height:0;max-height:45%;overflow:auto;padding-bottom:0;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
+.acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;min-height:0;max-height:45vh;overflow:auto;padding-bottom:0;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
 .acpmux-asks-stack>.acpmux-permission-panel{padding-left:0;padding-right:0}
 .acpmux-permission-panel .acpmux-permission-card{padding:var(--acp-row-pad-y,11px);border-radius:6px}
 /* An approval's answers stay in the panel's view: a tall request (an edit's diff) scrolls in its own
@@ -572,6 +573,24 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+
+/* Permission-card controls from cx-gakp: readable tool asks and an explicit steer action. */
+.acpmux-permission-ask{border:0;background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-surface-elevated));box-shadow:var(--elevation-1);padding:12px}.acpmux-permission-request{display:flex;flex-direction:column;gap:4px;min-width:0}.acpmux-permission-request-label{font-size:var(--text-control);font-weight:500;color:var(--agent-text)}.acpmux-permission-request-description{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.4}.acpmux-permission-command{min-width:0;color:var(--agent-soft)}.acpmux-permission-command summary{cursor:pointer;list-style:disclosure-closed;min-width:0}.acpmux-permission-command[open] summary{list-style:disclosure-open}.acpmux-permission-command code{font:var(--text-detail)/1.5 var(--font-mono);white-space:pre-wrap;overflow-wrap:break-word;word-break:normal}.acpmux-permission-command pre{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;background:color-mix(in srgb,var(--agent-text) 4%,transparent);border-radius:6px;padding:7px;max-height:180px;overflow:auto}
+/* The options are Claude Code's numbered prompt: compact rows at their own height, the number is the
+   key that answers (1-9 while the card has focus), and only Allow once carries a quiet fill. */
+.acpmux-permission-ask .acpmux-permission-buttons{flex-direction:column;align-items:stretch;gap:1px;margin-top:8px;counter-reset:acpmux-permission-option}
+.acpmux-permission-ask .acpmux-permission-buttons button{counter-increment:acpmux-permission-option;display:grid;grid-template-columns:14px minmax(0,1fr) auto;column-gap:6px;align-items:start;min-width:0;min-height:28px;box-sizing:border-box;border:0;border-radius:6px;background:transparent;color:var(--agent-text);padding:5px 8px;text-align:left}
+.acpmux-permission-ask .acpmux-permission-buttons button::before{content:counter(acpmux-permission-option);grid-area:1/1;color:var(--agent-muted);font-variant-numeric:tabular-nums;line-height:1.25}
+.acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-action-label{grid-area:1/2}
+.acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-action-description{grid-area:2/2}
+.acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-action-shortcut{grid-area:1/3;align-self:center;margin:0}
+.acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:color-mix(in srgb,var(--agent-accent) 12%,transparent);font-weight:500}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-deny{color:var(--agent-muted)}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-deny:hover{color:var(--agent-text)}
+.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
+.acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-description{color:color-mix(in srgb,currentColor 72%,transparent);font-size:var(--text-caption);line-height:1.3}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity .15s}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
+.acpmux-permission-panel .acpmux-permission-action-shortcut{opacity:1}
 /* An agent's offer of a parallel chat (cx-807da, OfferChip.tsx): a placeholder look until the chip's design lands. */
 .acpmux-session-offer{display:flex;align-items:center;gap:12px;margin:4px 0;padding:8px 8px 8px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:var(--text-control)}
 .acpmux-session-offer-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
