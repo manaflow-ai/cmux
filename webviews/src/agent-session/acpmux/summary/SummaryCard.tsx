@@ -6,6 +6,7 @@ import type { AcpmuxRow } from "../model";
 import { subagentsIn } from "../subagents/subagentRows";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
+import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
@@ -65,6 +66,7 @@ export function SummaryCard({
   const summary = useMemo(() => (shown ? sessionSummary(rows) : undefined), [shown, rows]);
   const galleryCount = useMemo(() => (shown ? chatGallery(rows).length : 0), [shown, rows]);
   const panel = useRef<HTMLElement>(null);
+  const edges = useScrollEdges();
   const close = card.close;
   // Escape closes it (the gallery's own Escape first). Focus in the card goes to the header's
   // button; focus elsewhere (the composer) stays where it is.
@@ -111,7 +113,7 @@ export function SummaryCard({
           </button>
         </div>
         {summary && (
-          <div className="acpmux-summary-card__body">
+          <div className="acpmux-summary-card__body" ref={edges}>
             {(actions?.terminal || actions?.browser) && (
               <div className="acpmux-summary-actions">
                 {actions.terminal && (
