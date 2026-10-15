@@ -14,6 +14,9 @@ round: not touched. Simulator work here is on `cnx-termqa-impl` with the Demo bu
 | D1 keyboard hide overshoot | **not reproduced** on the simulator: 30 hides, 0 reversals (`1ac1e149` scenario) | below |
 | Following cost (present reads every frame) | **reduced** (red `daca9746`, green `59125147`): work p99 2.81 -> 2.22 ms | below |
 | D11 no saved frame after a kill | **cause fixed** (red `0d768942`, green `58b54bdf`); rig re-check needed (live link only) | below |
+| V5-5 closed tab's session lingers | **fixed** (`see SHAs`): the close path now stops the session | below |
+| V5-4 new tab replays the open tab; 39 vs 42 rows | **analysed, not fixed** (Mac side) | below |
+| D6 onboarding Continue | **not reproduced, not fixed** | below |
 | Rig link-status reader returns "" | **fixed** (`c793f8e2`): reads the Filter button's value; mock checked, rig not run | below |
 
 ### V5-6 active card
@@ -91,3 +94,36 @@ on the rig. The Filter button's accessibility value is now the chosen Mac plus i
 the reader takes it from there. Mock check: `Aziz's Mac Studio, Online` after choosing the Mac. The
 transport switch also needs the link line to name the transport (`Connected over WireGuard`); not checked
 without the rig.
+
+### V5-5 (closed tab's session)
+
+`GhosttyTerminalTabContent.host(for:in:)` released a closed tab's host but never called
+`session.stop()` (the warm-set `cool` path did), so the `DaemonTerminalSession` kept its handler and, on
+the next drop, logged `link dropped, waiting to reattach` for it. The close path now stops it
+(`stop()` clears the handler, so `channelEnded` and `reconnect()` are no-ops). Rig re-check: close a tab,
+drop the link, expect no line for its surface.
+
+### V5-4 and the 39 vs 42 rows
+
+- **Who holds 39 rows:** the Mac app's own pane for that terminal. Under the shared sizing contract
+  (`docs/shared-terminal-sizing.md`, reducer `cmux-terminal-sizing`) the grid fits every attached view
+  ("Fit everyone", `Smallest`), so the Mac pane's 39 rows win over the phone's 42. That is correct; the
+  phone handles it (`DaemonTerminalSession` records `overruled` and reattaches at 53x39 without asking
+  again, no PTY resize). To confirm on the rig: the Mac pane's size chip reads `53x39 · <Mac name>`.
+- **V5-4:** the reset log `mirror reset cause=resized-event (rows 39, last size asked 53x42)` came while
+  the grid was already 53x39 (every reattach before it logged 53x39), so the Mac sent a `resized` frame
+  with an unchanged grid, and its replay reset the open tab. Hypothesis: creating a tab changes the Mac
+  pane's pixel size (cell pixels) but not its grid; `hosted_stager` emits `Resized { cols, rows,
+  cell_pixels }` for any change, and the phone treats every `resized` as a reset. Next: on the rig, log
+  the `resized` event's cols/rows/cell pixels on the phone at a + -> New Terminal; if the grid is
+  unchanged, either the daemon skips a grid-unchanged resize for mirror clients or the phone skips the
+  reset when cols/rows equal the current grid (needs the daemon's `pending` semantics checked first, so
+  no output is lost or doubled).
+
+### D6 (onboarding Continue)
+
+Read through `PairMacStep` and `SetupFlow.advance`: Continue calls `advance(from: .pairMac)`, which pushes
+the next step or finishes. No code path drops the tap; the round-1 report (3 taps ignored, a 4th 20 s
+later worked) is consistent with the setup plan changing under the page (`setupSteps` is
+`[.team, .pairMac]` until `planSetup` runs, which waits for `asksNotifications`). Not reproduced; needs
+the real onboarding with a real account (the rig's phone is paired, so a fresh simulator is required).
