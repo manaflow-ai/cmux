@@ -146,7 +146,13 @@ function adminDbMock() {
             }),
           }),
           where: () => ({
-            then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve([]).then(resolve),
+            // Uncapped reads (the Founder store, active personal access).
+            then: (resolve: (rows: unknown[]) => unknown) =>
+              Promise.resolve(
+                table === stripeSubscriptions
+                  ? subscriptionRows.filter((row) => ACTIVE_STATUSES.includes(row.status as string))
+                  : [],
+              ).then(resolve),
             // The Founder purchase store reads active personal rows here.
             limit: async () =>
               table === stripeSubscriptions

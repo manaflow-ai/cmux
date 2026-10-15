@@ -816,11 +816,17 @@ export async function stripeBillingStatusForTeam(
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
     const subscription = pickPortalMetadataRow(subscriptionRows);
-    return stripeBillingStatusFromRows(
-      customerRows[0]?.id ?? null,
-      subscription,
-      hasActiveSubscription,
-    );
+    return {
+      ...stripeBillingStatusFromRows(
+        customerRows[0]?.id ?? null,
+        subscription,
+        hasActiveSubscription,
+      ),
+      // A Team plan is always a recurring subscription; Founder's Edition is
+      // personal only.
+      hasRecurringSubscription: hasActiveSubscription,
+      hasFounderEntitlement: false,
+    };
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
     throw error;

@@ -137,6 +137,13 @@ export function revokedFounderRaw(
   return { ...base, [FOUNDER_ADMIN_REVOCATION_KEY]: marker };
 }
 
+/** SQL predicate matching `isFounderSubscriptionRow`: synthetic id or the Founder marker. */
+function founderRowSql() {
+  return sql`(${stripeSubscriptions.id} like 'founders\_%' or coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') = 'true')`;
+}
+
+// Every active Founder row for the user, selected in SQL and uncapped, so an
+// old purchase behind many newer personal rows is never missed.
 function personalRowsQuery(db: Pick<FounderStoreDb, "select">, stackUserId: string) {
   return db
     .select({
@@ -152,9 +159,10 @@ function personalRowsQuery(db: Pick<FounderStoreDb, "select">, stackUserId: stri
         eq(stripeSubscriptions.scope, "user"),
         inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        founderRowSql(),
+        notAdminRevokedSql(),
       ),
-    )
-    .limit(100);
+    );
 }
 
 export function makeFounderPurchaseStore(injected?: FounderStoreDb): FounderPurchaseStore {
