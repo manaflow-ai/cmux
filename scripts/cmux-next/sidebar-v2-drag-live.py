@@ -534,14 +534,19 @@ try:
         align = lambda: (layout_section("sec_pinned") or {}).get("align")
         gap = lambda: (layout_section("sec_pinned") or {}).get("gap")
         target = {"target_kind": "sidebar-section", "target_id": "sec_pinned"}
+        steps_before = toast().get("undo_steps") or 0
         toast(perform="sidebar.section.setAlignment", arguments={"align": "center"}, **target)
         toast(perform="sidebar.section.setGap", arguments={"gap": 12}, **target)
+        # The layout shows an edit at once (the mirror); its undo step comes with the daemon's reply. Undo only after
+        # both edits show and both steps are on the stack, else Edit > Undo would find the first step alone.
         both = wait(lambda: (align() == "center" and gap() == 12) or None, 5)
+        steps = wait(lambda: (lambda n: n if n >= steps_before + 2 else None)(toast().get("undo_steps") or 0), 5)
+        both = both and steps
         reply = rpc("debug.menu_item", {"action": "undo:", "window_number": window_number()}) or {}
         one = wait(lambda: (gap() is None and align() == "center") or None, 5)
         time.sleep(1.0)  # test harness: a second step undone by the same Edit > Undo would land by now
         record("two quick sidebar actions: one Edit > Undo undoes only the second", bool(both) and bool(one) and align() == "center",
-               f"applied={bool(both)} reply={json.dumps(reply)[:200]} align={align()} gap={gap()}")
+               f"applied={bool(both)} undo steps {steps_before}->{toast().get('undo_steps')} reply={json.dumps(reply)[:200]} align={align()} gap={gap()}")
         rpc("debug.menu_item", {"action": "undo:", "window_number": window_number()})
         wait(lambda: (align() == "leading" and gap() is None) or None, 5)
         record("two quick sidebar actions: the next Edit > Undo undoes the first", align() == "leading" and gap() is None,

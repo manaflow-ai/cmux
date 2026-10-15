@@ -94,17 +94,28 @@ final class PinUndoStep: NSObject {
     func register() {
         guard let undoManager else { return }
         Self.held.insert(self) // it outlives the toast
-        // One user action is one undo group: its own explicit group, also when another step's reply registered in the same
-        // run-loop pass (by-event grouping would put both in one group, and one Cmd-Z would undo both). An undo's or redo's
-        // step goes into the group the undo manager opened for it.
+        Self.registered &+= 1
+        // One user action is one undo group: its own explicit top-level group, also when another step's reply registered
+        // in the same run-loop pass. An undo's or redo's step goes into the group the undo manager opened for it.
         let ownGroup = !undoManager.isUndoing && !undoManager.isRedoing
-        // Opened at level 0, the explicit group keeps by-event grouping from opening one around it, so each sidebar step is
-        // its own top-level group. (A level-0 registration by other code earlier in the same pass would still hold it.)
+        // With groupsByEvent on, beginUndoGrouping at level 0 first opens the run loop's automatic group and nests the
+        // explicit one in it (live21: two quick section edits whose replies came in one pass shared that automatic group,
+        // and one Edit > Undo undid both). By-event grouping is off while the step opens and closes its group, so the group
+        // is top-level and no automatic group is left open for the next step. At a level above 0 another registration in
+        // this pass already opened the automatic group: the step can only nest in it (closing a group it did not open
+        // would unbalance the manager).
+        let byEvent = undoManager.groupsByEvent
+        let topLevel = ownGroup && undoManager.groupingLevel == 0
+        if topLevel { undoManager.groupsByEvent = false }
+        defer { if topLevel { undoManager.groupsByEvent = byEvent } }
         if ownGroup { undoManager.beginUndoGrouping() }
         undoManager.registerUndo(withTarget: self, selector: #selector(performUndo(_:)), object: nil)
         undoManager.setActionName(title)
         if ownGroup { undoManager.endUndoGrouping() }
     }
+
+    /// Steps put on an undo stack so far (`debug.toast` `undo_steps`): automation waits for a change's step before Edit > Undo.
+    static private(set) var registered = 0
 
     /// The undo stack's action (on the main thread, as every undo).
     @objc private func performUndo(_ sender: Any?) {
