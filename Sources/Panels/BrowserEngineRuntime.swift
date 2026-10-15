@@ -68,12 +68,9 @@ final class BrowserEngineRuntime {
         guard registry.provider(for: .chromium) == nil else { return }
         let chromium = CEFBrowserEngineProvider(runtime: .shared)
         registry.register(chromium)
-        // Nothing loads here: the warmup only acts once a Chromium page is likely.
+        // Nothing loads here: the warmup acts only once a Chromium panel exists
+        // (BrowserPanel.makeEnginePage), also while Chromium is the default.
         chromiumWarmup = BrowserEngineWarmup(engine: chromium)
-        // New browser panels open in Chromium: a Chromium page is likely soon.
-        if environmentOverride == .chromium || BrowserEngineKind.configured(defaults: defaults) == .chromium {
-            chromiumLikely(.defaultEngine)
-        }
     }
 
     /// A Chromium page is likely soon: start Chromium at the next idle moment.
