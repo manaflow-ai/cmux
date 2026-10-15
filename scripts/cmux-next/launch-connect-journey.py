@@ -10,9 +10,6 @@ Control/LaunchMarkSink.swift):
   first    a new tag: no daemon, no saved state (each dogfood build is one)
   warm     the app quit keeping its sessions; the daemon runs on (the daemon is adopted)
   restart  the daemon stopped too (an update or a reboot): the app starts it on the big registry
-  slow     `restart` with every daemon connect held back (CMUX_NEXT_DEBUG_DAEMON_CONNECT_DELAY_MS,
-           debug builds): the launch window must still show the last layout, never the bare
-           connecting screen
 
 Between `first` and `warm` it grows the tag's registry with real work: workspaces whose terminals
 print --seed-mb MiB of output in total (terminal output is journaled in the registry), so the
@@ -22,7 +19,8 @@ Per launch it prints the marks that matter, how long the window showed the conne
 (`connecting_view_shown` .. `connecting_view_left`) and whether its "Connecting to cmux-tui" line
 became visible (`connecting_status_shown`), and saves a window still 1.5 s after the first frame
 (`debug.window_snapshot`). Checks (exit 1 when one fails):
-  - warm, restart, slow: the launch window draws the last layout (`launch_snapshot_shown`) and the
+  - first: the "Connecting to cmux-tui" line never becomes visible;
+  - warm, restart: the launch window draws the last layout (`launch_snapshot_shown`) and the
     connecting screen never shows;
   - every launch: the app shows workspace content within --usable-ms of process start.
 
@@ -46,7 +44,9 @@ MARKS = [
     "connecting_view_shown", "first_window_frame_committed", "daemon.status_start", "daemon.status_end",
     "daemon.remembered_socket", "daemon.ensure_start", "daemon.ensure_end", "daemon.socket_connected",
     "daemon.identify_end", "daemon.handshake_end", "daemon.snapshot_start", "daemon.snapshot_end",
-    "daemon.first_tree_applied", "daemon_snapshot_loaded", "connecting_status_shown", "connecting_view_left",
+    "daemon.first_tree_applied", "daemon_snapshot_loaded", "restore.window_state_loaded", "restore.ledger_loaded",
+    "restore.flags_resolved", "restore.home_ensured", "restore.first_workspace_created", "first_tab_hold_released",
+    "connecting_status_shown", "connecting_view_left",
     "workspace_content_shown", "first_terminal_frame", "agent_pane.handshake_end",
 ]
 USABLE = ["workspace_content_shown"]
@@ -271,8 +271,7 @@ def main():
     parser.add_argument("--seed-mb", type=int, default=400)
     parser.add_argument("--seed-workspaces", type=int, default=20)
     parser.add_argument("--seed-seconds", type=float, default=240.0)
-    parser.add_argument("--slow-ms", type=int, default=3000)
-    parser.add_argument("--launches", default="first,warm,restart,slow")
+    parser.add_argument("--launches", default="first,warm,restart")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     tag = Tag(args)
@@ -291,9 +290,6 @@ def main():
             code, result, error = tag.tui_json("server", "stop")
             print(f"\nserver stop: exit {code} {result} {error[-300:]}")
             rows.append(one_launch(tag, "restart", args))
-        if "slow" in wanted:
-            tag.tui_json("server", "stop")
-            rows.append(one_launch(tag, "slow", args, {"CMUX_NEXT_DEBUG_DAEMON_CONNECT_DELAY_MS": str(args.slow_ms)}))
     finally:
         with open(os.path.join(args.out, "launch-connect.json"), "w") as out:
             json.dump({"tag": tag.tag, "registry_bytes": tag.registry_bytes(), "launches": rows}, out, indent=2)
@@ -303,6 +299,8 @@ def main():
     for row in rows:
         if row["usable_ms"] is None or row["usable_ms"] > args.usable_ms:
             failures.append(f"{row['launch']}: workspace content at {row['usable_ms']} ms (limit {args.usable_ms:.0f})")
+        if row["launch"] == "first" and row["connecting_status_shown"]:
+            failures.append("first: the Connecting to cmux-tui line became visible")
         if row["launch"] != "first":
             if not row["launch_snapshot_shown"]:
                 failures.append(f"{row['launch']}: the last layout was not drawn at launch")

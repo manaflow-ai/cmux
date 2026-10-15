@@ -30,8 +30,11 @@ struct FirstWorkspaceLaunch {
     func create(leftover: [String]) async -> String? {
         let services = manager.services
         await services.home.awaitHomeEnsured()
+        DebugTimings.markLaunch("restore.home_ensured")
         guard FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover, home: services.home.homeWorkspaceID) else { return nil }
-        return await manager.createWorkspace(newTabPage: true)
+        let created = await manager.createWorkspace(newTabPage: true)
+        DebugTimings.markLaunch("restore.first_workspace_created")
+        return created
     }
 
     /// Shows `workspaceID` (the one `create` made) in its window.
