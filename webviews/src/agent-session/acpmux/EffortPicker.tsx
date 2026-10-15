@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
+import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
@@ -22,6 +23,10 @@ export type SpeedSection = {
 /// first level. The chip says Ultracode while that is on, plus "Fast" while fast mode is on.
 /// The menu is the shared popup layer's opaque surface (ui/Menu), so nothing shows through it.
 /// Picking sends chat.effort through `onPick` (and each section's own `onPick`).
+/// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
+/// section is the model picker's stepped slider (EffortTrack) instead of the rows, when the model
+/// offers two or more levels. The slider picks as it moves and keeps the menu open; Escape closes
+/// it back to the chip.
 export function EffortPicker({
   label,
   efforts,
@@ -31,6 +36,7 @@ export function EffortPicker({
   ultracode,
   speed,
   chevron,
+  slider = false,
 }: {
   /// The stable name automation opens it by (`openPicker`), whatever the UI language.
   label: string;
@@ -42,6 +48,8 @@ export function EffortPicker({
   ultracode?: SpeedSection;
   speed?: SpeedSection;
   chevron?: React.ReactNode;
+  /// Draw the Reasoning section as a slider (the person's opt-in); the list is the default.
+  slider?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -54,6 +62,11 @@ export function EffortPicker({
       ? ultracode.title
       : (selectedVisible?.name ?? t("picker.reasoning"));
   const fast = speed !== undefined && speed.current === speed.on;
+  // One level is nothing to slide between: the list shows it as a single checked row.
+  const sliding = slider && visibleEfforts.length > 1;
+  const recommended = visibleEfforts.find((choice) => choice.recommended);
+  // The level the thumb shows: the picked one, else (the agent's own default) the recommended one.
+  const shown = selectedVisible ?? recommended ?? visibleEfforts[0];
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
   // Base UI initially focuses the popup while it measures its anchor. Move focus to the selected
@@ -62,6 +75,11 @@ export function EffortPicker({
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
+      const range = document.querySelector<HTMLElement>(".acpmux-effort-menu .acpmux-effort-range");
+      if (range) {
+        range.focus({ preventScroll: true });
+        return;
+      }
       const reasoningGroup = document.querySelector<HTMLElement>('.acpmux-effort-menu [role="group"]');
       const selectedReasoning =
         reasoningGroup?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ??
@@ -101,7 +119,18 @@ export function EffortPicker({
           {chevron}
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-effort-menu">
-          {visibleEfforts.length > 0 && (
+          {sliding && (
+            <ReasoningSlider
+              title={t("picker.reasoning")}
+              efforts={visibleEfforts}
+              current={selectedVisible?.id}
+              shown={shown}
+              fallback={recommended?.id}
+              onPick={onPick}
+              onClose={() => setOpen(false)}
+            />
+          )}
+          {!sliding && visibleEfforts.length > 0 && (
             <MenuGroup label={t("picker.reasoning")}>
               <MenuRadioGroup
                 value={selectedVisible?.id ?? ""}
@@ -114,27 +143,142 @@ export function EffortPicker({
               </MenuRadioGroup>
             </MenuGroup>
           )}
-          {[ultracode, speed].map(
-            (section) =>
-              section && (
-                <React.Fragment key={section.title}>
-                  <MenuSeparator />
-                  <MenuGroup label={section.title}>
-                    <MenuRadioGroup
-                      value={section.current ?? ""}
-                      onValueChange={(next) => {
-                        section.onPick(next);
-                        setOpen(false);
-                      }}
+          {[ultracode, speed].map((section, index) => {
+            if (!section) return null;
+            const rows = (
+              <MenuRadioGroup
+                value={section.current ?? ""}
+                onValueChange={(next) => {
+                  section.onPick(next);
+                  setOpen(false);
+                }}
+              >
+                {section.choices.map(row)}
+              </MenuRadioGroup>
+            );
+            const first = index === 0 || !ultracode;
+            return (
+              <React.Fragment key={section.title}>
+                <MenuSeparator />
+                <MenuGroup label={section.title}>
+                  {sliding && first ? (
+                    // Up from the first row under the slider climbs back to it; it is not a menu row.
+                    <div
+                      className="contents"
+                      // ui-allow: the menu's own row navigation cannot reach a non-row control.
+                      onKeyDownCapture={toSliderFromFirstRow}
                     >
-                      {section.choices.map(row)}
-                    </MenuRadioGroup>
-                  </MenuGroup>
-                </React.Fragment>
-              ),
-          )}
+                      {rows}
+                    </div>
+                  ) : (
+                    rows
+                  )}
+                </MenuGroup>
+              </React.Fragment>
+            );
+          })}
         </MenuPopup>
       </Menu>
     </span>
   );
+}
+
+/// Keys the slider steps by itself, so the menu's own row navigation and typeahead never see them.
+const SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
+
+/// The Reasoning section as a slider: its title and the level it sits on, then the track. Left,
+/// Right, Home and End step it; Up and Down step it too unless the speed rows follow, where Down
+/// moves to them (and Up from the first climbs back). Enter closes the menu as a row would, and
+/// Escape closes it back to the chip. While the chat is on the agent's own default the thumb rests
+/// on the recommended level without picking it; Enter or a click on the slider picks that level.
+function ReasoningSlider({
+  title,
+  efforts,
+  current,
+  shown,
+  fallback,
+  onPick,
+  onClose,
+}: {
+  title: string;
+  efforts: Choice[];
+  current?: string;
+  shown?: Choice;
+  fallback?: string;
+  onPick(value: string): void;
+  onClose(): void;
+}) {
+  const titleId = useId();
+  // The host echoes `current` back after a pick, so the click that ends a drag (or a second Enter)
+  // must not resend the level that was just sent.
+  const sent = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    sent.current = undefined;
+  }, [current]);
+  const commit = (value: string | undefined) => {
+    if (value === undefined || value === current || value === sent.current) return;
+    sent.current = value;
+    onPick(value);
+  };
+  // The resting thumb (the agent's own default) is not a pick yet: Enter or a click takes it,
+  // unless the slider already moved since (that pick stands; the input waits on the host's echo).
+  const commitResting = () => {
+    if (current === undefined && sent.current === undefined) commit(shown?.id);
+  };
+  const onRangeKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (SLIDER_KEYS.has(event.key)) {
+      event.stopPropagation();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      commitResting();
+      onClose();
+      return;
+    }
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.stopPropagation();
+    const below = event.currentTarget
+      .closest(".acpmux-effort-menu")
+      ?.querySelector<HTMLElement>('[role="menuitemradio"]');
+    if (!below) return;
+    // With rows below, vertical arrows travel the menu as they do in any menu.
+    event.preventDefault();
+    if (event.key === "ArrowDown") below.focus();
+  };
+  return (
+    // A group (a fieldset), as the list's MenuGroup is: the menu holds groups, rows and separators.
+    <fieldset className="acpmux-effort-slider" aria-labelledby={titleId}>
+      <div className="acpmux-effort-slider-head">
+        <span id={titleId} className="ui-menu-group-label">
+          {title}
+        </span>
+        {/* tooltip-allow: the slider row shows only the level's name; the tooltip is its description */}
+        <span className="acpmux-effort-slider-level" title={shown?.description}>
+          {shown?.name}
+        </span>
+      </div>
+      <EffortTrack
+        efforts={efforts}
+        current={current}
+        fallback={fallback}
+        onPick={commit}
+        onEscape={onClose}
+        onRangeKey={onRangeKey}
+        onRangeClick={commitResting}
+      />
+    </fieldset>
+  );
+}
+
+/// ArrowUp on the first row under the slider (Ultracode's or the speed section's) focuses the slider above it instead of wrapping to the last row.
+function toSliderFromFirstRow(event: React.KeyboardEvent<HTMLElement>) {
+  if (event.key !== "ArrowUp") return;
+  const menu = (event.target as HTMLElement).closest(".acpmux-effort-menu");
+  const first = menu?.querySelector<HTMLElement>('[role="menuitemradio"]');
+  if (!menu || event.target !== first) return;
+  event.preventDefault();
+  event.stopPropagation();
+  menu.querySelector<HTMLElement>(".acpmux-effort-range")?.focus();
 }

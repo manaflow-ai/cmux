@@ -12,12 +12,22 @@ export function EffortTrack({
   onPick,
   onEscape,
   autoFocus = false,
+  fallback,
+  onRangeKey,
+  onRangeClick,
 }: {
   efforts: Choice[];
   current?: string;
+  /// Where the thumb rests while `current` is not one of `efforts` (the agent's own default):
+  /// the reasoning menu's slider rests on the recommended level. Without it, the first level.
+  fallback?: string;
   onPick(value: string): void;
   /// Escape on the slider hands focus back (the popover closes, a menu steps back).
   onEscape?(): void;
+  /// Sees the slider's keys first (the reasoning menu keeps its stepping keys from the menu's rows).
+  onRangeKey?(event: React.KeyboardEvent<HTMLInputElement>): void;
+  /// A click on the slider, after any change it made (the reasoning menu commits the resting level).
+  onRangeClick?(): void;
   autoFocus?: boolean;
 }) {
   const t = useT();
@@ -25,10 +35,8 @@ export function EffortTrack({
   useEffect(() => {
     if (autoFocus) range.current?.focus();
   }, [autoFocus]);
-  const level = Math.max(
-    0,
-    efforts.findIndex((choice) => choice.id === current),
-  );
+  const at = (id: string | undefined) => efforts.findIndex((choice) => choice.id === id);
+  const level = Math.max(0, at(current) >= 0 ? at(current) : at(fallback));
   const name = efforts[level]?.name ?? t("effort.title");
   const recommended = efforts.find((choice) => choice.recommended);
   const pick = (index: number) => {
@@ -62,7 +70,9 @@ export function EffortTrack({
           aria-label={t("effort.title")}
           aria-valuetext={efforts[level]?.recommended ? t("effort.valueRecommended", { level: name }) : name}
           onChange={(event) => pick(Number(event.target.value))}
+          onClick={() => onRangeClick?.()}
           onKeyDown={(event) => {
+            onRangeKey?.(event);
             if (event.key !== "Escape" || !onEscape) return;
             event.preventDefault();
             event.stopPropagation();
