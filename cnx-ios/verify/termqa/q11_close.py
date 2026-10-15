@@ -18,7 +18,7 @@ def mac_terms():
 
 
 def grid(s):
-    if not s.find(label="Done", kind="Button"):
+    if not [e for e in s.find(kind="Button") if (e.label or "").endswith(", tab")]:
         s.tap_q(label="Tabs", kind="Button"); time.sleep(2.5)
 
 

@@ -14,8 +14,8 @@ import v8
 
 
 def to_tab(s, prefix):
-    if s.find(label="Done", kind="Button"):  # in the grid: tap the card
-        c = [e for e in s.find(kind="Button") if (e.label or "").startswith(prefix + ",")]
+    c = [e for e in s.find(kind="Button") if (e.label or "").startswith(prefix + ", tab")]
+    if c:  # in the grid: tap the card
         s.tap_el(c[0]); time.sleep(3)
     else:
         reg.open_tab(s, prefix)
