@@ -16,7 +16,10 @@ public struct MobileSettingsUpgradeSection: View {
     public init() {}
 
     public var body: some View {
-        if let billing, billing.canOfferUpgrade {
+        // Kept while its paywall is open: a purchase makes the account paid,
+        // and removing the section would close the paywall before its
+        // success screen.
+        if let billing, billing.canOfferUpgrade || paywall != nil {
             Section {
                 MobileUpgradeCard(
                     entryPoint: .settingsUpgradeCard,

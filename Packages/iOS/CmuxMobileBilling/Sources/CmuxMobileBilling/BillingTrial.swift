@@ -34,8 +34,10 @@ public struct BillingTrialOffer: Sendable, Equatable, Codable {
     /// The billing period of the trial product; nil reads it from the
     /// product id.
     public let billingPeriod: BillingPeriod?
-    /// The App Store product that carries the introductory offer; nil means
-    /// the plan's product in ``billingPeriod``, else monthly.
+    /// The App Store product that carries the free-trial introductory offer,
+    /// such as `com.cmux.app.pro.trial.monthly`. It is a separate product
+    /// priced like the plan's monthly product; normal products carry no
+    /// introductory offer. Nil means no trial.
     public let productID: String?
     /// Whether the server needs App Attest and DeviceCheck proof first.
     public let attestRequired: Bool

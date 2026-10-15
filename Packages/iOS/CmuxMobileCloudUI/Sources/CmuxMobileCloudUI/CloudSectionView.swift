@@ -82,8 +82,10 @@ public struct CloudSectionView: View {
     /// New Machine for a Free account whose plan allows no machine opens the
     /// paywall instead of a create sheet that can only fail.
     private var newMachineNeedsPlan: Bool {
-        guard billing?.canOfferUpgrade == true else { return false }
-        return (controller.machineLimits?.maxActiveMachines ?? 0) == 0
+        // Only on the server's word: before the limits load, the create
+        // sheet opens as before.
+        guard billing?.canOfferUpgrade == true, let limits = controller.machineLimits else { return false }
+        return limits.maxActiveMachines == 0
     }
 
     private func resume(_ machine: CloudMachine) async {

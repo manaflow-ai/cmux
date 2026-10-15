@@ -147,12 +147,15 @@ public struct MobilePaywallView: View {
         }
         let wasLoaded = billing.account.account != nil
         if !wasLoaded { await billing.loadIfNeeded() }
+        // Closed while loading: no view and no dismiss event.
+        guard !Task.isCancelled else { return }
         let fixed = billing.paywallContext(entryPoint: entryPoint)
         apply(fixed)
         appearedAt = .now
         billing.paywallViewed(context: fixed)
         if wasLoaded { await billing.refresh() }
         await billing.prepareTrial()
+        guard !Task.isCancelled else { return }
         if let grant = billing.trial.grant {
             // Lead with the trial: select its plan and period.
             period = grant.billingOffer.billingPeriod

@@ -127,14 +127,16 @@ public final class BillingModel {
     /// entry points call this, so several on one screen cost one request.
     public func loadIfNeeded() async {
         if account.account != nil { return }
+        let generation = accountGeneration
         if let inFlightLoad {
             await inFlightLoad.value
-            return
+            // A load joined across a sign-out published nothing; load again.
+            if generation == accountGeneration || account.account != nil { return }
         }
         let load = Task { await self.refresh() }
         inFlightLoad = load
         await load.value
-        inFlightLoad = nil
+        if inFlightLoad == load { inFlightLoad = nil }
     }
 
     /// The paywall configuration to show: the server's, or
@@ -247,10 +249,11 @@ public final class BillingModel {
     }
 
     private func checkTrial(_ offer: BillingTrialOffer, account: BillingAccount) async -> BillingTrialState {
-        let period = offer.billingPeriod ?? .monthly
-        guard let productID = offer.productID
-            ?? account.products.first(where: { $0.planID == offer.planID && $0.billingPeriod == period })?.productID
-        else { return .unavailable(reason: "no_product") }
+        // The trial lives only on its own product, so a refused account can
+        // never get it from a normal product's introductory offer.
+        guard let productID = offer.productID else {
+            return .unavailable(reason: "no_product")
+        }
         let product: StoreProduct
         do {
             guard let found = try await store.products(for: [productID]).first else {
@@ -509,8 +512,13 @@ public final class BillingModel {
     }
 
     /// Clears the result banner of the last purchase or restore.
+    /// A purchase waiting for Ask to Buy approval or for the server keeps
+    /// its phase, so its later success is still matched and reported.
     public func dismissResult() {
-        if !purchase.isPurchasing { purchase = .idle }
+        switch purchase {
+        case .completed, .failed: purchase = .idle
+        case .idle, .purchasing, .pending, .awaitingServer: break
+        }
         if restore != .restoring { restore = .idle }
     }
 
@@ -526,6 +534,7 @@ public final class BillingModel {
         currentAppleTransactionID = nil
         purchaseContext = nil
         purchaseOffer = nil
+        inFlightLoad = nil
         trial = .none
         previewOffers = []
         account = .idle
@@ -632,7 +641,10 @@ public final class BillingModel {
         }
         guard generation == accountGeneration else { return }
         let byID = Dictionary(products.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // The trial product is offered only through a granted trial.
+        let trialProductID = account.trial?.productID
         offers = account.products
+            .filter { $0.productID != trialProductID }
             .compactMap { reference in
                 byID[reference.productID].map {
                     BillingOffer(planID: reference.planID, product: $0, billingPeriod: reference.billingPeriod)

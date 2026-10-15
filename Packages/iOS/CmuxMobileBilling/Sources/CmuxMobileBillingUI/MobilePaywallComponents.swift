@@ -470,6 +470,17 @@ struct MobilePaywallPurchaseBar: View {
                 }
                 .accessibilityIdentifier("BillingResult")
             }
+            if let priceLine {
+                // The amount billed, as prominent as the button (App Review
+                // 3.1.2): the trial's terms, or the price when the button
+                // names an action.
+                Text(priceLine)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("BillingPaywallPriceLine")
+            }
             Button(action: buy) {
                 Text(title)
                     .font(.headline)
@@ -525,10 +536,15 @@ struct MobilePaywallPurchaseBar: View {
         }
     }
 
+    private var priceLine: String? {
+        if let trial { return BillingPriceCopy.trialHeadline(trial) }
+        guard !isCurrent, config.ctaStyle == .action || isSwitch else { return nil }
+        return BillingPriceCopy.price(offer)
+    }
+
     private var renewal: String {
-        if let trial {
-            return BillingPriceCopy.trialHeadline(trial) + ". "
-                + L10n.string("mobile.billing.paywall.cancelAnytime", defaultValue: "Renews automatically until cancelled.")
+        if trial != nil {
+            return L10n.string("mobile.billing.paywall.cancelAnytime", defaultValue: "Renews automatically until cancelled.")
         }
         return String(
             format: L10n.string(
