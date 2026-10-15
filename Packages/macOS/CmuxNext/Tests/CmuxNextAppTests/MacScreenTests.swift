@@ -583,3 +583,73 @@ struct MacScreenConnectingCardTests {
         #expect(MacScreenPaneModel.connectingCard(isReconnecting: true, everConnected: true) == .connecting(reconnecting: true))
     }
 }
+
+/// A Mac screen never takes the keyboard until the person clicks the picture: every newly made
+/// screen starts released (only Connect on the card did; a home Connect, Open in New Tab or a
+/// pasted link gave the other Mac the keyboard at once).
+@MainActor
+struct MacScreenOpenKeyboardTests {
+    @Test func aConfirmedScreenStartsReleased() {
+        let pane = MacScreenPane(name: "Keys", pairing: VNCPairing.generate(name: "Keys", kind: "stream"),
+                                 preferences: ScreenPreferences(), confirmed: true)
+        #expect(pane.view.input.isReleased)
+        #expect(!pane.model.capturesKeyboard)
+        pane.close()
+    }
+
+    @Test func aMacOpenedFromTheHomePageStartsReleased() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let store = MacScreenStore(file: file, secrets: MemoryMacScreenSecrets())
+        let pages = MacScreenPages(store: store)
+        let mac = try store.add(link: VNCPairing.generate(name: "Keys", kind: "stream").link.absoluteString).get()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        _ = pages.makeView(for: "home")
+        pages.openFromHome(mac.id, in: "home")
+        let tab = try #require(pages.tab("home"))
+        await tab.loading?.value
+        let pane = try #require(tab.pane)
+        #expect(pane.model.gate == .open)
+        #expect(pane.view.input.isReleased)
+        #expect(!pane.model.capturesKeyboard)
+        pages.tabClosed("home")
+    }
+}
+
+/// Hosts take one viewer and the newest wins: when a screen of a Mac starts connecting, every
+/// other screen of that Mac that is connecting or connected ends its session, hidden (as if its
+/// grace ran out) or shown (no ping-pong between two splits). A hidden tab inside its grace kept
+/// reconnecting and the shown tab got no picture for 20 s.
+@MainActor
+struct MacScreenOneViewerTests {
+    private let mac = UUID(), other = UUID()
+
+    @Test func otherActiveScreensOfTheSameMacEnd() {
+        let panes = [
+            MacScreenPaneActivity(key: "new", mac: mac, active: false),
+            MacScreenPaneActivity(key: "hidden", mac: mac, active: true),
+            MacScreenPaneActivity(key: "shown", mac: mac, active: true),
+            MacScreenPaneActivity(key: "ended", mac: mac, active: false),
+            MacScreenPaneActivity(key: "otherMac", mac: other, active: true),
+        ]
+        #expect(MacScreenPages.sessionsToEnd(starting: "new", panes: panes) == ["hidden", "shown"])
+    }
+
+    @Test func anUnknownOrMissingScreenEndsNothing() {
+        let panes = [MacScreenPaneActivity(key: "a", mac: mac, active: true)]
+        #expect(MacScreenPages.sessionsToEnd(starting: "gone", panes: panes).isEmpty)
+        #expect(MacScreenPages.sessionsToEnd(starting: "a", panes: panes).isEmpty)
+    }
+
+    /// The pane says when it starts a connect, before it starts it.
+    @Test func thePaneAnnouncesItsConnects() {
+        let pane = MacScreenPane(name: "One", pairing: VNCPairing.generate(name: "One", kind: "stream"),
+                                 preferences: ScreenPreferences(), confirmed: true)
+        var events: [String] = []
+        pane.handlers.willConnect = { events.append("will") }
+        pane.connectSession = { _ in events.append("connect") }
+        pane.resume()
+        pane.view.chrome.actions.connect()
+        #expect(events == ["will", "connect", "will", "connect"])
+        pane.close()
+    }
+}
