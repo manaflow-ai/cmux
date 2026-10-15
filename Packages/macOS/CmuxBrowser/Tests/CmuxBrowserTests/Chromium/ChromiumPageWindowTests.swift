@@ -34,7 +34,21 @@ private enum FakeChromiumRuntime {
 
 @MainActor
 @Suite(.serialized) struct ChromiumPageWindowTests {
+    init() {
+        _ = FakeChromiumRuntime.pageWindowClass
+        NSWindow.noteChromiumRuntimeLoaded()
+    }
+
+    @Test func pageWindowsAreUnknownUntilTheRuntimeLoads() {
+        NSWindow.resetChromiumRuntimeForTesting()
+        let main = FakeChromiumRuntime.makeWindow()
+        let page = FakeChromiumRuntime.makePageWindow()
+        #expect(!page.isChromiumPageWindow)
+        #expect(page.chromiumActingWindow(fallback: main) === page)
+    }
+
     @Test func ordinaryWindowsActForThemselves() {
+        defer { NSWindow.resetChromiumRuntimeForTesting() }
         let window = FakeChromiumRuntime.makeWindow()
         let other = FakeChromiumRuntime.makeWindow()
         #expect(!window.isChromiumPageWindow)
@@ -42,6 +56,7 @@ private enum FakeChromiumRuntime {
     }
 
     @Test func placedPageWindowActsForTheTopOfItsParentChain() {
+        defer { NSWindow.resetChromiumRuntimeForTesting() }
         let main = FakeChromiumRuntime.makeWindow()
         let page = FakeChromiumRuntime.makePageWindow()
         #expect(page.isChromiumPageWindow)
@@ -51,6 +66,7 @@ private enum FakeChromiumRuntime {
     }
 
     @Test func parentlessPageWindowActsForTheFallback() {
+        defer { NSWindow.resetChromiumRuntimeForTesting() }
         let main = FakeChromiumRuntime.makeWindow()
         let page = FakeChromiumRuntime.makePageWindow()
         let otherPage = FakeChromiumRuntime.makePageWindow()
