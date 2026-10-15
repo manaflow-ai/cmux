@@ -21,6 +21,10 @@ struct FeedCell: View {
     @State private var contentHeight: CGFloat?
     @State private var replying = false
     @State private var replyText = ""
+    /// A reply the phone could not send (no chat to send it to), or the chat the reply went to,
+    /// whose refusal (the Mac's reason) shows under the reply instead of a silent "You replied".
+    @State private var replyFailure: String?
+    @State private var replyChat: AgentChatStore?
     @FocusState private var replyFocused: Bool
     @State private var copied = false
     #if DEBUG
@@ -84,6 +88,13 @@ struct FeedCell: View {
                 }
                 if !item.replies.isEmpty {
                     replies
+                }
+                if let failure = replyFailure ?? replyChat?.clientError {
+                    Text(failure)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityIdentifier("feed.reply.failure")
                 }
                 if replying {
                     replyComposer
@@ -343,13 +354,20 @@ struct FeedCell: View {
     private func sendReply() {
         let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        replyFailure = nil
+        let sent = FeedRouting.shared.sendPrompt?(item, text) ?? .failed("Open this chat to reply.")
         withAnimation(.cnxSnappy) {
-            store.reply(item.id, text: text)
+            switch sent {
+            case .sent(let chat):
+                store.reply(item.id, text: text)
+                replyChat = chat
+            case .failed(let reason):
+                replyFailure = reason
+            }
             replying = false
         }
         replyText = ""
         replyFocused = false
-        FeedRouting.shared.sendPrompt?(item, text)
     }
 
     private var footer: some View {
@@ -497,7 +515,12 @@ struct FeedRow: View, Equatable {
 @MainActor
 public final class FeedRouting {
     public static let shared = FeedRouting()
-    var sendPrompt: ((FeedItem, String) -> Void)?
+    /// Reply: the prompt goes to the item's chat, or why it can't.
+    public enum ReplyOutcome {
+        case sent(AgentChatStore)
+        case failed(String)
+    }
+    var sendPrompt: ((FeedItem, String) -> ReplyOutcome)?
     /// Opens a terminal agent's tab on the Workspaces tab (set by the shell).
     public var openTerminal: ((FeedItem) -> Void)?
     /// Clear All Notifications on the linked Mac (nil: no Mac can clear now).
