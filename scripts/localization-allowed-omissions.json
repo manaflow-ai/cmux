@@ -5140,5 +5140,399 @@
         ]
       }
     }
+  },
+  "cloud.gettingStarted.progress": {
+    "source": "%1$d/%2$d",
+    "identityLocales": {
+      "de": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      },
+      "fr": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      },
+      "ar": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      },
+      "es": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      },
+      "ko": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      },
+      "ja": {
+        "reason": "A numeric progress fraction (completed/total) with no words; the translated entry is still required.",
+        "values": [
+          "%1$d/%2$d"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.cli.sync.failed": {
+    "source": "vm secrets sync: %@",
+    "identityLocales": {
+      "de": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      },
+      "fr": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      },
+      "ar": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      },
+      "es": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      },
+      "ko": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      },
+      "ja": {
+        "reason": "`vm secrets sync` is an invariant CLI command prefix followed by the underlying error; the translated entry is still required.",
+        "values": [
+          "vm secrets sync: %@"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.editor.project.placeholder": {
+    "source": "github.com/owner/repo",
+    "identityLocales": {
+      "de": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      },
+      "fr": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      },
+      "ar": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      },
+      "es": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      },
+      "ko": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      },
+      "ja": {
+        "reason": "github.com/owner/repo is an example project key in the literal format the field accepts; the translated entry is still required.",
+        "values": [
+          "github.com/owner/repo"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.tab.count": {
+    "source": "%1$@  %2$@",
+    "identityLocales": {
+      "de": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      },
+      "fr": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      },
+      "ar": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      },
+      "es": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      },
+      "ko": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      },
+      "ja": {
+        "reason": "Joins an already-localized tab title and a locale-formatted number; there are no words to translate. The translated entry is still required.",
+        "values": [
+          "%1$@  %2$@"
+        ]
+      }
+    }
+  },
+  "cli.vm.clone.agentAddress": {
+    "source": "%1$@: cmux vm open %2$@/%3$@",
+    "identityLocales": {
+      "de": {
+        "reason": "An agent name followed by the invariant `cmux vm open` command and machine/workspace address; the translated entry is still required.",
+        "values": [
+          "%1$@: cmux vm open %2$@/%3$@"
+        ]
+      },
+      "es": {
+        "reason": "An agent name followed by the invariant `cmux vm open` command and machine/workspace address; the translated entry is still required.",
+        "values": [
+          "%1$@: cmux vm open %2$@/%3$@"
+        ]
+      },
+      "ar": {
+        "reason": "An agent name followed by the invariant `cmux vm open` command and machine/workspace address; the translated entry is still required.",
+        "values": [
+          "%1$@: cmux vm open %2$@/%3$@"
+        ]
+      },
+      "ko": {
+        "reason": "An agent name followed by the invariant `cmux vm open` command and machine/workspace address; the translated entry is still required.",
+        "values": [
+          "%1$@: cmux vm open %2$@/%3$@"
+        ]
+      },
+      "ja": {
+        "reason": "An agent name followed by the invariant `cmux vm open` command and machine/workspace address; the translated entry is still required.",
+        "values": [
+          "%1$@: cmux vm open %2$@/%3$@"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.cli.check.stored": {
+    "source": "ok       %1$@ (%2$@)",
+    "identityLocales": {
+      "de": {
+        "reason": "\"ok\" is the column-aligned CLI status token used in these locales' terminal output, followed by a name and scope; the translated entry is still required.",
+        "values": [
+          "ok       %1$@ (%2$@)"
+        ]
+      },
+      "fr": {
+        "reason": "\"ok\" is the column-aligned CLI status token used in these locales' terminal output, followed by a name and scope; the translated entry is still required.",
+        "values": [
+          "ok       %1$@ (%2$@)"
+        ]
+      },
+      "es": {
+        "reason": "\"ok\" is the column-aligned CLI status token used in these locales' terminal output, followed by a name and scope; the translated entry is still required.",
+        "values": [
+          "ok       %1$@ (%2$@)"
+        ]
+      },
+      "ar": {
+        "reason": "\"ok\" is the column-aligned CLI status token used in these locales' terminal output, followed by a name and scope; the translated entry is still required.",
+        "values": [
+          "ok       %1$@ (%2$@)"
+        ]
+      },
+      "ja": {
+        "reason": "\"ok\" is the column-aligned CLI status token used in these locales' terminal output, followed by a name and scope; the translated entry is still required.",
+        "values": [
+          "ok       %1$@ (%2$@)"
+        ]
+      }
+    }
+  },
+  "cli.vm.clone.phase.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": {
+        "reason": "Agent is the standard German and French noun for a coding agent; the translated entry is still required.",
+        "values": [
+          "Agent"
+        ]
+      },
+      "fr": {
+        "reason": "Agent is the standard German and French noun for a coding agent; the translated entry is still required.",
+        "values": [
+          "Agent"
+        ]
+      }
+    }
+  },
+  "cli.vm.clone.phase.secrets": {
+    "source": "Secrets",
+    "identityLocales": {
+      "de": {
+        "reason": "Secrets is the German and French term used for Cloud Secrets in cmux; the translated entry is still required.",
+        "values": [
+          "Secrets"
+        ]
+      },
+      "fr": {
+        "reason": "Secrets is the German and French term used for Cloud Secrets in cmux; the translated entry is still required.",
+        "values": [
+          "Secrets"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.list.label": {
+    "source": "Secrets",
+    "identityLocales": {
+      "de": {
+        "reason": "Secrets is the German and French term used for Cloud Secrets in cmux; the translated entry is still required.",
+        "values": [
+          "Secrets"
+        ]
+      },
+      "fr": {
+        "reason": "Secrets is the German and French term used for Cloud Secrets in cmux; the translated entry is still required.",
+        "values": [
+          "Secrets"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.menu.machine": {
+    "source": "Secrets…",
+    "identityLocales": {
+      "de": {
+        "reason": "Secrets is the German and French term used for Cloud Secrets in cmux; the translated entry is still required.",
+        "values": [
+          "Secrets…"
+        ]
+      },
+      "fr": {
+        "reason": "Secrets is the German and French term used for Cloud Secrets in cmux; the translated entry is still required.",
+        "values": [
+          "Secrets…"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.editor.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German noun for this field label; the translated entry is still required.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
+  },
+  "cli.vm.clone.phase.machine": {
+    "source": "Machine",
+    "identityLocales": {
+      "fr": {
+        "reason": "Machine is the standard French noun used for Cloud machines in cmux; the translated entry is still required.",
+        "values": [
+          "Machine"
+        ]
+      }
+    }
+  },
+  "cloudSecrets.tab.machines": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": {
+        "reason": "Machines is the standard French plural noun used for Cloud machines in cmux; the translated entry is still required.",
+        "values": [
+          "Machines"
+        ]
+      }
+    }
+  },
+  "cloudTree.terminal.exit.short.signal": {
+    "source": "signal %d",
+    "identityLocales": {
+      "fr": {
+        "reason": "signal is the standard French word for a POSIX process signal; the translated entry is still required.",
+        "values": [
+          "signal %d"
+        ]
+      }
+    }
   }
 }

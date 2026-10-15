@@ -781,5 +781,23 @@
     "arguments": [
       1
     ]
+  },
+  "cli.vm.clone.secretsSent": {
+    "source": "%d delivered",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.check.failed": {
+    "source": "%ld declared secrets are missing",
+    "arguments": [
+      1
+    ]
+  },
+  "cloud.gettingStarted.progress.accessibility": {
+    "source": "%1$d of %2$d steps done",
+    "arguments": [
+      2
+    ]
   }
 }
