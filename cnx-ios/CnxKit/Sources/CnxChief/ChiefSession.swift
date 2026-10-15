@@ -13,7 +13,17 @@ import UIKit
 @MainActor
 @Observable
 public final class ChiefSession {
+    /// The Mac Chief: the Mac's Chief owner over the link (``ChiefDaemonBackend``),
+    /// which `LiveCoordinator` swaps in and out as the Mac link changes.
     public static let shared = ChiefSession(backend: defaultBackend())
+
+    /// The Cloud Chief: the main conversation of the user's Cloud Chief
+    /// (``ChiefCloudBackend``), set by ``ChiefSources`` after sign-in. Home
+    /// shows it first when it answers; offline until then.
+    public static let cloud = ChiefSession(
+        backend: ChiefOfflineBackend(reason: ChiefSources.signedOutReason),
+        outbox: .cloud
+    )
 
     /// Chief before a Mac link: offline (``ChiefOfflineBackend``). DEBUG
     /// builds use the package's conversation simulator
@@ -48,7 +58,8 @@ public final class ChiefSession {
     public var status: String?
     /// The backend the store runs on.
     public private(set) var backend: any ConversationBackend
-    public let identity: ChiefIdentity
+    /// Who is in the conversation; the Cloud Chief's ids come with its backend.
+    public private(set) var identity: ChiefIdentity
     /// The brain's engine controls, when the backend is the Mac's Chief.
     public private(set) var control: ChiefControl?
     /// The Mac Chief runs on, for the settings page.
@@ -118,9 +129,15 @@ public final class ChiefSession {
 
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
 
-    /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is up).
-    public func use(_ backend: any ConversationBackend) {
+    /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
+    /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
+    public func use(_ backend: any ConversationBackend, identity: ChiefIdentity? = nil) {
         store.stop()
+        if let identity, identity != self.identity {
+            self.identity = identity
+            avatar = identity.avatar
+        }
+        live = nil
         self.backend = backend
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
@@ -145,12 +162,25 @@ public final class ChiefSession {
     private var retriedFailureID: String?
 
     /// What the bar over the conversation shows: the open question first,
-    /// else Try Again for a failed newest turn not tried again yet.
+    /// else Try Again for a failed newest turn not tried again yet, else
+    /// what Chief is doing now (its reply so far and its activity line).
     public var barItem: ChiefBarItem? {
         if let question = openQuestion { return .question(question) }
-        guard let id = lastTurnFailureID, let failure = lastTurnFailure, id != retriedFailureID, isConnected else { return nil }
-        return .failure(id: id, failure)
+        if let id = lastTurnFailureID, let failure = lastTurnFailure, id != retriedFailureID, isConnected {
+            return .failure(id: id, failure)
+        }
+        return live.map(ChiefBarItem.live)
     }
+
+    /// What Chief is doing right now (Live frames v1), when its backend
+    /// carries live frames (``ChiefLiveSource``); nil when nothing runs.
+    public private(set) var live: ChiefLive?
+
+    /// Chief is typing or a run is live: Home's pin shows the typing bubble.
+    public var isWorking: Bool { isTyping || live != nil }
+
+    /// This Chief runs in cmux Cloud (not on a Mac).
+    public var runsInCloud: Bool { backend is ChiefCloudBackend }
 
     /// Try Again on a failed turn: the brain does not run a failed turn
     /// again by itself (it retries only connection errors and capacity
@@ -349,6 +379,14 @@ public final class ChiefSession {
 
     private func attach() {
         let store = store
+        if let source = backend as? any ChiefLiveSource {
+            source.liveFeed.observe { [weak self] live in
+                Task { @MainActor [weak self] in
+                    guard let self, self.store === store, self.live != live else { return }
+                    self.live = live
+                }
+            }
+        }
         if let source = backend as? any ChiefQuestionSource {
             source.questionFeed.observe { [weak self] found in
                 Task { @MainActor [weak self] in
@@ -496,6 +534,12 @@ public struct ChiefOutbox: Sendable {
     public static var standard: ChiefOutbox {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         return ChiefOutbox(file: directory?.appendingPathComponent("cnx-chief-outbox.json"))
+    }
+
+    /// The Cloud Chief's outbox, apart from the Mac Chief's.
+    public static var cloud: ChiefOutbox {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return ChiefOutbox(file: directory?.appendingPathComponent("cnx-cloud-chief-outbox.json"))
     }
 
     func load() -> [ConversationComposeMessage] {

@@ -6,11 +6,20 @@ import UIKit
 
 /// A navigation value that opens the Chief conversation.
 public struct ChiefRoute: Hashable, Sendable {
+    /// Which Chief: the default one (the Cloud Chief when it answers, else
+    /// the Mac Chief), or the Mac Chief beside a Cloud Chief.
+    public enum Place: Hashable, Sendable {
+        case primary
+        case mac
+    }
+
     /// Home's compose button: the keyboard rises once the push settles.
     public var focusesComposer: Bool
+    public var place: Place
 
-    public init(focusesComposer: Bool = false) {
+    public init(focusesComposer: Bool = false, place: Place = .primary) {
         self.focusesComposer = focusesComposer
+        self.place = place
     }
 }
 

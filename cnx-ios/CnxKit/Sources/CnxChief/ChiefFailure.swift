@@ -257,4 +257,6 @@ public enum ChiefBarItem: Equatable, Sendable {
     case question(AgentQuestion)
     /// `id` is the failed message's id.
     case failure(id: String, ChiefTurnFailure)
+    /// Chief is working: its reply so far and what it is doing.
+    case live(ChiefLive)
 }
