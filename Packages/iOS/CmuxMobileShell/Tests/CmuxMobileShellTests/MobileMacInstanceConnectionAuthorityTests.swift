@@ -390,10 +390,10 @@ import Testing
             identityProvider: StaticIdentityProvider(userID: userID),
             teamIDProvider: { "team-a" },
             reachability: AlwaysOnlineReachability(),
-            hiddenMacStore: hiddenStore,
             pairingHintDefaults: UserDefaults(
                 suiteName: "instance-authority-\(UUID().uuidString)"
-            )!
+            )!,
+            hiddenMacStore: hiddenStore
         )
     }
 
