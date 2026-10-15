@@ -333,7 +333,7 @@ struct PageProbe {
     static func run(_ tab: any BrowserTab) async -> PageProbe {
         do {
             let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                (try await tab.evaluate(BrowserPageBusy.probeScript, world: .isolated), try await tab.pageBusy())
+                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }

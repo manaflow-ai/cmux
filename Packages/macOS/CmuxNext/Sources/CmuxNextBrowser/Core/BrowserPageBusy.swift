@@ -44,7 +44,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// microphone or screen capture, or form fields whose value differs from the
     /// page's default (form interaction): the fallback for a page without the recorder.
     /// A page that does not answer within the deadline is treated as busy and kept.
-    package static let probeScript = """
+    package static let fieldProbeScript = """
     (() => {
       const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
       const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
