@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Rim = { spread: number; rgba: [number, number, number, number] };
 
@@ -36,6 +37,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/composer-rim.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
