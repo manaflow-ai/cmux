@@ -274,16 +274,18 @@ import Testing
         host.layoutSubtreeIfNeeded()
         #expect(demo.threadOpen)
         #expect(header.threadBlurOpen)
-        // No filter on the header (offscreen, the glass would vanish); a backdrop over it and a tint on its controls.
+        // No filter or backdrop: a blurred, tinted image of the controls over the header, faded in on the
+        // vendored tint's timing while the live controls fade out.
         #expect(header.layer?.filters == nil)
         #expect(!header.threadBlurHost.isHidden)
         #expect((views.firstIndex(of: header.threadBlurHost) ?? -1) > (views.firstIndex(of: header) ?? Int.max))
-        #expect(header.threadBlurHost.layer?.mask != nil)
-        #expect(header.threadTint.superlayer === header.layer)
-        #expect(header.threadTint.mask != nil)
-        #expect(abs(header.threadTint.opacity - Float(1 - PaneHeaderView.headerGain)) < 0.0001)
+        #expect(header.threadBlurHost.layer?.mask == nil)
+        #expect(header.threadBlurHost.image.contents != nil)
+        #expect(header.threadBlurHost.image.opacity == 1)
+        #expect(header.avatar.layer?.opacity == 0)
+        #expect(header.pill.layer?.opacity == 0)
         let vendoredTint = try #require(host.vendoredBackdropRoot?.sublayers?.last?.animation(forKey: "thread") as? CABasicAnimation)
-        let ours = try #require(header.threadTint.animation(forKey: "cmux.thread.tint") as? CABasicAnimation)
+        let ours = try #require(header.threadBlurHost.image.animation(forKey: "cmux.thread.fade") as? CABasicAnimation)
         #expect(ours.duration == vendoredTint.duration)
         let thread = try #require(HostView.threadLayerView(of: demo))
         let dim = thread.subviews.first?.layer
