@@ -59,10 +59,10 @@ extension ActionRegistry {
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments)
-                // Built per click: the item names the target's change (Pin or Unpin) and says why it is disabled.
-                ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
                 // A menu-only short title (the palette keeps the action's title).
                 if let label = labels[id] { item.title = label }
+                // Built per click: names the target's change (Pin or Unpin, over the label), says why it is disabled.
+                ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
                 items.append(item)
             case .submenu(let id, let children):
                 let childItems = menuItems(children, target: target, context: context, arguments: arguments, labels: labels)
