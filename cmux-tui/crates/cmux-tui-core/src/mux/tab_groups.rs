@@ -755,9 +755,6 @@ impl Mux {
                     .iter()
                     .map(|surface| tab_public_id(state, *surface))
                     .collect::<anyhow::Result<Vec<_>>>()?;
-                if let Some(record) = edit.groups.groups.get(&group_id) {
-                    edit.closed_group = Some(group_archive(state, &group_id, record, &tabs));
-                }
                 let panes = members
                     .iter()
                     .filter_map(|surface| state.pane_of(*surface))

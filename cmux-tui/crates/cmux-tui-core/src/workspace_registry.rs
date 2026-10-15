@@ -32,11 +32,13 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+mod compact;
 mod detached_terminals;
 pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
 use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
+pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -2836,11 +2838,7 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
-        let quick_check: String =
-            connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
-        if quick_check != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {quick_check}");
-        }
+        check_registry_integrity(&connection)?;
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
@@ -3738,6 +3736,57 @@ fn migrate_resource_api_frontend_projection_envelopes(
                 subject_key,
             ],
         )?;
+    }
+    Ok(())
+}
+
+/// Tables that hold journal history rather than registry state. They grow
+/// with every terminal output chunk (millions of rows, gigabytes on a
+/// long-lived machine) and are append-only or sealed archives whose records
+/// are validated when they are read, so the open-time check skips them.
+const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+    "session_journal",
+    "journal_subject_index",
+    "journal_event_index",
+    "journal_segments",
+    "journal_checkpoints",
+    "journal_content_blobs",
+    "journal_segment_kinds",
+];
+
+/// Structural check of the registry state on open. An unscoped quick_check
+/// reads every page of the file, so its cost tracked total journal history;
+/// checking each state table and its indexes keeps startup proportional to
+/// the registry, not to how much output its terminals ever printed.
+fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+             ORDER BY name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !JOURNAL_HISTORY_TABLES.contains(&table.as_str())) {
+        let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
+        let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
+        if result != "ok" {
+            anyhow::bail!("workspace registry integrity check failed: {result}");
+        }
+    }
+    // History is validated incrementally when replayed. Touch only each
+    // table's newest indexed row during open so a corrupt tail page is caught
+    // without turning startup back into a full-journal scan.
+    for (table, order) in [
+        ("session_journal", "sequence"),
+        ("journal_subject_index", "sequence"),
+        ("journal_event_index", "sequence"),
+        ("journal_segments", "end_sequence"),
+        ("journal_checkpoints", "source_sequence"),
+        ("journal_content_blobs", "created_at_ms"),
+    ] {
+        let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
+        let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
     }
     Ok(())
 }
