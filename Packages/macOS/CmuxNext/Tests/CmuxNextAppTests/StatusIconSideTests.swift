@@ -7,19 +7,46 @@ import Testing
 /// Leo and Lawrence's team call (2026-10-14): no kind icon and no corner badge on a sidebar row;
 /// one status icon (working, needs input, done, error) on the left or the right of the row, and
 /// tabs the same so rows and tabs match. Both are Debug Settings choices until promoted: the
-/// `sidebar.rowBadge` Status icon style, and `sidebar.statusIconSide` for its side.
+/// `sidebar.rowBadge` Status icon style, and `sidebar.statusIconSide` for its side. Leo 2026-10-15:
+/// the Status icon style is the default, agent chat rows draw no chat icon, and a browser row keeps
+/// a browser-like icon (its favicon, else a globe) on the left.
 @MainActor @Suite(.serialized) struct StatusIconSideTests {
     private static let busy = WorkspaceID("ws-status-busy")
     private static let done = WorkspaceID("ws-status-done")
+    private static let chat = WorkspaceID("ws-status-chat")
+    private static let page = WorkspaceID("ws-status-page")
 
     // MARK: Debug Settings
 
-    @Test func debugSettingsListsTheSideNextToTheRowBadgeAndTodaysLookStays() {
+    @Test func debugSettingsListsTheSideNextToTheRowBadgeAndTheStatusIconIsTheDefault() {
         let keys = SidebarTunables.all.map(\.key)
         #expect(keys.contains(SidebarStatusIconSide.tunable.key))
         #expect(SidebarStatusIconSide.tunable.defaultValue == .left)
-        #expect(SidebarRowBadgeStyle.allCases.contains(.status))
-        #expect(SidebarRowBadgeStyle.tunable.defaultValue == .corner)
+        #expect(SidebarRowBadgeStyle.tunable.defaultValue == .status)
+    }
+
+    @Test func aDefaultAgentChatRowShowsNoChatIconAndItsStatusOnTheLeft() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarRowBadgeStyle.tunable.key, nil)
+        TunableStore.shared.set(SidebarStatusIconSide.tunable.key, nil)
+        SidebarTunablesWatch.shared.changed()
+        let row = try Self.row(Self.sidebar(), Self.chat)
+        #expect(row.icon.isHidden, "no chat icon")
+        #expect(row.statusSide == .left)
+        #expect(row.activity.frame.maxX <= row.title.frame.minX + WorkspaceRowView.labelInset)
+    }
+
+    @Test(arguments: [SidebarStatusIconSide.left, .right])
+    func aBrowserRowKeepsABrowserIconOnTheLeft(_ side: SidebarStatusIconSide) throws {
+        try Self.withStatusLook(side) {
+            let row = try Self.row(Self.sidebar(), Self.page)
+            #expect(!row.icon.isHidden, "a browser row shows a browser icon")
+            #expect(row.icon.frame.maxX <= row.title.frame.minX + WorkspaceRowView.labelInset)
+            if side == .left {
+                #expect(row.activity.frame.maxX <= row.icon.frame.minX, "the status icon sits before the browser icon")
+            }
+        }
     }
 
     @Test(arguments: [SidebarStatusIconSide.left, .right])
@@ -27,7 +54,7 @@ import Testing
         try Self.withStatusLook(side) {
             #expect(StatusIndicatorConfig.current.statusSide == side)
         }
-        #expect(StatusIndicatorConfig.current.statusSide == nil, "the corner badge keeps tabs on the corner")
+        #expect(StatusIndicatorConfig.current.statusSide == .left, "by default tabs draw the status icon on the left, as rows do")
     }
 
     // MARK: Sidebar rows
@@ -108,13 +135,16 @@ import Testing
         try body()
     }
 
-    /// A failing row with unread items, a row with unread done work, and a quiet row.
+    /// A failing row with unread items, a row with unread done work, a quiet row, a working agent
+    /// chat and a browser page without a favicon yet.
     private static func sidebar() -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let rows = [
             CmuxNextSidebar.SidebarWorkspace(id: busy, title: "api", kind: .terminal, unread: .count(2), activity: .error),
             CmuxNextSidebar.SidebarWorkspace(id: done, title: "web", kind: .terminal, unread: .count(1)),
             CmuxNextSidebar.SidebarWorkspace(id: WorkspaceID("ws-status-quiet"), title: "docs", kind: .terminal),
+            CmuxNextSidebar.SidebarWorkspace(id: chat, title: "fix the build", kind: .harness, activity: .working(progress: nil)),
+            CmuxNextSidebar.SidebarWorkspace(id: page, title: "docs.cmux.com", kind: .browser),
         ]
         let model = SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: rows.map { .workspace($0) })])
         let sidebar = SidebarView(model: model, design: DesignSettings())
