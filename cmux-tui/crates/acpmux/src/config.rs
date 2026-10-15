@@ -875,6 +875,9 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
     }
     cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
 }
 
 /// The cmux terminal launch credential (plans/cmux-next/identity.md
@@ -883,6 +886,14 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
 /// Both scrubs remove it from every child they prepare; an agent gets one
 /// minted for its own session instead (`launch_credential.rs`).
 pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
+
+/// A Chief host's credential and participant (optchat-chief: the token file
+/// that binds as that Chief, `agent_mux` for the default Chief). The host
+/// that starts a Chief home's acpmux is one Chief of many; the daemon serves
+/// every Chief of the home and the person, so no child it starts carries
+/// the starter's credential, not even through a preset (hq-6d 2026-10-14).
+/// Both scrubs remove them from every child they prepare.
+pub const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
 
 /// Whether `key` is one a Claude Code session plants for its children.
 pub(crate) fn is_nested_claude_key(key: &str) -> bool {
@@ -918,6 +929,9 @@ pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, fami
     }
     cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
 }
 
 mod launchers;

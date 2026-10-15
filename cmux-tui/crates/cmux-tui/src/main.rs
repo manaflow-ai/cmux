@@ -32,6 +32,8 @@ mod codex_wrapper;
 mod config;
 mod daemon_build;
 mod headless;
+#[cfg(unix)]
+mod host_orphan_policy;
 mod local_actor;
 mod page_listener;
 mod private_mode;
@@ -2130,6 +2132,9 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
+    // Windows hosts get no orphan grace (no app bundles there to classify).
+    #[cfg(unix)]
+    host_orphan_policy::install();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]

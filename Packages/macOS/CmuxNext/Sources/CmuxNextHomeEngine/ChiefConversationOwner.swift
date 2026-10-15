@@ -25,6 +25,9 @@ public final class ChiefConversationOwner {
     /// The live connection, nil while connecting or disconnected.
     public private(set) var connection: DaemonConnection?
     public private(set) var identity: DaemonIdentity?
+    /// NIGHTLY's one-time backup of its shared home (`ChiefAdoption`), taken before the owner
+    /// starts; nil until it ran or when it failed (the old Chief import waits for a later launch).
+    public private(set) var adoption: ChiefAdoption.Outcome?
     /// Why the owner is not connected, for `debug.home`.
     public private(set) var lastError: String?
     /// Runs once on the first connection, before the connection is
@@ -89,9 +92,15 @@ public final class ChiefConversationOwner {
         let provider = launcher.endpointProvider
         let wake = wake
         let logger = logger
+        let home = home
+        let build = bundle.bundleIdentifier ?? ChiefHome.nightlyBundleID
         // task-owner: lives as long as the app; one connection, reconnecting by itself
         runTask = Task { [weak self] in
             weak let weakSelf = self
+            // NIGHTLY's backup before this app starts the owner (cx-is1kf.7); a running owner's
+            // databases are copied with SQLite's online backup.
+            let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
+            weakSelf?.adoption = adoption
             let connected = await DaemonStartup.shared.connect(wake: wake) {
                 DaemonConnection(configuration: configuration, endpointProvider: provider)
             } onFailure: { error in
@@ -103,13 +112,31 @@ public final class ChiefConversationOwner {
                 await connection.close()
                 return
             }
+            // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while
+            // idle; a busy one (a Chief turn, an open `cmux chief` chat, another app or page) on a later owner event.
+            let restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
+                                                         identity: identity, logger: logger)
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
+            // The waiting restart probes off this loop, so Home's events never wait for it; the newest
+            // busy-ending event is enough (each one probes the owner afresh).
+            let restartFeed = restart.map { restart in
+                let (events, feed) = AsyncStream<DaemonEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                // task-owner: this run task; ends when the feed finishes below or the restart is decided
+                Task {
+                    for await event in events {
+                        if await restart.note(event) != .waiting { break }
+                    }
+                }
+                return feed
+            }
             do {
                 for try await envelope in connection.events {
+                    if IdleOwnerRestart.mayEndBusy(envelope.event) { restartFeed?.yield(envelope.event) }
                     self.handle(envelope.event, connection: connection)
                 }
             } catch {}
+            restartFeed?.finish()
             self.connection = nil
         }
     }
