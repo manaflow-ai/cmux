@@ -391,6 +391,53 @@ Tests: CnxKit `WorkspaceTabsSourceTests` (`agentChatsAreOneModelAgnosticEntry`,
 `renameDuplicateAndMoveTabs`), `AgentCatalogTests`, `WorkspaceFolderTests`,
 `TabNoticeTests`; hostd `policy::tests` (unchanged allowlist, `mirrors_the_swift_allowlist`).
 
+## Workspace pins, order and Clear All Notifications (`feat-cnx-ios-parity2`)
+
+Parity round 2 added the Mac's workspace pin, color, order, bulk close, read
+marks and Clear All Notifications to the phone. Color, the legacy pin flag,
+read marks and closing use commands that were already allowed
+(`set-workspace-metadata {color | pinned | marked_unread}`,
+`ack-tab-notifications`, `close-workspace`, `move-workspace`). Four entries are
+new, in both `policy.rs` and `DaemonLanePolicy.swift` (deny by default; the
+mirror test checks the commands, the resource operations and their params):
+
+| New entry | What the phone sends | Why |
+| --- | --- | --- |
+| `list-personal` (command, read) | `{"cmd":"list-personal"}` | The person's own sidebar order, so the phone lists workspaces in the Mac's order. |
+| `set-personal-workspace` (command) | `{session_id, workspace_key, index}` only | Move Workspace Up / Down on a Mac with personal order (the Mac's `movePersonalWorkspace`). |
+| `notification.clear` (resource op) | `params {machine: current, session: current}`, an idempotency key | Clear All Notifications (the Mac's `clearAllNotifications`). |
+| `sidebar_layout.get` (resource op, read) | `params {machine: current, session: current}` | Which workspaces the person pinned (tiles in the Mac's pinned section). |
+| `sidebar_layout.update` (resource op) | `params.op = {"kind":"item.remove","id":"itm_<16 base32>"}`, an idempotency key | Unpin Workspace: removes the pinned tile, as the Mac's `unpinOp`. |
+
+A `cmux.protocol/2` line was refused outright before (no `cmd`). Now hostd
+checks it member by member and sends on the object it checked, serialized
+again (`Verdict::Rewrite`), so a duplicate key cannot mean one thing to the
+filter and another to the daemon. Envelope members other than `protocol`,
+`type`, `id`, `operation`, `params` and `idempotency_key` are refused, so a
+phone never sends an `origin` claim or a launch `credential`. A refusal is a
+v2 failure response (`origin.forbidden`, reason `phone_policy`).
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. None of the five carries a program, a path, a URL, an environment or text that is run. `set-personal-workspace` refuses every field but the three above (never `group`, `browser_profile_id`, `theme`, or `remote_localhost`, which would open the Mac's loopback to a remote workspace's browser). |
+| Mutates or destroys objects the session does not own? | Only the person's own state. Personal order and the sidebar layout are the signed-in person's own (`profiles-v1`, `sidebar-layout-v1`, home session). `notification.clear` takes no `terminal_id` and only `machine`/`session` = `current`, so it clears this session's ledger exactly as the Mac's Clear All Notifications does; it deletes no terminal, tab or file. `sidebar_layout.update` is limited to removing an item whose id the Mac app minted (`itm_` + 16 characters of `a-z2-7`), so the built-in items (`itm_home`, `itm_account`) and sections can never be removed, and no item, section or reset can be added. A removed pin is the same as Unpin on the Mac and can be pinned again. |
+| Reads local state the remote should not see? | `list-personal` and `sidebar_layout.get` return the person's own sidebar organization (order, groups, pins, room names, per-workspace themes). The phone already reads every workspace, group and tab name through `list-workspaces` and `list-workspace-groups`; no secret, path outside the workspaces, or credential is in them. |
+| Origin | The daemon gives the phone's lane origin `agent` (it cannot prove the install key). None of these operations is user-only (`USER_ONLY_OPERATIONS`), and a phone's line can carry no origin claim. |
+
+- **Rule 6 (tests):** hostd `policy::tests::allows_the_workspace_resource_ops`,
+  `refuses_other_resource_ops_and_params` (other operations, another
+  machine or session, `terminal_id`, no idempotency key, a reset, a built-in
+  item, an extra op member, an add, an origin claim, a credential,
+  protocol/1), `personal_order_is_a_place_only` (allowed with an owned
+  workspace; `remote_localhost`, `group`, `theme`, browser profile, a
+  negative index, a missing session refused), `mirrors_the_swift_allowlist`;
+  Swift `DaemonLanePolicyResourceTests`.
+- **Pin from the phone** sends the legacy flag (`set-workspace-metadata
+  {pinned: true}`), already allowed. A Mac whose sidebar has pinned tiles
+  turns a flagged workspace into its tile and clears the flag
+  (`SidebarLayoutService.migrateLegacyPins`), so the phone never adds layout
+  items itself.
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
