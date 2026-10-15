@@ -103,6 +103,10 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+    # is_ui tells the publish job a UI tour ran, so a capture that died before
+    # writing capture-receipt.json is reported, not shown as "no media".
+    outputs:
+      is_ui: ${{ steps.scope.outputs.is_ui }}
     env:
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
@@ -371,6 +375,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ROUTE_REASON: ${{ needs.route.outputs.reason }}
           TOUR_RESULT: ${{ needs.tour.result }}
+          TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
         run: |
           set -euo pipefail
           note=""
@@ -400,6 +405,10 @@ jobs:
           PY
             )"
             note="$capture_note"
+          elif [ "$TOUR_IS_UI" = true ] && [ "$TOUR_RESULT" = success ]; then
+            # Capture is continue-on-error, so the tour job stays green when it
+            # exits before writing a receipt.
+            note="The capture step failed before writing a receipt; see the run log."
           fi
           case "$TOUR_RESULT" in
             skipped) note="The tour did not run: $ROUTE_REASON. ${note}" ;;

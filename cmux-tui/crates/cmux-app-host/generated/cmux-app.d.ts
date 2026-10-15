@@ -542,7 +542,7 @@ interface CmuxGlobal {
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     tab: {
       /** `browser.tab.emulate` (mutation, scope `browser:write`) */
-      emulate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; device?: string; custom?: Cmux.JsonValue; orientation?: "vertical" | "horizontal" | "vertical-spanned" | "horizontal-spanned" | "portrait" | "landscape" | "unfolded-portrait" | "unfolded-landscape"; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>> & {
+      emulate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; device?: string; custom?: Cmux.JsonValue; orientation?: "vertical" | "horizontal" | "vertical-spanned" | "horizontal-spanned" | "portrait" | "landscape" | "unfolded-portrait" | "unfolded-landscape"; fit?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>> & {
         /** `browser.tab.emulate.clear` (mutation, scope `browser:write`) */
         clear: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
       }
