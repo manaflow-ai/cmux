@@ -440,7 +440,10 @@ fn surface_event_scope_filters_before_remote_cache_invalidation() {
 
     session.handle_line(json!({"event": "surface-exited", "surface": 7}));
     assert!(session.tree_is_stale());
-    assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::SurfaceExited(7))));
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)),
+        Ok(MuxEvent::SurfaceExited(7, _))
+    ));
 }
 
 #[test]
@@ -462,7 +465,10 @@ fn surface_event_scope_retains_events_until_the_first_local_receiver_starts() {
     session.handle_line(json!({"event": "surface-exited", "surface": 7}));
     let events = session.subscribe();
 
-    assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::SurfaceExited(7))));
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)),
+        Ok(MuxEvent::SurfaceExited(7, _))
+    ));
 }
 
 #[test]
