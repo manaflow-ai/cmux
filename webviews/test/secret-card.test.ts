@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("secret-card.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -32,6 +33,7 @@ await requireBrowserLane("secret-card.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the gallery stage once before the test pages. The first load can trigger Vite's
     // dependency optimizer and reload its context while the real fixture is compiling; doing it

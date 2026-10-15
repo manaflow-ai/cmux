@@ -36,6 +36,8 @@ pub mod harness_config;
 pub mod harness_health;
 pub mod harness_limits;
 pub mod hub;
+#[cfg(windows)]
+mod job;
 pub mod launch_policy;
 pub mod live_models;
 pub mod local_stream;
@@ -51,6 +53,7 @@ pub mod probe_cleanup;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod protected_folders;
+pub mod protocol;
 pub mod question_answer;
 pub mod registry;
 mod router_socket;
