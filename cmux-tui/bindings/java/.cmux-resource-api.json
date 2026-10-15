@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "6067497d3ba2844a13049c7797bcfd4a8e00aa95f055ebf1dc41a39c54bd05dd",
+  "catalog_sha256": "fdeaeedb7920d5670fc12117a30de0018b7ce5fd330327fd7e1517da2af75341",
   "operations": {
     "agent.list": {
       "class": "read"
