@@ -128,6 +128,10 @@ extension TerminalController {
     /// engine applies them over DevTools, so the app keeps the state.
     @MainActor private static var v2EngineEmulationOverrides: [UUID: BrowserEmulationOverrides] = [:]
 
+    /// The emulation document-start script registered on each engine
+    /// surface's page, replaced on every change.
+    @MainActor private static var v2EngineEmulationScripts: [UUID: (page: ObjectIdentifier, identifier: String)] = [:]
+
     /// `browser.geolocation.set` / `browser.offline.set` on a Chromium panel:
     /// the same contract and reply as WebKit's, applied with DevTools
     /// geolocation and network-condition overrides.
@@ -143,8 +147,13 @@ extension TerminalController {
         let outcome: Result<BrowserEmulationOverrides, any Error>? = v2AwaitEnginePage(timeout: 10) {
             var overrides = Self.v2EngineEmulationOverrides[surfaceId] ?? BrowserEmulationOverrides()
             change(&overrides)
+            let pageID = ObjectIdentifier(page)
+            // A script registered on a page the surface no longer shows is gone with it.
+            let previous = Self.v2EngineEmulationScripts[surfaceId].flatMap { $0.page == pageID ? $0.identifier : nil }
             do {
-                try await BrowserPageAutomation(page: page).applyEmulation(overrides)
+                let script = try await BrowserPageAutomation(page: page)
+                    .applyEmulation(overrides, replacingDocumentScript: previous)
+                Self.v2EngineEmulationScripts[surfaceId] = script.map { (page: pageID, identifier: $0) }
                 Self.v2EngineEmulationOverrides[surfaceId] = overrides.isDefault ? nil : overrides
                 return .success(overrides)
             } catch {
