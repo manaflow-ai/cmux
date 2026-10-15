@@ -7,8 +7,8 @@ import CmuxNextWakeups
 /// launch with this view, so the app is never windowless while the daemon
 /// is slow or unreachable. While connecting it is the bare glass at first;
 /// the cmux mark resolves in after `MotionTunables.launchMarkDelay` and
-/// "Connecting to cmux-tui" follows after `launchTextDelay`, so a fast
-/// launch replaces it before either shows. Once the startup deadline
+/// "Connecting to cmux-tui" follows after `launchTextDelay` only while not yet
+/// connected, so a fast launch replaces it before either shows. Once the startup deadline
 /// passes, it shows the failure at once, in plain words, with the raw error
 /// behind Copy Details for a bug report.
 final class DaemonConnectingView: NSView {
@@ -93,7 +93,7 @@ final class DaemonConnectingView: NSView {
     /// While connecting in a window: the mark, then the status line, each
     /// after its delay from when this view entered the window.
     private func staggerIfConnecting() {
-        guard window != nil, !state.isUnavailable else { return }
+        guard window != nil, state == .connecting else { return }
         if !mark.isRevealed {
             markTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchMarkDelay.value)) { @MainActor [weak self] in
                 self?.mark.reveal()
@@ -103,6 +103,7 @@ final class DaemonConnectingView: NSView {
             statusTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { @MainActor [weak self] in
                 guard let self else { return }
                 statusDue = true
+                DebugTimings.markLaunch("connecting_status_shown")
                 Motion.animate(.fadeIn, in: self.titleLabel) { self.titleLabel.animator().alphaValue = 1 }
             }
         }
@@ -117,6 +118,8 @@ final class DaemonConnectingView: NSView {
         self.state = state
         switch state {
         case .connecting, .connected:
+            // Connected: what is left is the first workspace (cx-b4sjc), not cmux-tui, so no status line (cx-r650e).
+            if state == .connected { statusTimer.cancel(); statusDue = false }
             titleLabel.stringValue = Strings.daemonConnecting
             titleLabel.alphaValue = statusDue ? 1 : 0
             detailLabel.stringValue = ""
