@@ -1,4 +1,6 @@
 import CmuxBrowser
+import CmuxCEF
+import CmuxCEFBrowser
 import Foundation
 
 /// The app's browser engines: which engines this process can use, and which
@@ -52,6 +54,14 @@ final class BrowserEngineRuntime {
             setting: BrowserEngineKind.configured(defaults: defaults),
             availability: { [registry] kind in registry.availability(for: kind) }
         )
+    }
+
+    /// Registers the engines this build carries. The Chromium provider is
+    /// always registered; it reports `notBundled` when the app has no
+    /// Chromium runtime. Called once at launch.
+    func registerBundledEngines() {
+        guard registry.provider(for: .chromium) == nil else { return }
+        registry.register(CEFBrowserEngineProvider(runtime: .shared))
     }
 
     /// Whether an engine can create pages now.

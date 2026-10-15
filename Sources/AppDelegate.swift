@@ -1683,6 +1683,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
         BrowserAvailabilityMonitor.shared.activate()
+        BrowserEngineRuntime.shared.registerBundledEngines()
 #if DEBUG
         ChromiumDebugWindowController.shared.openFromEnvironmentIfRequested()
 #endif

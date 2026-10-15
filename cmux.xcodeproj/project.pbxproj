@@ -1235,6 +1235,7 @@
 		CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
 		CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */ = {isa = PBXBuildFile; productRef = CA53A005CA53A005CA53A005 /* CmuxCanvasUI */; };
 		CEFE3B000000000000000003 /* CmuxCEF in Frameworks */ = {isa = PBXBuildFile; productRef = CEFE3B000000000000000005 /* CmuxCEF */; };
+		CEFE3B000000000000000013 /* CmuxCEFBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = CEFE3B000000000000000015 /* CmuxCEFBrowser */; };
 		303E131D2D8A8F96C08F3825 /* CMUXCLI+AdmittedRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D3513BB67E65A937E22D56 /* CMUXCLI+AdmittedRestore.swift */; };
 		0DFC9ACEAC8FE623B33CEC32 /* CMUXCLI+AgentHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356578A4696939A1CB24F66D /* CMUXCLI+AgentHibernation.swift */; };
 		A12123000000000000000005 /* CMUXCLI+AgentHibernationSessionEnd.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000006 /* CMUXCLI+AgentHibernationSessionEnd.swift */; };
@@ -9225,6 +9226,7 @@
 				CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */,
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
 				CEFE3B000000000000000003 /* CmuxCEF in Frameworks */,
+				CEFE3B000000000000000013 /* CmuxCEFBrowser in Frameworks */,
 				C10DC1000000000000000004 /* CmuxCloud in Frameworks */,
 				D0F2A0000000000000000003 /* CmuxCloudBannerCore in Frameworks */,
 				D0F3A0000000000000000003 /* CmuxCloudImagePaste in Frameworks */,
@@ -14091,6 +14093,7 @@
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				CA53A005CA53A005CA53A005 /* CmuxCanvasUI */,
 				CEFE3B000000000000000005 /* CmuxCEF */,
+				CEFE3B000000000000000015 /* CmuxCEFBrowser */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				D96973000000000000000001 /* CmuxSudoBroker */,
@@ -20203,6 +20206,10 @@
 		CEFE3B000000000000000005 /* CmuxCEF */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxCEF;
+		};
+		CEFE3B000000000000000015 /* CmuxCEFBrowser */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxCEFBrowser;
 		};
 		C5A1FED000000000000000C3 /* CmuxSwiftRender */ = {
 			isa = XCSwiftPackageProductDependency;
