@@ -538,6 +538,53 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    // MARK: Saved tab groups (Reopen / Delete Saved Tab Group…)
+
+    /// The Mac's saved groups (`list-saved-tab-groups`), each marked open when one of its live
+    /// groups (`list-tab-groups`) links to it, as the Mac's `openGroup`.
+    public func savedTabGroups(on macID: String) async throws -> [SavedTabGroup] {
+        guard canManage(on: macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        do {
+            let saved = try WorkspaceSync.check(await client.request("list-saved-tab-groups"))
+            let open = try WorkspaceSync.check(await client.request("list-tab-groups"))
+            return Self.savedTabGroups(saved: saved, open: open)
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    /// Parses `list-saved-tab-groups` and `list-tab-groups` replies (`{"ok":true,"data":{...}}`
+    /// or the bare data object).
+    nonisolated static func savedTabGroups(saved: [String: Any], open: [String: Any]) -> [SavedTabGroup] {
+        func data(_ reply: [String: Any]) -> [String: Any] { reply["data"] as? [String: Any] ?? reply }
+        let linked = Set((data(open)["groups"] as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["saved_id"] as? String })
+        return (data(saved)["saved_groups"] as? [Any] ?? []).compactMap { value -> SavedTabGroup? in
+            guard let record = value as? [String: Any], let id = record["id"] as? String, !id.isEmpty else { return nil }
+            let kinds = (record["members"] as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["kind"] as? String }
+            return SavedTabGroup(id: id, name: record["name"] as? String ?? "", color: record["color"] as? String ?? "grey",
+                                 terminals: kinds.filter { $0 == "terminal" }.count,
+                                 browsers: kinds.filter { $0 == "browser" }.count, isOpen: linked.contains(id))
+        }
+    }
+
+    /// The Mac's `tabGroup.reopenSaved`: the saved id and the pane only. The Mac reopens each
+    /// terminal from its own record (a new login shell in the saved folder, or the same
+    /// terminal while it still runs); the phone names no program, folder or environment.
+    public func reopenSavedTabGroup(_ saved: SavedTabGroup, besides tab: WorkspaceTab, in workspace: Workspace) async throws {
+        let (client, _) = try target(tab, in: workspace)
+        guard !saved.isOpen else { throw WorkspaceCreationError(SavedTabGroupAction.alreadyOpen, isForPerson: true) }
+        guard let pane = sync.tree?.tabPlaces[tab.id]?.pane ?? sync.tree?.panes[workspace.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        try await run(client, "reopen-saved-tab-group", ["saved": saved.id, "pane": pane])
+    }
+
+    /// The Mac's `tabGroup.deleteSaved`: the record goes; an open group stays, unpinned.
+    public func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws {
+        guard canManage(on: macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        try await run(client, "delete-saved-tab-group", ["saved": saved.id])
+    }
+
     /// The Mac's refusal (`RefusalStrings.pinnedCannotGroup`), as a sentence.
     nonisolated static let pinnedCannotGroup = "Pinned tabs cannot be grouped."
 

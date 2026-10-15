@@ -253,6 +253,50 @@ import SwiftUI
         #expect(source.toastText?.hasPrefix("Couldn't restart") == true)
     }
 
+    /// Reopen / Delete Saved Tab Group… (the Mac's palette rows, in the page menu): the
+    /// chooser lists the Mac's saved groups; an open one is not reopened again.
+    @Test func savedTabGroupsFromThePageMenu() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (_, source) = make(backend: backend)
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        let titles = source.pageMenu(for: zsh).flatMap { $0 }.map(\.title)
+        #expect(titles.contains("Reopen Saved Tab Group…") && titles.contains("Delete Saved Tab Group…"))
+        #expect(!source.cardMenu(for: zsh).flatMap { $0 }.map(\.title).contains("Reopen Saved Tab Group…"))
+
+        // None saved: one line, no chooser.
+        await source.openSavedGroups(.reopen, from: "t-zsh")
+        #expect(source.savedGroupsChooser == nil)
+        #expect(source.toastText?.contains("No saved tab groups") == true)
+
+        let release = SavedTabGroup(id: "saved_a", name: "Release", color: "orange", terminals: 2)
+        let open = SavedTabGroup(id: "saved_b", name: "Docs", color: "green", browsers: 1, isOpen: true)
+        backend.savedGroups = [release, open]
+        await source.openSavedGroups(.reopen, from: "t-zsh")
+        #expect(source.savedGroupsChooser?.groups == [release, open])
+        #expect(source.savedGroupsChooser?.tab.id == "t-zsh")
+
+        await source.reopenSaved(release, besides: "t-zsh")
+        #expect(source.savedGroupsChooser == nil)
+        #expect(backend.reopenedGroups.map { $0.saved } == ["saved_a"])
+        #expect(backend.reopenedGroups.map { $0.besides } == ["t-zsh"])
+        #expect(source.toastText == "Reopened Release.")
+
+        // Already open: the Mac's refusal, and nothing sent.
+        await source.reopenSaved(open, besides: "t-zsh")
+        #expect(backend.reopenedGroups.count == 1)
+        #expect(source.toastText == SavedTabGroupAction.alreadyOpen)
+
+        await source.openSavedGroups(.delete, from: "t-zsh")
+        #expect(source.savedGroupsChooser?.action == .delete)
+        await source.deleteSaved(release)
+        #expect(backend.savedGroups.map(\.id) == ["saved_b"])
+        #expect(source.toastText == "Deleted Release.")
+
+        backend.failNext = "saved_tab_group saved_x not found"
+        await source.deleteSaved(SavedTabGroup(id: "saved_x"))
+        #expect(source.toastText == SavedTabGroupAction.gone)
+    }
+
     @Test func tabGroupsFromTheTabMenu() async throws {
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)

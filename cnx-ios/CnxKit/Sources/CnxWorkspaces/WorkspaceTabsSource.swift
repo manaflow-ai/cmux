@@ -770,6 +770,83 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if self.workspace?.tabs.isEmpty ?? true { exit() }
     }
 
+    // MARK: Saved tab groups (Reopen / Delete Saved Tab Group…)
+
+    /// Reopen Saved Tab Group… or Delete Saved Tab Group…: the chooser that is open, with the
+    /// Mac's saved groups and the tab whose pane a reopened group goes to.
+    public struct SavedGroupsChooser: Identifiable {
+        public let action: SavedTabGroupAction
+        public let tab: WorkspaceTab
+        public var groups: [SavedTabGroup]
+        public var id: String { action.rawValue }
+    }
+
+    public var savedGroupsChooser: SavedGroupsChooser?
+
+    /// Reads the Mac's saved groups and opens the chooser (a line instead when it has none).
+    public func openSavedGroups(_ action: SavedTabGroupAction, from id: TabsKitTab.ID) async {
+        guard let workspace, let creator, let tab = workspaceTab(id) else { return }
+        do {
+            let groups = try await creator.backend.savedTabGroups(on: workspace.macID)
+            if groups.isEmpty { return show("No saved tab groups on \(macName). Pin Group saves one.") }
+            savedGroupsChooser = SavedGroupsChooser(action: action, tab: tab, groups: groups)
+        } catch {
+            savedGroupFailed(error, action)
+        }
+    }
+
+    /// Reopen Saved Tab Group…: the Mac reopens it in this tab's pane; its tabs arrive with
+    /// the Mac's list.
+    public func reopenSaved(_ saved: SavedTabGroup, besides id: TabsKitTab.ID) async {
+        savedGroupsChooser = nil
+        guard let workspace, let creator, let tab = workspaceTab(id) else { return }
+        if saved.isOpen { return show(SavedTabGroupAction.alreadyOpen) }
+        do {
+            try await creator.backend.reopenSavedTabGroup(saved, besides: tab, in: workspace)
+            show("Reopened \(saved.displayName).")
+            CnxTheme.standard.haptics.success()
+        } catch {
+            savedGroupFailed(error, .reopen)
+        }
+    }
+
+    /// Delete Saved Tab Group…: the record goes on the Mac; an open group stays, unpinned (the
+    /// Mac's list says so).
+    public func deleteSaved(_ saved: SavedTabGroup) async {
+        savedGroupsChooser = nil
+        guard let workspace, let creator else { return }
+        do {
+            try await creator.backend.deleteSavedTabGroup(saved, on: workspace.macID)
+            show("Deleted \(saved.displayName).")
+        } catch {
+            savedGroupFailed(error, .delete)
+        }
+    }
+
+    private func savedGroupFailed(_ error: any Error, _ action: SavedTabGroupAction) {
+        if let error = error as? WorkspaceCreationError, error.isForPerson {
+            show(named(error.message))
+        } else if TabNotice.cause(of: Self.message(error)) == .gone {
+            show(SavedTabGroupAction.gone)
+        } else {
+            show(TabNotice(action: .group(action.title), macName: macName, reason: Self.message(error)))
+        }
+        CnxTheme.standard.haptics.error()
+    }
+
+    /// The Mac's palette rows for saved groups, in the page menu (the Mac targets the pane).
+    private func savedGroupItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
+        guard canEditTabs else { return [] }
+        return [
+            TabsKitMenuItem(title: SavedTabGroupAction.reopen.title, systemImage: "bookmark.fill") { [weak self] in
+                Task { await self?.openSavedGroups(.reopen, from: tab.id) }
+            },
+            TabsKitMenuItem(title: SavedTabGroupAction.delete.title, systemImage: "trash") { [weak self] in
+                Task { await self?.openSavedGroups(.delete, from: tab.id) }
+            },
+        ]
+    }
+
     /// A refusal: the phone's or the Mac's own sentence when it is written for the person,
     /// else one short line ("Couldn't fork Claude.").
     private func show(_ error: any Error, doing verb: String, _ title: String) {
@@ -848,7 +925,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
-        let edit = editItems(tab) + groupItems(tab) + moveItems(tab)
+        let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
