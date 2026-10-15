@@ -18,7 +18,12 @@ import sys
 
 BASE = os.path.expanduser("~/cnx-ios-e2e/parity")
 sys.path.insert(0, os.path.join(BASE, "e2e"))
+import mac as rig_mac  # noqa: E402
 from mac import Mac  # noqa: E402
+
+# The rig reads the DEBUG dev credential from CmuxAuthRuntime's source; this mini
+# has only the rig modules, so the driver sends that one file next to them.
+rig_mac.REPO = os.path.join(BASE, "repo")
 
 AGENT_ENV = {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:31415",
