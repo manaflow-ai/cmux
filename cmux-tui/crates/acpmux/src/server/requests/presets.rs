@@ -3,13 +3,18 @@
 
 use super::*;
 
+/// Read or change presets: {name?, set?: {harness, model, effort, policy, env, args, mode}, clear?: bool,
+/// approveMode?: bool} (`approveMode: true` is the person's own, `hub/person.rs` (b)).
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     params: &Value,
 ) -> Result<Value, RpcError> {
     let name = str_param(params, "name").map(str::to_owned);
-    let set = params.get("set").filter(|v| v.is_object());
+    let approve = params.get("approveMode").and_then(Value::as_bool);
+    let no_fields = json!({});
+    let set =
+        params.get("set").filter(|v| v.is_object()).or(approve.is_some().then_some(&no_fields));
     let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
     if set.is_some() || clear {
         let name = name
@@ -61,6 +66,8 @@ pub(super) async fn handle(
                 args: Vec::new(),
                 system_prompt_sha256: None,
                 description: None,
+                mode: None,
+                mode_approval: None,
             });
             p.harness = harness;
             for (k, v) in obj {
@@ -75,6 +82,13 @@ pub(super) async fn handle(
                         p.policy = Some(
                             pol.parse::<PermissionPolicy>().map_err(RpcError::invalid_params)?,
                         )
+                    }
+                    ("mode", Value::Null) => p.mode = None,
+                    ("mode", Value::String(m)) => p.mode = Some(m.clone()),
+                    ("mode", _) => {
+                        return Err(RpcError::invalid_params(
+                            "mode must be a mode id (a string) or null",
+                        ));
                     }
                     ("description", Value::Null) => p.description = None,
                     ("description", Value::String(d)) => p.description = Some(d.clone()),
@@ -110,7 +124,7 @@ pub(super) async fn handle(
                     }
                     (other, _) => {
                         return Err(RpcError::invalid_params(format!(
-                            "unknown preset key {other:?}; use harness, model, effort, policy, env, args, systemPrompt, description"
+                            "unknown preset key {other:?}; use harness, model, effort, policy, env, args, systemPrompt, description, mode"
                         )));
                     }
                 }
@@ -169,6 +183,8 @@ pub(super) async fn handle(
                 }
                 None => {}
             }
+            // The person's approval binds these contents (`hub/person.rs` (b)).
+            p.apply_mode_approval(approve).map_err(RpcError::invalid_params)?;
             cfg.presets.insert(name.clone(), p);
         }
         if let Err(e) = cfg.save() {
@@ -181,7 +197,7 @@ pub(super) async fn handle(
             Ok(x) => (Some(x), None),
             Err(e) => (None, Some(e)),
         };
-        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description})
+        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description, "mode": p.mode, "modeApproved": p.mode_approved()})
     };
     match name {
         Some(n) if !clear => cfg
