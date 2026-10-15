@@ -73,16 +73,110 @@ public struct FrameIntervalStats: Codable, Hashable, Sendable {
 import OSLog
 import QuartzCore
 
-/// G-04: an in-app CADisplayLink frame-interval recorder with signposts, for
-/// timing claims that do not depend on screen-recording timing (laptop load
-/// makes recordings unreliable). Builds compiled with DEBUG (Debug, and the
-/// Demo configuration with its DEBUG condition) turn it on with the
-/// `CNX_FRAMELOG=1` environment variable (`SIMCTL_CHILD_CNX_FRAMELOG=1`).
-/// Production compiles it but it is always off and costs nothing. Each `begin`/`end` pair is one window: the
+/// Whether frame recording is on for this process: DEBUG builds (Debug, and
+/// Demo with its DEBUG condition) with `CNX_FRAMELOG=1` in the environment
+/// (`SIMCTL_CHILD_CNX_FRAMELOG=1`) or the `-CnxFrameLog` launch argument.
+/// One switch for every recorder (the feed's windows, the terminal's frames).
+public enum FrameLogSwitch {
+    public static let isEnabled: Bool = {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CNX_FRAMELOG"] == "1" || CommandLine.arguments.contains("-CnxFrameLog")
+        #else
+        false
+        #endif
+    }()
+}
+
+/// The one display link every frame recorder reads (G-04): it runs only while
+/// someone listens, at up to 120 Hz, and hands each tick's actual and target
+/// timestamps to the listeners in subscription order.
+@MainActor
+public final class FrameClock {
+    public static let shared = FrameClock()
+
+    public struct Tick: Sendable {
+        /// The frame's actual timestamp (`CADisplayLink.timestamp`).
+        public var timestamp: CFTimeInterval
+        /// When the next frame is due (`targetTimestamp`).
+        public var targetTimestamp: CFTimeInterval
+        /// The display's nominal interval for this frame.
+        public var nominal: CFTimeInterval { targetTimestamp - timestamp }
+    }
+
+    public struct Token: Hashable, Sendable {
+        fileprivate let id: Int
+    }
+
+    private var link: CADisplayLink?
+    private var listeners: [(id: Int, tick: (Tick) -> Void)] = []
+    private var nextID = 0
+
+    public init() {}
+
+    public func subscribe(_ tick: @escaping (Tick) -> Void) -> Token {
+        nextID += 1
+        listeners.append((nextID, tick))
+        if link == nil {
+            let link = CADisplayLink(target: Proxy(self), selector: #selector(Proxy.tick(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
+        return Token(id: nextID)
+    }
+
+    public func unsubscribe(_ token: Token) {
+        listeners.removeAll { $0.id == token.id }
+        if listeners.isEmpty {
+            link?.invalidate()
+            link = nil
+        }
+    }
+
+    fileprivate func tick(_ link: CADisplayLink) {
+        let tick = Tick(timestamp: link.timestamp, targetTimestamp: link.targetTimestamp)
+        for listener in listeners { listener.tick(tick) }
+    }
+
+    /// Breaks the display link's retain of its target.
+    @MainActor
+    private final class Proxy: NSObject {
+        weak var owner: FrameClock?
+        init(_ owner: FrameClock) { self.owner = owner }
+        @objc func tick(_ link: CADisplayLink) { owner?.tick(link) }
+    }
+}
+
+/// Appends recorder output to a file in the app container (read back with
+/// `simctl get_app_container`), off the main thread.
+public enum FrameLogFile {
+    public static func append(_ data: Data, to url: URL) {
+        DispatchQueue.global(qos: .utility).async {
+            if let handle = try? FileHandle(forWritingTo: url) {
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+                try? handle.close()
+            } else {
+                try? data.write(to: url)
+            }
+        }
+    }
+
+    public static func url(in directory: FileManager.SearchPathDirectory, _ name: String) -> URL {
+        (FileManager.default.urls(for: directory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appending(path: name)
+    }
+}
+
+/// G-04: frame-interval windows with signposts, for timing claims that do
+/// not depend on screen-recording timing (laptop load makes recordings
+/// unreliable). On with `FrameLogSwitch`; production compiles it but it is
+/// always off and costs nothing. Each `begin`/`end` pair is one window: the
 /// summary goes to the `dev.cmux.cnx` `frames` log (`FRAMELOG <line>`) and, as
 /// JSON lines, to `Library/Caches/framelog.jsonl` in the app container.
 /// Each frame is also an `OSSignposter` event (`frame`, with its interval),
-/// and each window an interval (`window`), for Instruments.
+/// and each window an interval (`window`), for Instruments. The terminal's
+/// per-frame log (`TerminalFrameLog`) reads the same `FrameClock`.
 @MainActor
 public final class FrameIntervalLog {
     public static let shared = FrameIntervalLog()
@@ -91,7 +185,7 @@ public final class FrameIntervalLog {
     public let isEnabled: Bool
     private let log = Logger(subsystem: "dev.cmux.cnx", category: "frames")
     private let signposter = OSSignposter(subsystem: "dev.cmux.cnx", category: "frames")
-    private var link: CADisplayLink?
+    private var token: FrameClock.Token?
     private var label: String?
     private var lastTimestamp: CFTimeInterval?
     private var intervals: [Double] = []
@@ -101,11 +195,7 @@ public final class FrameIntervalLog {
     public var onSummary: ((FrameIntervalStats) -> Void)?
 
     public init(enabled: Bool? = nil) {
-        #if DEBUG
-        isEnabled = enabled ?? (ProcessInfo.processInfo.environment["CNX_FRAMELOG"] == "1")
-        #else
-        isEnabled = enabled ?? false
-        #endif
+        isEnabled = enabled ?? FrameLogSwitch.isEnabled
     }
 
     /// Starts a window named `label` (ends the current one first).
@@ -117,65 +207,40 @@ public final class FrameIntervalLog {
         intervals.reserveCapacity(4096)
         lastTimestamp = nil
         window = signposter.beginInterval("window", "\(label, privacy: .public)")
-        let link = CADisplayLink(target: Proxy(self), selector: #selector(Proxy.tick(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        self.link = link
+        token = FrameClock.shared.subscribe { [weak self] in self?.tick($0) }
     }
 
     /// Ends the window and returns its summary (nil when none was open).
     @discardableResult
     public func end() -> FrameIntervalStats? {
         guard isEnabled, let label else { return nil }
-        link?.invalidate()
-        link = nil
+        if let token { FrameClock.shared.unsubscribe(token) }
+        token = nil
         self.label = nil
         if let window { signposter.endInterval("window", window) }
         window = nil
         let stats = FrameIntervalStats(label: label, intervals: intervals, expected: expected)
         log.notice("FRAMELOG \(stats.line, privacy: .public)")
-        Self.append(stats)
+        if var data = try? JSONEncoder().encode(stats) {
+            data.append(0x0A)
+            FrameLogFile.append(data, to: Self.fileURL)
+        }
         onSummary?(stats)
         return stats
     }
 
-    fileprivate func tick(_ link: CADisplayLink) {
+    private func tick(_ tick: FrameClock.Tick) {
         // The nominal interval: what the display promised for this frame.
-        let nominal = link.targetTimestamp - link.timestamp
-        if nominal > 0.001 { expected = nominal }
+        if tick.nominal > 0.001 { expected = tick.nominal }
         if let lastTimestamp {
-            let interval = link.timestamp - lastTimestamp
+            let interval = tick.timestamp - lastTimestamp
             intervals.append(interval)
             signposter.emitEvent("frame", "\(interval * 1000, format: .fixed(precision: 2), privacy: .public)")
         }
-        lastTimestamp = link.timestamp
+        lastTimestamp = tick.timestamp
     }
 
     /// JSON lines next to the app's caches, read back with `simctl get_app_container`.
-    public static var fileURL: URL {
-        (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
-            .appending(path: "framelog.jsonl")
-    }
-
-    private static func append(_ stats: FrameIntervalStats) {
-        guard var data = try? JSONEncoder().encode(stats) else { return }
-        data.append(0x0A)
-        let url = fileURL
-        if let handle = try? FileHandle(forWritingTo: url) {
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-            try? handle.close()
-        } else {
-            try? data.write(to: url)
-        }
-    }
-
-    /// Breaks the display link's retain of its target.
-    @MainActor
-    private final class Proxy: NSObject {
-        weak var owner: FrameIntervalLog?
-        init(_ owner: FrameIntervalLog) { self.owner = owner }
-        @objc func tick(_ link: CADisplayLink) { owner?.tick(link) }
-    }
+    public static var fileURL: URL { FrameLogFile.url(in: .cachesDirectory, "framelog.jsonl") }
 }
 #endif
