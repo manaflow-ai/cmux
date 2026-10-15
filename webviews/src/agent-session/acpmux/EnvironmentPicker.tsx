@@ -142,12 +142,17 @@ export function EnvironmentPicker({
           aria-label={t("project.environment")}
           aria-haspopup="dialog"
           aria-expanded={open}
-          title={selected ? selected.folders.map((folder) => folder.path).join("\n") || selected.name : undefined}
+          title={
+            selected
+              ? selected.folders.map((folder) => folder.path).join("\n") || selected.name
+              : t("environment.choose")
+          }
           {...press}
         >
           <LocationFace
             icon={selected ? <EnvironmentGlyph kind={selected.kind} /> : <EnvironmentGlyph />}
-            value={selected ? selected.name : t("environment.choose")}
+            // Nothing picked: the glyph alone (its title names it), so Folder and Computer keep their room.
+            value={selected ? selected.name : ""}
             chevron
           />
         </button>

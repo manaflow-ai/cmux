@@ -186,7 +186,8 @@ test("Choose environment lists the saved environments grouped Local, SSH, Cloud 
   expect(calls.filter((call) => call.method === "environment.list")).toEqual([
     { method: "environment.list", params: {} },
   ]);
-  expect(environmentButton()?.textContent).toBe("Choose environment");
+  expect(environmentButton()?.textContent).toBe("");
+  expect(environmentButton()?.title).toBe("Choose environment");
   await openEnvironments();
   const rows = $$(".acpmux-env-row");
   expect(rows.map((row) => row.textContent?.split(" ·")[0])).toEqual(["Web", "Devbox API", "Sandbox"]);
@@ -269,6 +270,7 @@ test("No environment clears the pick and the strip shows the folder again", asyn
   expect($('.acpmux-composer-context button[aria-label="Folder"]')).toBeNull();
   await openEnvironments();
   await click(option("No environment"));
-  expect(environmentButton()?.textContent).toBe("Choose environment");
+  expect(environmentButton()?.textContent).toBe("");
+  expect(environmentButton()?.title).toBe("Choose environment");
   expect($('.acpmux-composer-context button[aria-label="Folder"]')).not.toBeNull();
 });

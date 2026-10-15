@@ -329,7 +329,7 @@ export function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode;
   return (
     <>
       {icon}
-      <span className="acpmux-location-label">{value}</span>
+      {value && <span className="acpmux-location-label">{value}</span>}
       {chevron && (
         <span className="ui-ghost-icon" aria-hidden="true">
           <ChevronIcon />
