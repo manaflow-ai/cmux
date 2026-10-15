@@ -6,11 +6,11 @@
 //! Claude Code's shells come from the translator's `background_task_update`
 //! (`claude_stdio/inbound.rs`): `running` when one goes to the background,
 //! then how it ended. Codex's background terminals come the same way from
-//! the bridge (`codex_app_server/background.rs`). Each change is logged as a mux `process_update`. A
-//! session's table is read back from its log the first time it is needed,
-//! and again when a daemon adopts a running host (`hosts.rs`); a harness that
-//! exited or was replaced took its processes with it, so those still running
-//! then are `lost`.
+//! the bridge (`codex_app_server/background.rs`). Each change is logged as
+//! a mux `process_update`. A session's table is read back from its log the
+//! first time it is needed, and again when a daemon adopts a running host
+//! (`hosts.rs`); a harness that exited or was replaced took its processes
+//! with it, so those still running then are `lost`.
 //!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
@@ -427,7 +427,7 @@ impl Hub {
     /// 64 KiB) of the process's output from byte `from` (default: its last
     /// `max`). `eof`: the process ended and this read reached the end of
     /// its output. A file Claude Code has not named or written yet reads
-    /// empty.
+    /// empty. A Codex process is refused: its output is not kept yet.
     pub async fn tail_process(
         &self,
         id: &str,
@@ -440,6 +440,9 @@ impl Hub {
             let table = self.process_table(&session);
             let p = table.processes.iter().find(|p| p.id == id);
             let p = p.ok_or_else(|| unknown_process(id))?;
+            if p.harness == "codex" {
+                return Err(RpcError::invalid_params("tail is Claude Code only for now"));
+            }
             (p.output_file.clone(), p.state == ProcessState::Running)
         };
         let max = max.unwrap_or(TAIL_DEFAULT).min(TAIL_MAX);
@@ -456,8 +459,9 @@ impl Hub {
     }
 
     /// `_acpmux/process/kill`: asks Claude Code to stop the process
-    /// (`stop_task`), or Codex (`thread/backgroundTerminals/terminate`); its end arrives as a `process_update`. One that already
-    /// ended is left alone. Never starts a harness: with none running, the
+    /// (`stop_task`), or Codex (`thread/backgroundTerminals/terminate`); its
+    /// end arrives as a `process_update`. One that already ended is left
+    /// alone. Never starts a harness: with none running, the
     /// process ended with it and is `lost`.
     pub async fn kill_process(&self, id: &str) -> Result<Value, RpcError> {
         let unknown = || unknown_process(id);

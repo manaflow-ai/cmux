@@ -307,3 +307,16 @@ async fn codex_an_interrupted_turn_lists_no_background_terminal() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Tail reads the output file Claude Code names; a Codex process has none
+/// yet, so its tail is refused rather than empty.
+#[tokio::test]
+async fn codex_tail_on_a_codex_process_is_refused() {
+    let (hub, mut c, root) = codex_hub().await;
+    let id = chat(&mut c, "bg-codex").await;
+    let tail = c.request("_acpmux/process/tail", json!({"processId": format!("{id}/1001")})).await;
+    let refused = tail.unwrap_err();
+    assert!(refused.contains("tail is Claude Code only for now"), "{refused}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
