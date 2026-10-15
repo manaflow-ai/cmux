@@ -69,10 +69,7 @@ extension TerminalController {
                 }
             }
             let promptName = panel.pageRecoveryPrompt.map(Self.debugPromptName)
-            let pidSelector = NSSelectorFromString("_webProcessIdentifier")
-            let pagePID = panel.webView.responds(to: pidSelector)
-                ? (panel.webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.intValue ?? 0
-                : 0
+            let pagePID = panel.debugPageProcessIdentifier
             return .ok([
                 "workspace_id": workspaceId.uuidString,
                 "surface_id": surfaceId.uuidString,

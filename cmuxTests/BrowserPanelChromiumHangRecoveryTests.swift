@@ -15,7 +15,7 @@ import XCTest
 @MainActor
 final class BrowserPanelChromiumHangRecoveryTests: XCTestCase {
     @MainActor
-    private final class ScriptablePage: BrowserPage {
+    private final class ScriptablePage: BrowserPage, BrowserPageMemoryReclaiming {
         let engineKind: BrowserEngineKind = .chromium
         let capabilities: BrowserEngineCapabilities = []
         let presentation: BrowserPagePresentation = .inView
@@ -58,6 +58,12 @@ final class BrowserPanelChromiumHangRecoveryTests: XCTestCase {
         func exportRestoreState() -> BrowserPageRestoreState? { nil }
         func close() {}
         func answerUnresponsive(terminate: Bool) { hangAnswers.append(terminate) }
+        /// The renderer pid the page reports (nil while not live).
+        var rendererPID: Int?
+        var contentProcessIdentifier: Int? { rendererPID }
+        var isContentReleased: Bool { false }
+        func releaseContent() -> Bool { false }
+        func restoreContent() {}
     }
 
     @MainActor
@@ -163,6 +169,13 @@ final class BrowserPanelChromiumHangRecoveryTests: XCTestCase {
         panel.noteEnginePageSafetyEvent(renderedEnd)
         XCTAssertEqual(panel.pageRecoveryPromptName, "crashed")
         XCTAssertEqual(page.reloads, 0, "Exit page does not reload by itself")
+    }
+
+    func testPageStatusReportsTheChromiumRendererPID() throws {
+        let (panel, page) = try makePanel()
+        XCTAssertEqual(panel.debugPageProcessIdentifier, 0, "no renderer while the page is not live")
+        page.rendererPID = 4242
+        XCTAssertEqual(panel.debugPageProcessIdentifier, 4242)
     }
 }
 
