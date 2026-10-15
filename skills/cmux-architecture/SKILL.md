@@ -21,7 +21,9 @@ The macOS app lives in `Packages/macOS/CmuxNext`, one module per feature; the `c
 
 **Lockfiles.** Do not gitignore cmux-owned `Package.resolved` files; SwiftPM resolution changes must be visible in PR diffs. Track the root Xcode lockfile and every cmux-owned package-local `Package.resolved` produced by standalone `swift package resolve` / `swift build` / `swift test`. A package-local lockfile is the source of truth for that package's standalone resolution and is not replaced by `cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. Vendored third-party directories may keep their upstream ignore policy. CI runs `python3 scripts/check-package-resolved-policy.py`.
 
-**Feature flags mean remote PostHog runtime flags.** Unless the user explicitly asks for a compile-time flag, local setting, or environment variable, implement a feature flag through `CmuxFeatureFlags` with a PostHog key, an explicit unavailable fallback, registry metadata, live update behavior, and focused tests. A local override may support dogfood but must not be the production control plane.
+**cmux NEXT: new looks and behaviors ship behind a Labs flag, default off.** Do not change a default for them; add a row to `schemas/settings/source/labs.json` and read it with `snapshot.lab(.name)` (Swift) or `useLabsFlag("name")` (web). Promoting one is its own one-line PR, and that PR is the design call. See [references/labs-flags.md](references/labs-flags.md).
+
+**Classic: feature flags mean remote PostHog runtime flags.** Unless the user explicitly asks for a compile-time flag, local setting, or environment variable, implement a feature flag through `CmuxFeatureFlags` with a PostHog key, an explicit unavailable fallback, registry metadata, live update behavior, and focused tests. A local override may support dogfood but must not be the production control plane.
 
 ## Layers
 

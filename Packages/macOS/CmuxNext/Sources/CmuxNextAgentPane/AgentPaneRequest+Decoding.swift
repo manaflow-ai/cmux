@@ -136,7 +136,13 @@ extension AgentPaneRequest {
             self = .newTabContext
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
+                self = .newTabSetting(.template(template))
+            } else {
+                self = .unsupported(method)
+            }
+        case "newTab.setLab":
+            if let flag = params?["flag"] as? String, !flag.isEmpty, flag.count <= 64, let on = params?["on"] as? Bool {
+                self = .newTabSetting(.lab(flag, on: on))
             } else {
                 self = .unsupported(method)
             }
