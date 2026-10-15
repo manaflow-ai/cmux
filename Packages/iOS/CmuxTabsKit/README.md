@@ -78,11 +78,17 @@ transport or models.
   springs back and your `notice` shows). Cards also take swipes while the zoom heads to the grid,
   and a card tapped then opens once the grid settles. When one tab is left,
   it opens.
-- **Long press.** A long press lifts the card (× 1.06), dims the others and
-  shows a glass menu: your `cardMenu(for:)` groups (Copy Link, Duplicate
-  Tab), then Close Tab and Close Other Tabs. With `supportsReordering`,
-  moving the finger after the press drags the card to another slot
-  (`moveTab(_:to:)`).
+- **Long press.** The system context menu, as Safari: the card lifts into
+  its preview (195.7 / 177 of the card), then Copy Link, Pin Tab and
+  Duplicate Tab (your `cardMenu(for:)` items, Pin after the first), Select
+  Tabs, Close Tab and, after a separator, Close Other Tabs. With
+  `supportsPinning`, pinned tabs (`pinnedTabIDs`, listed first in `tabs`)
+  sit as capsules above the grid and `setPinned(_:_:)` pins or unpins.
+  Select Tabs puts checkmarks on the cards and the bar offers Close (Close N
+  Tabs), Pin N Tabs, Copy N Links (`links(for:)`) and Done. With
+  `supportsReordering`, dragging from the lifted card moves it to another
+  slot (`moveTab(_:to:)`). The swipe and the menu share one UIKit view, so a
+  swipe past the slop moves at once and never opens the menu.
 - **One tab.** A lone tab gets Safari's larger centred card (two thirds of
   the screen width, same aspect, close button and title row) with "1 Tab" in
   the bar; the grid reflows into and out of it.
