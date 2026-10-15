@@ -19,6 +19,12 @@
 //! A prompt that never got `turn_started` and was never settled has no
 //! outcome: it counts as a prompt, not a turn.
 //!
+//! A fork's log starts with copies of its parent's prompts, tool calls and
+//! turns, before its `forked` record (`hub/fork.rs`). They count once, in the
+//! parent's log: in no total, day, hour, streak or parallel count of the
+//! fork's. Once the parent's log is deleted or unreadable they count nowhere,
+//! like the rest of that log.
+//!
 //! `branches` rolls the range's turns, working time and spend up by the git
 //! branch each session started on (`stats/branches.rs`).
 
@@ -113,8 +119,8 @@ pub struct StatsSummary {
     pub harnesses: Vec<HarnessStats>,
     /// Turns, working time and spend in the range per git branch, keyed by
     /// the branch and cwd a session started on; most working time first, at
-    /// most `MAX_BRANCHES`. Sessions without a branch and a fork's copies of
-    /// its parent's turns are left out (`stats/branches.rs`).
+    /// most `MAX_BRANCHES`. Sessions without a branch are left out
+    /// (`stats/branches.rs`).
     pub branches: Vec<BranchStats>,
     /// Days with activity, oldest first, in the person's calendar.
     pub days: Vec<DayStats>,
@@ -337,12 +343,17 @@ impl SessionFold {
                     turn.usage = branches::turn_usage(&record.msg);
                 }
             }
-            // Everything before it in a fork's log is a copy of the parent's.
+            // Everything before it in a fork's log is a copy of the parent's:
+            // its prompts, steers, tool calls and turns count there.
             "forked" if record.dir == "mux" => {
                 for turn in &mut self.turns {
                     turn.copied = true;
                 }
                 self.open_copied = self.open.is_some();
+                self.prompts = 0;
+                self.steers = 0;
+                self.steered.clear();
+                self.tool_calls = 0;
             }
             // Older logs end a turn here; current ones follow with a
             // turn_result that sets the status (`awaiting_result`).
@@ -527,25 +538,19 @@ impl Fold {
         s.limit_errors += session.attention.limit_errors;
         s.waiting_ms += session.waiting_ms;
 
-        let mut turns = 0;
-        let mut working = 0;
-        let mut branch = branches::BranchShare::default();
-        for turn in &session.turns {
+        // A fork's copies of its parent's turns count in the parent's log.
+        let mut share = branches::BranchShare::default();
+        for turn in session.turns.iter().filter(|turn| !turn.copied) {
             // A turn's working time may reach into the range whether or not
             // the turn itself counts in it.
-            let worked = turn.start.map_or(0, |start| self.work(start, turn.end));
-            working += worked;
-            let counted = self.count_turn(turn);
-            turns += u64::from(counted);
-            if !turn.copied {
-                branch.working_ms += worked;
-                if counted {
-                    branch.turns += 1;
-                    branch.usage.add(&turn.usage);
-                }
+            share.working_ms += turn.start.map_or(0, |start| self.work(start, turn.end));
+            if self.count_turn(turn) {
+                share.turns += 1;
+                share.usage.add(&turn.usage);
             }
         }
-        self.branches.add(meta, branch);
+        let (turns, working) = (share.turns, share.working_ms);
+        self.branches.add(meta, share);
         if turns == 0 && working == 0 {
             return;
         }
