@@ -60,21 +60,26 @@ import Testing
     @Test func theGridOpeningAsksTheMacAgain() {
         var refresh = TerminalCardScreenRefresh()
         let t0 = Date(timeIntervalSince1970: 1000)
-        #expect(refresh.begin("s1", now: t0))
+        let asked1 = refresh.begin("s1", now: t0)
+        #expect(asked1)
         // A card rebuilt within 3 s does not ask again ...
-        #expect(!refresh.begin("s1", now: t0.addingTimeInterval(1)))
+        let asked2 = refresh.begin("s1", now: t0.addingTimeInterval(1))
+        #expect(!asked2)
         // ... but the grid opening does.
-        #expect(refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true))
+        let asked3 = refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true)
+        #expect(asked3)
     }
 
     @Test func aFailedReadIsAskedAgainAtTheNextBuild() {
         var refresh = TerminalCardScreenRefresh()
         let t0 = Date(timeIntervalSince1970: 1000)
-        #expect(refresh.begin("s1", now: t0))
+        let asked4 = refresh.begin("s1", now: t0)
+        #expect(asked4)
         // The link was not up yet: no answer. The next card build asks again
         // instead of keeping the saved frame for the throttle's sake.
         refresh.failed("s1")
-        #expect(refresh.begin("s1", now: t0.addingTimeInterval(0.5)))
+        let asked5 = refresh.begin("s1", now: t0.addingTimeInterval(0.5))
+        #expect(asked5)
     }
 }
 
