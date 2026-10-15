@@ -224,6 +224,7 @@
     "setting.agentPane.editedFiles.show": "always",
     "setting.agentPane.images.remote": "click",
     "setting.agentPane.links.outsideRoots": "open",
+    "setting.agentPane.reasoningSlider": false,
     "setting.agentPane.showContextUsage": true,
     "setting.agentPane.showDictation": true,
     "setting.agentPane.zoom": 1,
