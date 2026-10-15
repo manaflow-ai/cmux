@@ -259,6 +259,29 @@ that `nil`.
 
 **Default:** unchanged (`.placeholderCard`) for existing clients.
 
+## U8. Hidden kit controls stay in the accessibility tree and take taps (T-TABS-14, verifier V3-4)
+
+**Seen (round 3, rig AX dumps):**
+
+- With a page settled full screen, the grid's `Close <tab>` button is still exposed.
+- With the soft keyboard up, TabsKit's bottom toolbar buttons (Back, Page Menu,
+  Reload, Tabs, at y 792) are exposed under the keyboard (keyboard top 566).
+- A VoiceOver user can focus them, and a hit test can reach them.
+
+cnx fixed its own copies in round 5. The zoomed page's composer, Return and Scroll to
+bottom are now hidden from accessibility and hit-testing while
+`TerminalTabContext.isInteractive` is false. The controls above are owned by the kit.
+
+**Ask:**
+
+1. While the page is settled (not zoomed out), the grid's cards and their close
+   buttons are `accessibilityHidden` and do not take hits.
+2. A toolbar covered by the keyboard is `accessibilityHidden(true)` and is not
+   hit-testable, or it is laid out above the keyboard. Expose the keyboard frame
+   the kit uses so that clients can agree with it.
+
+**Default:** this is a correctness fix with no opt-in; nothing visible changes.
+
 ## Upstream changes synced 2026-10-14 (tabs-kit f085ad35 to 2dd83bab)
 
 Context for terminal QA, not a request. cnx-ios synced CmuxTabsKit to
