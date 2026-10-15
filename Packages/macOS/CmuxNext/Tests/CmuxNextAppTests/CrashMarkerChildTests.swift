@@ -59,7 +59,8 @@ struct CrashMarkerChildTests {
 /// fault codes and SIGTRAP code 0, never `SI_USER`. The handler returned
 /// as for a fault, nothing ran the signal again, and the process went on
 /// (cx-sjv65). A Swift trap (`brk`, also SIGTRAP code 0) must still end on
-/// its own instruction.
+/// its own instruction. The syndrome check reads arm64 state only.
+#if arch(arm64)
 struct CrashMarkerSentSignalTests {
     @Test func aRaisedSegmentationFaultEndsTheProcess() async throws {
         let directory = CrashChild.directory("raise-segv", parent: getpid())
@@ -91,6 +92,37 @@ struct CrashMarkerSentSignalTests {
         #expect(previous.signal == SIGTRAP, "a Swift trap recorded \(previous.signal.map(String.init) ?? "none")")
     }
 }
+
+    /// The classifier on a built context: only a supervisor-call syndrome
+    /// with `svc #0x80` before the pc reads as sent; a data abort, a `brk`,
+    /// a supervisor call that restored some other pc (`sigreturn`) and an
+    /// unreadable pc read as faults.
+    @Test func onlyAReturningSystemCallReadsAsSent() throws {
+        let code: [UInt32] = [0xD400_1001, 0xD503_201F, 0xD503_201F] // svc #0x80; nop; nop
+        try code.withUnsafeBufferPointer { buffer in
+            let start = try #require(buffer.baseAddress)
+            let afterSvc = UInt64(UInt(bitPattern: start) + 4)
+            #expect(Self.arrived(esr: 0x5600_0080, pc: afterSvc))
+            #expect(!Self.arrived(esr: 0x9200_0046, pc: afterSvc), "a data abort read as sent")
+            #expect(!Self.arrived(esr: 0xF200_0001, pc: afterSvc), "a brk read as sent")
+            #expect(!Self.arrived(esr: 0x5600_0080, pc: afterSvc + 4), "a sigreturn to a fault pc read as sent")
+            #expect(!Self.arrived(esr: 0x5600_0080, pc: 4), "an unreadable pc read as sent")
+        }
+        #expect(arrivedOnASystemCall(nil), "no context must re-raise")
+    }
+
+    private static func arrived(esr: UInt32, pc: UInt64) -> Bool {
+        var machine = __darwin_mcontext64()
+        machine.__es.__esr = esr
+        machine.__ss.__pc = pc
+        return withUnsafeMutablePointer(to: &machine) { state in
+            var context = ucontext_t()
+            context.uc_mcontext = state
+            return withUnsafeMutablePointer(to: &context) { arrivedOnASystemCall(UnsafeMutableRawPointer($0)) }
+        }
+    }
+}
+#endif
 
 /// What the exit-test children run. An exit test captures nothing, so the
 /// child finds its marker folder from its parent's pid.

@@ -17,10 +17,11 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 /// `si_code` cannot tell the two apart on Darwin arm64 (cx-sjv65): XNU
 /// never reports `SI_USER`; SIGSEGV gets 2 and SIGBUS 1 from `raise` as
 /// from the CPU, and SIGTRAP gets 0 from `raise` as from a Swift trap's
-/// `brk`. A signal raised or sent to the process arrives as a system call
-/// returns, so the saved exception syndrome is a supervisor call; a CPU
-/// fault's is the fault's (a bad system call's SIGSYS also arrives that
-/// way, and returning would not run it again).
+/// `brk`. A signal a thread raises, or one that reaches a thread waiting in
+/// a system call, arrives as that call returns (`arrivedOnASystemCall`) and
+/// is re-raised. A bad system call's SIGSYS arrives that way too, and
+/// returning would not run it again. A signal sent to a thread while it
+/// runs user code still reads as a fault and is lost, as before.
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
@@ -41,16 +42,23 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
 /// the signal arrived: the saved syndrome is a supervisor call (exception
 /// class 0x15) and the instruction before the pc is `svc #0x80`. A fault
 /// signal Sentry re-raises from its handler arrives on the `sigreturn`
-/// that restores the faulting pc, so it still reads as a fault. Unknown is
-/// true: re-raising ends the process either way, returning may lose it.
-nonisolated private func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
+/// that restores the faulting pc, so it still reads as a fault; that pc
+/// may be unmapped (a jump through a dangling pointer), so the word before
+/// it is read with `vm_read_overwrite`, and a failed read is a fault.
+/// No context is true: re-raising ends the process either way, returning
+/// may lose the signal.
+nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
     #if arch(arm64)
     guard let state = context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
     guard state.pointee.__es.__esr >> 26 == 0x15 else { return false }
     let pc = UInt(state.pointee.__ss.__pc)
-    // pc - 4 on the same page as pc, so the read cannot fault.
-    guard pc & 0xFFF >= 4, let previous = UnsafePointer<UInt32>(bitPattern: pc - 4) else { return false }
-    return previous.pointee == 0xD400_1001
+    guard pc >= 4 else { return false }
+    var word: UInt32 = 0
+    var read: vm_size_t = 0
+    let result = withUnsafeMutablePointer(to: &word) {
+        vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read)
+    }
+    return result == KERN_SUCCESS && read == 4 && word == 0xD400_1001
     #else
     return false
     #endif
