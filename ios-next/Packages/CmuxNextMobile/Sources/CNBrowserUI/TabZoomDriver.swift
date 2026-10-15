@@ -30,6 +30,12 @@ final class TabZoomDriver {
     #endif
     @ObservationIgnored private lazy var proxy = DisplayLinkProxy { [weak self] link in self?.tick(link) }
 
+    init() {
+        #if DEBUG
+        if Self.trace { MainStallTrace.install() }
+        #endif
+    }
+
     /// Card-width travel (points) for the reversal jump; set by the screen.
     @ObservationIgnored var span: Double = 244
     func go(toOverview: Bool) { mutate { [span] in $0.go(toOverview: toOverview, span: span) } }
@@ -51,9 +57,20 @@ final class TabZoomDriver {
     }
     func jump(toOverview: Bool) { mutate { $0.jump(toOverview: toOverview) } }
 
+    /// The first display frame after a curve starts from rest holds still:
+    /// that frame renders the change that started it (the grid, the zoom
+    /// rect, a newly selected tab's page), which took 25-60 ms in the
+    /// simulator. Stepping the curve in it as well left the next frame
+    /// 40-60 ms late, a visible stall in the zoom's first frames.
+    @ObservationIgnored private var buildFrame = false
+
     private func mutate(_ change: (inout TabZoomState) -> Void) {
         let before = state.phase
+        let curveBefore = state.curve
         change(&state)
+        if state.phase == .animating, state.curve != nil, curveBefore == nil, before == .page || before == .overview {
+            buildFrame = true
+        }
         if UIAccessibility.isReduceMotionEnabled, state.phase == .animating {
             state.jump(toOverview: state.target == 1)
         }
@@ -111,6 +128,10 @@ final class TabZoomDriver {
         }
         #endif
         let wasAnimating = state.phase == .animating
+        if buildFrame {
+            buildFrame = false
+            if wasAnimating { return }
+        }
         let settled = wasAnimating && state.step(dt)
         stepChrome(dt)
         #if DEBUG
@@ -120,6 +141,34 @@ final class TabZoomDriver {
         if state.phase != .animating, !chrome.animating { stopLink() }
     }
 }
+
+#if DEBUG
+/// DEBUG (with `CMUX_NEXT_BROWSER_ZOOM_TRACE=1`): logs every main run loop
+/// pass busier than 8 ms (from wake to sleep), to tell a busy main thread
+/// from a late render server when a zoom frame comes late.
+@MainActor
+enum MainStallTrace {
+    private static var installed = false
+    private static let markLog = Logger(subsystem: "dev.cmux.next", category: "browser.stall")
+    static func mark(_ what: String) {
+        guard installed else { return }
+        markLog.notice("mark \(what, privacy: .public) at=\(CACurrentMediaTime(), format: .fixed(precision: 4))")
+    }
+    private static var woke: CFTimeInterval = 0
+    static func install() {
+        guard !installed else { return }
+        installed = true
+        let log = Logger(subsystem: "dev.cmux.next", category: "browser.stall")
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { _, activity in
+            let now = CACurrentMediaTime()
+            if activity == .afterWaiting { woke = now; return }
+            let busy = (now - woke) * 1000
+            if woke > 0, busy > 8 { log.notice("stall from=\(woke, format: .fixed(precision: 4)) busy=\(busy, format: .fixed(precision: 1))ms") }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+}
+#endif
 
 /// CADisplayLink retains its target; this breaks the cycle.
 @MainActor

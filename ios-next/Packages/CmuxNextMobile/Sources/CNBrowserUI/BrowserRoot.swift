@@ -307,6 +307,9 @@ struct BrowserScreen: View {
                             slotTakeover: newTabSlot?.created(in: itemIds),
                             onCardMenu: cardMenu,
                             onQueueSelect: { key in
+                                #if DEBUG
+                                MainStallTrace.mark("queue")
+                                #endif
                                 queuedOpen = key
                                 openQueuedIfReady()
                             },
@@ -494,7 +497,10 @@ struct BrowserScreen: View {
         #endif
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         // Terminal cards render only while the grid shows.
-        .onChange(of: overviewVisible, initial: true) { _, visible in tabs.setGridVisible(visible) }
+        // Not before the zoom to the grid has settled: starting a card's
+        // headless terminal in the zoom's first frames made them late.
+        .onChange(of: zoomState.phase == .overview, initial: true) { _, settled in if settled { tabs.setGridVisible(true) } }
+        .onChange(of: overviewVisible, initial: true) { _, visible in if !visible { tabs.setGridVisible(false) } }
         // On the settled grid every card is static, the active one too: the
         // open terminal's live view's last frame becomes its card, and the
         // view (kept for the zoom back, showing that same frame) stops drawing.
@@ -741,6 +747,9 @@ struct BrowserScreen: View {
     /// should open; the grid's settle then opens it.
     private func openQueuedIfReady() {
         guard queuedOpen != nil, zoomState.phase == .animating, zoomState.readyForQueuedOpen else { return }
+        #if DEBUG
+        MainStallTrace.mark("finishCurve")
+        #endif
         zoomDriver.finishCurve()
     }
 

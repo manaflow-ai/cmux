@@ -323,7 +323,12 @@ struct TabOverview: View {
 
             // Glass ignores inherited opacity; keep hidden controls out of
             // the hierarchy instead.
-            if shown > 0 {
+            // Glass ignores inherited opacity, so the hidden controls are
+            // parked off screen (and out of the accessibility tree) instead
+            // of leaving the hierarchy: building their glass in the zoom's
+            // first frames made those frames late.
+            let parked = shown <= 0
+            Group {
                 Group {
                     if tabs.selecting { selectControls } else { topControls }
                 }
@@ -333,6 +338,8 @@ struct TabOverview: View {
                     .opacity(shown)
                     .allowsHitTesting(controlsInteractive)
             }
+            .offset(y: parked ? layout.size.height * 2 : 0)
+            .accessibilityHidden(parked)
         }
         .frame(width: layout.size.width, height: layout.size.height)
     }
