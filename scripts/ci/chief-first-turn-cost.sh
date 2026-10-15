@@ -10,10 +10,12 @@
 #     [--arg=force_full_tools=1] --timeout 6000
 # count_url= is a Claude route that needs no credential (a router that signs
 # requests itself); only count_tokens goes there, never a turn.
-# force_full_tools=1 proves the guard red: Claude Code gets an inline
-# --settings with ENABLE_TOOL_SEARCH=false (it wins over the turn's project
+# force_full_tools=1 proves the guard red: Claude Code gets a --settings file
+# with ENABLE_TOOL_SEARCH=false (it wins over the turn's project
 # settings), which is the behavior before session_dir::TURN_SETTINGS_ENV: every
 # cmux MCP tool loads with the turn.
+# Exit: 0 pass; 1 over the limit, a failed turn or setup; 3 the route answered
+# 503 (stop: it is down); 4 another router error.
 # Output: FIRST-TURN-COST lines; files under .build/chief-first-turn.
 set -euo pipefail
 count_url=""
@@ -93,6 +95,9 @@ else
   ln -s "$work/claude" "$work/home/.local/bin/claude"
 fi
 echo "FIRST-TURN-COST-BIN claude $(HOME="$work/home" "$work/home/.local/bin/claude" --version)"
+# A worker keychain login could reach Claude Code outside HOME; the env key and
+# base URL win over it. Report only whether one exists, never its content.
+if security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1; then echo "FIRST-TURN-COST-KEYCHAIN login item present (not used: env key + stand-in)"; else echo "FIRST-TURN-COST-KEYCHAIN no login item"; fi
 
 proxy_pid=""
 driver_pid=""
@@ -119,19 +124,35 @@ status=0
 HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario smoke --only s01 \
   --out "$work/run" --bins "$work/bin" --turn-timeout 600 \
   --env "ANTHROPIC_BASE_URL=http://127.0.0.1:$port" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-no-model-runs" \
-  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1" \
-  --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 &
+  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 &
 driver_pid=$!
 wait "$driver_pid" || status=$?
 driver_pid=""
 tail -5 "$work/driver.log"
 if [[ "$status" != 0 ]]; then echo "FIRST-TURN-COST the driver failed ($status)" >&2; fi
+# The driver exits 0 also when the turn timed out: the turn must have ended
+# and posted the canned reply, or the recorded requests are not a whole turn.
+if ! python3 -I - "$work/run/raw.json" <<'PY'
+import json, sys
+try:
+    r = json.load(open(sys.argv[1]))["results"]
+except (OSError, ValueError, KeyError) as e:
+    sys.exit(f"FIRST-TURN-COST no driver result: {e!r}")
+if not r or r[0].get("timeout") or not any("noted" in m.get("text", "").lower() for m in r[0].get("msgs", [])):
+    sys.exit("FIRST-TURN-COST the turn did not end with the canned reply: " + json.dumps(r)[:600])
+PY
+then
+  status=1
+fi
 if ! grep -q "acpmux cleanup: .*no process holds its locks" "$work/driver.log"; then
   echo "FIRST-TURN-COST acpmux cleanup not confirmed: $(grep "acpmux cleanup" "$work/driver.log" || echo 'no cleanup line')" >&2
   status=1
 fi
 count_status=0
 python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py count "$work/cap" --url "$count_url" --limit "$limit" || count_status=$?
-if [[ "$count_status" == 3 ]]; then exit 3; fi
+if [[ "$count_status" == 3 || "$count_status" == 4 ]]; then
+  echo "FIRST-TURN-COST router failure (exit $count_status); the turn's own status was $status" >&2
+  exit "$count_status"
+fi
 if [[ "$count_status" != 0 ]]; then status=1; fi
 exit "$status"

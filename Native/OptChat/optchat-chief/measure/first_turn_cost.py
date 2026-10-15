@@ -17,9 +17,10 @@ Two commands:
       itself), with the request's own anthropic-beta header, so deferred
       tools (ToolSearch) count as the API counts them. Fails (exit 1) when a
       request is over the limit (default 50,000), when no request was
-      recorded, or when no request names a cmux MCP tool (mcp__cmux__): then
-      the cmux MCP server never reached the turn and the guard would measure
-      nothing. A 503 from the router exits 3 (stop: the route is down).
+      recorded, or when the largest request names no cmux MCP tool
+      (mcp__cmux__): then the cmux MCP server never reached the turn and the
+      guard would measure nothing. A 503 from the router exits 3 (stop: the
+      route is down); any other router error exits 4.
 """
 import argparse
 import glob
@@ -34,6 +35,7 @@ import urllib.request
 
 REDACT = {"authorization", "x-api-key", "cookie", "proxy-authorization"}
 CANNED = "noted"
+NOT_FOUND = json.dumps({"type": "error", "error": {"type": "not_found_error", "message": "first-turn guard stand-in"}}).encode()
 COUNT_FIELDS = ("model", "messages", "system", "tools", "tool_choice", "thinking", "mcp_servers")
 
 
@@ -73,8 +75,7 @@ def proxy(out):
 
         def do_GET(self):
             self.record()
-            self.send(404, "application/json", json.dumps(
-                {"type": "error", "error": {"type": "not_found_error", "message": "first-turn guard stand-in"}}).encode())
+            self.send(404, "application/json", NOT_FOUND)
 
         def do_POST(self):
             k, body = self.record()
@@ -82,7 +83,7 @@ def proxy(out):
             if path.endswith("/v1/messages/count_tokens"):
                 return self.send(200, "application/json", b'{"input_tokens": 1}')
             if not path.endswith("/v1/messages"):
-                return self.do_GET()
+                return self.send(404, "application/json", NOT_FOUND)
             try:
                 req = json.loads(body)
             except ValueError:
@@ -155,23 +156,27 @@ def count(out, url, limit):
             if e.code == 503:
                 print(f"FIRST-TURN-COST router answered 503 for {name}: {text}. Stop: the route is down.", file=sys.stderr)
                 sys.exit(3)
-            print(f"FIRST-TURN-COST count_tokens {e.code} for {name}: {text}", file=sys.stderr)
-            sys.exit(1)
+            print(f"FIRST-TURN-COST router error: count_tokens {e.code} for {name}: {text}", file=sys.stderr)
+            sys.exit(4)
+        except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as e:
+            print(f"FIRST-TURN-COST router error: count_tokens for {name}: {e!r}", file=sys.stderr)
+            sys.exit(4)
         names = [t.get("name", "") for t in req.get("tools") or []]
         rows.append({"request": name, "model": req.get("model"), "bytes": len(body), "tools": len(names),
                      "deferred_tools": sum(1 for t in req.get("tools") or [] if t.get("defer_loading")),
-                     "cmux_mcp": body.count(b"mcp__cmux__") > 0, "tokens": tokens})
+                     "cmux_mcp_tools": sum(1 for n in names if n.startswith("mcp__cmux__")),
+                     "cmux_mcp": b"mcp__cmux__" in body, "tokens": tokens})
         print("FIRST-TURN-COST-REQUEST " + json.dumps(rows[-1]))
     if not rows:
         print("FIRST-TURN-COST no /v1/messages request was recorded: the turn never reached the stand-in", file=sys.stderr)
         return 1
     top = max(rows, key=lambda r: r["tokens"])
     verdict = {"limit": limit, "max_tokens": top["tokens"], "max_request": top["request"], "requests": len(rows),
-               "cmux_mcp_seen": any(r["cmux_mcp"] for r in rows)}
+               "cmux_mcp_seen": top["cmux_mcp"]}
     print("FIRST-TURN-COST " + json.dumps(verdict))
     if not verdict["cmux_mcp_seen"]:
-        print("FIRST-TURN-COST no request names a cmux MCP tool (mcp__cmux__): the cmux MCP server did not reach "
-              "the turn, so this run measures nothing", file=sys.stderr)
+        print(f"FIRST-TURN-COST the largest request {top['request']} names no cmux MCP tool (mcp__cmux__): the "
+              "cmux MCP server did not reach the turn, so this run measures nothing", file=sys.stderr)
         return 1
     if top["tokens"] > limit:
         print(f"FIRST-TURN-COST FAIL: {top['request']} is {top['tokens']} input tokens, over the limit {limit}. A new "

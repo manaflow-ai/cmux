@@ -1486,7 +1486,7 @@ recorded `/v1/messages` request with `count_tokens` on the team subrouter
 (the request's own `anthropic-beta`, so deferred tools count as the API
 counts them) and fails over the limit, or when no request names a cmux MCP
 tool (the server never reached the turn). `force_full_tools=1` proves it
-red: an inline `--settings` turns tool search off, the behavior before
+red: a `--settings` file turns tool search off, the behavior before
 `session_dir::TURN_SETTINGS_ENV`, and every cmux MCP tool loads with the turn.
 
 ```bash
