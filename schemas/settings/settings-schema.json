@@ -2227,7 +2227,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.terminal",
@@ -2303,7 +2303,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.browser",
@@ -2379,7 +2379,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.agent",

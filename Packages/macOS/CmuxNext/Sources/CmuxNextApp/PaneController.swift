@@ -47,7 +47,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var connected: Bool
         var generation: String?
         var surfaces: [UInt64]
-        var hidesStrip = false // PaneTabBar: the pane's choice, its kind's tabs.tabBar, else ChatDockChrome
+        var hidesStrip = false // PaneTabBar: the pane's choice, else its kind's tabs.tabBar
     }
 
     /// `workspace` is set before the first apply: the chat's no-strip rule reads its layout, and
@@ -185,7 +185,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
                         // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                        hidesStrip: hidesTabBar(tabCount: items.count)
+                        hidesStrip: hidesTabBar
                             || store.workspace(containing: pane.handle)?.app != nil)
     }
 
