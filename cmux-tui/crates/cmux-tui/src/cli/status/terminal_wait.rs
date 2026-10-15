@@ -211,9 +211,11 @@ fn hold(
     let opened = Instant::now() + answer_wait(deadline);
     let mut events =
         resolve::session_events(socket, &resolve::route(params), opened).ok_or_else(|| {
-            past(deadline).then(|| timed_out(until, timeout)).unwrap_or_else(|| {
+            if past(deadline) {
+                timed_out(until, timeout)
+            } else {
                 Failure::Transport("cmux: the session's event stream did not open".into())
-            })
+            }
         })?;
     // Ctrl-C shuts the stream down, which ends a wait without a timeout.
     wire::arm_signal_interrupt(events.get_ref().as_ref());
