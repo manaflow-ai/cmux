@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import Combine
 import Foundation
 import Testing
 
@@ -7,6 +8,20 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class CustomSidebarDockTestPanel: Panel {
+    let objectWillChange = ObservableObjectPublisher()
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .terminal
+    let displayTitle = "Custom sidebar lifecycle"
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+}
 
 /// Covers the lifecycle projection that lets custom sidebars distinguish
 /// pending background work from an idle agent session.
@@ -143,5 +158,23 @@ struct CustomSidebarAgentLifecycleTests {
             panelLifecycles: ["claude_code": .backgroundWorkPending],
             lifecycleSessionIDs: ["claude_code": "old-session"]
         ) == nil)
+    }
+
+    @Test("Dock lifecycle ownership survives the panel owner routing")
+    func dockOwnerPreservesSessionID() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = CustomSidebarDockTestPanel()
+        dock.panels[panel.id] = panel
+
+        ControlSidebarPanelOwner.dock(dock).setAgentLifecycle(
+            key: "claude_code",
+            panelId: panel.id,
+            lifecycle: .backgroundWorkPending,
+            sessionID: "session"
+        )
+
+        let runtime = try #require(dock.agentRuntimeByPanelId[panel.id])
+        #expect(runtime.agentLifecycleStates["claude_code"] == .backgroundWorkPending)
+        #expect(runtime.agentLifecycleSessionIDs["claude_code"] == "session")
     }
 }
