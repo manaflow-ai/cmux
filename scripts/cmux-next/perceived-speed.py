@@ -4,6 +4,7 @@
   perceived-speed.py analyze DIR [--trigger SECONDS] [--region X,Y,W,H] [--strip PNG]
   perceived-speed.py run --socket SOCK --out DIR [--surface NAME ...] [--runs N]
   perceived-speed.py table OUT [OUT ...]
+  perceived-speed.py find-socket BUNDLE_ID --since EPOCH DIR [DIR ...]
 
 `analyze` reads one `debug.window_record` folder (frame-NNNNN.jpg plus frames.json
 {"times": [...]}, one frame per display frame) and prints JSON:
@@ -26,11 +27,14 @@ launch`, then run this on the slot host): for each surface it starts `debug.wind
 waits, opens the surface the way a person does (a key through `debug.key` or an action),
 and writes OUT/<surface>-<n>/ with meta.json (the trigger time) next to the frames, then
 OUT/<surface>-<n>/metrics.json. `table` ranks every surface in the OUT folders by
-diff_area, then shift (medians over runs) and prints a Markdown table.
+diff_area, then shift (medians over runs) and prints a Markdown table. `find-socket` prints
+the debug socket (cmux-debug*.sock in DIR, newer than EPOCH) whose `system.identify` names
+BUNDLE_ID: newer DEV builds listen at ~/.local/state/cmux/cmux-debug--<hash>.sock, not by tag.
 
 Needs Pillow. A warning, never a gate.
 """
 import argparse
+import glob
 import json
 import os
 import socket
@@ -47,7 +51,8 @@ SCALE = 4
 # bottom one, made at the start of `run`) selected, through actions (not measured). "prep" steps run
 # next, unmeasured; "key" or "action" is the measured trigger; "after" closes what it opened (a page
 # with no tabs, such as Settings, is left by the next run's reset). A step is a key [key, modifiers]
-# or {"action": id}. Cmd-N puts a workspace at the top, so Cmd-1 switches to the newest one.
+# or {"action": id}. Cmd-N puts a workspace at the top. workspace-switch gives that one a terminal
+# so the two workspaces differ, and switches by action: Cmd-1 is a New Tab page quick action.
 RESET = [{"action": "workspace.selectLast"}]
 SURFACES = {
     "new-tab": {"key": ["t", ["command"]], "after": ["w", ["command"]]},
@@ -57,8 +62,8 @@ SURFACES = {
     "terminal": {"key": ["`", ["control"]], "after": ["w", ["command"]]},
     "browser": {"key": ["l", ["command", "shift"]], "after": ["w", ["command"]]},
     "whats-new": {"action": "updates.whatsNew", "after": None},
-    "workspace-switch": {"prep": [["n", ["command"]], {"action": "workspace.selectLast"}], "key": ["1", ["command"]],
-                         "after": ["w", ["command"]]},
+    "workspace-switch": {"prep": [["n", ["command"]], {"action": "newSurface"}, {"action": "workspace.selectLast"}],
+                         "action": "workspace.selectFirst", "after": ["w", ["command", "shift"]]},
 }
 
 
@@ -175,6 +180,19 @@ class App:
         return self.call("debug.key", {"key": key, "modifiers": modifiers})
 
 
+def find_socket(bundle_id, since, dirs):
+    for folder in dirs:
+        for path in sorted(glob.glob(os.path.join(folder, "cmux-debug*.sock"))):
+            try:
+                if os.stat(path).st_mtime < since:
+                    continue
+                if bundle_id in json.dumps(App(path).call("system.identify", timeout=3)):
+                    return path
+            except (OSError, ValueError):  # a stale socket nobody listens on
+                continue
+    return None
+
+
 def step(app, spec):
     if isinstance(spec, dict):
         return app.call("action.run", {"id": spec["action"], **({"args": spec["args"]} if spec.get("args") else {})})
@@ -263,7 +281,16 @@ def main():
     r.add_argument("--lead", type=float, default=0.4)
     t = sub.add_parser("table")
     t.add_argument("outs", nargs="+")
+    f = sub.add_parser("find-socket")
+    f.add_argument("bundle_id")
+    f.add_argument("--since", type=float, default=0)
+    f.add_argument("dirs", nargs="+")
     opts = parser.parse_args()
+    if opts.command == "find-socket":
+        path = find_socket(opts.bundle_id, opts.since, opts.dirs)
+        if path:
+            print(path)
+        return 0 if path else 1
     if opts.command == "analyze":
         print(json.dumps(analyze_folder(opts.folder, opts.trigger, opts.region, opts.strip), indent=1))
         return 0

@@ -81,20 +81,24 @@ capture-host launch "$lease" "$app" pspeed -- -NSAppSleepDisabled YES >"$work/la
 grep -q 'pid=' "$work/launch" || { echo "launch failed: $(tail -3 "$work/launch")" >&2; exit 3; }
 cat "$work/launch"
 pid=$(grep -o 'pid=[0-9]*' "$work/launch" | head -1 | cut -d= -f2)
-# The launcher's socket= path is never created: a DEV build listens on its BUILD tag's debug socket.
+# Recordings go outside the lease root, so the slot is released before the (slow) copy back.
+ssh "$host" "rm -rf $remote && mkdir -p $remote"
+scp -q "$here/perceived-speed.py" "$host:$remote/"
+# The launcher's socket= path is never created. Older DEV builds listen on their BUILD tag's debug
+# socket; newer ones at ~/.local/state/cmux/cmux-debug--<hash>.sock: match those by bundle id.
 want=/tmp/cmux-debug-$btag-capslot$slot.sock
+since=$(( $(ssh "$host" "date +%s") - 120 ))
 found=""
 for _ in $(seq 1 60); do
-  ssh "$host" "[ -S '$want' ]" && { found=$want; break; }; sleep 1
+  ssh "$host" "[ -S '$want' ]" && { found=$want; break; }
+  found=$(ssh "$host" "python3 $remote/perceived-speed.py find-socket '$bid' --since $since /tmp /Users/cmux/.local/state/cmux") && break
+  found=""; sleep 1
 done
-[ -n "$found" ] || { echo "no app socket $want on $host: switch hosts (CAPTURE_HOST_SLOT_HOSTS)" >&2; exit 3; }
+[ -n "$found" ] || { echo "no app socket for $bid on $host: switch hosts (CAPTURE_HOST_SLOT_HOSTS)" >&2; exit 3; }
 sock=$found
 echo "perceived-speed: socket $sock"
 sleep 4  # first window, prewarmed New Tab spare
 
-# Recordings go outside the lease root, so the slot is released before the (slow) copy back.
-ssh "$host" "rm -rf $remote && mkdir -p $remote"
-scp -q "$here/perceived-speed.py" "$host:$remote/"
 ssh "$host" "cd $remote && PYTHONDONTWRITEBYTECODE=1 python3 perceived-speed.py run --socket '$sock' --out $remote/out --runs $runs ${surfaces[*]}"
 status=$?
 release_slot
