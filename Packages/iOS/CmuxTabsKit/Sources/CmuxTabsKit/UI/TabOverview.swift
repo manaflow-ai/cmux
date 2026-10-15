@@ -76,19 +76,6 @@ struct TabCard<Content: View>: View {
                 // A stretchable shadow image: `.shadow` on the clipped card
                 // cost an offscreen pass per card on every scroll frame.
                 .background { CardShadow(radius: radius) }
-                .overlay(alignment: .topTrailing) {
-                    if showsClose {
-                        Button(action: onClose) {
-                            CardCloseGlyph()
-                                .padding(4)
-                                .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .opacity(closeOpacity)
-                        .allowsHitTesting(closeOpacity > 0.5)
-                        .accessibilityLabel("Close \(title)")
-                    }
-                }
                 .opacity(contentHidden ? 0 : 1)
             HStack(spacing: 6) {
                 Image(systemName: systemImage).font(.system(size: 14))
@@ -112,6 +99,25 @@ struct TabCard<Content: View>: View {
                 .accessibilityAction(named: "Open", onOpen)
                 .accessibilityAction(named: "Close", onClose)
         }
+        // The close button is its own "Close" element after the card, as
+        // Safari's (it was folded into the card's element).
+        .overlay(alignment: .topTrailing) {
+            if showsClose {
+                Button(action: onClose) {
+                    CardCloseGlyph()
+                        .padding(4)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .opacity(closeOpacity * (contentHidden ? 0 : 1))
+                .allowsHitTesting(closeOpacity > 0.5 && !contentHidden)
+                .accessibilityLabel("Close")
+                .accessibilityHint(Text("Closes \(title)"))
+                .accessibilityHidden(closeOpacity < 0.5)
+                .accessibilitySortPriority(-1)
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -213,6 +219,20 @@ struct TabOverview<Source: TabsDataSource>: View {
             .onScrollPhaseChange { _, phase in onScrolling(phase.isScrolling) }
             .scrollIndicators(.hidden)
             .ignoresSafeArea()
+            // Safari's top edge: cards scrolled under the status bar and the
+            // top controls blur and fade into the background.
+            .overlay(alignment: .top) {
+                ZStack {
+                    Rectangle().fill(.ultraThinMaterial)
+                        .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+                    LinearGradient(colors: [theme.colors.overviewTop, theme.colors.overviewTop.opacity(0.6), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .frame(height: layout.safeTop + 52)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             .scaleEffect(1.06 - 0.06 * shown)
             .blur(radius: 10 * (1 - shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
@@ -498,7 +518,9 @@ struct TabOverview<Source: TabsDataSource>: View {
             }
             .glassEffect(.regular.interactive(), in: .circle)
             .position(x: 38 + 24, y: bar.midY)
-            .accessibilityLabel("New Tab")
+            // Several kinds make (+) a menu: "New", with a hint naming them.
+            .accessibilityLabel(options.count > 1 ? "New" : "New Tab")
+            .accessibilityHint(options.count > 1 ? "Shows " + options.map(\.title).joined(separator: " and ") : "")
             }
 
             // One glass shape per control (nested glass reads as a double background).
