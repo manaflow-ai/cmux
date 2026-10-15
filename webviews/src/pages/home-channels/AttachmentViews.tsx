@@ -127,6 +127,7 @@ function ImageTile({
       className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
       aria-label={part.name}
+      /* tooltip-allow: a loaded image shows no name; the name shows only once it fails */
       title={part.name}
       disabled={failed}
       onClick={onOpen}
