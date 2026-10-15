@@ -737,6 +737,13 @@ struct CloudWelcomeMediaCarousel: View {
     /// Plays a clip muted and looping, filling the frame. Movies (the format to
     /// ship) decode in hardware and composite on the GPU through AVPlayerLayer;
     /// GIF is a fallback for quick drafts only (CPU decoded, 256 colors).
+    ///
+    /// The layer configuration lives on the carousel so the presentation rule
+    /// can be exercised without starting a player in the unit tests.
+    static func configureMovieLayer(_ layer: AVPlayerLayer) {
+        layer.videoGravity = .resizeAspectFill
+    }
+
     private struct Player: NSViewRepresentable {
         let url: URL
         let playback: Playback
@@ -775,7 +782,7 @@ struct CloudWelcomeMediaCarousel: View {
                 playerLayer = AVPlayerLayer(player: player)
                 super.init(frame: .zero)
                 wantsLayer = true
-                playerLayer.videoGravity = .resizeAspectFill
+                CloudWelcomeMediaCarousel.configureMovieLayer(playerLayer)
                 // Hidden until the first frame is decoded, then faded in, so a
                 // slide change never flashes an empty frame.
                 playerLayer.opacity = 0

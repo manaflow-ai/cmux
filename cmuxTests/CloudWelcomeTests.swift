@@ -362,6 +362,15 @@ struct CloudWelcomeTests {
         #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
     }
 
+    @Test("feature clips preserve the full recorded frame")
+    @MainActor
+    func featureClipVideoGravityPreservesRecordedFrame() {
+        let layer = AVPlayerLayer()
+        CloudWelcomeMediaCarousel.configureMovieLayer(layer)
+
+        #expect(layer.videoGravity == .resizeAspect)
+    }
+
     @Test("Cloud creation actions introduce Cloud while it is off or signed out")
     func creationGate() {
         func gate(_ available: Bool, _ enabled: Bool, _ canRun: Bool?, authInProgress: Bool = false) -> CloudCreationGate {
