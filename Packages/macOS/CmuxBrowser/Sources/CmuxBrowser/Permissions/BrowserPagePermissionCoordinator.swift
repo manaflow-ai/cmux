@@ -3,7 +3,8 @@ public import Foundation
 /// Answers a panel's permission requests for an engine without a prompt cmux
 /// can show (``BrowserPageUIDelegate/page(_:requestPermission:)`` on a
 /// Chromium page): the policy first, then the profile's remembered answers,
-/// then the panel's prompt bar.
+/// then macOS's own permission for camera and microphone (design spec §4
+/// v1.4), then the panel's prompt bar.
 ///
 /// The result's ``BrowserPagePermissionDecision/prompt`` means *no answer*
 /// (the question ended unanswered: navigation, panel closed). Such an engine
@@ -14,20 +15,36 @@ public final class BrowserPagePermissionCoordinator {
     public let policy: BrowserPagePermissionPolicy
     public let queue: BrowserPermissionPromptQueue
     private let store: (UUID) -> BrowserSitePermissionStore
+    private let mediaAuthorization: (any BrowserMediaAuthorizationProviding)?
+    private let openSystemSettings: (URL) -> Void
+    /// System notices shown on the current page, by origin and variant: once per page load.
+    private var shownSystemNotices: Set<String> = []
 
     /// Creates a coordinator.
     /// - Parameters:
     ///   - policy: Which kinds ask, which are denied.
     ///   - queue: The panel's prompt bar queue.
     ///   - store: The remembered answers of a profile (by profile id).
+    ///   - mediaAuthorization: macOS's camera/microphone permission for cmux;
+    ///     `nil` skips the check (the engine then meets macOS's answer itself).
+    ///   - openSystemSettings: Opens a System Settings pane ("Open System Settings").
     public init(
         policy: BrowserPagePermissionPolicy = BrowserPagePermissionPolicy(),
         queue: BrowserPermissionPromptQueue,
-        store: @escaping (UUID) -> BrowserSitePermissionStore
+        store: @escaping (UUID) -> BrowserSitePermissionStore,
+        mediaAuthorization: (any BrowserMediaAuthorizationProviding)? = nil,
+        openSystemSettings: @escaping (URL) -> Void = { _ in }
     ) {
         self.policy = policy
         self.queue = queue
         self.store = store
+        self.mediaAuthorization = mediaAuthorization
+        self.openSystemSettings = openSystemSettings
+    }
+
+    /// A new page loaded: system notices may show again.
+    public func pageWillLoad() {
+        shownSystemNotices.removeAll()
     }
 
     /// Decides one request.
@@ -78,21 +95,71 @@ public final class BrowserPagePermissionCoordinator {
             let profileStore = store(profileID)
             let settings = kinds.map { profileStore.setting($0, for: origin) }
             if settings.contains(.block) { return Outcome(.deny) }
-            if settings.allSatisfy({ $0 == .allow }) { return Outcome(.grant) }
+            // macOS's permission comes before the site's: a device cmux may not
+            // use can't be granted from here (spec §4 v1.4).
+            var needsRequest: [BrowserMediaDevice] = []
+            let devices = kinds.compactMap(BrowserMediaDevice.init)
+            if let media = mediaAuthorization, !devices.isEmpty {
+                switch BrowserMediaAuthorizationGate.evaluate(devices, authorization: { media.authorization(for: $0) }) {
+                case .blocked(let blocked):
+                    showSystemNotice(.systemBlocked, kinds: kinds, origin: origin, devices: blocked)
+                    return Outcome(.deny, isOneTime: true)
+                case .managed(let managed):
+                    showSystemNotice(.systemManaged, kinds: kinds, origin: origin, devices: managed)
+                    return Outcome(.deny, isOneTime: true)
+                case .ask(let pending):
+                    needsRequest = pending
+                }
+            }
+            if settings.allSatisfy({ $0 == .allow }) {
+                return await requestSystemAccess(needsRequest) ? Outcome(.grant) : Outcome(.deny, isOneTime: true)
+            }
             let answer = await ask(BrowserPermissionPrompt(kinds: kinds, origin: origin, topLevelURL: topLevelURL))
             switch answer {
             case .allowAndRemember?:
+                // macOS's own prompt, for devices it has not been asked about.
+                guard await requestSystemAccess(needsRequest) else { return Outcome(.deny, isOneTime: true) }
                 profileStore.set(.allow, for: kinds, at: origin)
                 return Outcome(.grant)
             case .allowOnce?:
+                guard await requestSystemAccess(needsRequest) else { return Outcome(.deny, isOneTime: true) }
                 return Outcome(.grant, isOneTime: true)
             case .block?:
                 profileStore.set(.block, for: kinds, at: origin)
                 return Outcome(.deny)
+            case .openSystemSettings?, .notNow?:
+                // Answers of the system strips only; never of the site's question.
+                return Outcome(.deny, isOneTime: true)
             case nil:
                 return Outcome(.prompt)
             }
         }
+    }
+
+    /// Shows a system strip once per origin per page load; the page was denied already.
+    private func showSystemNotice(
+        _ variant: BrowserPermissionPrompt.Variant,
+        kinds: [BrowserPagePermissionRequest.Kind],
+        origin: URL,
+        devices: [BrowserMediaDevice]
+    ) {
+        let key = "\(variant)|\(BrowserSitePermissionStore.originKey(for: origin) ?? origin.absoluteString)"
+        guard shownSystemNotices.insert(key).inserted else { return }
+        let settingsURL = (devices.contains(.camera) ? BrowserMediaDevice.camera : devices.first ?? .camera).systemSettingsURL
+        let openSystemSettings = openSystemSettings
+        queue.enqueue(BrowserPermissionPrompt(kinds: kinds, origin: origin, variant: variant)) { answer in
+            if answer == .openSystemSettings { openSystemSettings(settingsURL) }
+        }
+    }
+
+    /// Asks macOS for each device it has not been asked about.
+    /// - Returns: Whether every one was granted (true for none).
+    private func requestSystemAccess(_ devices: [BrowserMediaDevice]) async -> Bool {
+        guard let media = mediaAuthorization else { return true }
+        for device in devices {
+            guard await media.requestAccess(for: device) else { return false }
+        }
+        return true
     }
 
     private func ask(_ prompt: BrowserPermissionPrompt) async -> BrowserPermissionPromptAnswer? {
