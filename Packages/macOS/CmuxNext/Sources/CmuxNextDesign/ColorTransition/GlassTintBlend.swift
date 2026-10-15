@@ -12,22 +12,28 @@ final class GlassTintBlend: MotionAnimating {
     private var to = ThemeRGB(red: 0, green: 0, blue: 0, alpha: 0)
     private var elapsed: TimeInterval = 0
     private var transition = ColorTransition(enabled: false)
+    /// Runs after every frame that changed the tint (the inactive-window tint follows it).
+    var onStep: (@MainActor () -> Void)?
 
     /// Moves `glass`'s tint to `color` (nil clears it at once).
     func set(_ glass: GlassPanelView, to color: NSColor?, in view: NSView) {
         let current = glass.tintColor.flatMap(Self.rgb)
+        let clock = MotionClock.forView(view)
         guard let color, let target = Self.rgb(color) else {
-            MotionClock.forView(view).stop(self)
+            clock.stop(self)
+            self.glass = nil
             glass.tintColor = color
             return
         }
         let transition = ColorTransition.current
         guard view.window?.isVisible == true, !transition.isInstant, let current, current != target else {
-            MotionClock.forView(view).stop(self)
+            clock.stop(self)
+            (self.glass, to) = (glass, target)
             glass.tintColor = color
             return
         }
-        if self.glass === glass, to == target { return }
+        // Already blending to this color: keep going.
+        if self.glass === glass, to == target, clock.isRunning(self) { return }
         self.glass = glass
         (from, to, elapsed, self.transition) = (current, target, 0, transition)
         MotionClock.forView(view).run(self, trace: "colorTransition.glassTint")
@@ -40,6 +46,7 @@ final class GlassTintBlend: MotionAnimating {
         let t = seconds > 0 ? min(elapsed / seconds, 1) : 1
         let color = transition.mix(from, to, fraction: transition.progress(at: t))
         glass.tintColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+        onStep?()
         return t < 1
     }
 

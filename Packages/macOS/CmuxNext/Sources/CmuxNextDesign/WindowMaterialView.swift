@@ -216,7 +216,10 @@ public final class WindowMaterialView: NSView {
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? GlassPanelView
         // Liquid Glass blends its tint on the window's motion clock (appearance.colorTransition).
-        if let glass { glassTint.set(glass, to: color, in: self) }
+        if let glass {
+            glassTint.onStep = { [weak self] in self?.updateInactiveTint() }
+            glassTint.set(glass, to: color, in: self)
+        }
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows

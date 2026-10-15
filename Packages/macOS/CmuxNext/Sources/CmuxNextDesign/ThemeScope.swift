@@ -261,6 +261,12 @@ public final class ThemeScope {
     /// painted: this scope's own colors, the shown scope's, or which of the
     /// two applies changed.
     private func refreshDisplay(animated: Bool, repaint: Bool) {
+        // The windows take the new light/dark first: a child root that compares with it then
+        // never inherits the old one for a moment (now that the room follows a workspace of any
+        // light/dark).
+        if repaint, tokens != displayed {
+            for window in windows.allObjects where window.appearance?.name != appearance.name { window.appearance = appearance }
+        }
         // A child root's explicit appearance compares with these colors.
         for child in children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
         let now = tokens

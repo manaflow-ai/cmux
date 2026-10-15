@@ -5,8 +5,7 @@ always smooth animation (that can be configured, fully ... or even just instant"
 
 Launches the tagged app itself (no activation, a scratch cmux.json, an empty Ghostty config, an
 isolated Chief home; it never opens Home or the Chief pane) and gives two workspaces different
-themes over the control socket (workspace.setTheme: Rose Pine and Catppuccin Mocha; both dark,
-because a room adopts a shown workspace's colors only when light/dark matches). Then
+themes over the control socket (workspace.setTheme: Rose Pine and Catppuccin Mocha). Then
 it switches between them by id (goToWorkspace) and samples the window backdrop
 color the render server shows (debug.themes windows[].backdrop.sheet, the presentation value)
 as fast as the socket answers:
@@ -156,12 +155,20 @@ def bmp_pixel(path, fx, fy):
     offset = struct.unpack("<I", data[10:14])[0]
     width, height = struct.unpack("<ii", data[18:26])
     bpp = struct.unpack("<H", data[28:30])[0] // 8
+    compression = struct.unpack("<I", data[30:34])[0]
+    masks = struct.unpack("<III", data[54:66]) if compression == 3 else (0xFF0000, 0xFF00, 0xFF)
     stride = (width * bpp + 3) & ~3
     x, y = int(fx * width), int(fy * abs(height))
     row = (abs(height) - 1 - y) if height > 0 else y
     i = offset + row * stride + x * bpp
-    b, g, r = data[i], data[i + 1], data[i + 2]
-    return "#%02X%02X%02X" % (r, g, b)
+    if compression not in (0, 3) or bpp not in (3, 4):
+        raise ValueError(f"{path}: BMP compression {compression}, {bpp * 8} bpp")
+    word = int.from_bytes(data[i:i + bpp], "little")
+
+    def channel(mask):
+        shift = (mask & -mask).bit_length() - 1
+        return (word & mask) >> shift if mask else 0
+    return "#%02X%02X%02X" % tuple(channel(m) for m in masks)
 
 
 def frame_colors(directory, fx, fy):
@@ -169,7 +176,9 @@ def frame_colors(directory, fx, fy):
     out = []
     for jpg in sorted(glob.glob(os.path.join(directory, "frame-*.jpg"))):
         bmp = jpg[:-4] + ".bmp"
-        subprocess.run(["sips", "-s", "format", "bmp", jpg, "--out", bmp], capture_output=True, timeout=30)
+        done = subprocess.run(["sips", "-s", "format", "bmp", jpg, "--out", bmp], capture_output=True, text=True, timeout=30)
+        if done.returncode != 0:
+            print("sips:", (done.stdout + done.stderr).strip()[-200:], flush=True)
         if os.path.exists(bmp):
             out.append(bmp_pixel(bmp, fx, fy))
     return out
@@ -238,7 +247,7 @@ try:
     time.sleep(1)
     light = settled()
     report["light"], report["dark"] = light, dark
-    # Both dark: a room adopts a shown workspace's colors only when light/dark matches (ThemeScope.tokens).
+    # Two dark themes for the blend checks (the series phase below crosses light/dark).
     span = distance(light, dark) if light and dark else 0
     check(span > 0.02, f"the two workspaces have different backgrounds ({light} vs {dark}, OKLab distance {span:.3f})")
 
