@@ -26,13 +26,15 @@ struct HomeChannelsSelectionMenuTests {
                                     "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierShareMenu", "WKMenuItemIdentifierSpeechMenu"])
         HomeChannelsSelectionMenu.rebuild(menu, actions: .init(quote: { ran.append("quote") }, search: { ran.append("search") }))
 
-        #expect(menu.items.map { $0.isSeparatorItem ? "-" : $0.identifier?.rawValue ?? $0.title } == [
+        // WebKit's items by identifier, the page's by title (AppKit names an item's identifier after its action).
+        let webKit = { (item: NSMenuItem) in item.identifier?.rawValue.hasPrefix("WKMenuItemIdentifier") == true }
+        #expect(menu.items.map { $0.isSeparatorItem ? "-" : webKit($0) ? $0.identifier!.rawValue : $0.title } == [
             "WKMenuItemIdentifierCopy", HomeChannelsSelectionMenu.Strings.quoteInReply, "-",
             HomeChannelsSelectionMenu.Strings.searchTheWeb, "WKMenuItemIdentifierLookUp",
         ])
         for title in [HomeChannelsSelectionMenu.Strings.quoteInReply, HomeChannelsSelectionMenu.Strings.searchTheWeb] {
             let item = menu.items.first { $0.title == title }
-            if let item, let action = item.action { NSApp.sendAction(action, to: item.target, from: item) }
+            if let item, let action = item.action { _ = (item.target as? NSObject)?.perform(action, with: item) }
         }
         #expect(ran == ["quote", "search"])
     }

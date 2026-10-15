@@ -1,7 +1,8 @@
 // Quote in Reply on selected message text (POLISH.md right-click contract): the app's native
 // selection menu sends the page command `quoteSelection`, and the selection lands in the open
 // composer as a Markdown quote, ahead of what was already typed. A thread's composer takes it while
-// the thread is open; a selection inside a composer is never quoted.
+// the thread is open; a selection inside a composer is never quoted. In an empty composer the reply
+// is typed below the quote, not inside it.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -131,4 +132,18 @@ test("an open thread's composer takes the quote, and text selected in a composer
 
   select(field(main));
   expect(quoteSelection(doc)).toBe(false);
+});
+
+test("in an empty composer the reply is typed below the quote, not inside it", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose");
+  select(message(doc, "Ship it"));
+  await act(async () => {
+    expect(quoteSelection(doc)).toBe(true);
+  });
+  type Field = HTMLElement & { acpmuxMarkdownField?: { insertTyped(text: string): void } };
+  const editor = [...main.querySelectorAll<Field>("*")].find((node) => node.acpmuxMarkdownField);
+  await act(async () => editor!.acpmuxMarkdownField!.insertTyped("Agreed"));
+  expect(field(main).querySelector("blockquote")?.textContent).not.toContain("Agreed");
+  expect(field(main).textContent).toContain("Agreed");
 });
