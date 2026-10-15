@@ -1,11 +1,12 @@
 //! One X display per cmux workspace for computer use (cx-ncc.5). A client
 //! names the session's workspace in `_meta.acpmux.workspaceId` on
-//! `session/new` (and may on `session/fork`). When this daemon runs with
-//! `CMUX_AGENT_DISPLAYS=per-workspace` (a Linux cloud machine), the session's
-//! `cmux-cua` MCP server gets `CMUX_CUA_DISPLAY=:N`, one N per workspace from
-//! 100 up, kept across restarts. A session without a workspace gets no
-//! `cmux-cua` server at all, so it can never drive the shared display. With
-//! the mode off nothing changes.
+//! `session/new` (and may on `session/fork`), or only in the session env's
+//! `CMUX_WORKSPACE_ID`; two different ids in one request are refused. When
+//! this daemon runs with `CMUX_AGENT_DISPLAYS=per-workspace` (a Linux cloud
+//! machine), the session's `cmux-cua` MCP server gets `CMUX_CUA_DISPLAY=:N`,
+//! one N per workspace from 100 up, kept across restarts. A session without
+//! a workspace gets no `cmux-cua` server at all, so it can never drive the
+//! shared display. With the mode off nothing changes.
 //!
 //! One test function: the mode and the tools are read from this process's
 //! environment, which every test of a binary shares.
@@ -96,12 +97,15 @@ impl Client {
         reply["result"]["sessionId"].as_str().unwrap().to_owned()
     }
 
+    /// `session/fork` of `parent` with `meta` as `_meta.acpmux`: the reply.
+    async fn fork_reply(&mut self, parent: &str, meta: Value) -> Value {
+        let params = json!({"sessionId": parent, "mcpServers": [], "_meta": {"acpmux": meta}});
+        self.call_text("session/fork", params).await.0
+    }
+
     async fn fork(&mut self, parent: &str, workspace: Option<&str>) -> String {
-        let mut params = json!({"sessionId": parent, "mcpServers": []});
-        if let Some(ws) = workspace {
-            params["_meta"] = json!({"acpmux": {"workspaceId": ws}});
-        }
-        let (reply, _) = self.call_text("session/fork", params).await;
+        let meta = workspace.map_or_else(|| json!({}), |ws| json!({"workspaceId": ws}));
+        let reply = self.fork_reply(parent, meta).await;
         assert!(reply.get("error").is_none(), "{reply}");
         reply["result"]["sessionId"].as_str().unwrap().to_owned()
     }
@@ -220,6 +224,26 @@ async fn per_workspace_mode_gives_each_workspace_its_own_display_and_none_withou
     // The same workspace (in either case) keeps its display.
     let a2 = local.new_session("fake", Some(WS_A.to_uppercase().as_str())).await;
     assert_eq!(display(&local.servers(&a2).await).as_deref(), Some(a_display.as_str()));
+    // A workspace named only by the session env's CMUX_WORKSPACE_ID (the
+    // Chief's subagents, uppercase) is the session's workspace too.
+    let env_a = json!({"CMUX_WORKSPACE_ID": WS_A.to_uppercase()});
+    for meta in [
+        json!({"harness": "fake", "env": env_a}),
+        json!({"harness": "fake", "workspaceId": null, "env": env_a}),
+        // Both, the same id in another case: accepted.
+        json!({"harness": "fake", "workspaceId": WS_A, "env": env_a}),
+    ] {
+        let reply = local.new_reply(meta.clone()).await;
+        assert!(reply.get("error").is_none(), "{meta}: {reply}");
+        let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
+        let servers = local.servers(&id).await;
+        assert_eq!(display(&servers).as_deref(), Some(a_display.as_str()), "{meta}: {servers}");
+    }
+    // Two different workspaces in one request: refused.
+    let env_b = json!({"CMUX_WORKSPACE_ID": WS_B});
+    let reply =
+        local.new_reply(json!({"harness": "fake", "workspaceId": WS_A, "env": env_b})).await;
+    assert_eq!(reason(&reply), "workspace.mismatch", "{reply}");
     // The workspace reaches the computer use server only, not the harness.
     let leaked = local.ask(&a, "env: ACPMUX_AGENT_WORKSPACE").await;
     assert_eq!(leaked, "ACPMUX_AGENT_WORKSPACE=", "the harness env carries no private key");
@@ -236,6 +260,14 @@ async fn per_workspace_mode_gives_each_workspace_its_own_display_and_none_withou
     assert_eq!(display(&local.servers(&fork_a).await).as_deref(), Some(a_display.as_str()));
     let fork_b = local.fork(&a, Some(WS_B)).await;
     assert_eq!(display(&local.servers(&fork_b).await).as_deref(), Some(b_display.as_str()));
+    // A fork naming its workspace in env only takes it over its parent's.
+    let reply =
+        local.fork_reply(&a, json!({"env": {"CMUX_WORKSPACE_ID": WS_B.to_uppercase()}})).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let fork_env = reply["result"]["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(display(&local.servers(&fork_env).await).as_deref(), Some(b_display.as_str()));
+    let reply = local.fork_reply(&a, json!({"workspaceId": WS_A, "env": env_b})).await;
+    assert_eq!(reason(&reply), "workspace.mismatch", "{reply}");
 
     // Claude Code: the same display in its --mcp-config; none without a workspace.
     let claude = local.new_session("fakeclaude", Some(WS_B)).await;

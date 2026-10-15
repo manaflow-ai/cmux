@@ -10,6 +10,8 @@ use super::*;
 
 #[path = "notification_levels.rs"]
 mod notification_levels;
+#[path = "status_wait.rs"]
+mod status_wait;
 #[path = "terminal_wait_until.rs"]
 mod terminal_wait_until;
 

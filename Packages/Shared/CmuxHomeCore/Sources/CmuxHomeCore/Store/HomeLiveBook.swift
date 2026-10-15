@@ -40,6 +40,9 @@ struct HomeLiveBook {
         var isTalk: Bool
         var seq: UInt64
         var text: String
+        /// Seeded from the step's row (a join): its frames' numbering is unknown, so a later
+        /// frame other than seq 0 asks for the snapshot instead of appending.
+        var fromRow = false
     }
 
     struct Run: Equatable {
@@ -91,8 +94,9 @@ struct HomeLiveBook {
                 let old = runs[key]
                 var run = Run(activity: entry.activity, touched: touch())
                 run.done = old?.done ?? []
-                // Ended steps the owner freed keep the text this client holds, in their order.
-                for id in old?.order ?? [] where run.done.contains(id) {
+                // Ended steps the owner freed, and steps seeded from rows, keep the text this client holds.
+                let listed = Set(entry.steps.map(\.step))
+                for id in old?.order ?? [] where run.done.contains(id) || (old?.steps[id]?.fromRow == true && !listed.contains(id)) {
                     guard let kept = old?.steps[id] else { continue }
                     run.steps[id] = kept
                     run.order.append(id)
@@ -110,6 +114,22 @@ struct HomeLiveBook {
             }
             guard next != runs else { return .ignored }
             runs = next
+            return .changed
+        case .rows(let conversation, let author, let run, let rows):
+            // A talk step the run does not hold (not in run.live, no delta seen) with a row: it ended
+            // before this client joined (the owner freed it), or it streams but its first frame has
+            // not come yet (a Chief writes open rows too). Its row is its text so far; it stays open:
+            // a seq-0 frame replaces it, a later frame asks for the snapshot (cx-kdm25).
+            let key = Key(conversation: conversation, author: author, run: run)
+            guard !ended.contains(key), var live = runs[key] else { return .ignored }
+            var changed = false
+            for row in rows where row.isTalk && live.steps[row.step] == nil && !live.done.contains(row.step) && !row.text.isEmpty {
+                live.steps[row.step] = Step(isTalk: true, seq: 0, text: Self.capped(row.text), fromRow: true)
+                live.order.append(row.step)
+                changed = true
+            }
+            guard changed else { return .ignored }
+            runs[key] = live
             return .changed
         case .run(let change):
             let key = Key(conversation: change.conversation, author: change.author, run: change.run)
@@ -141,6 +161,9 @@ struct HomeLiveBook {
         var run = runs[key] ?? Run()
         guard !run.done.contains(delta.step) else { return .ignored }
         if var step = run.steps[delta.step] {
+            if step.fromRow, delta.seq > 0 {
+                return .resync // a row's text has no frame number: the snapshot has this step
+            }
             if delta.seq == 0 {
                 // A retried model request restarts the step (the owner also sends run.live).
                 step = Step(isTalk: delta.isTalk, seq: 0, text: Self.capped(delta.text))

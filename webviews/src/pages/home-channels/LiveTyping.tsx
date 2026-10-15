@@ -49,7 +49,7 @@ export function LiveTyping({ conversation, live, runs, people, typing, draftTurn
     const name = people.get(current.run.author)?.name ?? current.run.author;
     return (
       <div className="lg-typing live" aria-live="polite">
-        <button type="button" className="lg-live" onClick={() => onOpen(current.run)} title={t("run.open")}>
+        <button type="button" className="lg-live" onClick={() => onOpen(current.run)}>
           {reply ? (
             <span className="lg-live-text" dir="auto">
               <strong>{name}</strong> {tail(reply, ROW_LIVE_CHARS)}

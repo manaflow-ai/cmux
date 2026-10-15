@@ -99,3 +99,10 @@
 .acpmux-pr-merge output{color:var(--agent-muted)}
 .acpmux-pr-merge output[role=alert]{color:var(--agent-danger)}
 .acpmux-pr-merge[data-step=merged] output{color:var(--agent-ansi-5,#a371f7)}
+/* One row on top (header/tabRow.ts, the chrome.tabs.rowTools Debug setting): the App draws the pane's
+   tabs over the header's left part, so the header is the tab row's height, takes no clicks there and
+   shows only its tools, left of the pane's own "…"; the transcript fades out under the row. */
+.acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
+.acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
+.acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
+.acpmux-header[data-tab-row]::after{content:"";position:absolute;inset:100% 0 auto;height:12px;background:linear-gradient(var(--agent-page-bg),transparent);pointer-events:none}

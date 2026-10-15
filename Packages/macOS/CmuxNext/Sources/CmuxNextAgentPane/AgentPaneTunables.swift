@@ -31,6 +31,13 @@ public nonisolated struct AgentPaneTunables {
         "agent.pageHost", PageTunables.section, "Agent pane on the page host",
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
+    /// The session side rail beside the chat (cx-ncc.101): Environment, Context and Outputs, with a
+    /// header button that shows and hides it. Off until it is promoted to a real setting. Listed in
+    /// TunableCatalog on its own line, outside `all`, so it does not churn with that list.
+    public static let sessionRail = Tunable<Bool>.toggle(
+        "agent.sessionRail", PageTunables.section, "Session side rail",
+        help: "A header button opens a rail beside the chat with its environment, context use and changed files.",
+        default: false, code: "AgentPaneTunables.sessionRail")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
@@ -135,5 +142,13 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor] }
+    /// The composer's reasoning menu draws a stepped slider from Faster to Smarter instead of its
+    /// list of levels (an opt-in look, off by default). Unlike the fold above it applies live: it reaches every
+    /// agent page as the `composer` event's `reasoningSlider` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let reasoningSlider = Tunable<Bool>.toggle(
+        "agent.reasoningSlider", PageTunables.section, "Reasoning slider in the composer",
+        help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
+        default: false, code: "AgentPaneTunables.reasoningSlider")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }
