@@ -39,6 +39,7 @@ public struct WorkspaceScreen: View {
     @State private var showsGrid: Bool
     @State private var renameText = ""
     @State private var renameID: String?
+    @State private var renamePlaceholder = "Name"
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
@@ -96,13 +97,16 @@ public struct WorkspaceScreen: View {
             .onChange(of: source.renamingTab?.id) { _, id in
                 guard let id else { return }
                 renameID = id
-                renameText = source.renamingTab?.title ?? ""
+                // Typing replaces the name, as the Mac's inline rename starts with it
+                // selected; the current name is the field's placeholder.
+                renamePlaceholder = source.renamingTab?.title ?? "Name"
+                renameText = ""
             }
             .alert("Rename Tab", isPresented: Binding(
                 get: { source.renamingTab != nil },
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
-                TextField("Name", text: $renameText)
+                TextField(renamePlaceholder, text: $renameText)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }

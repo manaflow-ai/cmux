@@ -523,7 +523,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func rename(_ id: TabsKitTab.ID, to title: String) async {
         renamingTab = nil
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let workspace, let creator, let tab = workspaceTab(id), title != tab.title,
+        guard !title.isEmpty, let workspace, let creator, let tab = workspaceTab(id), title != tab.title,
               let old = store.renameTab(id, in: workspaceID, to: title) else { return }
         do {
             try await creator.backend.renameTab(tab, in: workspace, to: title)
