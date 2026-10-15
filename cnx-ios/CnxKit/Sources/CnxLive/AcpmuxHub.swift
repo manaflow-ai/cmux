@@ -541,7 +541,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             case "permission.person_required":
                 return "This iPhone can't approve on the Mac yet. Allow it in the Mac's Settings → Mobile, or approve on the Mac."
             case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
-            default: return error.message
+            case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
+            default:
+                if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
+                return error.message
             }
         }
         return LinkController.reason(error)

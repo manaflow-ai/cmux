@@ -17,6 +17,8 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     public var startedAt: Date?
     public var endedAt: Date?
     public var errorText: String?
+    /// The model request is being retried (attempt, of at most), while the turn runs.
+    public var retry: Retry?
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
 
@@ -27,28 +29,49 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         self.promptAt = promptAt
     }
 
+    public struct Retry: Hashable, Sendable {
+        public var attempt: Int
+        public var maxAttempts: Int
+        public var status: Int?
+
+        /// "Retrying (2 of 10)", with the HTTP status when the agent gave one.
+        public var label: String {
+            let count = maxAttempts > 0 ? "\(attempt) of \(maxAttempts)" : "\(attempt)"
+            return status.map { "Retrying (\(count), error \($0))" } ?? "Retrying (\(count))"
+        }
+    }
+
     public var duration: TimeInterval? {
         guard let startedAt else { return nil }
         return (endedAt ?? Date()).timeIntervalSince(startedAt)
     }
 
-    /// The edits in this turn, newest content per path (the edited-files card and Changes).
+    /// The edits in this turn, per path in order (the edited-files card and Changes).
     public var changeSet: DiffChangeSet? {
-        var order: [String] = []
-        var byPath: [String: (old: String?, new: String)] = [:]
-        for case .tool(let call) in items {
-            for diff in call.diffs {
-                if let existing = byPath[diff.path] {
-                    byPath[diff.path] = (existing.old, diff.newText)
-                } else {
-                    order.append(diff.path)
-                    byPath[diff.path] = (diff.oldText, diff.newText)
-                }
-            }
-        }
-        guard !order.isEmpty else { return nil }
-        let files = order.map { DiffFile(path: $0, oldText: byPath[$0]?.old, newText: byPath[$0]?.new) }
+        let files = Self.diffFiles(edits)
+        guard !files.isEmpty else { return nil }
         return DiffChangeSet(id: "turn-\(id)", title: "Changes", subtitle: "This turn", files: files)
+    }
+
+    /// The file edits of this turn's tool calls, in order. An edit still waiting on its
+    /// permission, or refused, is not a change (the Mac skips it too).
+    public var edits: [(path: String, oldText: String?, newText: String)] {
+        var out: [(path: String, oldText: String?, newText: String)] = []
+        for case .tool(let call) in items where call.status != .pending && call.status != .failed {
+            out += call.diffs
+        }
+        return out
+    }
+
+    /// One file per path, first-edit order, each built from all its edits in order.
+    public static func diffFiles(_ edits: [(path: String, oldText: String?, newText: String)]) -> [DiffFile] {
+        var order: [String] = []
+        var byPath: [String: [(oldText: String?, newText: String)]] = [:]
+        for edit in edits {
+            if byPath[edit.path] == nil { order.append(edit.path) }
+            byPath[edit.path, default: []].append((edit.oldText, edit.newText))
+        }
+        return order.map { DiffFile(path: $0, edits: byPath[$0] ?? []) }
     }
 
     public func question(_ id: String) -> AgentQuestion? {
@@ -293,8 +316,12 @@ public final class AgentChatStore {
                 $0.status = .running
             }
             summary.status = .running
+        case .retrying(let attempt, let maxAttempts, let status):
+            guard let index = turns.indices.last, turns[index].status == .running else { return }
+            turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnResult(let turnId, let status, let errorText, let at):
             mutateTurn(turnId) { turn in
+                turn.retry = nil
                 turn.status = status
                 turn.endedAt = at
                 turn.errorText = errorText
@@ -318,6 +345,13 @@ public final class AgentChatStore {
             currentMessageID = nil
             summary.status = .idle
         case .update(let update):
+            // The model answered: the retry is over.
+            switch update {
+            case .agentMessageChunk, .agentThoughtChunk, .toolCall:
+                if let index = turns.indices.last, turns[index].retry != nil { turns[index].retry = nil }
+            default:
+                break
+            }
             applyUpdate(update)
         case .permissionRequest(let request):
             appendItem(.permission(PermissionRecord(request: request)))

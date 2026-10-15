@@ -237,7 +237,7 @@ struct DiffSnippet: View {
     }
 
     private var files: [DiffFile] {
-        call.diffs.map { DiffFile(path: $0.path, oldText: $0.oldText, newText: $0.newText) }
+        call.diffs.map { DiffFile(path: $0.path, edits: [($0.oldText, $0.newText)]) }
     }
 
     private func card(_ file: DiffFile) -> some View {

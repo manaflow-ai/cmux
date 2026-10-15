@@ -246,7 +246,7 @@ extension FeedItem {
         switch kind {
         case .permission(let request):
             // A full swipe denies, never allows: granting a permission takes a deliberate tap.
-            let allow = request.options.first(where: { $0.kind == .allowOnce }) ?? request.options.first(where: \.isAllow)
+            let allow = request.phoneOptions.first(where: { $0.kind == .allowOnce }) ?? request.phoneOptions.first(where: \.isAllow)
             let deny = request.options.first(where: { $0.kind == .rejectOnce }) ?? request.options.first(where: { !$0.isAllow })
             var actions: [FeedSwipeAction] = []
             if let deny {

@@ -102,7 +102,7 @@ struct DevicesPage: View {
                 } header: {
                     Text("Phones")
                 } footer: {
-                    Text("Sign out to remove this iPhone.")
+                    Text(directory != nil ? "To remove this iPhone, use Remove This iPhone from My Macs below." : "Sign out to remove this iPhone.")
                 }
             }
             if directory != nil {
@@ -216,7 +216,9 @@ struct DevicesPage: View {
     static func removalExplanation(_ device: SettingsDevice, connected: Bool, honorsRemoval: Bool = false,
                                    displayName: String? = nil) -> String {
         guard device.kind == .mac else {
-            return "It stops receiving notifications from your Macs and leaves this list. It comes back when cmux on it signs in again."
+            // The account's device list is all this removes: a Mac keeps its approval of the
+            // phone (its paired list) until it is removed there too.
+            return "It stops receiving notifications and leaves this list. Your Macs still allow it to connect until you remove it in Settings → Mobile on each Mac. It comes back here when cmux on it signs in again."
         }
         var parts = ["\(displayName ?? device.name) leaves the Mac list on all your devices, and this iPhone forgets its saved workspaces."]
         if connected { parts.append("This iPhone disconnects from it now.") }
