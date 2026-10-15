@@ -47,7 +47,7 @@ final class AgentChatSplitToggles {
     /// workspace, else opens one (an untracked kind just runs; Terminal always opens one with `terminalButtonAdds` on).
     func toggle(_ id: String, cwd: String?, url: String? = nil, chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
-        if id == "splitRight", AgentPaneTunables.terminalButtonAdds.value { return open(id, cwd: cwd, url: url, chat: chat, store: store, actions: actions) }
+        if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, chat: chat, store: store, actions: actions) }
         guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
             return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
         }
@@ -55,7 +55,7 @@ final class AgentChatSplitToggles {
         if let index = opened.lastIndex(where: { $0.id == id }) {
             // A split the user closed is forgotten, so this button's older opening never claims a
             // tab the user makes later.
-            opened.remove(at: index)
+            opened = AgentChatTerminalAdds.forgetting(index, of: id, in: opened) { $0.id }
             if let split = splits[index] { return actions.close(tab: split.id) }
         }
         open(id, cwd: cwd, url: url, chat: chat, tabs: tabs, store: store, actions: actions)
@@ -81,7 +81,7 @@ final class AgentChatSplitToggles {
             .compactMap { splits[$0] }
             .first { Self.beside(chat, $0, in: store) }
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
-        opened = Array(opened.suffix(Self.remembered - 1))
+        opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: id, baseline: Set(tabs.map(\.id))))
         Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: anchor?.id, actions: actions)
     }
@@ -149,9 +149,9 @@ final class AgentChatSplitToggles {
         guard let store else { return AgentPaneHeaderState() }
         let tabs = Self.workspaceTabs(of: chat, in: store) ?? []
         let splits = splits(in: tabs, chat: chat)
-        let lit = Self.panels.filter { id in
+        let lit = AgentChatTerminalAdds().lit(Self.panels.filter { id in
             opened.lastIndex { $0.id == id }.flatMap { splits[$0] } != nil
-        }
+        })
         var state = AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
                                          sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
                                          floatingChat: QuickComposerTunables.floatingChat.value)
