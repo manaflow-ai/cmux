@@ -273,9 +273,11 @@ export function ComposerQueue({
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
+      {/* A prompt sent now keeps the narrow mark column (its send glyph) and says "Steering" ahead of
+          its text: a label in the mark column widened it for every row (round-4 captures). */}
       {entry.next ? (
-        <span className="acpmux-queued-kind" data-kind="steer">
-          {t("composer.steering")}
+        <span className="acpmux-queued-mark" data-kind="steer" aria-hidden="true">
+          <Icon name="composer.send" size={12} />
         </span>
       ) : (
         <>
@@ -307,7 +309,14 @@ export function ComposerQueue({
           onClick={() => toggle(entry.id)}
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
-          <span className="acpmux-queued-clamp">{entry.prompt}</span>
+          <span className="acpmux-queued-clamp">
+            {entry.next && (
+              <span className="acpmux-queued-kind" data-kind="steer">
+                {t("composer.steering")}
+              </span>
+            )}
+            {entry.prompt}
+          </span>
         </button>
       )}
       {/* Send now is the row's one hover action; Edit and Remove are on its menu and keys (Leo dogfood
