@@ -23,6 +23,8 @@ jobs:
   verify-shipped:
     permissions:
       contents: read
+    outputs:
+      dmg_sha256: ${{ steps.verify.outputs.dmg_sha256 }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     env:
@@ -38,6 +40,7 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Verify shipped diff sidecar runtime contract
+        id: verify
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -53,6 +56,7 @@ jobs:
             "$app/Contents/Resources/bin/cmux-diff-sidecar" \
             --archs "$(lipo -archs "$app/Contents/MacOS/cmux")" \
             --require-signed
+          echo "dmg_sha256=$(shasum -a 256 "$root/cmux-macos.dmg" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
   repair:
     needs: verify-shipped
@@ -104,6 +108,7 @@ jobs:
       - name: Download v0.64.25 DMG
         env:
           GH_TOKEN: ${{ github.token }}
+          VERIFIED_DMG_SHA256: ${{ needs.verify-shipped.outputs.dmg_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p "$REPAIR_ROOT/input"
@@ -113,6 +118,9 @@ jobs:
             --dir "$REPAIR_ROOT/input" \
             --clobber
           test -s "$REPAIR_ROOT/input/cmux-macos.dmg"
+          # Repair exactly the bytes verify-shipped checked.
+          actual="$(shasum -a 256 "$REPAIR_ROOT/input/cmux-macos.dmg" | awk '{print $1}')"
+          [ "$actual" = "$VERIFIED_DMG_SHA256" ] || { echo "the downloaded DMG differs from the one verify-shipped checked" >&2; exit 1; }
 
       - name: Extract and validate shipped app
         run: |

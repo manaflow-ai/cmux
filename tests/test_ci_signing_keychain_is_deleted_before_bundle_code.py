@@ -37,6 +37,11 @@ statically, so a reordered step fails in review and not on a release day:
 7. A job that holds a signing secret runs on a literal runner label, not a
    repository variable that could move it onto a reused machine.
 
+Not covered by rule 6: other environments and credentials (artifacts,
+package registries, CI cache, Sentry, Cloudflare, Vercel, CEF R2) and a job
+token with write scopes. Rule 6 is about signing, notarization and release
+publication.
+
 Every step is treated as if it runs. Keep each delete in a step that runs
 whenever the matching create ran (`if: always()` or the same condition).
 """

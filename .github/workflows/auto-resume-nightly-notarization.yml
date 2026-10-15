@@ -133,7 +133,7 @@ jobs:
           PY
           if grep -Fxq 'ready=true' "$RUNNER_TEMP/artifact-check"; then
             # Bundle code runs only in the source run's secret-free verify jobs.
-            # Publish a variant only when its verify job passed on this attempt.
+            # Publish a variant only when the latest run of its verify job passed.
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
               --jq '.jobs[] | [.name, (.conclusion // "")] | @tsv' > "$RUNNER_TEMP/source-jobs.tsv"
             for variant in arm64 x86_64 universal; do

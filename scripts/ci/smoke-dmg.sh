@@ -61,6 +61,7 @@ detach() {
   "$HDIUTIL_TOOL" detach "$MOUNT_DIR" >/dev/null 2>&1 \
     || "$HDIUTIL_TOOL" detach -force "$MOUNT_DIR" >/dev/null 2>&1 || true
   rmdir "$MOUNT_DIR" 2>/dev/null || true
+  rm -f "${SMOKE_LOG:-}"
 }
 trap detach EXIT
 "$HDIUTIL_TOOL" attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
@@ -68,8 +69,9 @@ APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 [ -n "$APP" ] || { echo "No app found in $DMG" >&2; exit 1; }
 "$SPCTL_TOOL" -a -vv --type execute "$APP"
 SMOKE_LOG="$(mktemp)"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 2>&1 | tee "$SMOKE_LOG"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 2>&1 | tee -a "$SMOKE_LOG"
+# The app must not inherit the fd that carries the tested line.
+CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee "$SMOKE_LOG"
+CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee -a "$SMOKE_LOG"
 if grep -q '^SKIP: cannot smoke-launch' "$SMOKE_LOG"; then
   # The same policy the in-job smokes had: an x86_64 app on a runner without
   # Rosetta is an environment gap. The stapler, Gatekeeper, metadata and
