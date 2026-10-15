@@ -284,7 +284,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
   });
 
   const haveXvfb = ["/usr/bin/Xvfb", "/usr/bin/xprop", "/usr/bin/xauth", "/usr/bin/mcookie"].every((f) => existsSync(f));
-  test.skipIf(!haveXvfb)("the root property writer against a real Xvfb with a cookie (runs where Xvfb and xprop are installed)", async () => {
+  (haveXvfb ? test : test.skip)("the root property writer against a real Xvfb with a cookie (runs where Xvfb and xprop are installed)", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-root-prop-"));
     const display = `:${200 + Math.floor(Math.random() * 500)}`;
     const auth = path.join(dir, "Xauthority");
