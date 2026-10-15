@@ -185,6 +185,26 @@ fn status_wait_times_out_with_exit_124() {
     assert_eq!(entry(&server, &workspace, "build").unwrap()["state"], "busy");
 }
 
+/// `current` outside a cmux terminal names the session's current
+/// workspace. A session with none fails the wait as not found (exit 1)
+/// instead of reporting the key cleared in a workspace called "current".
+#[test]
+fn status_wait_fails_when_current_names_no_workspace() {
+    // A bare headless daemon has no workspace.
+    let server = HeadlessServer::start("status-wait-no-current");
+    let output =
+        finished(spawn_wait(&server, "current", "build", &["--timeout", "5s"]), SECONDS_10);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let error = json_error(&output);
+    assert_eq!(error["code"], "selector.not_found", "{error}");
+}
+
 /// No KEY, an unknown condition or state, or a timeout that is not a
 /// duration, is a usage error (exit 2); the help lists the verb.
 #[test]
