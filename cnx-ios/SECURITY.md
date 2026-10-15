@@ -685,11 +685,16 @@ What the daemon does (cmux-tui `mux/tab_groups/reopen_saved.rs`,
 - Tests: hostd `saved_tab_groups_take_only_the_saved_id_and_a_pane`, Swift
   `DaemonLanePolicySavedGroupTests`; phone CnxLive `SavedTabGroupTests`, CnxWorkspaces
   `savedTabGroupsFromThePageMenu`.
-- **Live check: pending orchestrator.** Rule 4 needs it shown on a rig Mac that a
-  reopen from the phone starts shells on the Mac, as children of the rig app's own
-  `cmux-tui __terminal-host`, in the saved folders, and that a line with any other
-  field is refused. Until then the rows stay "pending live check" in
-  `verify/parity-mac.md`.
+- **Live check: passed (round 3, 2026-10-15, rig `cnx-p3-153f3482` on mini-cmux11s).** A
+  saved red group of two terminals (one `cd`'d to `/tmp/p3saved-check`) was closed with
+  `end_terminals` (old shells 25525, 25558). From the phone, page menu > Reopen Saved Tab
+  Group… > P3SAVED: the Mac listed both tabs again in 0.2 s, each a NEW `/bin/zsh` (28056,
+  28066) whose parent is the rig app's own `cmux-tui __terminal-host --owner
+  com.cmuxterm.app.debug.cnx.p3.153f3482`, with working folders
+  `~/cnx-ios-e2e/p3/proj` and `/private/tmp/p3saved-check` (the saved ones, `lsof`). Delete
+  Saved Tab Group… removed the record in 0.2 s; the open group stayed. Refusal of
+  `command`/`argv`/`cwd`/`env` on the line: the hostd and Swift policy tests above (the
+  phone never builds such a line). Video `~/cnx-ios-e2e/p3-raw/reopen-saved-group.mp4`.
 
 ### `daemon`: Duplicate Workspace (no allowlist change)
 
