@@ -6,7 +6,8 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 import type { IncludedMode } from "./billing-catalog.ts"
-import { creditAdd, creditBalance, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
+import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
+import { mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
 import { currentBillable, ensureBillingTables, markBillable, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
@@ -185,7 +186,9 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   /** Prepaid credits (usage-credits.ts, credits.ts): money in, once per `key` (a paid top-up or an operator grant). */
   async creditAdd(entity: string, key: string, kind: "topup" | "grant", micros: number, actor: string, reason: string | null): Promise<{ added: boolean; balance_micros: number }> {
     this.bind(entity)
-    return creditAdd(this.ctx.storage, key, kind, micros, actor, reason, Date.now())
+    const r = creditAdd(this.ctx.storage, key, kind, micros, actor, reason, Date.now())
+    this.scheduleMirror()
+    return r
   }
 
   /** Prepaid credits: hold a model call's maximum price before the call (refused below it). */
@@ -196,16 +199,33 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     return r
   }
 
+  /** The team's payment-service customer for a key mode (one per team), or null. Never binds. */
+  async creditCustomer(entity: string, mode: "test" | "live"): Promise<string | null> {
+    return this.isBound(entity) ? creditCustomer(this.ctx.storage.sql, mode) : null
+  }
+
+  /** Records the team's customer for a key mode; the first one stays. Returns the one kept. */
+  async setCreditCustomer(entity: string, mode: "test" | "live", customer: string): Promise<string> {
+    this.bind(entity)
+    const kept = setCreditCustomer(this.ctx.storage, mode, customer, Date.now())
+    this.scheduleMirror()
+    return kept
+  }
+
   /** Prepaid credits: the call's real price replaces its hold (or is charged once without one). */
   async creditSettle(entity: string, id: string, priceMicros: number, costMicros: number, chief: string | null, conversation: string | null): Promise<{ charged: boolean; balance_micros: number }> {
     this.bind(entity)
-    return creditSettle(this.ctx.storage, id, priceMicros, costMicros, chief, conversation, Date.now())
+    const r = creditSettle(this.ctx.storage, id, priceMicros, costMicros, chief, conversation, Date.now())
+    this.scheduleMirror()
+    return r
   }
 
   /** Prepaid credits: the call never reached a provider. */
   async creditRelease(entity: string, id: string): Promise<boolean> {
     if (!this.isBound(entity)) return false
-    return creditRelease(this.ctx.storage, id)
+    const gone = creditRelease(this.ctx.storage, id, Date.now())
+    this.scheduleMirror()
+    return gone
   }
 
   /** Prepaid credits: true the first time a conversation is told the team is out of credits (until money comes in). */
@@ -237,6 +257,35 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     this.bind(entity)
     const { spent, open } = userSpentMicros(this.ctx.storage.sql, utcMonth(Date.now()), user)
     return { allowed: spent + open < limitMicros, spent_usd: Math.round(spent) / 1_000_000 }
+  }
+
+  /** The credits mirror to the billing database is on here (CREDITS_MIRROR=mysql and the PS_MYSQL binding). */
+  private mirrorOn(): boolean {
+    return this.env.CREDITS_MIRROR === "mysql" && this.env.PS_MYSQL !== undefined
+  }
+
+  private scheduleMirror(): void {
+    if (this.mirrorOn()) this.scheduleAlarm()
+  }
+
+  /** One mirror run from the alarm; a failure is logged (codes only) and retried later, never thrown. */
+  private async runMirror(entity: string, now: number): Promise<void> {
+    const due = mirrorDue(this.ctx.storage.sql)
+    if (due === null || due > now) return
+    let client: { end(): Promise<void> } | undefined
+    try {
+      const { connectMysql } = await import("./mysql-connect.ts")
+      const c = await connectMysql(this.env.PS_MYSQL!, { timeoutMs: 5_000 })
+      client = c
+      const r = await mirrorCredits(this.ctx.storage, entity, c)
+      if (r.entries > 0) console.log(JSON.stringify({ msg: "credits.mirror", team: entity, entries: r.entries, version: r.version }))
+    } catch (e) {
+      const err = (e as { code?: unknown; errno?: unknown } | null) ?? {}
+      const failures = mirrorFailed(this.ctx.storage.sql, now)
+      console.error(JSON.stringify({ msg: "credits.mirror_failed", team: entity, failures, code: String(err.code ?? ""), errno: typeof err.errno === "number" ? err.errno : null }))
+    } finally {
+      await client?.end().catch(() => undefined)
+    }
   }
 
   private ceiling() {
@@ -370,6 +419,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     if (reservations !== null) times.push(reservations)
     const holds = nextCreditWake(sql)
     if (holds !== null) times.push(holds)
+    const mirror = this.mirrorOn() ? mirrorDue(sql) : null
+    if (mirror !== null) times.push(mirror)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -380,6 +431,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     expireCreditHolds(this.ctx.storage, now)
     expireUserReservations(this.ctx.storage, now, utcMonth(now))
+    const team = this.boundRow()?.entity
+    if (this.mirrorOn() && team) await this.runMirror(team, now)
   }
 
   /**

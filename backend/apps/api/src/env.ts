@@ -132,6 +132,8 @@ export interface Env {
   readonly CHIEF_CREDITS_TOPUP_USD?: string
   /** Optional payment-service product id for the top-up line (else an inline "cmux Cloud credits" line). */
   readonly CHIEF_CREDITS_PRODUCT?: string
+  /** "mysql": the team meters mirror credits to the billing database through PS_MYSQL (credits-mirror.ts). Off otherwise. */
+  readonly CREDITS_MIRROR?: string
   /** Dogfood grant (credits-admin.ts): comma list of team_ or user_ ids, the USD per entry, and the round (raise to grant again). */
   readonly CHIEF_CREDITS_DOGFOOD?: string
   readonly CHIEF_CREDITS_DOGFOOD_USD?: string

@@ -74,8 +74,12 @@ export const createCheckout = async (env: Env, key: string, origin: string, team
   const cents = Math.round(usd * 100)
   const base = origin.replace(/\/$/, "")
   const meta = { app: "cmux", kind: CREDITS_KIND, team, by }
+  // One payment-service customer per team: reuse the one the team's first paid top-up made.
+  const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
+  const customer = await meter.creditCustomer(team, "test")
   const form: Record<string, string> = {
     mode: "payment",
+    ...(customer ? { customer } : { customer_creation: "always" }),
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "usd",
     "line_items[0][price_data][unit_amount]": String(cents),
@@ -89,7 +93,7 @@ export const createCheckout = async (env: Env, key: string, origin: string, team
   return { id: s.id, url: s.url }
 }
 
-type Session = { id?: string; payment_status?: string; status?: string; currency?: string; amount_subtotal?: number; amount_total?: number; metadata?: Record<string, string> | null; mode?: string }
+type Session = { id?: string; livemode?: boolean; customer?: string | { id: string } | null; payment_status?: string; status?: string; currency?: string; amount_subtotal?: number; amount_total?: number; metadata?: Record<string, string> | null; mode?: string }
 
 export type GrantResult = { ok: true; team: string; added: boolean; usd: number; balance_usd: number } | { ok: false; reason: string }
 
@@ -103,6 +107,9 @@ export const grantPaidSession = async (env: Env, s: Session): Promise<GrantResul
   const micros = s.amount_total * 10_000
   const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(m.team))
   const r = await meter.creditAdd(m.team, `topup:${s.id}`, "topup", micros, m.by ?? "checkout", null)
+  // The team's customer (made by its first top-up) is kept for its next top-ups and the billing database.
+  const customer = typeof s.customer === "string" ? s.customer : s.customer?.id
+  if (customer && /^cus_[A-Za-z0-9]{1,200}$/.test(customer)) await meter.setCreditCustomer(m.team, s.livemode ? "live" : "test", customer)
   if (r.added) console.log(JSON.stringify({ msg: "credits.topup", team: m.team, session: s.id, usd: micros / 1_000_000, balance_usd: r.balance_micros / 1_000_000 }))
   return { ok: true, team: m.team, added: r.added, usd: micros / 1_000_000, balance_usd: r.balance_micros / 1_000_000 }
 }

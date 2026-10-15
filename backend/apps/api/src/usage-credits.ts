@@ -41,7 +41,31 @@ export const ensureCreditTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS credit_state (id INTEGER PRIMARY KEY CHECK (id = 1), balance INTEGER NOT NULL)`)
   // The conversations told "out of credits" since the balance was last positive (one notice each).
   sql.exec(`CREATE TABLE IF NOT EXISTS credit_notice (conversation TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
+  // The payment-service customer of this team, per key mode (test, live): one customer per team.
+  sql.exec(`CREATE TABLE IF NOT EXISTS credit_customer (mode TEXT PRIMARY KEY, customer TEXT NOT NULL, at INTEGER NOT NULL)`)
+  // The mirror to the billing database (credits-mirror.ts): what it has, when it may try again.
+  sql.exec(`CREATE TABLE IF NOT EXISTS credit_mirror (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, failures INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
+  // Mirror columns (objects from before the mirror get them): an entry's team-local sequence and
+  // whether the mirror has it; the state's version (every entry, hold or customer change) and last seq.
+  const entryCols = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(credit_entry)`).toArray().map((c) => c.name))
+  if (!entryCols.has("seq")) {
+    sql.exec(`ALTER TABLE credit_entry ADD COLUMN seq INTEGER`)
+    sql.exec(`ALTER TABLE credit_entry ADD COLUMN mirrored INTEGER NOT NULL DEFAULT 0`)
+    sql.exec(`UPDATE credit_entry SET seq = (SELECT COUNT(*) FROM credit_entry e2 WHERE e2.rowid <= credit_entry.rowid)`)
+  }
+  sql.exec(`CREATE INDEX IF NOT EXISTS credit_entry_unmirrored ON credit_entry (mirrored, seq)`)
+  const stateCols = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(credit_state)`).toArray().map((c) => c.name))
+  if (!stateCols.has("version")) {
+    sql.exec(`ALTER TABLE credit_state ADD COLUMN version INTEGER NOT NULL DEFAULT 0`)
+    sql.exec(`ALTER TABLE credit_state ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0`)
+    sql.exec(`ALTER TABLE credit_state ADD COLUMN changed_at INTEGER NOT NULL DEFAULT 0`)
+    sql.exec(`UPDATE credit_state SET last_seq = (SELECT COALESCE(MAX(seq), 0) FROM credit_entry), version = (SELECT COUNT(*) FROM credit_entry)`)
+  }
 }
+
+/** Every change the mirror must carry (an entry, a hold, a customer) moves the state's version. */
+const touch = (sql: SqlStorage, now: number) =>
+  sql.exec(`INSERT INTO credit_state (id, balance, version, last_seq, changed_at) VALUES (1, 0, 1, 0, ?) ON CONFLICT (id) DO UPDATE SET version = version + 1, changed_at = excluded.changed_at`, now)
 
 const balanceOf = (sql: SqlStorage) => Number(sql.exec<{ b: number }>(`SELECT balance AS b FROM credit_state WHERE id = 1`).toArray()[0]?.b ?? 0)
 const heldOf = (sql: SqlStorage) => Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM credit_hold`).toArray()[0]?.m ?? 0)
@@ -55,7 +79,9 @@ const writeEntry = (sql: SqlStorage, e: Entry, now: number): boolean => {
     e.key, e.kind, e.micros, e.cost ?? null, e.chief ?? null, e.conversation ?? null, e.actor ?? null, e.reason ?? null, e.corrects ?? null, now
   ).rowsWritten
   if (inserted === 0) return false
-  sql.exec(`INSERT INTO credit_state (id, balance) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET balance = balance + excluded.balance`, e.micros)
+  touch(sql, now)
+  sql.exec(`UPDATE credit_state SET balance = balance + ?, last_seq = last_seq + 1 WHERE id = 1`, e.micros)
+  sql.exec(`UPDATE credit_entry SET seq = (SELECT last_seq FROM credit_state WHERE id = 1) WHERE key = ?`, e.key)
   // Money came in: every conversation may be told again when it runs out next time.
   if (e.micros > 0 && balanceOf(sql) > 0) sql.exec(`DELETE FROM credit_notice`)
   return true
@@ -86,6 +112,7 @@ export const creditReserve = (storage: DurableObjectStorage, id: string, maxMicr
     const available = balance - heldOf(sql)
     if (available <= 0 || available < max) return { ok: false, code: "credits.insufficient", balance_micros: balance, available_micros: available, needed_micros: max }
     sql.exec(`INSERT INTO credit_hold (id, micros, chief, conversation, at) VALUES (?, ?, ?, ?, ?)`, id, max, chief, conversation, now)
+    touch(sql, now)
     return { ok: true, held_micros: max, replayed: false }
   })
 }
@@ -101,7 +128,7 @@ export const creditSettle = (storage: DurableObjectStorage, id: string, priceMic
   const price = Math.max(0, Math.round(priceMicros))
   return storage.transactionSync(() => {
     const hold = sql.exec<{ chief: string | null; conversation: string | null }>(`SELECT chief, conversation FROM credit_hold WHERE id = ?`, id).toArray()[0]
-    if (hold) sql.exec(`DELETE FROM credit_hold WHERE id = ?`, id)
+    if (hold) [sql.exec(`DELETE FROM credit_hold WHERE id = ?`, id), touch(sql, now)]
     const expired = sql.exec<{ micros: number; chief: string | null; conversation: string | null }>(`SELECT micros, chief, conversation FROM credit_entry WHERE key = ? AND kind = 'expired'`, `charge:${id}`).toArray()[0]
     let charged = false
     if (expired) {
@@ -115,7 +142,12 @@ export const creditSettle = (storage: DurableObjectStorage, id: string, priceMic
 }
 
 /** The call never reached a provider: the hold goes, nothing is charged. */
-export const creditRelease = (storage: DurableObjectStorage, id: string): boolean => storage.sql.exec(`DELETE FROM credit_hold WHERE id = ?`, id).rowsWritten > 0
+export const creditRelease = (storage: DurableObjectStorage, id: string, now: number): boolean =>
+  storage.transactionSync(() => {
+    const gone = storage.sql.exec(`DELETE FROM credit_hold WHERE id = ?`, id).rowsWritten > 0
+    if (gone) touch(storage.sql, now)
+    return gone
+  })
 
 /** Alarm work: holds past their TTL are charged in full (kind `expired`); old charge rows are pruned. */
 export const expireCreditHolds = (storage: DurableObjectStorage, now: number) => {
@@ -123,8 +155,9 @@ export const expireCreditHolds = (storage: DurableObjectStorage, now: number) =>
   storage.transactionSync(() => {
     const stale = sql.exec<{ id: string; micros: number; chief: string | null; conversation: string | null }>(`SELECT id, micros, chief, conversation FROM credit_hold WHERE at <= ?`, now - CREDIT_HOLD_TTL_MS).toArray()
     for (const h of stale) writeEntry(sql, { key: `charge:${h.id}`, kind: "expired", micros: -Number(h.micros), chief: h.chief, conversation: h.conversation, reason: "not settled within an hour" }, now)
-    sql.exec(`DELETE FROM credit_hold WHERE at <= ?`, now - CREDIT_HOLD_TTL_MS)
-    sql.exec(`DELETE FROM credit_entry WHERE kind IN ('charge', 'expired', 'correction') AND at < ?`, now - CREDIT_CHARGE_RETENTION_MS)
+    if (sql.exec(`DELETE FROM credit_hold WHERE at <= ?`, now - CREDIT_HOLD_TTL_MS).rowsWritten > 0) touch(sql, now)
+    // Only rows the billing database already has leave the hot copy.
+    sql.exec(`DELETE FROM credit_entry WHERE kind IN ('charge', 'expired', 'correction') AND mirrored = 1 AND at < ?`, now - CREDIT_CHARGE_RETENTION_MS)
   })
 }
 
@@ -153,3 +186,16 @@ export const creditBalance = (sql: SqlStorage, since: number, limit: number): Cr
     .map((r) => ({ key: r.key, kind: r.kind, micros: Number(r.micros), chief: r.chief, at: Number(r.at), reason: r.reason }))
   return { balance_micros: balance, held_micros: held, available_micros: balance - held, chiefs, entries }
 }
+
+/** The team's payment-service customer for a key mode, or null. */
+export const creditCustomer = (sql: SqlStorage, mode: "test" | "live"): string | null => sql.exec<{ customer: string }>(`SELECT customer FROM credit_customer WHERE mode = ?`, mode).toArray()[0]?.customer ?? null
+
+/** Records the team's customer for a mode (first one wins: one customer per team). */
+export const setCreditCustomer = (storage: DurableObjectStorage, mode: "test" | "live", customer: string, now: number): string =>
+  storage.transactionSync(() => {
+    const known = creditCustomer(storage.sql, mode)
+    if (known) return known
+    storage.sql.exec(`INSERT INTO credit_customer (mode, customer, at) VALUES (?, ?, ?)`, mode, customer, now)
+    touch(storage.sql, now)
+    return customer
+  })
