@@ -888,6 +888,20 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A long thought folded (Debug toggle agentPane.debug.foldLongThoughts): "Thought", its first line,
+   a trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
+   row's gap (AI Elements' Trace nesting); the reader's toggle animates its height (ThoughtRow.tsx). */
+.cv-thought__preview {
+  color: var(--cv-text-muted);
+}
+.cv-thought__body {
+  display: block;
+  margin: 2px 0 6px 7px;
+  padding-left: 16px;
+  border-left: 1px solid var(--cv-rule);
+  line-height: 20px;
+  overflow: hidden;
+}
 .cv-tool.is-toggle {
   cursor: pointer;
   user-select: none;
