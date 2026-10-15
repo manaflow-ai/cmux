@@ -40,4 +40,24 @@ import Testing
         #expect(SavedTabGroupAction.delete.title == "Delete Saved Tab Group…")
         #expect(SavedTabGroupAction.reopen.sheetTitle == "Reopen Saved Tab Group")
     }
+
+    /// Duplicate Workspace from a phone: each terminal again in its folder (the Mac's
+    /// unabbreviated one when it reports it), each web page again; chats and non-web pages
+    /// are left out.
+    @Test func duplicatePlanFollowsTheTabs() {
+        let tabs = [
+            WorkspaceTab(id: "s1", kind: .terminal, title: "zsh", subtitle: "~/p"),
+            WorkspaceTab(id: "s2", kind: .agent, title: "Claude"),
+            WorkspaceTab(id: "s3", kind: .browser, title: "Docs", url: URL(string: "https://example.com/a")),
+            WorkspaceTab(id: "s4", kind: .browser, title: "File", url: URL(string: "file:///etc/hosts")),
+            WorkspaceTab(id: "s5", kind: .terminal, title: "build"),
+        ]
+        let ws = Workspace(id: "w", macID: "m", title: "api", directory: "~/p", tabs: tabs, lastActivityAt: Date())
+        #expect(LiveWorkspaceCreationBackend.duplicatePlan(ws, directories: ["s1": "/Users/x/p"]) == [
+            .terminal(folder: "/Users/x/p"), .browser(url: "https://example.com/a"), .terminal(folder: nil),
+        ])
+        // The folder is typed only when it can be (never home, never a line-editing character).
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("/Users/x/p") == "cd '/Users/x/p' && clear\n")
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("~") == nil)
+    }
 }

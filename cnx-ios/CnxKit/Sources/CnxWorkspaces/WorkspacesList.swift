@@ -396,6 +396,7 @@ public struct WorkspacesList: View {
                     if order.count > 1, order.last?.id != ws.id { Button("Move Workspace Down") { creator.move(ws, by: 1, among: order) } }
                 }
                 Button("Rename") { startRename(ws) }
+                if creator.canDuplicate(ws) { Button(WorkspaceCreator.duplicateTitle) { creator.duplicate(ws) } }
                 Button("Close") { confirmClose(ws) }
             }
         }
@@ -494,6 +495,9 @@ public struct WorkspacesList: View {
             }
             Section {
                 Button("Rename", systemImage: "pencil") { startRename(ws) }
+                if creator.canDuplicate(ws) {
+                    Button(WorkspaceCreator.duplicateTitle, systemImage: "plus.square.on.square") { creator.duplicate(ws) }
+                }
                 Button("Close Workspace", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
                 bulkCloseMenu(ws, inbox: inbox)
             }

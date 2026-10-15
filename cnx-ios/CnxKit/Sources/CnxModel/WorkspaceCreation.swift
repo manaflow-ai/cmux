@@ -190,6 +190,9 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func rename(_ workspace: Workspace, to title: String) async throws
     /// Closes a workspace on its Mac.
     func close(_ workspace: Workspace) async throws
+    /// Duplicate Workspace: a new workspace on the Mac with the same terminals (each a new
+    /// shell in its tab's folder) and web pages. Returns it once the Mac lists it.
+    func duplicate(_ workspace: Workspace) async throws -> Workspace
     /// The tabs the phone may open in a workspace on `macID` now (none: the
     /// new-tab menu says why instead of making a tab the Mac never sees).
     func tabKinds(on macID: String) -> [NewTabKind]
@@ -246,6 +249,9 @@ extension WorkspaceCreationBackend {
     }
     public func close(_ workspace: Workspace) async throws {
         throw WorkspaceCreationError("Closing isn't available on this Mac")
+    }
+    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+        throw WorkspaceCreationError("Duplicating isn't available on this Mac")
     }
     public func tabKinds(on macID: String) -> [NewTabKind] { [] }
     public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] { [] }
@@ -463,6 +469,24 @@ public final class WorkspaceCreator {
         }
     }
 
+    /// The Mac's title for Duplicate Workspace (`action.workspace.duplicate`).
+    public static let duplicateTitle = "Duplicate Workspace"
+
+    /// Duplicate Workspace: the Mac makes the copy; the list shows it when the Mac lists it.
+    /// Home has no duplicate (the Mac's Home is one workspace).
+    public func duplicate(_ workspace: Workspace) {
+        guard canDuplicate(workspace) else { return }
+        track(workspace.id) { [weak self] in
+            do {
+                _ = try await self?.backend.duplicate(workspace)
+            } catch {
+                self?.onManageFailure?(workspace, "Couldn't duplicate \(workspace.title)", Self.message(error))
+            }
+        }
+    }
+
+    public func canDuplicate(_ workspace: Workspace) -> Bool { canManage(workspace) && !workspace.isHome }
+
     func track(_ id: String, _ work: @escaping @MainActor () async -> Void) {
         let key = "manage-\(id)-\(UUID().uuidString)"
         tasks[key] = Task { [weak self] in
@@ -665,6 +689,15 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// Every edit the mock received, in order (tests).
     public private(set) var groupEdits: [TabGroupEdit] = []
+
+    /// Workspaces duplicated, by id (tests).
+    public private(set) var duplicated: [String] = []
+
+    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+        try await settle()
+        duplicated.append(workspace.id)
+        return workspace
+    }
 
     /// The Mac's saved tab groups (Pin Group), for Reopen / Delete Saved Tab Group….
     public var savedGroups: [SavedTabGroup] = []

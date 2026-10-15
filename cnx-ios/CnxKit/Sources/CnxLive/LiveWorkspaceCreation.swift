@@ -153,6 +153,88 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// One tab of a phone's Duplicate Workspace.
+    enum DuplicateStep: Hashable, Sendable {
+        /// A new shell; `folder` is typed as `cd` when it can be (nil: the Mac's default).
+        case terminal(folder: String?)
+        case browser(url: String)
+    }
+
+    /// What Duplicate Workspace makes, as the Mac's `WorkspaceBlueprint`: each terminal tab
+    /// again as a new shell in its folder, each web page again, in tab order. Agent chats and
+    /// pages that are not http or https are left out (a phone never opens those itself).
+    nonisolated static func duplicatePlan(_ workspace: Workspace, directories: [String: String]) -> [DuplicateStep] {
+        workspace.tabs.compactMap { tab in
+            switch tab.kind {
+            case .terminal:
+                return .terminal(folder: directories[tab.id] ?? tab.subtitle)
+            case .browser:
+                guard let url = tab.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+                return .browser(url: url.absoluteString)
+            case .agent:
+                return nil
+            }
+        }
+    }
+
+    /// The Mac's Duplicate Workspace (`workspace.duplicate`), from lines a phone already
+    /// sends: `new-workspace {name}` (one shell), then in its pane `new-tab {pane}` per
+    /// terminal and `new-browser-tab {url, pane}` per page, and each shell gets
+    /// `cd '<folder>' && clear` typed (`changeDirectoryLine`), as New Workspace in a folder.
+    /// The daemon never takes a program or folder from the phone. Unlike the Mac, every tab
+    /// goes in one pane (the phone does not copy splits), and color and icon stay.
+    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+        guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
+            throw WorkspaceCreationError("Not connected")
+        }
+        guard !workspace.isHome else { throw WorkspaceCreationError("Home has no duplicate.", isForPerson: true) }
+        let plan = Self.duplicatePlan(workspace, directories: tree.directories)
+        do {
+            func surface(_ reply: Data) throws -> Int {
+                guard let id = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                    throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+                }
+                return id
+            }
+            let first = try surface(await client.request("new-workspace", params: ["name": workspace.title]))
+            let listed = try await sync.listNow()
+            let firstID = DaemonTree.tabID(surface: first)
+            guard let pane = listed.tabPlaces[firstID]?.pane,
+                  let createdID = listed.workspaces.first(where: { $0.tabs.contains { $0.id == firstID } })?.id else {
+                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            }
+            var firstUsed = false
+            for step in plan {
+                switch step {
+                case .terminal(let folder):
+                    let shell: Int
+                    if firstUsed {
+                        shell = try surface(await client.request("new-tab", params: ["pane": pane]))
+                    } else {
+                        shell = first
+                        firstUsed = true
+                    }
+                    if let folder, let line = Self.changeDirectoryLine(folder) {
+                        _ = try? await client.request("send", params: ["surface": shell, "text": line])
+                    }
+                case .browser(let url):
+                    _ = try surface(await client.request("new-browser-tab", params: ["url": url, "pane": pane]))
+                }
+            }
+            // Only pages: the first shell goes, as the Mac's builder closes its initial tab.
+            if !firstUsed, !plan.isEmpty {
+                _ = try? await client.request("close-surface", params: ["surface": first])
+            }
+            let tree = try await sync.listNow()
+            guard let created = tree.workspaces.first(where: { $0.id == createdID }) else {
+                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            }
+            return created
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
     /// The daemon lane allows `rename-workspace` and `close-workspace` on
     /// the linked Mac.
     public func canManage(on macID: String) -> Bool { canCreate(on: macID) }
