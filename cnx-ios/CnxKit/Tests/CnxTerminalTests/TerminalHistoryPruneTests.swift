@@ -123,3 +123,34 @@ extension TerminalFrameCoverTests {
         #expect(TerminalFrameCover(presentedTop: 1000, surfaceRows: 150).isDisjoint(visibleTop: 16950, visibleBottom: 17000))
     }
 }
+
+/// VERIFY-round8 claim 1a (T-SCROLL-02/09): a one-frame full black on about
+/// 40 % of Jump to bottom taps at the history cap. The jump waited for the
+/// end's frame only when none of its rows were on screen, and only for six
+/// display frames: under fast output Ghostty's frame for the end came later,
+/// the fallback moved the page anyway, and the old frame (the reading rows)
+/// left the end's rows black until the next present. A target only partly
+/// in the frame moved at once with the rest black. The page now moves only
+/// to rows the frame on screen covers, and keeps the last good frame until
+/// the new one is placed (up to `maxWait`, inside T-SCROLL-09's 400 ms).
+@Suite struct TerminalScrollGateTests {
+    @Test func aTargetPartlyOutsideTheFrameWaits() {
+        // The frame shows 16700..<16851; the end shows 16815..<16860.
+        let cover = TerminalFrameCover(presentedTop: 16700, surfaceRows: 151)
+        #expect(!cover.isDisjoint(visibleTop: 16815, visibleBottom: 16860))
+        #expect(!TerminalScrollGate.movesNow(cover: cover, visibleTop: 16815, visibleBottom: 16860, documentRows: 0..<16860))
+        #expect(TerminalScrollGate.movesNow(cover: TerminalFrameCover(presentedTop: 16709, surfaceRows: 151),
+                                            visibleTop: 16815, visibleBottom: 16860, documentRows: 0..<16860))
+        // Rows past the document's end are the page's own background.
+        #expect(TerminalScrollGate.movesNow(cover: cover, visibleTop: 16815, visibleBottom: 16900, documentRows: 0..<16851))
+    }
+
+    @Test func theFallbackNeverMovesToUncoveredRowsBeforeTheMaximumWait() {
+        // Six display frames at 120 Hz: the end's frame is not in yet.
+        #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: 0.05))
+        #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: 0.25))
+        #expect(TerminalScrollGate.fallbackMoves(covered: false, waited: TerminalScrollGate.maxWait))
+        #expect(TerminalScrollGate.fallbackMoves(covered: true, waited: 0.02))
+        #expect(TerminalScrollGate.maxWait < 0.4)
+    }
+}
