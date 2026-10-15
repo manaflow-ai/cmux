@@ -712,3 +712,95 @@ fn chief_engine_and_stop_act_on_the_named_chief_only() {
     let _ = owned.child.wait();
     let _ = fs::remove_dir_all(&files);
 }
+
+/// A Chief made before the daemon's brain supervisor is installed (the
+/// control socket accepts clients first): the create waits for the
+/// supervisor's real answer instead of saying "not started". A test-only
+/// FIFO gate (debug builds) holds the install until the create is committed,
+/// so the test proves that path every run.
+#[test]
+fn a_chief_made_before_the_brain_supervisor_runs_reports_its_brain_started() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbe");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let gate = files.join("gate");
+    let gate_c = std::ffi::CString::new(gate.to_str().unwrap()).unwrap();
+    // SAFETY: a valid C path; the test's own directory.
+    assert_eq!(unsafe { libc::mkfifo(gate_c.as_ptr(), 0o600) }, 0);
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-early",
+        None,
+        None,
+        &[
+            ("CMUX_TUI_CHIEF_BRAINS", brains.as_str()),
+            ("CMUX_TUI_TEST_CHIEF_BRAINS_GATE", gate.to_str().unwrap()),
+        ],
+    );
+    let socket = owned.socket.clone();
+    let made = std::thread::spawn(move || {
+        let mut command = Command::new(bin());
+        command
+            .arg("--socket")
+            .arg(&socket)
+            .args(["chief", "new", "--name", "Scout", "--role", "Researcher", "--json"])
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET");
+        for key in [
+            "ACPMUX_ENV",
+            "ACPMUX_SESSION_ID",
+            "ACPMUX_SESSION_NAME",
+            "CMUX_CHIEF_OWNER_SOCKET",
+            "CMUX_AGENT_PRINCIPAL",
+            "CMUX_AGENT_CLASS",
+            "CMUX_AGENT_HARNESS",
+        ] {
+            command.env_remove(key);
+        }
+        command.output().unwrap()
+    });
+    // The create is committed while the supervisor is held: it now waits.
+    let mut home = Conn::open(&owned.socket);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let listed = v2(&mut home, "chief.profile.list", json!({}));
+        if listed["result"]["chiefs"]
+            .as_array()
+            .is_some_and(|c| c.iter().any(|r| r["display_name"] == "Scout"))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the create never committed: {listed}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(!made.is_finished(), "the create answered before the supervisor ran");
+    // Release the install: the supervisor handles the queued create and answers.
+    let writer = fs::OpenOptions::new().write(true).open(&gate).unwrap();
+    let output = made.join().unwrap();
+    drop(writer);
+    assert_success(&output);
+    let record: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(record["brain"], json!({"state": "started"}), "{record}");
+    let scout = record["id"].as_str().unwrap().to_owned();
+    let pid: i32 = wait_file(&brain_dir(&chief_home, &scout).join("pid.1")).parse().unwrap();
+    assert!(alive(pid));
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(pid, "the brain after daemon shutdown");
+    let _ = fs::remove_dir_all(&files);
+}
