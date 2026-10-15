@@ -88,7 +88,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             groupId: nil,
             index: 0,
             workspaceCount: 1,
-            workspace: SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(),
+            workspace: SidebarWorkspaceSnapshotTests.snapshot(),
             isActive: true,
             isMultiSelected: false,
             hasUserCustomTitle: false,
