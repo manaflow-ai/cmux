@@ -5,6 +5,7 @@ import CmuxNextIcons
 extension TabCell {
     /// The tab icon tinted `tint`, at the cell's icon size and scale.
     func iconImage(tint: NSColor) -> CGImage? {
+        if hidesAgentChatIcon { return nil }
         switch item.icon {
         case .none:
             // A pinned tab is icon-only: without an icon of its own it shows a pin.

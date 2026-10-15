@@ -34,6 +34,7 @@ public struct TabItemMapping {
             status: status(tab)
         )
         item.isNewTabPage = isNewTabPage
+        item.isAgentChat = isConversation
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
