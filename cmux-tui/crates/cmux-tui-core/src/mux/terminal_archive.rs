@@ -119,9 +119,20 @@ impl Mux {
                 screen: archive.screen.as_ref().map(|screen| screen.2.as_slice()),
             })
             .collect::<Vec<_>>();
+        self.put_terminal_archive_rows(&rows, ARCHIVE_BLOB_BUDGET_BYTES);
+    }
+
+    /// Store `rows` within `blob_budget_bytes` of screens across all
+    /// archives ([`ARCHIVE_BLOB_BUDGET_BYTES`] outside tests). Best effort,
+    /// as [`Self::store_terminal_archives`].
+    pub(crate) fn put_terminal_archive_rows(
+        &self,
+        rows: &[ArchiveRow<'_>],
+        blob_budget_bytes: u64,
+    ) {
         let now = crate::workspace_registry::session_journal::unix_epoch_ms().unwrap_or_default();
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Err(error) = registry.put_terminal_archives(&rows, now, ARCHIVE_BLOB_BUDGET_BYTES) {
+        if let Err(error) = registry.put_terminal_archives(rows, now, blob_budget_bytes) {
             eprintln!("cmux-tui: could not store {} terminal archive(s): {error:#}", rows.len());
         }
     }
