@@ -8762,7 +8762,7 @@ no harness and no thread: a plan never starts acpmux.
 
 `{id, cmd:"agent-update-apply", ids, continue_threads?}` updates the named
 harnesses (at most 64 ids) and answers
-`{results:[{id, ok, version?, error?}], threads_restarted, threads_after_turn, threads_error?}`.
+`{results:[{id, ok, version?, error?}], threads_restarted, threads_after_turn, threads_failed, threads_error?}`.
 acpmux checks its harnesses again, runs now the update of each named one that
 is still outdated (one at a time, each command once, whatever its
 auto-update choice), waits for it (each may take 15 minutes) and checks
@@ -8773,9 +8773,11 @@ without a run. With `continue_threads: true` every live chat (as counted by
 the plan) of a harness that ended `ok` then restarts its agent process on
 the installed version and resumes the same conversation: a chat between
 turns now (`threads_restarted`), a chat in a turn when that turn ends
-(`threads_after_turn`; the turn is never cancelled). When that restart
+(`threads_after_turn`; the turn is never cancelled). A chat acpmux could
+not restart keeps running its old agent and counts in `threads_failed`, with
+the first one's reason in `threads_error`. When the restart call itself
 fails the answer still carries `results`, with `threads_error` (a string
-saying why) and both counts 0; clients ignore the field when absent. When
+saying why) and every count 0; clients ignore the field when absent. When
 nothing listens on the acpmux socket the daemon starts acpmux as
 `agent-session-start` does (`agent_update.acpmux_unavailable` if it cannot).
 Only when the running acpmux does not know the update method (JSON-RPC

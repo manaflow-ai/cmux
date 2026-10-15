@@ -174,7 +174,7 @@ fn agent_update_plan_and_apply_update_the_cli_and_continue_the_chat() {
     assert_eq!(
         applied["data"],
         json!({"results": [{"id": "fake", "ok": true, "version": "2.0.9"}],
-               "threads_restarted": 1, "threads_after_turn": 0}),
+               "threads_restarted": 1, "threads_after_turn": 0, "threads_failed": 0}),
         "{applied}"
     );
     let runs = fs::read_to_string(machine.dir.join("update-runs")).unwrap();

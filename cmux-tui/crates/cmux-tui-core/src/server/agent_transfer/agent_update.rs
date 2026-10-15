@@ -17,14 +17,16 @@
 //!   no harness and no thread: a plan never starts acpmux.
 //! - `agent-update-apply {ids, continue_threads}` answers `{results: [{id,
 //!   ok, version?, error?}], threads_restarted, threads_after_turn,
-//!   threads_error?}`:
+//!   threads_failed, threads_error?}`:
 //!   acpmux's `_acpmux/harness/update {ids}` (each named harness that is
 //!   still outdated, updated now and waited for), then with
 //!   `continue_threads` its `_acpmux/sessions/restart_harness` for the
 //!   harnesses that ended up current: their chats restart on the new
 //!   version and resume the same conversation, a chat in a turn when the
-//!   turn ends; when that restart fails the updates still answer, with
-//!   `threads_error` and no thread counted. When acpmux is not running it is
+//!   turn ends; a chat acpmux could not restart counts in `threads_failed`
+//!   (the first one's reason in `threads_error`); when that restart call
+//!   fails the updates still answer, with `threads_error` and no thread
+//!   counted. When acpmux is not running it is
 //!   started (as `agent-session-start` starts it). Only when the running
 //!   acpmux does not know the update method (an acpmux from before it) is it
 //!   handed off to the installed binary's build: stopped with its agents kept
@@ -386,7 +388,8 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
         .collect();
     let current: Vec<&Value> =
         results.iter().filter(|result| result["ok"] == true).map(|result| &result["id"]).collect();
-    let mut out = json!({"results": results, "threads_restarted": 0, "threads_after_turn": 0});
+    let mut out = json!({"results": results, "threads_restarted": 0, "threads_after_turn": 0,
+                         "threads_failed": 0});
     if params.continue_threads && !current.is_empty() {
         // The updates happened: a restart that fails is reported beside them.
         match link.call(
@@ -397,6 +400,14 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
             Ok(moved) => {
                 out["threads_restarted"] = json!(moved["restarted"].as_u64().unwrap_or(0));
                 out["threads_after_turn"] = json!(moved["after_turn"].as_u64().unwrap_or(0));
+                // A chat acpmux could not restart keeps its old agent: counted, with why.
+                let failed = moved["failed"].as_u64().unwrap_or(0);
+                out["threads_failed"] = json!(failed);
+                if failed > 0 {
+                    let why =
+                        moved["errors"][0]["error"].as_str().unwrap_or("a chat did not restart");
+                    out["threads_error"] = json!(why);
+                }
             }
             Err(error) => out["threads_error"] = json!(Failure::of(error).message()),
         }
