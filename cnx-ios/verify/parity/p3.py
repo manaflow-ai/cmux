@@ -153,7 +153,7 @@ def flow_queue():
         while time.time() - t0 < 120:
             x = session(sid) or {}
             if x.get("pendingPermissions"):
-                allow = s.find(label="Allow Once", kind="Button") or s.find(prefix="Allow", kind="Button")
+                allow = s.find(label="Allow once", kind="Button") or s.find(label="Allow Once", kind="Button")
                 if allow:
                     pq.shot("queue-permission")
                     s.tap_el(allow[0])
