@@ -52,10 +52,10 @@ struct FinishedBannerBurstTests {
             service.acknowledge(try #require(service.locate(surface: SurfaceID(rawValue: surface), in: store)).tab)
         }
 
-        /// The banners still in Notification Center: posted and not withdrawn, oldest first.
+        /// The banners still in Notification Center: posted and not replaced by a digest, oldest first.
         var showing: [String] {
-            let withdrawn = Set(service.desktop.withdrawn)
-            return service.desktop.posted.filter { !withdrawn.contains($0.id) }.map(\.title)
+            let replaced = Set(service.finishedBursts.replaced)
+            return service.desktop.posted.filter { !replaced.contains($0.id) }.map(\.title)
         }
     }
 
@@ -72,7 +72,7 @@ struct FinishedBannerBurstTests {
         let digest = try #require(harness.service.desktop.posted.first { $0.title == "3 agents finished" })
         #expect(digest.subtitle == "api-server")
         #expect(digest.surface == 3, "clicking it opens the agent that finished last")
-        #expect(digest.body == "Claude finished")
+        #expect(digest.sound == nil, "the banners it replaces already sounded")
     }
 
     @Test func oneAgentFinishingTwiceIsNotABurst() throws {
@@ -87,7 +87,8 @@ struct FinishedBannerBurstTests {
         try harness.deliver(5, surface: 1, title: "Claude finished")
         try await harness.clock.waitForSleeper()
         harness.clock.advance(by: .seconds(11))
-        for _ in 0..<1000 where !harness.service.log.contains(where: { $0.hasPrefix("finished burst ended") }) {
+        let workspace = try #require(harness.service.locate(surface: SurfaceID(rawValue: 1), in: harness.store)).workspace.id
+        for _ in 0..<1000 where harness.service.finishedBursts.isOpen(workspace: workspace) {
             await Task.yield()
         }
         try harness.deliver(6, surface: 2, title: "Codex finished")
@@ -99,7 +100,7 @@ struct FinishedBannerBurstTests {
         try harness.deliver(5, surface: 1, title: "Claude finished")
         try harness.read(surface: 1)
         try harness.deliver(6, surface: 2, title: "Codex finished")
-        #expect(harness.showing == ["Codex finished"], "the read agent is not counted again")
+        #expect(harness.service.desktop.posted.map(\.title) == ["Claude finished", "Codex finished"], "the read agent is not counted again")
         #expect(harness.service.desktop.posted.last?.sound == "default", "a banner that replaces nothing still sounds")
     }
 

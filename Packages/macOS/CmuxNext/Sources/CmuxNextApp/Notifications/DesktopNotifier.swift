@@ -38,8 +38,6 @@ final class DesktopNotifier: NSObject {
     nonisolated static let replyAction = "cmux.notification.reply.send"
     /// The last banners asked for, newest last (bounded).
     private(set) var posted: [Posted] = []
-    /// The last banner ids withdrawn, newest last (bounded): read, or replaced by a burst's banner.
-    private(set) var withdrawn: [String] = []
     /// Whether this launch uses the system notification center (not in automation launches).
     nonisolated static let usesSystemCenter = !WindowDrawPolicy.isAutomationLaunch(ProcessInfo.processInfo.environment)
     /// Authorization as the center last reported it ("authorized", "denied", ...);
@@ -102,10 +100,8 @@ final class DesktopNotifier: NSObject {
         }
     }
 
-    /// Removes delivered banners whose notifications were read or replaced.
+    /// Removes delivered banners whose notifications were read.
     func withdraw(_ ids: [String]) {
-        withdrawn.append(contentsOf: ids)
-        if withdrawn.count > Self.postedLimit { withdrawn.removeFirst(withdrawn.count - Self.postedLimit) }
         guard !ids.isEmpty, let center else { return }
         center.removeDeliveredNotifications(withIdentifiers: ids)
     }
