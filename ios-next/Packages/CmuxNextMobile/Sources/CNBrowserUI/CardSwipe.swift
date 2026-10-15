@@ -16,8 +16,8 @@ import CoreGraphics
 ///   that springs back to its slot (0.56 / 0.92, right 0.75 / 0.81,
 ///   carrying the finger's velocity) and settles to scale 1 (0.57 / 0.94).
 /// - Closing: the card keeps going left at the release speed (≥ 1000 pt/s),
-///   lifted and opaque, from the release frame until it is off screen; 99 ms
-///   in, its tab leaves the grid without waiting for the host (a refused
+///   lifted and opaque, from the release frame until it is off screen; its
+///   tab leaves the grid at release without waiting for the host (a refused
 ///   close brings the card back). When one tab is left, Safari opens it.
 struct CardSwipe: Equatable, Sendable {
     static let commitFraction: CGFloat = 0.72
@@ -48,9 +48,8 @@ struct CardSwipe: Equatable, Sendable {
     static func flyOffDuration(distance: CGFloat, velocity: CGFloat) -> Double {
         Double(abs(distance) / max(abs(velocity), flyOffMinSpeed))
     }
-    /// The tab leaves the grid (count, reflow) this long after the release
-    /// (Safari's count changes about 99 ms in).
-    static let flyOffRemovalDelay = 0.099
+    /// The tab leaves the grid one 60 Hz frame after the release.
+    static let flyOffRemovalDelay: Duration = .milliseconds(17)
     /// Reduce Motion: no movement after release, a crossfade instead.
     static let reduceMotionFade = 0.18
 
