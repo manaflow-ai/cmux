@@ -660,12 +660,14 @@ fn free_tier_an_app_that_leaves_before_the_provider_line_leaves_no_provider_and_
     assert_eq!(chat(port, &key).0, 200);
     assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "active");
 
-    // A new app registers and closes before it reads the provider line (it quit at that moment).
+    // A new app registers and ends its side before it reads the provider line (it quit at that
+    // moment). It half-closes: a fully closed peer fails the relay's peer check on macOS
+    // (getpeereid on a dead socket), so that close would test the refusal, not this rule. The
+    // stream drops only after the relay ended the provider, and nothing is ever read from it.
     let mut early = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
     let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true});
     early.write_all(format!("{register}\n").as_bytes()).unwrap();
-    early.shutdown(std::net::Shutdown::Both).unwrap();
-    drop(early);
+    early.shutdown(std::net::Shutdown::Write).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let free = loop {
@@ -675,6 +677,7 @@ fn free_tier_an_app_that_leaves_before_the_provider_line_leaves_no_provider_and_
         }
         std::thread::sleep(Duration::from_millis(20));
     };
+    drop(early);
     assert_eq!(free["provider"], false, "{free}");
     assert_eq!(free["state"], "off", "{free}");
     // The old token went with its provider: the next request is not forwarded with it.
