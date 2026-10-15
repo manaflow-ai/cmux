@@ -222,7 +222,7 @@ extension WorkspaceCreator {
     /// section in the Mac's order). The phone swaps the places at once; the
     /// Mac's answer settles them.
     public func move(_ workspace: Workspace, by offset: Int, among visible: [Workspace]) {
-        guard canArrange(workspace), let arranger,
+        guard canArrange(workspace), !workspace.isPinned, let arranger,
               let position = visible.firstIndex(where: { $0.id == workspace.id }),
               visible.indices.contains(position + offset) else { return }
         let neighbour = visible[position + offset]

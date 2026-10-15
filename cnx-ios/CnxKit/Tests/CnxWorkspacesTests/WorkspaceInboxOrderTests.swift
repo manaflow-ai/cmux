@@ -27,8 +27,22 @@ import Testing
         #expect(inbox.recent.map(\.id) == ["old", "mid", "new"])
         #expect(inbox.isMacOrder)
         #expect(inbox.macOrder(of: inbox.recent[1]).map(\.id) == ["old", "mid", "new"])
-        #expect(inbox.macOrder(of: inbox.pinned[0]).map(\.id) == ["p1", "p2"])
+        // Pinned tiles are ordered on the Mac only (a layout move): no Move Up / Down.
+        #expect(inbox.macOrder(of: inbox.pinned[0]).isEmpty)
         #expect(inbox.macSidebar("m").map(\.id) == ["p1", "p2", "old", "mid", "new", "asks"])
+    }
+
+    /// Two Macs' rows never interleave: each Mac's block in its own order.
+    @Test func macsDoNotInterleave() {
+        let macs = [MacDevice(id: "m", name: "Studio", isOnline: true), MacDevice(id: "n", name: "Air", isOnline: true)]
+        var rows = [ws("a0", index: 0), ws("a1", index: 1)]
+        for (id, index) in [("b0", 0), ("b1", 1)] {
+            var w = ws(id, index: index)
+            w.macID = "n"
+            rows.append(w)
+        }
+        let inbox = WorkspaceInbox(scope: .all, macs: macs, workspaces: rows.shuffled())
+        #expect(inbox.recent.map(\.id) == ["a0", "a1", "b0", "b1"])
     }
 
     @Test func newestFirstWithoutTheMacsOrder() {
