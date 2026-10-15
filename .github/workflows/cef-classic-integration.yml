@@ -109,10 +109,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ENGINE: ${{ matrix.engine }}
+        # The Chromium run adds the embed lifecycle test once the branch has it
+        # (cef-classic/embed); with CMUX_UI_TEST_REQUIRE_CEF=1 it fails on an
+        # app without the engine instead of checking the fallback.
         run: |
+          extra=()
+          if [ "$ENGINE" = chromium ] && [ -f cmuxUITests/ChromiumEmbedLifecycleUITests.swift ]; then
+            extra=(cmuxUITests/ChromiumEmbedLifecycleUITests)
+          fi
           python3 scripts/ci/dispatch-focused-test.py \
             cmuxUITests/BrowserReturnSubmissionUITests \
             cmuxUITests/BrowserFixtureInteractionUITests \
+            ${extra[@]+"${extra[@]}"} \
             --ref "$GITHUB_SHA" \
             --workflow-ref cef-classic/integration \
             --browser-engine "$ENGINE" \
