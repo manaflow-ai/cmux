@@ -501,6 +501,58 @@ Reading the numbers:
   so these are loopback-network numbers through the real signaling and TURN
   service; they are not cellular numbers.
 
+## Channel, WebRTC track and WireGuard RTP in one run (2026-10-14, merged cores)
+
+Branch `feat-cnx-ios-rbfix-wg` (`feat-cnx-ios-wgmedia` plus the rig fixes),
+evidence `verify/evidence/2026-10-14/browser-video-track/175127/` (local).
+
+- Mac: the rig app `cnx-e2e-1bd377aa` with `cnx-hostd` from
+  `feat-cnx-ios-wgmedia` (release, built after `c29749d1`: NACK resend
+  pacing, controller cadence, per-tab `video_tag`), and the fixed browser
+  host (pin `2765fa17`, `CNX_E2E_RB_HOST`, no wrapper).
+- Phone: the `feat-cnx-ios-wgmedia` Demo build, one simulator on this Mac,
+  over the real link (TeamHub signaling; WebRTC, or WireGuard over UDP,
+  TURN or the WSS relay).
+- Page: `bench.html?scroll=6`; 12 s of streaming, then 10 taps. One session,
+  9 configurations, recorded with `--record-only`, then `--analyze`.
+- Loss: hostd's `video-drop-permille` file, 30 of 1000 video RTP packets
+  dropped below the NACK responder. hostd's media-lane report confirmed it
+  on both transports (WireGuard: 466 NACKs, loss 1.8 %; WebRTC: 787 NACKs,
+  loss 2.1 %).
+
+| Configuration | Transport and path (hostd at link up) | Carrier seen | Glass to glass p50 / p90 / max (ms) | fps | Frame interval p95 / max (ms) | Stalls > 100 ms | Jitter (ms) | Page tap to phone frame p50 / p90 (ms) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `track` | WebRTC, direct | track | 16 / 32 / 118 | 53.2 | 33.3 / 35.0 | 0 | 6.4 | 36 / 111 |
+| `channel` | WebRTC, direct | channel | 17 / 34 / 4039 | 53.4 | 33.3 / 36.7 | 0 | 5.6 | 77 / 114 |
+| `wg-track` | WireGuard, starts on the WSS relay, then roams | wg-rtp | 44 / 60 / 1134 | 53.4 | 33.3 / 35.0 | 0 | 5.5 | 71 / 108 |
+| `wg-channel` | WireGuard, as above | channel | 14 / 31 / 2018 | 52.9 | 33.3 / 36.7 | 0 | 6.2 | 43 / 93 |
+| `track-relay` | WebRTC, TURN | track | 21 / 37 / 2057 | 51.6 | 33.3 / 100.0 | 0 | 7.9 | 100 / 111 |
+| `wg-track-relay` | WireGuard, relay only (hostd logged `Direct`) | wg-rtp | 23 / 40 / 2089 | 53.4 | 33.3 / 36.7 | 0 | 6.4 | 44 / 122 |
+| `wg-track-wss` | WireGuard, WSS relay (no TURN) | wg-rtp | 39 / 57 / 4041 | 44.5 | 33.3 / 83.3 | 0 | 9.2 | 60 / 99 |
+| `track-loss30` | WebRTC, direct, 3 % drop | track | 26 / 60 / 2036 | 35.4 | 71.7 / 85.0 | 0 | 22.2 | 92 / 108 |
+| `wg-track-loss30` | WireGuard, 3 % drop | wg-rtp | 25 / 59 / 2061 | 39.5 | 70.0 / 85.0 | 0 | 20.2 | 40 / 144 |
+
+Reading it:
+
+- Every configuration streamed, with the carrier it asked for, at 35 to 53
+  fps and no stall over 100 ms.
+- Clean paths: the three carriers are within noise of each other at about
+  53 fps and a 15 to 45 ms p50. WireGuard RTP's higher p50 on `wg-track`
+  (44 ms) is likely its start on the WSS relay before it roams; the path
+  over time was not logged, so this is not proven.
+- The WSS relay (TCP) is the slowest path for RTP: 44.5 fps, 39 ms p50.
+- Under 3 % loss the WebRTC track and WireGuard RTP behave alike (35 to
+  40 fps, 25 ms p50, 20 ms jitter, no stall): both run the same NACK and
+  controller cores. The channel was not measured under loss (its loss is
+  TCP-like retransmission inside SCTP, not this drop).
+- The single 2 to 4 s glass-to-glass maxima are one sample in 300 to 370 and
+  were not examined (an OCR misread or a start-up frame).
+- `wg-track-relay` came up as `path=Direct` in hostd's log although the
+  phone asked for relay only; `cnx-link` labels the path by carrier, and this
+  label was not investigated.
+- One Mac, one simulator: loopback-network numbers through the real
+  signaling, TURN and relay services, not cellular numbers.
+
 ## Live verification (2026-10-14): blocked by the Mac's browser host (resolved above)
 
 The comparison did not run. The tools are ready, but the browser host
@@ -565,7 +617,7 @@ could not be installed there.
 - Loss: hostd reads `$CNX_STATE_DIR/video-drop-permille` at each new link.
   The app passes no other environment to hostd.
 
-## Live run over WireGuard (2026-10-14, `feat-cnx-ios-wgmedia`): lane up, frames not measured
+## Live run over WireGuard (2026-10-14, `feat-cnx-ios-wgmedia`): lane up, frames not measured (measured above)
 
 ### Builds
 
