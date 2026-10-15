@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "0218d7cb3429e0aeb9093ada4184d045f5c97fb4a13afd506f31c11f61d8615a",
+  "catalog_sha256": "5ba3b4406caf7eb889c07cbeeed157a570c4edd8800580e4ee0f100b0703f110",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -62,6 +62,15 @@
       "class": "read"
     },
     "browser.navigate": {
+      "class": "mutation"
+    },
+    "browser.profile.create": {
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "class": "read"
+    },
+    "browser.profile.open": {
       "class": "mutation"
     },
     "browser.reload": {
