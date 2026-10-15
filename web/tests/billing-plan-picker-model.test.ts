@@ -49,12 +49,29 @@ describe("personal plan picker", () => {
     }))).toEqual(["free:unavailable/cancelScheduled", "pro*:resume", "max:unavailable/cancelScheduled"]);
   });
 
-  test("granted Pro has nothing to change", () => {
+  test("granted Pro can buy Max through checkout but cannot cancel the grant", () => {
     expect(summary(personalPlanCards({ planId: "pro", isPro: true, subscription: null, goPlanEnabled: false }))).toEqual([
-      "free:unavailable/granted",
+      "free:unavailable/grantedNoCancel",
       "pro*:current",
-      "max:unavailable/granted",
+      "max:checkout/max",
     ]);
+  });
+
+  test("granted Max has nothing to change", () => {
+    expect(summary(personalPlanCards({ planId: "max", isPro: true, subscription: null, goPlanEnabled: false }))).toEqual([
+      "free:unavailable/granted",
+      "pro:unavailable/granted",
+      "max*:current",
+    ]);
+  });
+
+  test("a past-due subscriber fixes the payment before any switch", () => {
+    expect(summary(personalPlanCards({
+      planId: "pro",
+      isPro: true,
+      subscription: { plan: "pro", cancelAtPeriodEnd: false, status: "past_due" },
+      goPlanEnabled: false,
+    }))).toEqual(["free:unavailable/paymentFailed", "pro*:current", "max:unavailable/paymentFailed"]);
   });
 });
 
@@ -86,8 +103,10 @@ describe("a reason every other card shares", () => {
   test("shows once when all other cards are unavailable for the same reason", () => {
     const cancelling = personalPlanCards({ planId: "pro", isPro: true, subscription: { plan: "pro", cancelAtPeriodEnd: true }, goPlanEnabled: false });
     expect(sharedUnavailableReason(cancelling)).toBe("cancelScheduled");
-    const granted = personalPlanCards({ planId: "pro", isPro: true, subscription: null, goPlanEnabled: false });
+    const granted = personalPlanCards({ planId: "max", isPro: true, subscription: null, goPlanEnabled: false });
     expect(sharedUnavailableReason(granted)).toBe("granted");
+    const pastDue = personalPlanCards({ planId: "pro", isPro: true, subscription: { plan: "pro", cancelAtPeriodEnd: false, status: "past_due" }, goPlanEnabled: false });
+    expect(sharedUnavailableReason(pastDue)).toBe("paymentFailed");
   });
 
   test("is null when the other cards have actions", () => {

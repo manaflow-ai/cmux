@@ -118,7 +118,10 @@ describe("billing portal route", () => {
   });
 
   test("opens Stripe's plan switch flow on the active Pro subscription for flow=switch_plan", async () => {
-    stripeSubscriptionRows = [{ id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro" }];
+    stripeSubscriptionRows = [{
+      id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro",
+      raw: { items: { data: [{ price: { lookup_key: "cmux-pro-monthly-50" } }] } },
+    }];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"),
@@ -148,6 +151,15 @@ describe("billing portal route", () => {
       customer: "cus_123",
       return_url: "https://cmux.test/dashboard/billing",
     });
+  });
+
+  test("never opens the switch flow for a price the switch portal does not list", async () => {
+    stripeSubscriptionRows = [{
+      id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro",
+      raw: { items: { data: [{ price: { lookup_key: "cmux-pro-yearly-288" } }] } },
+    }];
+    await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+    expect(createPortalSession.mock.calls[0]?.[0]).not.toHaveProperty("flow_data");
   });
 
   test("never puts a lifetime Founder purchase in the plan switch flow", async () => {

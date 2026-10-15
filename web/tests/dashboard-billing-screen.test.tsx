@@ -361,6 +361,29 @@ describe("dashboard billing screen", () => {
     expect(html).toContain('href="/api/billing/portal"');
   });
 
+  test("a past-due subscriber is asked to fix the payment instead of offered a switch", async () => {
+    subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, status: "past_due" })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).not.toContain("Switch to Max");
+    expect(html).not.toContain("Cancel plan");
+    expect(html).toContain("Update your payment method before changing plans.");
+    expect(html).toContain('href="/api/billing/portal"');
+  });
+
+  test("a granted Pro account is offered Max checkout", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "pro" };
+
+    const html = await renderBillingPage();
+
+    expect(html).toMatch(/data-plan="pro"[^>]*aria-current="true"/);
+    expect(html).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*>Upgrade to Max/);
+    expect(html).not.toContain("Granted by cmux. There is nothing to change.");
+    expect(html).toContain("Granted by cmux, so there is nothing to cancel.");
+  });
+
   test("renders a past-due banner that links to the Stripe portal", async () => {
     subscriptionRows = [stripeSubscriptionRow({
       cancelAtPeriodEnd: false,

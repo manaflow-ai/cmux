@@ -13,23 +13,31 @@ type Status = Awaited<ReturnType<PlanChangeDependencies["billingStatus"]>>;
 let status: Status;
 let subscription: Record<string, unknown>;
 let preview: Record<string, unknown>;
+/** The next renewal invoice at the new price (proration_behavior "none"). */
+let renewalPreview: Record<string, unknown>;
 let updateError: unknown;
 const calls: { method: string; args: unknown[] }[] = [];
 const synced: unknown[] = [];
 
-function subscriptionOn(lookupKey: string, cancelAtPeriodEnd = false) {
+function subscriptionOn(lookupKey: string, cancelAtPeriodEnd = false, interval: "month" | "year" = "month") {
   return {
     id: "sub_1",
     customer: "cus_1",
     cancel_at_period_end: cancelAtPeriodEnd,
-    metadata: { app: "cmux", plan: lookupKey.includes("max") ? "max" : "pro" },
-    items: { data: [{ id: "si_1", current_period_end: PERIOD_END, price: { id: "price_old", lookup_key: lookupKey } }] },
+    metadata: { app: "cmux", plan: lookupKey.includes("max") ? "max" : lookupKey.includes("go") ? "go" : "pro" },
+    items: {
+      data: [{
+        id: "si_1",
+        current_period_end: PERIOD_END,
+        price: { id: "price_old", lookup_key: lookupKey, recurring: { interval, usage_type: "licensed" } },
+      }],
+    },
   };
 }
 
 const deps: PlanChangeDependencies = {
   billingStatus: async () => status,
-  priceFor: async (plan) => `price_${plan}`,
+  priceFor: async (plan, interval) => `price_${plan}_${interval}`,
   now: () => NOW,
   stripe: () => ({
     subscriptions: {
@@ -46,7 +54,8 @@ const deps: PlanChangeDependencies = {
     invoices: {
       createPreview: async (...args: unknown[]) => {
         calls.push({ method: "createPreview", args });
-        return preview;
+        const details = (args[0] as { subscription_details?: { proration_behavior?: string } }).subscription_details;
+        return details?.proration_behavior === "none" ? renewalPreview : preview;
       },
     },
   }) as never,
@@ -68,6 +77,7 @@ beforeEach(() => {
   };
   subscription = subscriptionOn("cmux-pro-monthly-50");
   preview = { currency: "usd", amount_due: 10_000, lines: { data: [] } };
+  renewalPreview = { currency: "usd", amount_due: 20_000, lines: { data: [] } };
   updateError = null;
   calls.length = 0;
   synced.length = 0;
@@ -107,12 +117,12 @@ describe("personal plan change", () => {
       nextInvoiceAmount: 20_000,
       prorationDate: NOW,
     });
-    const previewCall = calls.find((call) => call.method === "createPreview")!;
+    const previewCall = calls.find((call) => call.method === "createPreview" && (call.args[0] as { subscription_details: { proration_behavior: string } }).subscription_details.proration_behavior !== "none")!;
     expect(previewCall.args[0]).toEqual({
       customer: "cus_1",
       subscription: "sub_1",
       subscription_details: {
-        items: [{ id: "si_1", price: "price_max" }],
+        items: [{ id: "si_1", price: "price_max_month" }],
         proration_behavior: "always_invoice",
         proration_date: NOW,
       },
@@ -147,7 +157,7 @@ describe("personal plan change", () => {
     expect(update.args).toEqual([
       "sub_1",
       {
-        items: [{ id: "si_1", price: "price_max" }],
+        items: [{ id: "si_1", price: "price_max_month" }],
         proration_behavior: "always_invoice",
         proration_date: NOW - 60,
         payment_behavior: "error_if_incomplete",
@@ -167,5 +177,69 @@ describe("personal plan change", () => {
     updateError = Object.assign(new Error("Your card was declined."), { type: "StripeCardError" });
     expect(await refusal(applyPersonalPlanChange({ userId: "u1", target: "max", prorationDate: NOW }, deps))).toBe("payment_failed");
     expect(synced).toEqual([]);
+  });
+  test("a Pro yearly subscriber upgrades to Max yearly, keeping the billing interval", async () => {
+    subscription = subscriptionOn("cmux-pro-yearly-480", false, "year");
+    preview = { currency: "usd", amount_due: 79_000, lines: { data: [] } };
+    renewalPreview = { currency: "usd", amount_due: 192_000, lines: { data: [] } };
+    const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+    expect(result).toMatchObject({
+      direction: "upgrade",
+      amountDueToday: 79_000,
+      // The billing period is unchanged, so the renewal date stays and the
+      // renewal charges the Max yearly price, not a monthly one.
+      nextRenewalAt: new Date(PERIOD_END * 1000).toISOString(),
+      nextInvoiceAmount: 192_000,
+    });
+    const items = calls
+      .filter((call) => call.method === "createPreview")
+      .map((call) => (call.args[0] as { subscription_details: { items: unknown } }).subscription_details.items);
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) expect(item).toEqual([{ id: "si_1", price: "price_max_year" }]);
+
+    await applyPersonalPlanChange({ userId: "u1", target: "max", prorationDate: NOW }, deps);
+    const update = calls.find((call) => call.method === "update")!;
+    expect((update.args[1] as { items: unknown }).items).toEqual([{ id: "si_1", price: "price_max_year" }]);
+  });
+
+  test("a grandfathered Pro yearly price also upgrades to Max yearly", async () => {
+    subscription = subscriptionOn("cmux-pro-yearly", false, "year");
+    await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+    const previewCall = calls.find((call) => call.method === "createPreview")!;
+    expect((previewCall.args[0] as { subscription_details: { items: unknown } }).subscription_details.items)
+      .toEqual([{ id: "si_1", price: "price_max_year" }]);
+  });
+
+  test("a grandfathered Pro monthly price upgrades to the current Max monthly price", async () => {
+    subscription = subscriptionOn("cmux-pro-monthly", false, "month");
+    await applyPersonalPlanChange({ userId: "u1", target: "max", prorationDate: NOW }, deps);
+    const update = calls.find((call) => call.method === "update")!;
+    expect((update.args[1] as { items: unknown }).items).toEqual([{ id: "si_1", price: "price_max_month" }]);
+  });
+
+  test("a Max yearly subscriber downgrades to Pro yearly", async () => {
+    subscription = subscriptionOn("cmux-max-yearly-1920", false, "year");
+    status = { ...status, activePlanId: "max" };
+    await applyPersonalPlanChange({ userId: "u1", target: "pro", prorationDate: NOW }, deps);
+    const update = calls.find((call) => call.method === "update")!;
+    expect((update.args[1] as { items: unknown }).items).toEqual([{ id: "si_1", price: "price_pro_year" }]);
+  });
+
+  test("an upgrade's next invoice amount is Stripe's renewal preview, not a list price", async () => {
+    // A discount on the subscription lowers the renewal; the preview says so.
+    renewalPreview = { currency: "usd", amount_due: 15_000, lines: { data: [] } };
+    const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+    expect(result.nextInvoiceAmount).toBe(15_000);
+    const renewalCall = calls.find((call) =>
+      call.method === "createPreview" &&
+      (call.args[0] as { subscription_details: { proration_behavior: string } }).subscription_details.proration_behavior === "none")!;
+    expect(renewalCall.args[0]).toEqual({
+      customer: "cus_1",
+      subscription: "sub_1",
+      subscription_details: {
+        items: [{ id: "si_1", price: "price_max_month" }],
+        proration_behavior: "none",
+      },
+    });
   });
 });

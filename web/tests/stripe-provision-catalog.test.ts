@@ -136,13 +136,60 @@ describe("Stripe catalog provisioning", () => {
     const portalArgs = portalCreate!.args.join("\n");
     expect(portalArgs).toContain("metadata[purpose]=personal_plan_switch");
     expect(portalArgs).toContain("features[subscription_update][default_allowed_updates][]=price");
-    expect(portalArgs).not.toContain("features[subscription_update][products][2]");
+    expect(portalArgs).not.toContain("features[subscription_update][products][3]");
     expect(portalArgs).toContain("features[subscription_update][products][0][product]=prod_pro");
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
+    expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_year_480");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
     expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_month_200");
     expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_year_1920");
     expect(portalArgs).toContain("business_profile[headline]=cmux");
+  });
+
+  // The portal only switches a subscription whose current price is listed,
+  // so Pro yearly and Go subscribers need their prices here to reach Max.
+  test("lists Pro yearly and Go in the plan-switch portal, but never a grandfathered price", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).toContain("features[subscription_update][products][2][product]=prod_go");
+    expect(portalArgs).toContain("features[subscription_update][products][2][prices][]=price_go_month_10");
+    expect(portalArgs).toContain("features[subscription_update][products][2][adjustable_quantity][enabled]=false");
+    // Every listed price is also a choice in the portal; a grandfathered
+    // price must never be offered as a switch target.
+    expect(portalArgs).not.toContain("=price_pro_month\n");
+    expect(portalArgs).not.toContain("price_pro_year_legacy");
+    expect(portalArgs).not.toMatch(/=price_pro_year(\n|$)/);
+  });
+
+  test("keeps the code's portal-switchable price list in sync with the script", async () => {
+    const { PORTAL_SWITCHABLE_LOOKUP_KEYS } = await import("../services/billing/plans");
+    const script = readFileSync(provisionScript, "utf8");
+    const portalStep = script.slice(script.indexOf("ensure_personal_plan_switch_portal() {"));
+    const listed = [...portalStep.matchAll(/price_id_for_lookup_key "([^"]+)"/g)].map((match) => match[1]).sort();
+    expect(listed).toEqual([...PORTAL_SWITCHABLE_LOOKUP_KEYS].sort());
+  });
+
+  test("provisions the plan-switch portal without copied profile fields", async () => {
+    const result = await runProvision("test", "empty-profile");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    expect(portalCreate).toBeDefined();
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("business_profile[headline]");
+    expect(portalArgs).not.toContain("business_profile[privacy_policy_url]");
+    expect(portalArgs).not.toContain("business_profile[terms_of_service_url]");
   });
 
   test("updates an existing plan switch portal configuration instead of creating a second", async () => {
@@ -537,7 +584,9 @@ if (url.endsWith("/prices") && !isPost) {
       data: [{
         id: "bpc_default",
         is_default: true,
-        business_profile: { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
+        business_profile: scenario === "empty-profile"
+          ? {}
+          : { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
       }],
       has_more: false,
     });
