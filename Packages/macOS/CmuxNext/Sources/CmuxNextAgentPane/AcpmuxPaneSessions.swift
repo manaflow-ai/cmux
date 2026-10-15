@@ -70,7 +70,7 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
             ? result["session"] as? [String: Any]
             : ((result["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]).map { $0.merging(["sessionId": result["sessionId"] ?? NSNull()]) { _, new in new } }
         guard let id = session?["sessionId"] as? String else { return }
-        if let harness = [session?["harness"], session?["family"]].lazy.compactMap({ $0 as? String }).first(where: Self.isHarness) {
+        if let harness = [session?["harness"], session?["family"]].lazy.compactMap({ ($0 as? String).flatMap(Self.recordable) }).first {
             let observer = state.withLock { state in
                 if state.harnesses.count >= 1024, state.harnesses[id] == nil { state.harnesses.removeAll() }
                 state.harnesses[id] = harness
@@ -85,11 +85,13 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
         }
     }
 
-    /// A harness the store records (cmux-tui `validate_harness`): 1 to 64 ASCII letters, digits or
-    /// `_ . - /`. Anything else is not sent, so a bind never fails on it.
-    static func isHarness(_ value: String) -> Bool {
-        (1...64).contains(value.utf8.count)
-            && value.unicodeScalars.allSatisfy { ($0.isASCII && $0.properties.isAlphabetic) || ("0"..."9").contains($0) || "_.-/".unicodeScalars.contains($0) }
+    /// The form of acpmux's harness the store records (cmux-tui `validate_harness`): a profile such
+    /// as `providers/deepseek` by its last part (the brand catalog reads that part too), then 1 to
+    /// 64 ASCII letters, digits or `_ . -`; nil otherwise, so a bind never fails on it.
+    static func recordable(_ value: String) -> String? {
+        let last = String(value.split(separator: "/", omittingEmptySubsequences: false).last ?? "")
+        let valid = last.unicodeScalars.allSatisfy { ($0.isASCII && $0.properties.isAlphabetic) || ("0"..."9").contains($0) || "_.-".unicodeScalars.contains($0) }
+        return (1...64).contains(last.utf8.count) && valid ? last : nil
     }
 
     /// The requests whose reply is a handoff record (`handoffId`, `source.sessionId`).

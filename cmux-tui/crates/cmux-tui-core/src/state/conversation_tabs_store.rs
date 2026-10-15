@@ -163,12 +163,11 @@ fn token(value: &str, max: usize, extra: &[u8]) -> bool {
         && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || extra.contains(&byte))
 }
 
-/// An agent kind as acpmux names it (`claude`, `codex`, a profile such as
-/// `providers/deepseek`): 1 to 64 letters, digits or `_ . - /`.
+/// An agent kind (`claude`, `codex`): 1 to 64 letters, digits or `_ . -`.
 pub(crate) fn validate_harness(harness: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
-        token(harness, 64, b"_.-/"),
-        "bad request: harness must be 1 to 64 letters, digits or '_', '.', '-', '/'"
+        token(harness, 64, b"_.-"),
+        "bad request: harness must be 1 to 64 letters, digits or '_', '.', '-'"
     );
     Ok(())
 }

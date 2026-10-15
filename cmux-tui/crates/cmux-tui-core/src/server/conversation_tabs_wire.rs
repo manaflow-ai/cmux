@@ -237,7 +237,8 @@ pub(super) fn create(
 }
 
 /// `bind-conversation-tab-session`: set an agent tab's session to `session`
-/// when its current session is `expected_session` (null: unbound).
+/// when its current session is `expected_session` (null: unbound), and its
+/// harness to `harness` when given.
 #[derive(Deserialize)]
 pub(super) struct BindSessionParams {
     surface: SurfaceId,

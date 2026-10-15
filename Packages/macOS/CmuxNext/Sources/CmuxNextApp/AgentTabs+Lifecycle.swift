@@ -226,8 +226,7 @@ extension AgentTabStore {
         }
         // The record holds every pending bind: the next expects it. A new harness (acpmux's, cx-w4bbw) alone binds too.
         let (expected, harness) = (record.session, views[key]?.model.transport.sessions.harness(of: session))
-        guard expected != session || (harness != nil && harness != record.harness), let store = lookup(key)?.store,
-              let surface = store.tab(id: key)?.surface else { return }
+        guard expected != session || (harness != nil && harness != record.harness), let store = lookup(key)?.store, let surface = store.tab(id: key)?.surface else { return }
         let transaction = ClientTransactionID.generate()
         store.intend(.bindAgentSession(surface: surface, session: session, harness: harness), transaction: transaction)
         // task-owner: one compare-and-swap; its answer settles or rejects the intent
@@ -238,10 +237,10 @@ extension AgentTabStore {
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
             case .conflict:
                 store.rejectIntent(transaction)
-                self?.actionRegistry?.refuse(RefusalStrings.agentTabSessionConflict)
+                if expected != session { self?.actionRegistry?.refuse(RefusalStrings.agentTabSessionConflict) } // a harness alone: silent
             case .failed:
                 store.rejectIntent(transaction)
-                self?.actionRegistry?.refuse(RefusalStrings.agentTabSessionNotSaved)
+                if expected != session { self?.actionRegistry?.refuse(RefusalStrings.agentTabSessionNotSaved) }
             }
         }
     }
