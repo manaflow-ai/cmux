@@ -103,6 +103,32 @@ struct AgentLanesTests {
         #expect(lanesItem() == nil)
     }
 
+    /// Leo 2026-10-15: the Lanes item counts his own sessions on this Mac, not every acpmux peer's
+    /// fleet lane or a coordinator's child session, and hides when he has none. The fleet shows
+    /// behind the Debug Settings toggle `agentActivity.lanesShowFleet`, off by default.
+    @Test func theLanesItemCountsOnlyThisMacsOwnSessionsUnlessTheFleetToggleIsOn() {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TunableCatalog.all)
+        let key = "agentActivity.lanesShowFleet"
+        defer { TunableStore.shared.set(key, nil) }
+        func lane(_ id: String, peer: String? = nil, parent: String? = nil) -> AgentActivityLane {
+            AgentActivityLane(id: id, name: id, title: id, peer: peer, parent: parent, state: .failed, since: nil, error: nil)
+        }
+        let store = AgentLaneStore()
+        store.lanes = ["mine": lane("mine"), "op-peer": lane("op-peer", peer: "mini"), "op-child": lane("op-child", parent: "chief")]
+        let item = { () -> SidebarTransientItem? in SidebarTransientItem.lanes(store) }
+
+        #expect(item() != nil, "an own session shows the item")
+        #expect(item()?.info.badge == 1, "off by default: only the own session counts")
+
+        store.lanes["mine"] = nil
+        #expect(item() == nil, "only fleet and child lanes: no Lanes item")
+
+        store.lanes["mine"] = lane("mine")
+        #expect(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the fleet toggle exists")
+        #expect(item()?.info.badge == 3, "the fleet toggle counts peer and child lanes too")
+    }
+
     /// Waits up to five seconds for `done`.
     private func until(_ done: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(5)
