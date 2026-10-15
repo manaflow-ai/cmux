@@ -39,7 +39,11 @@ fn dir(tag: &str) -> PathBuf {
 fn hub(d: &Path) -> Arc<Hub> {
     let codex = d.join("bin").join("codex");
     std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
-    std::fs::write(&codex, format!("#!/bin/sh\nexec python3 {FAKE_APP_SERVER} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &codex,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(FAKE_APP_SERVER)),
+    )
+    .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {

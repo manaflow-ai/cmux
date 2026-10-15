@@ -38,7 +38,11 @@ fn dir(tag: &str) -> PathBuf {
 /// An executable `name` in `d/bin` that runs `script` with its arguments.
 fn shim(d: &Path, name: &str, script: &str) -> PathBuf {
     let path = d.join("bin").join(name);
-    std::fs::write(&path, format!("#!/bin/sh\nexec python3 {script} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(script)),
+    )
+    .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }

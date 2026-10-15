@@ -107,9 +107,9 @@ static ENTER_HERMETIC: extern "C" fn(i32, *const *const std::ffi::c_char) = {
                 .map(|i| {
                     // SAFETY: the loader's argv holds argc valid C strings.
                     let arg = unsafe { std::ffi::CStr::from_ptr(*argv.add(i)) };
-                    std::os::unix::ffi::OsStrExt::as_bytes(arg).to_vec()
+                    arg.to_bytes().to_vec()
                 })
-                .map(|b| std::os::unix::ffi::OsStringExt::from_vec(b))
+                .map(std::os::unix::ffi::OsStringExt::from_vec)
                 .collect()
         };
         enter(super::HERMETIC, args);
@@ -117,8 +117,8 @@ static ENTER_HERMETIC: extern "C" fn(i32, *const *const std::ffi::c_char) = {
     init
 };
 
-/// Windows runs no re-start (no stand-in agents, and its tests start the
-/// daemon through [`apply`]); the constant is still required.
+/// Windows runs no re-start before `main` (its tests run no hub in process
+/// and start every daemon through [`apply`]); the constant is still required.
 #[cfg(windows)]
 const _: Process = super::HERMETIC;
 
@@ -204,6 +204,13 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     env
 }
 
+/// `text` as one shell word in single quotes, for a path put into a test's
+/// shell script. A Mac mini's checkout path has a space ("Application
+/// Support"): unquoted, `python3` got "/Library/Application" (cx-fylng).
+pub fn sh_quote(text: impl std::fmt::Display) -> String {
+    format!("'{}'", text.to_string().replace('\'', r"'\''"))
+}
+
 /// The `HOME` the hermetic environment gives: `<scratch>/home`.
 pub fn home(scratch: &Path) -> PathBuf {
     scratch.join("home")
@@ -219,13 +226,14 @@ fn platform_vars(home: &Path, tools: &[&str]) -> Vec<(String, String)> {
 }
 
 /// Windows: only what a process needs to start (the system directories and
-/// the temp directory), the scratch profile as home. No tool links: Windows
-/// tests start no stand-in agent.
+/// the temp directory), the scratch profile as home. No tool links: the
+/// Windows stand-in agents are cmd.exe and the test binary itself.
 #[cfg(windows)]
 fn platform_vars(home: &Path, tools: &[&str]) -> Vec<(String, String)> {
     assert!(tools.is_empty(), "no host tools on Windows");
     let mut env = Vec::new();
-    for key in ["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP"] {
+    // What cmd.exe (a Windows stand-in agent) needs to start and find ping.
+    for key in ["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "ComSpec", "PATHEXT"] {
         if let Ok(value) = std::env::var(key) {
             env.push((key.to_owned(), value));
         }
