@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-typing.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -31,6 +32,7 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/new-tab-typing.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
