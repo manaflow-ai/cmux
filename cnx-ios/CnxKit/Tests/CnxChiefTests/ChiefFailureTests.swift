@@ -239,14 +239,14 @@ final class ScriptedChiefMac: @unchecked Sendable {
     @Test func tryAgainSendsTheMessageTheFailedTurnAnswered() async throws {
         let mac = ScriptedChiefMac([(true, ScriptedChiefMac.report)])
         let session = try await session(mac, preferences: ChiefPreferences(defaults: defaults()), macID: "mac-1")
-        while !session.isConnected { await Task.yield() }
+        try await waitUntil("Chief to connect") { session.isConnected }
         session.send(ConversationComposeMessage(text: "summarize the open PRs"))
         // The fake Chief answers "On it."; then its next turn fails on the model.
-        while !session.store.messages.contains(where: { $0.text == "On it." }) { await Task.yield() }
+        try await waitUntil("Chief's reply") { session.store.messages.contains(where: { $0.text == "On it." }) }
         mac.daemon.queueChiefMessage(gatewayOutage)
         // Any reply carries the queued event.
         _ = try await (session.backend as! ChiefDaemonBackend).history(beforeSeq: nil, limit: 50)
-        while session.lastTurnFailure == nil { await Task.yield() }
+        try await waitUntil("the failed turn to reach the session") { session.lastTurnFailure != nil }
         let shown = try #require(session.store.messages.last)
         #expect(!shown.text.contains("31415"))
         guard case .failure(_, let failure)? = session.barItem else {
@@ -256,7 +256,7 @@ final class ScriptedChiefMac: @unchecked Sendable {
         #expect(failure.kind == .modelBusy)
 
         session.retryFailedTurn()
-        while mac.daemon.ops.filter({ $0["kind"] as? String == "message.send" }).count < 2 { await Task.yield() }
+        try await waitUntil("Try Again to resend") { mac.daemon.ops.filter({ $0["kind"] as? String == "message.send" }).count >= 2 }
         let sends = mac.daemon.ops.filter { $0["kind"] as? String == "message.send" }
         let resent = (sends.last?["parts"] as? [[String: Any]])?.first?["text"] as? String
         #expect(resent == "summarize the open PRs")
