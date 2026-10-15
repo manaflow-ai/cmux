@@ -1,5 +1,5 @@
 public import AppKit
-public import CoreGraphics
+import CoreGraphics
 public import Foundation
 
 /// How a Chromium page starts.
@@ -210,6 +210,7 @@ public final class CEFBrowser {
         if view.window == nil, view.bounds.size != size { view.setFrameSize(size) }
         isCreationPending = true
         runtime.pendingWindows[request] = self
+        runtime.contextOpened(key)
         let started = shim.createWindow(
             request, Unmanaged.passUnretained(view).toOpaque(),
             Int32(clamping: Int(size.width.rounded())), Int32(clamping: Int(size.height.rounded())),
@@ -385,12 +386,12 @@ public final class CEFBrowser {
     /// Opens Chromium's DevTools for the page (Chromium places it).
     public func showDevTools() {
         guard let id = browserID else { return }
-        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.show, 0, 0)
+        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.show.rawValue, 0, 0)
     }
 
     public func closeDevTools() {
         guard let id = browserID else { return }
-        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.close, 0, 0)
+        _ = runtime.shim?.devToolsCommand(id, CEFShimLibrary.DevToolsCommand.close.rawValue, 0, 0)
     }
 
     /// Runs a DevTools protocol method in process; returns its result JSON.
