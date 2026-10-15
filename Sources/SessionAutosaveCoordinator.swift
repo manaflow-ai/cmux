@@ -42,6 +42,9 @@ final class SessionAutosaveCoordinator {
     /// runs as soon as that attempt ends instead of waiting a whole interval,
     /// so a change is not left unsaved for two or more intervals.
     private var rerunAfterActiveAttempt = false
+    /// Ticks that found an attempt in progress (each runs once it ends); tests read it.
+    private(set) var deferredTickCount = 0
+    private var activeAttemptStartedAt: TimeInterval = 0
     private var processDetectedSaveGeneration: UInt64 = 0
     private var lastFingerprint: Int?
     private var lastPersistedAt = Date.distantPast
@@ -155,10 +158,22 @@ final class SessionAutosaveCoordinator {
             isTerminatingApp: isTerminatingApp(),
             isStartupSessionRestorePending: isStartupSessionRestorePending()
         ) else {
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.skipped reason=\(isTerminatingApp() ? "terminating" : "startup_restore_pending") source=\(source)"
+            )
+#endif
             return
         }
         guard activeAttempt == nil else {
             rerunAfterActiveAttempt = true
+            deferredTickCount &+= 1
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.deferred reason=attempt_in_progress source=\(source) " +
+                    "attemptAgeMs=\(Int(((ProcessInfo.processInfo.systemUptime - activeAttemptStartedAt) * 1000).rounded()))"
+            )
+#endif
             return
         }
         if let remainingQuietPeriod = remainingTypingQuietPeriod() {
@@ -178,6 +193,7 @@ final class SessionAutosaveCoordinator {
             await self.finish(source: source, generation: generation)
         }
         activeAttempt = ActiveAttempt(generation: generation, task: task)
+        activeAttemptStartedAt = ProcessInfo.processInfo.systemUptime
     }
 
     /// Schedule a session snapshot after todo edits settle. The save captures
