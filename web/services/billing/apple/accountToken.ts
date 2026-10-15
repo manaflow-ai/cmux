@@ -208,6 +208,19 @@ async function accountTrialEndsAt(
   return await deps.trial.activeTrialEndsAt(userId).catch(() => null);
 }
 
+/** The account's plan as the app shows it: a free trial is Pro with its trial limits. */
+function currentPlanBody(
+  status: { readonly planId: string; readonly billingSource: PersonalBillingSource; readonly manageUrl?: string | null },
+  trialEndsAt: Date | null,
+): AppleAccountTokenResponse["currentPlan"] {
+  return {
+    planId: trialEndsAt ? "pro" : status.planId,
+    source: status.billingSource,
+    ...(status.manageUrl ? { manageUrl: status.manageUrl } : {}),
+    ...(trialEndsAt ? { trial: { endsAt: trialEndsAt.toISOString(), limits: TRIAL_LIMITS } } : {}),
+  };
+}
+
 /** `POST /api/billing/apple/account-token`. */
 export async function appleAccountTokenResponse(
   user: AppleAccountUser,
@@ -251,12 +264,7 @@ export async function appleAccountTokenResponse(
     appAccountToken,
     eligible: reason === null,
     reason,
-    currentPlan: {
-      planId: trialEndsAt ? "pro" : status.planId,
-      source: status.billingSource,
-      ...(status.manageUrl ? { manageUrl: status.manageUrl } : {}),
-      ...(trialEndsAt ? { trial: { endsAt: trialEndsAt.toISOString(), limits: TRIAL_LIMITS } } : {}),
-    },
+    currentPlan: currentPlanBody(status, trialEndsAt),
     products: offer ? [...products, { productId: offer.productId, planId: "pro", billingPeriod: "monthly" }] : products,
     ...(paywall ? { paywall } : {}),
     ...(isAdminUser({ ...user, isAnonymous: false }) ? { staff: true as const } : {}),
