@@ -6974,14 +6974,14 @@ class TerminalController {
            !v2HasNonNullParam(params, "surface_id"),
            !v2HasNonNullParam(params, "tab_id"),
            !v2HasNonNullParam(params, "pane_id"),
-           surfaceId.flatMap({ ws.browserPanel(for: $0) }) == nil {
+           !(surfaceId.flatMap({ ws.panels[$0] }).map({ $0 is BrowserPanel || $0 is DeferredBrowserPanel }) ?? false) {
             let browsers = ws.panels.values.compactMap { $0 as? BrowserPanel }
             if browsers.count == 1 { surfaceId = browsers[0].id }
         }
         guard let surfaceId else {
             return (nil, .err(code: "not_found", message: "No focused browser surface", data: nil))
         }
-        guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+        guard let browserPanel = ws.browserPanelForAutomation(surfaceId) else {
             return (nil, .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]))
         }
         return (
@@ -9546,10 +9546,10 @@ class TerminalController {
         // v2HasNonNullParam for presence so an empty string is not mistaken for absent.
         if v2HasNonNullParam(params, "surface_id") {
             guard let sid = v2UUID(params, "surface_id"),
-                  let panel = workspace.browserPanel(for: sid) else { return nil }
+                  let panel = workspace.browserPanelForAutomation(sid) else { return nil }
             return (panel, sid)
         }
-        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {
+        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanelForAutomation(focusedId) {
             return (panel, focusedId)
         }
         let browsers: [(UUID, BrowserPanel)] = workspace.panels.values.compactMap { panel in

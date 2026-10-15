@@ -18,7 +18,7 @@ extension TerminalController: ControlBrowserPanelContext {
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return nil
         }
-        return tab.browserPanel(for: panelID)
+        return tab.browserPanelForAutomation(panelID)
     }
 
     func controlBrowserPanelTabManagerAvailable() -> Bool {
