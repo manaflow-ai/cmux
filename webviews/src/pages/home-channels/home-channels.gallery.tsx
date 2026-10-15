@@ -8,6 +8,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
+import type { HomeSelection } from "./hostActions";
 import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
@@ -96,6 +97,17 @@ const switcherOpen = (ctx: { document: Document }) => {
   const field = ctx.document.querySelector(switcherField);
   return field !== null && ctx.document.activeElement === field;
 };
+
+// The host's `home.currentSelection` (hostActions.ts), called the way the app calls it.
+async function askSelection(document: Document): Promise<HomeSelection | null | undefined> {
+  const read = document.defaultView?.cmuxHomeActions?.["home.currentSelection"];
+  return read ? ((await read({})) as HomeSelection | null) : undefined;
+}
+
+function expectSelection(actual: HomeSelection | null | undefined, expected: HomeSelection | null): void {
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    throw new Error(`home.currentSelection: ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+}
 
 export default componentEntry<Props>({
   id: "pages.home-channels",
@@ -580,6 +592,37 @@ export default componentEntry<Props>({
       props: { width: 480, pane: "conversation", select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
+      },
+    },
+    "host-selection": {
+      note: "The host asks home.currentSelection: the open conversation, then the keyboard's current message, then the open thread.",
+      props: { select: "c-release" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('.lg-main [data-key="c-release-m7"]'));
+        expectSelection(await askSelection(ctx.document), { conversation: "c-release" });
+        // j/k need the focus outside a text field: the open conversation's list row.
+        await ctx.focus({ selector: "[data-list-row][aria-current]" });
+        await ctx.press("k");
+        await ctx.waitFor(() => ctx.document.querySelector('[data-key="c-release-m7"] [aria-current="true"]'));
+        expectSelection(await askSelection(ctx.document), { conversation: "c-release", message: "c-release-m7" });
+        await ctx.press("k");
+        await ctx.waitFor(() => ctx.document.querySelector('[data-key="c-release-m6"] [aria-current="true"]'));
+        await ctx.press("t");
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-sheet"));
+        expectSelection(await askSelection(ctx.document), {
+          conversation: "c-release",
+          message: "c-release-m6",
+          thread: "c-release-m6",
+        });
+      },
+    },
+    "host-selection-empty": {
+      note: "The docked Home's list pane: nothing is open, so home.currentSelection answers null.",
+      props: { width: 600, pane: "list", select: "c-release" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
+        await ctx.waitFor(() => ctx.document.defaultView?.cmuxHomeActions !== undefined);
+        expectSelection(await askSelection(ctx.document), null);
       },
     },
     "draft-posted": {
