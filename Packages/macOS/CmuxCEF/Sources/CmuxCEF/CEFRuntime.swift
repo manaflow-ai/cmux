@@ -416,6 +416,9 @@ public final class CEFRuntime {
         var sequence = CEFShutdownSequence(liveBrowsers: browsers.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
+        // Profile calls (cookie clear/import) waiting on a reply fail now:
+        // quitting must not wait out their timeout.
+        CEFSiteReplies.shared.failAll()
         shim.closeAll()
         pump?.pumpNow()
         shutdownProgressed()
