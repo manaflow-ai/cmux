@@ -27,6 +27,16 @@ statically, so a reordered step fails in review and not on a release day:
    defers the sidecar handshake while the keychain exists, and every script
    that runs bundle code calls the runtime guard first.
 
+6. A job that holds a secret (a protected environment or any `secrets.`
+   reference) runs no bundle code at all, not only outside the keychain
+   window: a process that bundle code leaves running survives into the later
+   steps of the same job. Bundle code runs in jobs without secrets on literal
+   ephemeral runner labels. The notarization scripts run in such jobs only
+   with their launch smokes deferred (CMUX_DEFER_LAUNCH_SMOKES) or skipped.
+   STEP_LEVEL_ONLY lists the jobs that still rely on rule 1 alone.
+7. A job that holds a signing secret runs on a literal runner label, not a
+   repository variable that could move it onto a reused machine.
+
 Every step is treated as if it runs. Keep each delete in a step that runs
 whenever the matching create ran (`if: always()` or the same condition).
 """
@@ -52,7 +62,6 @@ DELETE = re.compile(
 BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
     re.compile(r"smoke-signed-app-cli\.sh"),
-    re.compile(r"scripts/ci/resume-nightly-notarization\.sh"),
     re.compile(r"test_cli_version_memory_guard\.py"),
     re.compile(r"test_bundled_ghostty_theme_picker_helper\.sh"),
     re.compile(r"verify_remote_daemon_release\.py(?=.*--verify-cli)"),
@@ -63,12 +72,33 @@ SECRET_OR_TOKEN = re.compile(r"secrets\.|secrets\[|github\.token")
 # The CodeRouter release signs one CLI binary with a keychain at an absolute
 # path and runs nothing from it; it keeps its own inline import.
 INLINE_DEVELOPER_ID_KEYCHAINS = {("coderouter-release.yml", "build")}
+# Jobs that keep bundle code in the signing job, outside the keychain window
+# only (rule 1, not rule 6). Each entry names its follow-up.
+STEP_LEVEL_ONLY = {
+    # Build, sign, notarize and publish are one job; the split into build,
+    # sign, verify and publish jobs is a separate change.
+    "release.yml build-sign-notarize",
+    # A one-time repair of a shipped release: its only bundle-code check runs
+    # on the shipped, already released app before the certificate import.
+    "repair-v0-64-25-helper-rpaths.yml repair",
+}
+# Scripts that launch the app unless their launch smokes are deferred.
+SMOKING_SCRIPTS = re.compile(
+    r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh|scripts/ci/resume-helper-notarization\.sh"
+)
+SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)")
+VARIABLE_RUNNER = re.compile(r"vars\.[A-Z0-9_]*RUNNER")
 
 
 def commands(run: str) -> list[str]:
     """The run script as logical commands: continuations joined, comments dropped."""
     joined = re.sub(r"\\\n\s*", " ", run)
     return [line.strip() for line in joined.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def deferred_step(step: dict) -> bool:
+    env = {str(k): str(v) for k, v in (step.get("env") or {}).items()}
+    return env.get("CMUX_DEFER_LAUNCH_SMOKES") == "true" or env.get("CMUX_SKIP_NOTARIZATION") == "true"
 
 
 def check_job(name: str, job: dict, failures: list[str]) -> None:
@@ -91,13 +121,36 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 if "always()" in condition:
                     cleaned_up = True
                 continue
-            if open_window and any(pattern.search(command) for pattern in BUNDLE_CODE):
+            smokes = SMOKING_SCRIPTS.search(command) and not deferred_step(step)
+            if open_window and (smokes or any(pattern.search(command) for pattern in BUNDLE_CODE)):
                 failures.append(
                     f"{name}: step {label!r} runs bundle code while the signing keychain from "
                     f"{open_window!r} exists: {command[:120]}"
                 )
     if created and not cleaned_up:
         failures.append(f"{name}: creates a signing keychain but no `if: always()` step deletes it")
+
+    holds_secrets = bool(job.get("environment")) or "secrets." in json.dumps(job.get("steps") or []) \
+        or "secrets." in json.dumps(job.get("env") or {})
+    if holds_secrets and name not in STEP_LEVEL_ONLY:
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            label = step.get("name") or step.get("id") or step.get("uses") or "<step>"
+            deferred = deferred_step(step)
+            for command in commands(str(step.get("run", ""))):
+                if any(pattern.search(command) for pattern in BUNDLE_CODE):
+                    failures.append(
+                        f"{name}: step {label!r} runs bundle code in a job that holds secrets; "
+                        f"move it to a job without secrets: {command[:120]}"
+                    )
+                elif SMOKING_SCRIPTS.search(command) and not deferred:
+                    failures.append(
+                        f"{name}: step {label!r} runs a notarization script that launches the app; "
+                        "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
+                    )
+    if SIGNING_SECRET_REFERENCE.search(json.dumps(job)) and VARIABLE_RUNNER.search(str(job.get("runs-on", ""))):
+        failures.append(f"{name}: holds a signing secret but picks its runner from a repository variable; use a literal ephemeral label")
 
     text = json.dumps(job)
     if "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
@@ -146,7 +199,7 @@ def check_scripts(failures: list[str]) -> None:
     dmg = read_lines("scripts/ci/notarize-nightly-dmg.sh", failures)
     last_sign = index_of(dmg, '"$CODESIGN_TOOL" --force', last=True)
     delete = index_of(dmg, '"$SIGNING_KEYCHAIN_TOOL" delete')
-    first_smoke = index_of(dmg, '"$SMOKE_TOOL"')
+    first_smoke = index_of(dmg, 'launch_smokes "$APP_PATH"')
     if not (0 <= last_sign < delete < first_smoke):
         failures.append(
             "scripts/ci/notarize-nightly-dmg.sh: delete the signing keychain after the last codesign "
