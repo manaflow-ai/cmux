@@ -307,6 +307,42 @@ struct SidebarCloudWorkspaceBadgeTests {
             $0.accessibilityIdentifier() == "sidebarCloudBadge"
         })
         #expect(!deviceBadge.isHidden)
+
+        defaults.set(true, forKey: sidebar.showCloudWorkspaceIdentity.userDefaultsKey)
+        defaults.set(false, forKey: sidebar.showLocalDeviceIdentity.userDefaultsKey)
+        let deviceHiddenSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let visibleCloudSnapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: deviceHiddenSettings,
+            showsAgentActivity: false
+        ).makeSnapshot()
+        let visibleCloudCell = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: deviceHiddenSettings, workspaceSnapshot: visibleCloudSnapshot),
+            tab: workspace
+        )
+        let visibleCloudBadge = try #require(SidebarAppKitRowCellTests.descendants(of: visibleCloudCell).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(!visibleCloudBadge.isHidden)
+        #expect(visibleCloudBadge.toolTip == "Cloud workspace on vivid-newt")
+
+        let hiddenDeviceSnapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: deviceWorkspace,
+            settings: deviceHiddenSettings,
+            showsAgentActivity: false
+        ).makeSnapshot()
+        let hiddenDeviceCell = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: deviceHiddenSettings, workspaceSnapshot: hiddenDeviceSnapshot),
+            tab: deviceWorkspace
+        )
+        let hiddenDeviceBadge = try #require(SidebarAppKitRowCellTests.descendants(of: hiddenDeviceCell).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(hiddenDeviceBadge.isHidden)
+        #expect(hiddenDeviceBadge.toolTip == nil)
+        #expect(SidebarAppKitRowCellTests.descendants(of: hiddenDeviceCell).compactMap { $0 as? SidebarRowTextView }.contains {
+            !$0.isHidden && $0.stringValue.contains("/Users/remote/project")
+        })
     }
 
     @Test("Cloud identity remains visible when repository details are hidden")

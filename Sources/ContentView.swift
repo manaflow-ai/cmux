@@ -16544,11 +16544,10 @@ struct TabItemView: View, Equatable {
                 }
 
                 SidebarCloudWorkspaceBadgeView(
-                    label: (workspaceSnapshot.deviceWorkspaceLabel == nil
-                        ? settings.identity.showCloudWorkspaceIdentity
-                        : settings.identity.showLocalDeviceIdentity)
-                        ? workspaceSnapshot.remoteWorkspaceBadgeLabel
-                        : nil,
+                    label: settings.identity.badgeLabel(
+                        deviceWorkspaceLabel: workspaceSnapshot.deviceWorkspaceLabel,
+                        remoteWorkspaceBadgeLabel: workspaceSnapshot.remoteWorkspaceBadgeLabel
+                    ),
                     pointSize: scaledFontSize(10),
                     tint: activeSecondaryColor(0.7),
                     symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol

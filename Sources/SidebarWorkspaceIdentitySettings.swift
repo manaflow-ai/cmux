@@ -35,4 +35,12 @@ struct SidebarWorkspaceIdentitySettings: Equatable {
         }
         return settings.value(for: legacy)
     }
+
+    /// Returns the visible identity label for the workspace category.
+    func badgeLabel(deviceWorkspaceLabel: String?, remoteWorkspaceBadgeLabel: String?) -> String? {
+        let isEnabled = deviceWorkspaceLabel == nil
+            ? showCloudWorkspaceIdentity
+            : showLocalDeviceIdentity
+        return isEnabled ? remoteWorkspaceBadgeLabel : nil
+    }
 }
