@@ -64,7 +64,7 @@ describe("web-pricing-v1 assignment at the proxy", () => {
     expect(rewrittenPath(response)).toBe(path);
     expect(setCookie(response, "cmux_wp1")).toStartWith(`cmux_wp1=${variant};`);
     expect(setCookie(response, "cmux_wp1_live")).toStartWith("cmux_wp1_live=1;");
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
   });
 
   test("keeps a pinned visitor in their arm after the split moves away from it", () => {
@@ -88,6 +88,26 @@ describe("web-pricing-v1 assignment at the proxy", () => {
     expect(rewrittenPath(response)).toBe("/en/pricing");
     expect(setCookie(response, "cmux_wp1")).toBeNull();
     expect(setCookie(response, "cmux_wp1_live")).toMatch(/^cmux_wp1_live=;.*Max-Age=0/i);
+  });
+
+  test("a visitor outside a partial rollout is not in the experiment, not counted as control", () => {
+    setWebPricingFlagForTesting({ ...evenSplit, rolloutPercentage: 50 });
+    const outside = middleware(pricingRequest({ distinctId: "visitor-3" }));
+    expect(rewrittenPath(outside)).toBe("/en/pricing");
+    expect(setCookie(outside, "cmux_wp1")).toBeNull();
+    expect(setCookie(outside, "cmux_wp1_live")).toBeNull();
+    expect(outside.headers.get("cache-control")).toBeNull();
+
+    const inside = middleware(pricingRequest({ distinctId: "visitor-5" }));
+    expect(rewrittenPath(inside)).toBe("/en/pricing/highlight-pro");
+  });
+
+  test("a cold instance serves control without ending the visitor's exposure state", () => {
+    const response = middleware(pricingRequest({ distinctId: "visitor-5", cookies: "cmux_wp1=highlight-pro; cmux_wp1_live=1" }));
+
+    expect(rewrittenPath(response)).toBe("/en/pricing");
+    expect(setCookie(response, "cmux_wp1")).toBeNull();
+    expect(setCookie(response, "cmux_wp1_live")).toBeNull();
   });
 
   test("a pin to a variant that left the flag is reassigned", () => {

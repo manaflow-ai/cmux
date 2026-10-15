@@ -31,6 +31,11 @@ function cookieValue(cookies: string, name: string): string | null {
  * (no cookies), a non-English page, or a staff preview of `/pricing/<variant>`
  * is never an exposure.
  */
+/** The public page, where a view can be an exposure. A preview route is never one, and leaves the visitor's tags alone. */
+export function isPublicPricingPath(pathname: string): boolean {
+  return PUBLIC_PRICING_PATH.test(pathname);
+}
+
 export function pricingExposure(
   assignment: PricingExperimentAssignment,
   location: { readonly cookies: string; readonly pathname: string },

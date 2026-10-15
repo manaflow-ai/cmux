@@ -47,18 +47,20 @@ export function withWebPricingExperiment(
     target.pathname = `/en/pricing/${assignment.variant}`;
     response.headers.set("x-middleware-rewrite", target.toString());
   }
-  // Variant HTML differs per visitor behind one URL; no shared cache may keep it.
-  response.headers.set("cache-control", "private, no-store");
-
   const secure = request.nextUrl.protocol === "https:";
   if (assignment.inExperiment) {
+    // Arm HTML differs per visitor behind one URL; no shared cache may keep it.
+    response.headers.set("cache-control", "private, no-cache");
     response.cookies.set(WEB_PRICING_ASSIGNMENT_COOKIE, assignment.variant, {
       path: "/", maxAge: PIN_MAX_AGE_SECONDS, sameSite: "lax", secure,
     });
     response.cookies.set(WEB_PRICING_LIVE_COOKIE, "1", {
       path: "/", maxAge: LIVE_MAX_AGE_SECONDS, sameSite: "lax", secure,
     });
-  } else if (request.cookies.has(WEB_PRICING_LIVE_COOKIE)) {
+  } else if (assignment.reason === "paused" && request.cookies.has(WEB_PRICING_LIVE_COOKIE)) {
+    // Only a known pause ends exposure. A cold instance that has not read the
+    // flag yet serves control without touching the visitor's cookies; the
+    // exposure check (pin equals the rendered arm) already skips that view.
     response.cookies.set(WEB_PRICING_LIVE_COOKIE, "", { path: "/", maxAge: 0, sameSite: "lax", secure });
   }
   return response;

@@ -20,6 +20,7 @@ import { vaultSignInHref } from "../lib/vault-auth";
 import type { PricingActionSize } from "./pricing-shared";
 import {
   exposureEventProperties,
+  isPublicPricingPath,
   pricingExposure,
   syncPricingExperimentProperties,
   type PricingExperimentAssignment,
@@ -52,7 +53,7 @@ export function PricingView({
     if (capturedView.current) return;
     capturedView.current = true;
     let experimentProperties: Record<string, string> = {};
-    if (experimentKey && variant) {
+    if (experimentKey && variant && isPublicPricingPath(window.location.pathname)) {
       const assignment = { experiment: experimentKey, variant };
       const exposure = pricingExposure(assignment, {
         cookies: document.cookie,

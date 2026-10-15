@@ -80,7 +80,7 @@ export const WEB_PRICING_V1_VARIANTS: readonly WebPricingVariant[] = [
     seedRolloutPercentage: 25,
     presentation: {
       ...WEB_PRICING_CONTROL_PRESENTATION,
-      subheadline: "Yearly billing costs less per month than monthly billing.",
+      subheadline: "Pro and Max cost less per month with yearly billing.",
       yearlyNote: "Yearly billing costs less per month.",
     },
   },

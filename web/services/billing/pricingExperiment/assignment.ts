@@ -33,7 +33,7 @@ export type WebPricingFlagConfig = {
 };
 
 export type WebPricingAssignment =
-  | { readonly inExperiment: false; readonly variant: typeof WEB_PRICING_CONTROL_VARIANT; readonly reason: "bot" | "unconfigured" | "paused" | "unsupported_flag" }
+  | { readonly inExperiment: false; readonly variant: typeof WEB_PRICING_CONTROL_VARIANT; readonly reason: "bot" | "unconfigured" | "paused" | "unsupported_flag" | "not_in_rollout" }
   | { readonly inExperiment: true; readonly variant: string; readonly sticky: boolean };
 
 const BOT_USER_AGENT = /bot|crawl|spider|slurp|facebookexternalhit|embedly|quora link preview|whatsapp|telegram|discord|preview|headless|lighthouse|pagespeed|gtmetrix|curl\/|wget\/|python-requests|python-urllib|httpx|go-http-client|okhttp|axios\/|node-fetch|undici|java\/|libwww|scrapy|phantomjs|selenium|playwright|puppeteer/i;
@@ -86,9 +86,14 @@ export function assignWebPricingVariant(input: {
   if (input.pinned && flagKeys.has(input.pinned) && renderableWebPricingVariant(input.pinned)) {
     return { inExperiment: true, variant: input.pinned, sticky: true };
   }
+  // Outside the rollout, or drawn into a flag variant this code does not
+  // define: not in the experiment at all, so control is not inflated with
+  // people the flag never assigned to it.
   const drawn = postHogVariant(input.config, input.distinctId);
-  const variant = drawn && renderableWebPricingVariant(drawn) ? drawn : WEB_PRICING_CONTROL_VARIANT;
-  return { inExperiment: true, variant, sticky: false };
+  if (!drawn || !renderableWebPricingVariant(drawn)) {
+    return { inExperiment: false, variant: WEB_PRICING_CONTROL_VARIANT, reason: "not_in_rollout" };
+  }
+  return { inExperiment: true, variant: drawn, sticky: false };
 }
 
 /** Parse one flag from PostHog's local-evaluation response. */

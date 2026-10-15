@@ -218,9 +218,9 @@ function initialBillingInterval(query: PricingQuery, presentation: WebPricingPre
   return presentation.defaultBillingPeriod;
 }
 
-/** The emphasis label for one plan card, when the variant highlights that plan. */
-function highlightLabelFor(plan: "pro" | "max", presentation: WebPricingPresentation) {
-  return presentation.highlightedPlanId === plan ? presentation.highlightLabel : null;
+/** The emphasis label for one plan card, when the variant highlights that plan and it is not the visitor's own. */
+function highlightLabelFor(plan: "pro" | "max", presentation: WebPricingPresentation, isCurrent: boolean) {
+  return presentation.highlightedPlanId === plan && !isCurrent ? presentation.highlightLabel : null;
 }
 
 // oxlint-disable-next-line complexity -- All plan actions share the same billing snapshot.
@@ -409,7 +409,7 @@ function PricingContent({
         surface="public_pricing"
         monthlyOnly={isGo}
         initialInterval={initialBillingInterval(query, presentation)}
-        highlightLabel={highlightLabelFor("pro", presentation)}
+        highlightLabel={highlightLabelFor("pro", presentation, isProCurrent)}
         yearlyNote={presentation.yearlyNote}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
@@ -440,7 +440,7 @@ function PricingContent({
         surface="public_pricing"
         monthlyOnly={maxPortalSwitch}
         initialInterval={initialBillingInterval(query, presentation)}
-        highlightLabel={highlightLabelFor("max", presentation)}
+        highlightLabel={highlightLabelFor("max", presentation, isMax)}
         yearlyNote={presentation.yearlyNote}
         labels={proAnnualLabelSet}
         checkoutHrefs={{

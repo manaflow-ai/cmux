@@ -11,9 +11,10 @@ type Params = { locale: string; variant: string };
 // One static page per non-control `web-pricing-v1` arm. The proxy rewrites an
 // assigned visitor's `/pricing` here, so the variant arrives as server HTML.
 // The experiment is English-only; other locales and unknown variants 404.
-export async function generateStaticParams({ params }: { params: Promise<{ locale: string }> | { locale: string } }) {
-  const { locale } = await params;
-  return locale === "en" ? WEB_PRICING_VARIANT_ROUTE_KEYS.map((variant) => ({ variant })) : [];
+// Next requires at least one result per parent locale, so every locale lists
+// the arms and the page itself 404s outside English.
+export function generateStaticParams() {
+  return WEB_PRICING_VARIANT_ROUTE_KEYS.map((variant) => ({ variant }));
 }
 
 async function variantFor(params: Promise<Params>) {
