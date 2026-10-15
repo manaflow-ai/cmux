@@ -74,6 +74,7 @@ export function SummaryCard({
             type="button"
             className="acpmux-summary-card__fold"
             aria-expanded={!card.collapsed}
+            /* tooltip-allow: the button shows the card title; the tooltip names what a click does */
             title={foldLabel}
             onClick={() => card.fold(!card.collapsed)}
           >

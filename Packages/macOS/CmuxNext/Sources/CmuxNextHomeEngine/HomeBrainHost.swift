@@ -53,6 +53,12 @@ public nonisolated struct HomeBrainHost: Sendable {
         return [override, bundled].compactMap { $0 }.contains { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    /// Home's notice on this Mac's Chief while the build-session kill switch
+    /// is on (cx-tgf4h): no host starts, so the Chief cannot answer; nil else.
+    public static func agentsDisabledNotice(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        AcpmuxEnvironment.agentLaunchDisabled(environment) ? HomeStrings.chiefAgentsDisabled : nil
+    }
+
     public static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome,
                         environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
