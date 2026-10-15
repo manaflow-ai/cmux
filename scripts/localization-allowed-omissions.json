@@ -5205,5 +5205,87 @@
       "ko": "Agent product names are invariant brand names; the translated entry is still required.",
       "ja": "Agent product names are invariant brand names; the translated entry is still required."
     }
+  },
+  "attachment.kind.document": {
+    "source": "Document",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.image": {
+    "source": "Image",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.video": {
+    "source": "Video, %@",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.compose": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.placeholder": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.message.role": {
+    "source": "message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.messages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.emoji": {
+    "source": "Emoji",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.photo": {
+    "source": "Photo",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.file": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.message.format": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.attachment.photo": {
+    "source": "Photo, %@",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
   }
 }
