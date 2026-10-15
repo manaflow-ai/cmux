@@ -14,7 +14,8 @@
 //!
 //! Nothing polls: the wait holds the session's `session.events` stream on a
 //! second connection, opened before the first read, and reads the record
-//! again after each event. A passed `--timeout` exits 124 with
+//! again after each event (a stream the daemon ends is subscribed again:
+//! status/wait_events.rs). A passed `--timeout` exits 124 with
 //! `wait.timeout`; without one the wait lasts until the condition holds or
 //! Ctrl-C.
 
@@ -26,13 +27,12 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::super::command::CommandPlan;
-use super::super::resolve::{self, Failure, SocketRoute};
+use super::super::resolve::{self, ANSWER_TIMEOUT, Failure, SocketRoute, answer_wait};
 use super::super::{GlobalArgs, Surface, UsageError, wire};
+use super::wait_events::{Stop, WaitEvents};
 
 /// The exit code of a wait whose timeout passed, as timeout(1) has it.
 pub(super) const TIMEOUT_EXIT: i32 = 124;
-/// How long the daemon may take to open the event stream or answer a read.
-pub(super) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 /// A read timeout may wake this much before the deadline it was set for.
 const DEADLINE_SLACK: Duration = Duration::from_millis(50);
 
@@ -186,6 +186,8 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
             exit: 3,
         })
         .and_then(|stream| {
+            // `terminal <t> show` has no lookups to run first: the daemon
+            // resolves the selector, so every read below is bounded.
             let _ = stream.set_read_timeout(Some(ANSWER_TIMEOUT));
             let mut reader = BufReader::new(stream);
             let route = SocketRoute { path: &socket, derived };
@@ -206,19 +208,8 @@ fn hold(
     deadline: Option<Instant>,
     timeout: Option<Duration>,
 ) -> Result<Value, Failure> {
-    // Subscribe before the first read: a change between that read and the
-    // subscription still wakes the wait (the stream starts with a snapshot).
-    let opened = Instant::now() + answer_wait(deadline);
     let mut events =
-        resolve::session_events(socket, &resolve::route(params), opened).ok_or_else(|| {
-            if past(deadline) {
-                timed_out(until, timeout)
-            } else {
-                Failure::Transport("cmux: the session's event stream did not open".into())
-            }
-        })?;
-    // Ctrl-C shuts the stream down, which ends a wait without a timeout.
-    wire::arm_signal_interrupt(events.get_ref().as_ref());
+        WaitEvents::open(socket, params, deadline).map_err(|stop| stopped(stop, until, timeout))?;
     loop {
         // `--timeout` bounds every daemon answer too, not only the event wait.
         let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
@@ -227,37 +218,28 @@ fn hold(
         if holds(&record, until)? {
             return Ok(record);
         }
-        let remaining = match deadline {
-            None => None,
-            Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
-                Some(remaining) if !remaining.is_zero() => Some(remaining),
-                _ => return Err(timed_out(until, timeout)),
-            },
-        };
-        if events.get_mut().set_read_timeout(remaining).is_err() {
-            return Err(Failure::Transport("cmux: cannot wait on the event stream".into()));
-        }
-        match wire::read_envelope(&mut events, false) {
-            Ok(Some(_)) => {}
-            _ if crate::shutdown_requested() => {
-                return Err(Failure::Local {
-                    error: json!({
-                        "code": "wait.interrupted",
-                        "message": "cmux: the wait was interrupted",
-                        "details": {"until": until.as_str()},
-                        "retryable": true,
-                    }),
-                    exit: 130,
-                });
-            }
-            // The read timed out at the deadline: read the record once more
-            // (a change may have landed just before it), then time out.
-            Err(_) if past(deadline) => {}
-            Ok(None) => {
-                return Err(Failure::Transport("cmux: the session's event stream ended".into()));
-            }
-            Err(error) => return Err(Failure::Transport(error)),
-        }
+        events.next(deadline).map_err(|stop| stopped(stop, until, timeout))?;
+    }
+}
+
+fn stopped(stop: Stop, until: Until, timeout: Option<Duration>) -> Failure {
+    match stop {
+        Stop::TimedOut => timed_out(until, timeout),
+        Stop::Interrupted => interrupted(json!({"until": until.as_str()})),
+        Stop::Failed(failure) => failure,
+    }
+}
+
+/// The failure of a wait Ctrl-C ended (exit 130).
+pub(super) fn interrupted(details: Value) -> Failure {
+    Failure::Local {
+        error: json!({
+            "code": "wait.interrupted",
+            "message": "cmux: the wait was interrupted",
+            "details": details,
+            "retryable": true,
+        }),
+        exit: 130,
     }
 }
 
@@ -287,16 +269,6 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
             Ok(!(command || progress || working))
         }
     }
-}
-
-/// How long to wait for one daemon answer: its usual bound, cut to what is
-/// left of the deadline (at least 1 ms: a zero socket timeout is refused).
-pub(super) fn answer_wait(deadline: Option<Instant>) -> Duration {
-    deadline.map_or(ANSWER_TIMEOUT, |deadline| {
-        deadline
-            .saturating_duration_since(Instant::now())
-            .clamp(Duration::from_millis(1), ANSWER_TIMEOUT)
-    })
 }
 
 /// Whether the deadline has (all but) passed.

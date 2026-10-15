@@ -67,6 +67,20 @@ pub(super) fn apply(
     caller_route: bool,
     socket: &SocketRoute<'_>,
 ) -> Result<(), Failure> {
+    apply_until(reader, plan, caller_route, socket, None)
+}
+
+/// [`apply`], done by `deadline` (a wait's `--timeout`): the wait for the
+/// caller's terminal ends there, and each read gets at most what is left.
+/// A lookup cut short fails as it would have, and the caller decides
+/// whether that is a timeout.
+pub(super) fn apply_until(
+    reader: &mut Reader,
+    plan: &mut RequestPlan,
+    caller_route: bool,
+    socket: &SocketRoute<'_>,
+    deadline: Option<Instant>,
+) -> Result<(), Failure> {
     let steps = std::mem::take(&mut plan.resolve);
     let params = plan
         .params
@@ -77,7 +91,7 @@ pub(super) fn apply(
         match step {
             Resolve::CallerWorkspace { terminal } => {
                 let workspace = if caller_route {
-                    registered_caller_workspace(reader, &route, &terminal, socket)?
+                    registered_caller_workspace(reader, &route, &terminal, socket, deadline)?
                 } else {
                     "current".to_string()
                 };
@@ -88,6 +102,7 @@ pub(super) fn apply(
                 else {
                     continue;
                 };
+                bound_reads(reader, deadline);
                 let records = read(reader, list, route.clone())?;
                 if let Some(id) = state_id(field, &value, &records)? {
                     params.insert(field.into(), Value::String(id));
@@ -199,26 +214,50 @@ pub(super) fn route(params: &Map<String, Value>) -> Map<String, Value> {
 
 /// How long a lookup waits for the caller's terminal to join its workspace.
 const CALLER_TERMINAL_WAIT: Duration = Duration::from_secs(3);
+/// How long the daemon may take to open an event stream or answer a read.
+pub(super) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long to wait for one daemon answer: its usual bound, cut to what is
+/// left of the deadline (at least 1 ms: a zero socket timeout is refused).
+pub(super) fn answer_wait(deadline: Option<Instant>) -> Duration {
+    deadline.map_or(ANSWER_TIMEOUT, |deadline| {
+        deadline
+            .saturating_duration_since(Instant::now())
+            .clamp(Duration::from_millis(1), ANSWER_TIMEOUT)
+    })
+}
+
+/// Cuts the connection's read timeout to what is left before `deadline`.
+fn bound_reads(reader: &mut Reader, deadline: Option<Instant>) {
+    if deadline.is_some() {
+        let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
+    }
+}
 
 /// [`caller_workspace`], waiting for the caller's terminal to be placed. A
 /// new tab's shell runs before the daemon commits the tab, so a command at
 /// its first prompt can ask for a terminal the daemon does not show yet.
 /// The wait follows the session's event stream on a second connection and
-/// looks again after each event, up to [`CALLER_TERMINAL_WAIT`].
+/// looks again after each event, up to [`CALLER_TERMINAL_WAIT`] or `until`,
+/// whichever comes first.
 fn registered_caller_workspace(
     reader: &mut Reader,
     route: &Map<String, Value>,
     terminal: &str,
     socket: &SocketRoute<'_>,
+    until: Option<Instant>,
 ) -> Result<String, Failure> {
+    bound_reads(reader, until);
     match caller_workspace(reader, route, terminal) {
         Err(Failure::Resource(error)) if is_missing(&error, terminal) => {}
         settled => return settled,
     }
-    let deadline = Instant::now() + CALLER_TERMINAL_WAIT;
+    let waited = Instant::now() + CALLER_TERMINAL_WAIT;
+    let deadline = until.map_or(waited, |until| until.min(waited));
     let mut events = session_events(socket, route, deadline);
     loop {
         let changed = events.as_mut().is_some_and(|events| next_event(events, deadline));
+        bound_reads(reader, until);
         match caller_workspace(reader, route, terminal) {
             Err(Failure::Resource(error)) if is_missing(&error, terminal) => {
                 if !changed {

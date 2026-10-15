@@ -842,6 +842,7 @@ fn closed_members(value: &str) -> Result<Value, UsageError> {
 }
 
 mod status_flags;
+pub(crate) use status_flags::STATES as STATUS_STATES;
 
 #[cfg(test)]
 mod tests;

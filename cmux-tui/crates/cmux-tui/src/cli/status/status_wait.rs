@@ -13,24 +13,25 @@
 //! Nothing polls: every status write, clear and daemon auto-clear commits a
 //! `workspace_status` change to the session journal, so the wait holds the
 //! session's `session.events` stream on a second connection, opened before
-//! the first read, and reads the workspace's status again after each event.
-//! A passed `--timeout` exits 124 with `wait.timeout`; without one the wait
-//! lasts until the condition holds or Ctrl-C.
+//! the first read, and reads the workspace's status again after each event
+//! (a stream the daemon ends is subscribed again: status/wait_events.rs).
+//! A passed `--timeout`, which bounds finding the workspace too, exits 124
+//! with `wait.timeout`; without one the wait lasts until the condition holds
+//! or Ctrl-C. `current` with no workspace in the session fails with
+//! `selector.not_found`.
 
 use std::io::BufReader;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::resource::ResourceOperation;
+use cmux_tui_core::resource::{ResourceError, ResourceOperation};
 use serde_json::{Map, Value, json};
 
-use super::super::command::CommandPlan;
-use super::super::resolve::{self, Failure, SocketRoute};
+use super::super::command::{CommandPlan, STATUS_STATES};
+use super::super::resolve::{self, Failure, SocketRoute, answer_wait};
 use super::super::{GlobalArgs, Surface, UsageError, wire};
-use super::terminal_wait::{ANSWER_TIMEOUT, TIMEOUT_EXIT, answer_wait, duration, past};
-
-/// The states `status set --state` takes.
-const STATES: &[&str] = &["busy", "waiting", "success", "error", "info"];
+use super::terminal_wait::{TIMEOUT_EXIT, duration, interrupted, past};
+use super::wait_events::{Stop, WaitEvents};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Until {
@@ -126,10 +127,10 @@ fn parse_until(value: &str) -> Result<Until, UsageError> {
         "settled" => Ok(Until::Settled),
         "cleared" => Ok(Until::Cleared),
         _ => match value.strip_prefix("state=") {
-            Some(state) if STATES.contains(&state) => Ok(Until::State(state.to_owned())),
+            Some(state) if STATUS_STATES.contains(&state) => Ok(Until::State(state.to_owned())),
             _ => Err(UsageError::new(format!(
-                "--until takes settled, cleared or state=busy|waiting|success|error|info, not \
-                 {value:?}"
+                "--until takes settled, cleared or state={}, not {value:?}",
+                STATUS_STATES.join("|")
             ))),
         },
     }
@@ -180,11 +181,14 @@ fn wait(global: &GlobalArgs, wait: &WaitPlan) -> i32 {
             exit: 3,
         })
         .and_then(|stream| {
-            let _ = stream.set_read_timeout(Some(ANSWER_TIMEOUT));
+            // `--timeout` bounds finding the workspace too (the caller's
+            // terminal may take a moment to join one).
+            let _ = stream.set_read_timeout(Some(answer_wait(deadline)));
             let mut reader = BufReader::new(stream);
             let route = SocketRoute { path: &socket, derived };
             if !plan.resolve.is_empty() {
-                resolve::apply(&mut reader, &mut plan, caller_route, &route)?;
+                resolve::apply_until(&mut reader, &mut plan, caller_route, &route, deadline)
+                    .map_err(|failure| if past(deadline) { timed_out(wait) } else { failure })?;
             }
             let params = plan.params.as_object().cloned().ok_or_else(|| {
                 Failure::Transport("cmux: request params are not an object".into())
@@ -209,35 +213,29 @@ fn hold(
     wait: &WaitPlan,
     deadline: Option<Instant>,
 ) -> Result<(Value, i32), Failure> {
-    // Subscribe before the first read: a change between that read and the
-    // subscription still wakes the wait (the stream starts with a snapshot).
-    let opened = Instant::now() + answer_wait(deadline);
     let mut events =
-        resolve::session_events(socket, &resolve::route(&params), opened).ok_or_else(|| {
-            if past(deadline) {
-                timed_out(wait)
-            } else {
-                Failure::Transport("cmux: the session's event stream did not open".into())
-            }
-        })?;
-    // Ctrl-C shuts the stream down, which ends a wait without a timeout.
-    wire::arm_signal_interrupt(events.get_ref().as_ref());
+        WaitEvents::open(socket, &params, deadline).map_err(|stop| stopped(stop, wait))?;
     loop {
         // `--timeout` bounds every daemon answer too, not only the event wait.
         let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
         let listed = resolve::read(reader, ResourceOperation::WorkspaceStatusList, params.clone())
             .map_err(|failure| if past(deadline) { timed_out(wait) } else { failure })?;
-        let snapshot = listed.as_array().and_then(|snapshots| snapshots.first());
-        let workspace = snapshot
-            .and_then(|snapshot| snapshot["workspace_id"].as_str())
+        // A workspace the daemon resolves comes back as one snapshot; none
+        // means `current` names no workspace (the session has none).
+        let Some(snapshot) = listed.as_array().and_then(|snapshots| snapshots.first()) else {
+            let selector = params.get("workspace").and_then(Value::as_str).unwrap_or("current");
+            return Err(not_found(selector));
+        };
+        let workspace = snapshot["workspace_id"]
+            .as_str()
             .map(str::to_owned)
             .or_else(|| params.get("workspace").and_then(Value::as_str).map(str::to_owned));
         // Later reads stay on this workspace even when `current` moves.
         if let Some(workspace) = &workspace {
             params.insert("workspace".into(), Value::String(workspace.clone()));
         }
-        let entry = snapshot
-            .and_then(|snapshot| snapshot["entries"].as_array())
+        let entry = snapshot["entries"]
+            .as_array()
             .and_then(|entries| entries.iter().find(|entry| entry["key"] == wait.key.as_str()));
         if let Some(code) = wait.until.exit_code(entry) {
             let shown = json!({
@@ -248,37 +246,23 @@ fn hold(
             });
             return Ok((shown, code));
         }
-        let remaining = match deadline {
-            None => None,
-            Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
-                Some(remaining) if !remaining.is_zero() => Some(remaining),
-                _ => return Err(timed_out(wait)),
-            },
-        };
-        if events.get_mut().set_read_timeout(remaining).is_err() {
-            return Err(Failure::Transport("cmux: cannot wait on the event stream".into()));
-        }
-        match wire::read_envelope(&mut events, false) {
-            Ok(Some(_)) => {}
-            _ if crate::shutdown_requested() => {
-                return Err(Failure::Local {
-                    error: json!({
-                        "code": "wait.interrupted",
-                        "message": "cmux: the wait was interrupted",
-                        "details": {"key": wait.key, "until": wait.until.label()},
-                        "retryable": true,
-                    }),
-                    exit: 130,
-                });
-            }
-            // The read timed out at the deadline: read the status once more
-            // (a change may have landed just before it), then time out.
-            Err(_) if past(deadline) => {}
-            Ok(None) => {
-                return Err(Failure::Transport("cmux: the session's event stream ended".into()));
-            }
-            Err(error) => return Err(Failure::Transport(error)),
-        }
+        events.next(deadline).map_err(|stop| stopped(stop, wait))?;
+    }
+}
+
+fn stopped(stop: Stop, wait: &WaitPlan) -> Failure {
+    match stop {
+        Stop::TimedOut => timed_out(wait),
+        Stop::Interrupted => interrupted(json!({"key": wait.key, "until": wait.until.label()})),
+        Stop::Failed(failure) => failure,
+    }
+}
+
+/// The daemon's own error for a workspace selector nothing matches.
+fn not_found(selector: &str) -> Failure {
+    match serde_json::to_value(ResourceError::not_found("workspace", selector)) {
+        Ok(error) => Failure::Resource(error),
+        Err(error) => Failure::Transport(format!("cmux: {error}")),
     }
 }
 

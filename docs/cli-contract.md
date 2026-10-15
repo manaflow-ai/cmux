@@ -244,8 +244,10 @@ default, returns when the entry is gone (cleared, its owner ended or its TTL
 passed) or shows `success` (exit 0), or shows `error` (exit 1); a key with no
 entry is settled at once. `cleared` waits for the entry to go, and `state=<s>`
 (`busy`, `waiting`, `success`, `error` or `info`) for that state. It follows the
-session's event stream instead of polling, and a passed timeout exits 124 with
-`wait.timeout`, also when the daemon stops answering.
+session's event stream instead of polling, subscribing again when the daemon
+ends it, and a passed timeout exits 124 with `wait.timeout`, also when the
+daemon stops answering or is still finding the caller's workspace. `current`
+in a session with no workspace fails with `selector.not_found` (exit 1).
 
 Rooms and groups (workspace, tab, screen and saved tab groups) take their id or
 their exact name. The CLI reads the list on the request's connection and sends
@@ -374,8 +376,8 @@ without a match. `cmux agents wait` does the same: it prints its receipt
 `wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
 from OSC 133 shell integration); `--until idle` when no plain command runs, no
 program reports `working` (OSC 7501) and no OSC 9;4 progress is under way. Both
-follow the session's event stream instead of polling and print the terminal
-record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
+follow the session's event stream instead of polling (subscribing again when
+the daemon ends it) and print the terminal record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
 stops answering. Both read shell state from OSC 133 marks: in a shell without
 integration `--until idle` returns while a command still runs. After the daemon
 reattaches to a running terminal host, the prompt and command state come back

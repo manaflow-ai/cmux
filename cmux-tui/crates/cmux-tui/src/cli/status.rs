@@ -33,6 +33,7 @@ use super::{GlobalArgs, OutputMode, Surface, UsageError};
 
 mod status_wait;
 mod terminal_wait;
+mod wait_events;
 
 const DEFAULT_BADGE_TTL: &str = "8s";
 /// Flags `set` passes through to `workspace status set` unchanged.

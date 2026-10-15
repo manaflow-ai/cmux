@@ -27,6 +27,7 @@ mod screen;
 mod server_ensure;
 mod sidebar_doc;
 mod state;
+pub(super) use state::STATUS_STATES;
 mod workspace;
 
 pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
