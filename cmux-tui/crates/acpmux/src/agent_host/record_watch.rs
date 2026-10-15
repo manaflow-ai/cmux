@@ -163,8 +163,9 @@ impl DirWatch {
                 .map_err(std::io::Error::other)
                 .and_then(|path| {
                     // SAFETY: a valid inotify descriptor and a NUL-terminated path.
-                    let wd =
-                        unsafe { libc::inotify_add_watch(inotify.as_raw_fd(), path.as_ptr(), mask) };
+                    let wd = unsafe {
+                        libc::inotify_add_watch(inotify.as_raw_fd(), path.as_ptr(), mask)
+                    };
                     if wd < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
                 });
             match added {

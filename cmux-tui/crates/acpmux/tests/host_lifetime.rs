@@ -243,7 +243,9 @@ async fn idle_usage(pid: i64, secs: u64) -> (u64, u64) {
 #[cfg(target_os = "linux")]
 struct Cleanup {
     daemon: Child,
-    host: i64,
+    /// Set while the host may still run; None once it is gone (its pid
+    /// may then belong to another process).
+    host: Option<i64>,
     home: PathBuf,
 }
 
@@ -252,9 +254,9 @@ impl Drop for Cleanup {
     fn drop(&mut self) {
         let _ = self.daemon.kill();
         let _ = self.daemon.wait();
-        if alive(self.host) {
-            // SAFETY: SIGKILL to the host this test started.
-            unsafe { libc::kill(self.host as i32, libc::SIGKILL) };
+        if let Some(host) = self.host.filter(|&host| alive(host)) {
+            // SAFETY: SIGKILL to the host this test started, still running.
+            unsafe { libc::kill(host as i32, libc::SIGKILL) };
         }
         let _ = std::fs::remove_dir_all(&self.home);
     }
@@ -269,14 +271,14 @@ impl Drop for Cleanup {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pooled_host_is_idle_and_follows_its_record() {
     let home = scratch("idle");
-    let daemon = start_daemon(&home);
+    let mut cleanup = Cleanup { daemon: start_daemon(&home), host: None, home: home.clone() };
     let mut rpc = Rpc::connect(&home).await;
     rpc.pool_ready(&home, "fakeb").await;
     let pool = home.join("hosts").join("pool");
     let session = pool_session(&home);
     let path = pool.join(format!("{session}.json"));
     let (host, _) = pids(&record(&pool, &session));
-    let _cleanup = Cleanup { daemon, host, home: home.clone() };
+    cleanup.host = Some(host);
     let (reads, ticks) = idle_usage(host, 3).await;
     assert!(reads < 100 && ticks < 30, "idle pooled host {host}: {reads} reads, {ticks} ticks");
     // A record rewritten in place (write, then rename) is still this host's.
@@ -289,5 +291,6 @@ async fn a_pooled_host_is_idle_and_follows_its_record() {
     assert!(reads < 100 && ticks < 30, "after the rewrite {host}: {reads} reads, {ticks} ticks");
     std::fs::remove_file(&path).unwrap();
     assert!(gone_within(host, Duration::from_secs(10)), "host {host} outlived its record");
+    cleanup.host = None;
     drop(rpc);
 }
