@@ -96,6 +96,7 @@ pub fn serve_terminal_host_stdio(
         supports_viewer_size_priority: true,
         supports_pty_custody: sys::SUPPORTS_PTY_CUSTODY,
         supports_program_status: true,
+        orphan_grace_secs: host_orphan_grace().map(|grace| grace.as_secs()),
     };
     let record_root = Path::new(&launch.record_path)
         .parent()
@@ -156,11 +157,13 @@ pub fn serve_terminal_host_stdio(
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
-    // No client stream since this instant: the owner daemon is gone. After
-    // the orphan grace with still no client, the host ends its terminal the
-    // way an owner's Terminate does (exit record included), so a quit or
-    // killed app does not hold a PTY until reboot. Any accepted connection
-    // restarts the clock, so a restarted daemon's adoption always wins.
+    // No client stream since this instant: the owner daemon is gone. In a
+    // build with an orphan grace (tagged DEV, staging, debug; none in normal
+    // installs, cx-t2sqm D1), after that grace with still no client the host
+    // ends its terminal the way an owner's Terminate does (exit record
+    // included), so a deleted throwaway build does not hold a PTY until
+    // reboot. Any accepted connection restarts the clock, so a restarted
+    // daemon's adoption always wins.
     let orphan_grace = host_orphan_grace();
     let mut orphan_since: Option<Instant> = None;
     let mut orphan_ended = false;
@@ -205,7 +208,7 @@ pub fn serve_terminal_host_stdio(
                 // The queue is drained: a waiting daemon connection was
                 // accepted above and reset the clock, so adoption wins a
                 // tie with the deadline.
-                if let Some(since) = orphan_since
+                if let (Some(since), Some(orphan_grace)) = (orphan_since, orphan_grace)
                     && !orphan_ended
                     && now.saturating_duration_since(since) >= orphan_grace
                 {
@@ -232,7 +235,8 @@ pub fn serve_terminal_host_stdio(
                 };
                 let orphan_timeout = orphan_since
                     .filter(|_| !orphan_ended)
-                    .map(|since| (since + orphan_grace).saturating_duration_since(now));
+                    .zip(orphan_grace)
+                    .map(|(since, grace)| (since + grace).saturating_duration_since(now));
                 let timeout = match (launch_timeout, orphan_timeout) {
                     (Some(a), Some(b)) => Some(a.min(b)),
                     (a, b) => a.or(b),
