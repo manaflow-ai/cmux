@@ -193,15 +193,27 @@ def palette_run(pid, text, title, shot_name):
         opened = poll(lambda: "error" not in (rpc("debug.palette.capture", {"path": os.path.join(OUT, shot_name + "-open.png")}) or {"error": 1}), 5)
     if not check("Cmd-Shift-P opens the command palette", bool(opened)):
         return False
-    for ch in text:
-        cua("press_key", {"pid": pid, "key": "space" if ch == " " else ch})
     # The palette's own answer (debug.palette.capture: query and selected row) decides; Return runs only `title`.
     state = lambda: rpc("debug.palette.capture", {"path": os.path.join(OUT, shot_name + ".png")}) or {}
+    # Real keys: a background post to the pid does not reach the palette panel, so the keys go through the
+    # window server's HID queue with the app in front (delivery_mode foreground). Only if the query still
+    # misses do the app's own key events type it (reported, so the proof says which path typed).
+    for ch in text:
+        cua("press_key", {"pid": pid, "window_id": main["window_id"], "key": "space" if ch == " " else ch, "delivery_mode": "foreground"})
+    if not poll(lambda: state().get("query") == text, 5):
+        print("typing path: in-app key events (debug.key target palette); cua query was %r" % state().get("query"), flush=True)
+        rpc("debug.key", {"target": "palette", "key": "a", "modifiers": ["cmd"]})
+        for ch in text:
+            rpc("debug.key", {"target": "palette", "key": "space" if ch == " " else ch})
+    else:
+        print("typing path: real keys (cua-driver foreground)", flush=True)
     found = poll(lambda: state().get("selected") == title, 10)
     if not check("the palette selects %r after typing %r" % (title, text), bool(found), {"palette": state(), "ax": bool(palette_window(pid, main["window_id"]))}):
         cua("press_key", {"pid": pid, "key": "escape"})
         return False
-    cua("press_key", {"pid": pid, "key": "return"})
+    cua("press_key", {"pid": pid, "window_id": main["window_id"], "key": "return", "delivery_mode": "foreground"})
+    if poll(lambda: "error" not in state(), 2):
+        rpc("debug.key", {"target": "palette", "key": "return"})
     return True
 
 
