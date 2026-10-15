@@ -81,6 +81,24 @@ await requireBrowserLane("transcript-thought.test.ts", async () => {
     expect(playFailures(result.report)).toEqual([]);
   });
 
+  // Codex's reasoning trace (briefs/codex-reasoning-collapse.md, Leo 2026-10-15): a long thought
+  // streams in a fixed viewport with its newest line in view, folds to "Thought for 12s" once it
+  // ends, and opens on a click or Enter. A short thought never folds.
+  test("a long live thought holds a fixed viewport with its newest line in view", async () => {
+    const result = await play("thought-fold-live");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a long thought that ended folds to Thought for 12s, and a click or Enter opens it", async () => {
+    const result = await play("thought-fold-done");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a short live thought never folds", async () => {
+    const result = await play("thought-short-live");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
   test("Find marks a word in a thought's text, not its Thought label", async () => {
     const result = await play("thought-find");
     expect(playFailures(result.report)).toEqual([]);
