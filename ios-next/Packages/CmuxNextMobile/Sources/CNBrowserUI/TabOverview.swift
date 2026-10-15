@@ -38,19 +38,6 @@ struct TabCard: View {
             snapshot
                 .frame(width: width, height: height)
                 .background { CardShadow(radius: radius) }
-                .overlay(alignment: .topTrailing) {
-                    if showsClose {
-                        Button(action: onClose) {
-                            CardCloseGlyph()
-                                .padding(4)
-                                .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .opacity(closeOpacity)
-                        .allowsHitTesting(closeOpacity > 0.5)
-                        .accessibilityLabel("Close \(item.title)")
-                    }
-                }
                 .opacity(snapshotHidden ? 0 : 1)
             HStack(spacing: 6) {
                 Image(systemName: item.isTerminal ? "apple.terminal" : "globe").font(.system(size: 14))
@@ -75,6 +62,26 @@ struct TabCard: View {
                 .accessibilityAction(named: "Open", onOpen)
                 .accessibilityAction(named: "Close", onClose)
         }
+        // The close button is its own element after the card, as Safari's
+        // "Close" (tabs QA #17: it was folded into the card's element).
+        .overlay(alignment: .topTrailing) {
+            if showsClose {
+                Button(action: onClose) {
+                    CardCloseGlyph()
+                        .padding(4)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .opacity(closeOpacity * (snapshotHidden ? 0 : 1))
+                .allowsHitTesting(closeOpacity > 0.5 && !snapshotHidden)
+                .accessibilityLabel("Close")
+                .accessibilityHint(Text("Closes \(startPage ? "Start Page" : item.title)"))
+                .accessibilityHidden(closeOpacity < 0.5)
+                .accessibilitySortPriority(-1)
+            }
+        }
+        // The card, then its Close (Safari's order).
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder private var snapshot: some View {
@@ -281,6 +288,21 @@ struct TabOverview: View {
             .onChange(of: gridInteractive) { _, _ in dragging = nil }
             .scrollIndicators(.hidden)
             .ignoresSafeArea()
+            // Safari's top edge: cards scrolled under the status bar and the
+            // top controls blur and fade into the background (tabs QA #18).
+            .overlay(alignment: .top) {
+                let h = layout.safeTop + 52
+                ZStack {
+                    Rectangle().fill(.ultraThinMaterial)
+                        .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+                    LinearGradient(colors: [style.colors.overviewTop, style.colors.overviewTop.opacity(0.6), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .frame(height: h)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             .scaleEffect(1.06 - 0.06 * shown)
             .blur(radius: 10 * (1 - shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
@@ -582,7 +604,9 @@ struct TabOverview: View {
                 }
                 .glassEffect(.regular.interactive(), in: .circle)
                 .position(x: 38 + 24, y: bar.midY)
-                .accessibilityLabel("New Tab")
+                // Tabs QA #12: with terminals (+) is a menu, not New Tab itself.
+                .accessibilityLabel(onNewTerminal == nil ? "New Tab" : "New")
+                .accessibilityHint(onNewTerminal == nil ? "" : "Shows New Tab and New Terminal")
                 }
 
                 // One glass shape per control (two nested glass capsules
