@@ -103,6 +103,9 @@ and old holders keep running their own copy, pinned by its lock.
 
 ### 2.1 Holder wire protocol v1 (frozen)
 
+Full spec (frame layouts, kind values, error codes, corpus):
+`plans/cmux-next/holder-protocol-v1.md`. Summary:
+
 Framing: `magic "CMHL" u32 | kind u16 | flags u16 | len u32 | payload`. Little
 endian. Max payload 1 MiB. Payloads are fixed binary structs plus byte
 strings; no JSON in the holder.
@@ -122,7 +125,7 @@ strings; no JSON in the holder.
 | EXIT | h->d | wait status, end offset, time; also written to `<id>.exit` |
 | CLOSE | d->h | end the child: SIGHUP/SIGTERM, then SIGKILL after `grace_ms` |
 | PING/PONG | both | liveness of the link only |
-| ERROR | h->d | code (UNKNOWN_KIND, BAD_TOKEN, ...) for a request; link stays up |
+| ERROR | h->d | code (UNKNOWN_KIND, BAD_TOKEN, ...) for a request; link stays up except after BAD_TOKEN / NO_COMMON_VERSION |
 
 Rules that keep it frozen:
 - A holder answers an unknown kind with ERROR UNKNOWN_KIND and keeps the link.
@@ -147,9 +150,10 @@ replica). Agent hosts move the same way: new agents start under
 ## 3. Discovery and restore without scanning
 
 - At spawn the holder writes an identity record (atomic, 0600, O_NOFOLLOW):
-  schema, id, mode, owner install (`<bundle>:<tag>`), session, cwd, argv,
+  schema, id, mode, install (12-hex hash of bundle id + tag), session, cwd, argv,
   start time, protocol min/max, capability bits, socket path, lease nonce.
-  pid fields are informational only and are never used to find or signal.
+  The record has no pid fields: nothing finds or signals a holder by pid.
+- Today (cx-t2sqm.13 landed): host records live in `<state>/terminal-hosts-<session token>/` (one per build, since each build has its own app session). Records may name a socket in the per-install directory `/tmp/cmux-th-<uid>/<session token>/` or the legacy flat one; new hosts still bind flat so a rollback to an older build never strands a terminal, and a later build switches the bind (cx-t2sqm.18). Target for `cmux-holder`:
 - Records and sockets live in a per-install runtime directory (0700):
   `<runtime>/cmux/holders/<install id>/`, where the install id is a short
   hash (12 hex) of BuildIdentity's stable part (bundle id + tag), NOT the
@@ -236,15 +240,12 @@ never infers an agent from a process name, argv, foreground group or tree.
 - The holder checks the peer uid (`getpeereid` / `SO_PEERCRED`) equals its
   own before HELLO, then the owner token (constant time). A wrong token gets
   ERROR BAD_TOKEN and the link is closed.
-- Threat model: any process of the same uid, including an agent running in
-  another terminal, can read a 0600 file and connect to a 0600 socket. A
-  token stored in the readable registry therefore stops only other users.
-  To stop a same-uid process from typing into another terminal, the owner
-  token is NOT stored in the registry: the daemon keeps it in its own store
-  (Keychain on macOS, a 0600 file only the daemon reads on Linux), and the
-  holder also checks the peer's code identity on the connected socket
-  (`LOCAL_PEERTOKEN` audit token + code signature on macOS). That is
-  authentication of one connected peer, not a scan.
+- Threat model (D6, Lawrence 2026-10-14): the holder protects against other
+  users only (socket peer uid + owner token). Any process of the same uid,
+  including an agent in another terminal, is trusted like a shell of that
+  user; there is no code-identity check. The owner token stays out of the
+  registry (the daemon keeps it in its own store) so a stale record never
+  hands it out.
 - Per-install directories keep DEV tags, NIGHTLY and Release apart; an
   install only lists its own directory. Cross-install adoption is an explicit
   user action (cx-14hn5), never automatic.
@@ -280,3 +281,7 @@ never infers an agent from a process name, argv, foreground group or tree.
 - D5 (chief): peer checks that walk parent processes (control socket,
   computer-use helper) become a capability token the app gives its
   children.
+- D6 (Lawrence): no code-identity check in the holder; it protects only
+  against other users (socket peer uid + owner token).
+- Pipe mode uses one shared offset space; the holder drops the oldest output
+  and never blocks the child (chief, confirmed 2026-10-14).

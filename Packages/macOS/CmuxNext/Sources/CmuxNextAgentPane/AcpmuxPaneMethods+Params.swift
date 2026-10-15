@@ -14,7 +14,9 @@ nonisolated extension AcpmuxPaneMethods {
         "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
-        "_acpmux/watch": (["enabled"], []),
+        // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
+        "_acpmux/watch": (["enabled", "limit"], []),
+        "_acpmux/sessions": (["limit", "cursor"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
@@ -54,6 +56,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
+        "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

@@ -75,7 +75,7 @@ public final class PageRouter {
                     opid = text
                 }
                 let params = message["params"] ?? .object([:])
-                let value = try await cancellable(id: id) { [self] in try await call(op, params: params, opid: opid) }
+                let value = try await cancellable(id: id, op: op) { [self] in try await call(op, params: params, opid: opid) }
                 return ["t": "ok", "id": .number(Double(id)), "value": value]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -138,8 +138,8 @@ public final class PageRouter {
 
     /// Runs `work` as page call `id`, answering `cmux.op.cancelled` at once when the call is
     /// cancelled; the work's task is cancelled too, so the owner stops (a relay cancels its op).
-    private func cancellable(id: UInt64, _ work: @escaping @MainActor () async throws -> JSONValue) async throws -> JSONValue {
-        let call = PageCallInFlight()
+    private func cancellable(id: UInt64, op: String, _ work: @escaping @MainActor () async throws -> JSONValue) async throws -> JSONValue {
+        let call = PageCallInFlight(op: op)
         inFlight[id] = call
         defer { if inFlight[id] === call { inFlight[id] = nil } }
         return try await withCheckedThrowingContinuation { continuation in
@@ -289,6 +289,13 @@ public final class PageRouter {
 
     public var subscriptionCount: Int { subscriptions.count }
 
+    /// The page calls still running (`debug.page` state): page call id, op and age in ms, oldest first.
+    public func inFlightCalls(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> [JSONValue] {
+        inFlight.sorted { $0.key < $1.key }.map { id, call in
+            ["id": .number(Double(id)), "op": .string(call.op), "age_ms": .number(((now - call.started) * 1000).rounded())]
+        }
+    }
+
     static func error(id: UInt64, _ error: PageError) -> JSONValue {
         var envelope: [String: JSONValue] = [
             "t": "err", "id": .number(Double(id)), "code": .string(error.code), "message": .string(error.message),
@@ -303,9 +310,16 @@ public final class PageRouter {
 /// the work's end and a cancel answers it (once); a cancel also cancels the task.
 @MainActor
 final class PageCallInFlight {
+    let op: String
+    /// When the call arrived (`systemUptime`).
+    let started = ProcessInfo.processInfo.systemUptime
     private var continuation: CheckedContinuation<JSONValue, any Error>?
     private var task: Task<Void, Never>?
     private var cancelled = false
+
+    init(op: String) {
+        self.op = op
+    }
 
     func start(_ continuation: CheckedContinuation<JSONValue, any Error>, _ work: @escaping @MainActor () async throws -> JSONValue) {
         self.continuation = continuation

@@ -51,6 +51,24 @@ const composerControls = {
   },
 };
 
+// A new chat in a project on `branch`, before its first send.
+const onBranch = (branch: string) =>
+  noChat([session({ sessionId: "older", title: "An older chat" })], {
+    summary: { sessionId: "", cwd: CWD, branch, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+  });
+
+/// Claude Code's Ultracode switch, as acpmux's claude_stdio lists it beside the levels.
+const CLAUDE_ULTRACODE_OFF = {
+  id: "ultracode",
+  name: "Ultracode",
+  category: "model_config",
+  currentValue: "off",
+  options: [
+    { value: "off", name: "Off" },
+    { value: "on", name: "On", description: "Extra High effort plus multi-agent workflow orchestration" },
+  ],
+};
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -443,17 +461,21 @@ export default agentPaneEntry({
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
     },
+    // The location row is a new chat's only (locationRow.ts): these show it before the first send.
     "tray-long-branch": {
-      note: "The footer row keeps a long branch readable without moving the composer.",
-      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      note: "A new chat's location row keeps a long branch readable without moving the composer.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: onBranch("feature/composer-location-tray"),
     },
     "docked-400": {
-      note: "The card's footer row at a 400px dock width.",
-      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      note: "A new chat's location row at a 400px dock width.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: onBranch("feature/composer-location-tray"),
     },
     "wide-760": {
-      note: "The composer card and its footer row at the 760px wide proof width.",
-      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+      note: "The composer card and a new chat's location row at the 760px wide proof width.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: onBranch("feature/composer-location-tray"),
     },
     "folder-menu": {
       note: "Play: open the footer's folder menu; it draws above the whole card, opaque, rows legible.",
@@ -750,7 +772,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, Ultracode (with its line), Ultrathink, then Fast Mode On/Off; the chip reads Medium Fast.",
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (with its line) and Fast Mode On/Off; the chip reads Medium Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
@@ -765,10 +787,9 @@ export default agentPaneEntry({
               { value: "high", name: "High" },
               { value: "xhigh", name: "Extra High" },
               { value: "max", name: "Max" },
-              { value: "ultracode", name: "Ultracode" },
-              { value: "ultrathink", name: "Ultrathink" },
             ],
           },
+          CLAUDE_ULTRACODE_OFF,
           {
             id: "fast-mode",
             name: "Fast mode",
@@ -784,6 +805,38 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+      },
+    },
+    "reasoning-claude-default": {
+      note: "Play: a chat on Claude Code's own level (default) on Opus 5.5 [1m]: the chip names the level it resolves to, Medium; the menu checks Medium with a Default hint and lists no Ultrathink.",
+      snapshot: withSummary(chat(finished, { title: "Claude default reasoning" }), {
+        model: "claude-opus-5-5[1m]",
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "default",
+            // An older acpmux still lists Ultrathink, a prompt keyword: the menu drops it.
+            options: ["default", "low", "medium", "high", "xhigh", "max", "ultrathink"].map((value) => ({ value })),
+          },
+          CLAUDE_ULTRACODE_OFF,
+        ],
+      }),
+      play: async (ctx) => {
+        const chip = () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button");
+        await ctx.waitFor(() => chip()?.textContent?.trim() === "Medium");
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        await ctx.waitFor(() => {
+          const checked = ctx.document.querySelectorAll(
+            '.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]',
+          );
+          const level = checked[0]?.textContent ?? "";
+          return level.includes("Medium") && level.includes("Default");
+        });
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".acpmux-effort-menu")?.textContent?.includes("Ultrathink"),
+        );
       },
     },
     "reasoning-codex": {
@@ -1021,12 +1074,11 @@ export default agentPaneEntry({
         if (!style.backgroundColor || style.backgroundColor === "rgba(0, 0, 0, 0)")
           throw new Error("shared popup is missing its themed surface fill");
         const box = ctx.find({ selector: ".acpmux-composer-box" });
-        const context = ctx.find({ selector: ".acpmux-composer-context" });
         const boxStyle = ctx.document.defaultView!.getComputedStyle(box);
-        const contextStyle = ctx.document.defaultView!.getComputedStyle(context);
         if (!boxStyle.boxShadow || boxStyle.boxShadow === "none") throw new Error("composer surface has no soft edge");
-        if (contextStyle.borderTopWidth !== "0px" || contextStyle.boxShadow !== "none")
-          throw new Error("location scope still draws a divider or inner box");
+        // The chat has a turn: no location strip at all (locationRow.ts), so nothing over the card.
+        if (ctx.document.querySelector(".acpmux-composer-context"))
+          throw new Error("a started chat still draws the location strip");
         if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
         // The free space sits only between the left cluster and mic/Send (hq#1957 item 15).
         const actions = ctx.find({ selector: ".acpmux-composer-actions" });

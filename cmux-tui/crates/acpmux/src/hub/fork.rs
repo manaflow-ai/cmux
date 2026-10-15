@@ -38,6 +38,13 @@ impl Hub {
             .clone()
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        // The fork's own folder as it is now, not the parent's start (`git_state.rs`).
+        let git = {
+            let cwd = cwd.clone();
+            tokio::task::spawn_blocking(move || crate::git_state::GitState::read(&cwd))
+                .await
+                .unwrap_or_default()
+        };
         let id = uuid::Uuid::now_v7().to_string();
         let turn_cut = {
             let cfg = self.config.read().await;
@@ -124,6 +131,8 @@ impl Hub {
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             title: None,
+            title_source: None,
+            title_prompt: None,
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
@@ -151,6 +160,8 @@ impl Hub {
                 off: parent_meta.tools.off.clone(),
                 ..Default::default()
             },
+            git_branch: git.branch,
+            git_head: git.head,
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {

@@ -13,6 +13,8 @@ import { toolLabel } from "../toolPaths";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { CopyButton } from "./CopyButton";
+import { experimentArm } from "../../../experiments/experiment";
+import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { OutputMore, useOutput } from "./toolOutput";
@@ -112,17 +114,21 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
-/// A call's output when it is not a shell's: copyable whole, the end of a long one shown.
+/// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
+/// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
+/// one shown.
 function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
   const t = useT();
   const shown = useOutput(output, reveal);
   return (
     <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
-      <CopyButton
-        text={shown.text ?? ""}
-        label={t("turn.copy")}
-        className="cv-codeblock__action cv-tool-output__copy"
-      />
+      {experimentArm(hoverActions) === "all" && (
+        <CopyButton
+          text={shown.text ?? ""}
+          label={t("turn.copy")}
+          className="cv-codeblock__action cv-tool-output__copy"
+        />
+      )}
       <pre className="cv-tool-output selectable">
         {shown.cut && (
           <span className="cv-output-cut" aria-hidden="true">

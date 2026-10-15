@@ -832,13 +832,16 @@
   font-weight: 500;
   cursor: default;
 }
-.lg-button:hover {
+.lg-button:not(.primary):hover {
   background: var(--page-hover);
 }
 .lg-button.primary {
   border-color: transparent;
   background: var(--page-text);
   color: var(--lg-solid);
+}
+.lg-button.primary:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--page-text) 28%, transparent);
 }
 
 /* ---------- Palette ---------- */
@@ -1059,21 +1062,26 @@
   white-space: nowrap;
 }
 
-/* ---------- Agent runs: a quiet card under a Chief's reply, the run sheet over the timeline ---------- */
+/* ---------- Agent runs: an inline disclosure under a Chief's reply (no frame; its steps on an
+   indented rail), the run sheet over the timeline ---------- */
 .lg-run {
+  /* The label's column (after the status mark) and the rail's place (under the first glyph). */
+  --lg-run-lead: 16px;
+  --lg-run-rail: 3px;
   container: lg-run / inline-size;
-  margin: 4px 0 2px;
+  margin: 2px 0 0;
   max-width: min(100%, 640px);
-  border: 1px solid var(--lg-line);
-  border-radius: 8px;
-  background: var(--lg-fill);
+}
+/* With the author's picture (16 px, then the mark): the rail under the picture's center. */
+.lg-run:has(> .lg-run-bar > .lg-run-toggle > .hc-avatar) {
+  --lg-run-lead: 42px;
+  --lg-run-rail: 7px;
 }
 .lg-run-bar {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   min-height: 28px;
-  padding: 0 8px;
 }
 .lg-run-toggle {
   display: flex;
@@ -1145,19 +1153,23 @@
   }
 }
 .lg-run-title {
-  margin: -4px 8px 6px 24px;
+  margin: -4px 0 4px;
+  margin-inline-start: var(--lg-run-lead);
   font-size: var(--text-detail);
   color: var(--page-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The rail: under the first glyph's center, the steps in the label's column. */
 .lg-run-steps {
-  padding: 0 8px 6px 8px;
-  border-top: 1px solid var(--lg-line);
+  margin-inline-start: var(--lg-run-rail);
+  padding: 0 0 4px;
+  padding-inline-start: calc(var(--lg-run-lead) - var(--lg-run-rail) - 1px);
+  border-inline-start: 1px solid var(--lg-line);
 }
 .lg-run-more {
-  margin: 6px 0 0 16px;
+  margin: 6px 0 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
 }
@@ -1168,6 +1180,12 @@
   font-size: var(--text-detail);
   color: var(--hc-danger);
   white-space: pre-wrap;
+}
+/* In the card (no frame): the error in the label's column, no line above it. */
+.lg-run > .lg-run-error {
+  padding: 4px 0 0;
+  padding-inline-start: var(--lg-run-lead);
+  border-top: 0;
 }
 .lg-run-status {
   display: inline-flex;
@@ -1237,7 +1255,8 @@
     order: 2;
     flex-basis: 100%;
     overflow: hidden;
-    padding: 0 0 6px 16px;
+    padding: 0 0 6px;
+    padding-inline-start: var(--lg-run-lead);
   }
   .lg-run-metas > .lg-run-meta:first-child::before {
     content: none;

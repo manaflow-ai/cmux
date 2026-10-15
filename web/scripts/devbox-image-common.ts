@@ -1513,15 +1513,17 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * once an entry is not needed. Promotion stays strict (promote-devbox-image.ts
  * calls devboxSourceDriftProblems directly). The desktop sources moved in
  * 0174c116d4db, 0c91f5f55662 and 219015401324 (cx-6so.49 L1, the devbox
- * metadata service) after the freestyle-cmux-devbox-20261003-130941 ladder
- * was baked: delete the entry with the promotion that bakes them.
+ * metadata service). They are feat-cmux-next's own, so the ladders main
+ * promotes (now freestyle-cmux-devbox-agents-1014b, #20524) are baked without
+ * them: delete the entry with the promotion that bakes them, and move
+ * `baked` and `current` when a main sync brings a new ladder.
  */
 export const DEVBOX_AWAITING_REBAKE = [
   {
     layers: "desktop",
     schema: 2,
-    baked: "082484bccc9a",
-    current: "4b22f8bbeb1b8dcf1b86077ae1e2730144569615203b49fbd14d93b431bf7d76",
+    baked: "f221dae31c12",
+    current: "c6bdea67d31807cbc6b8bc1afa66c651bdb4cde3fbb77fbb5b273fe4504b4e5d",
   },
 ] as const;
 
