@@ -847,7 +847,7 @@ struct RemoteTmuxMirrorTargetingTests {
                 break drainSetup
             }
         }
-        guard case .tracked(_) = try #require(connection.pendingCommandKindsForTesting.first) else {
+        guard case .paneTitleSubscription(_) = try #require(connection.pendingCommandKindsForTesting.first) else {
             Issue.record("expected the pane-title watcher at the command FIFO head; FIFO: \(connection.pendingCommandKindsForTesting)")
             return
         }
@@ -857,6 +857,14 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(!connection.paneTitleSubscriptionActive)
 
         connection.subscribePaneTitlesIfNeeded()
+        #expect(connection.paneTitleSubscriptionActive)
+        guard case .paneTitleSubscription(_) = try #require(connection.pendingCommandKindsForTesting.first) else {
+            Issue.record("expected the retried pane-title watcher at the command FIFO head")
+            return
+        }
+        connection.handleMessageForTesting(.commandResult(
+            commandNumber: 3, lines: [], isError: false
+        ))
         #expect(connection.paneTitleSubscriptionActive)
     }
 

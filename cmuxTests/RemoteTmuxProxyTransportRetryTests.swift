@@ -2716,6 +2716,9 @@ private final class FuzzPeer {
         case .tracked:
             feed(block([]))
             return "tracked"
+        case .paneTitleSubscription:
+            feed(block([]))
+            return "pane-title-subscription"
         case .perWindowSize:
             feed(block([]))
             return "per-window-size"
