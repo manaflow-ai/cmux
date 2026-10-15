@@ -6,7 +6,9 @@ strip then removes every name from it. Before stripping,
 scripts/strip-release-bundle.sh writes Contents/Resources/cmux-symbols.bin:
 per slice, the LC_UUID and the __TEXT,__text functions as offsets from the
 image's __TEXT segment, so hang records and exception traces still name app
-frames. A second strip pass over the stripped executable keeps the map.
+frames. The map ends with an unnamed entry at the end of __text, so an
+address past the last function (__stubs, __objc_stubs) names no function.
+A second strip pass over the stripped executable keeps the map.
 """
 
 from __future__ import annotations
@@ -78,6 +80,16 @@ def read_map(path: Path) -> dict[uuid.UUID, list[tuple[int, str]]]:
     return slices
 
 
+def function_at(symbols: list[tuple[int, str]], offset: int) -> tuple[str, int] | None:
+    """What AppSymbolMap.function(at:) answers: the last entry starting at or
+    before offset, nil before the first or on an unnamed entry."""
+    held = [(start, name) for start, name in symbols if start <= offset]
+    if not held or not held[-1][1]:
+        return None
+    start, name = held[-1]
+    return name, offset - start
+
+
 class AppSymbolMapTest(unittest.TestCase):
     def strip(self, app: Path) -> None:
         tools = app.parent / "tools"
@@ -105,7 +117,13 @@ class AppSymbolMapTest(unittest.TestCase):
             exe.chmod(0o755)
             self.strip(app)
             symbols = read_map(app / "Contents/Resources/cmux-symbols.bin")
-            self.assertEqual(symbols, {SLICE_UUID: [(0x1000, "$s4cmux3AppV3runyyF"), (0x1400, "main")]})
+            # __text spans 0x1000..0x2000; the unnamed entry marks its end.
+            self.assertEqual(symbols, {SLICE_UUID: [(0x1000, "$s4cmux3AppV3runyyF"), (0x1400, "main"), (0x2000, "")]})
+            table = symbols[SLICE_UUID]
+            self.assertEqual(function_at(table, 0x1fff), ("main", 0xbff))
+            self.assertIsNone(function_at(table, 0x2000))  # a stub after __text
+            self.assertIsNone(function_at(table, 0x2400))
+            self.assertIsNone(function_at(table, 0xfff))
 
             # The second strip pass (nightly nn-strip-again) sees the stripped
             # executable, same UUID, where only __mh_execute_header is left in

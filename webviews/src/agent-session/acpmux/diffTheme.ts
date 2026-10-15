@@ -5,6 +5,7 @@
 import { registerCustomTheme } from "@pierre/diffs";
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "../../scrollers";
 import { agentSyntaxColor, syntaxTokenRules } from "../../syntax-theme";
+import { DIFF_GUTTER_TINT, DIFF_LINE_TINT, DIFF_WEIGHT_CSS, DIFF_WORD_TINT, diffTint } from "../../diffWeight";
 
 export const AGENT_DIFF_THEME = "cmux-agent-dark";
 export const AGENT_DIFF_THEME_LIGHT = "cmux-agent-light";
@@ -34,10 +35,10 @@ export const diffColors = {
   selected: `var(--agent-card-hover, ${fallbackDark.selected})`,
   addition,
   deletion,
-  additionLine: `color-mix(in srgb, ${addition} 14%, transparent)`,
-  deletionLine: `color-mix(in srgb, ${deletion} 14%, transparent)`,
-  additionGutter: `color-mix(in srgb, ${addition} 8%, transparent)`,
-  deletionGutter: `color-mix(in srgb, ${deletion} 8%, transparent)`,
+  additionLine: diffTint(addition, DIFF_LINE_TINT),
+  deletionLine: diffTint(deletion, DIFF_LINE_TINT),
+  additionGutter: diffTint(addition, DIFF_GUTTER_TINT),
+  deletionGutter: diffTint(deletion, DIFF_GUTTER_TINT),
   separator: `var(--agent-control, ${fallbackDark.separator})`,
 } as const;
 
@@ -100,10 +101,11 @@ export const diffUnsafeCSS = /* css */ `
   --diffs-fg-number-override: ${c.muted};
   --diffs-bg-separator-override: ${c.separator};
   --diffs-gap-block: 0px;
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, ${c.addition} 22%, transparent);
-  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, ${c.deletion} 22%, transparent);
+  --diffs-bg-addition-emphasis-override: ${diffTint(c.addition, DIFF_WORD_TINT)};
+  --diffs-bg-deletion-emphasis-override: ${diffTint(c.deletion, DIFF_WORD_TINT)};
   background: ${c.bg};
 }
+${DIFF_WEIGHT_CSS}
 [data-column-number][data-line-type="change-addition"],
 [data-gutter-buffer][data-line-type="change-addition"] { --diffs-line-bg: ${c.additionGutter}; }
 [data-column-number][data-line-type="change-deletion"],

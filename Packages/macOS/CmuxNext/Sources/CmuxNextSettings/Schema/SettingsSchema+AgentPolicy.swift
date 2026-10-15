@@ -55,7 +55,6 @@ extension SettingsSchema {
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
         "tabs.swapCmdTAndCmdN",
-        "tabs.tabBar.terminal", "tabs.tabBar.browser", "tabs.tabBar.agent",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
