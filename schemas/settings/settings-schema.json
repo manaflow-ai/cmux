@@ -490,6 +490,16 @@
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
             }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
           }
         ],
         "id" : "agents",
@@ -897,7 +907,6 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
-              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -9961,7 +9970,8 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -10021,6 +10031,13 @@
             "text" : "Two-Tone"
           },
           "value" : "two-tone"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.floating",
+            "text" : "Floating Panes"
+          },
+          "value" : "floating"
         }
       ],
       "consumers" : [
@@ -10053,7 +10070,9 @@
         "sidebar",
         "two-tone",
         "minimal",
-        "bare"
+        "bare",
+        "floating",
+        "gaps"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -14144,6 +14163,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14155,6 +14175,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14175,7 +14202,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14184,9 +14211,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -22135,54 +22164,6 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.labs",
-        "text" : "Labs"
-      },
-      "help" : {
-        "key" : "settings.labs.classicHome.help",
-        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect when Home opens next."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "labs.classicHome",
-      "keywords" : [
-        "home",
-        "chief",
-        "classic",
-        "dock",
-        "page"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "labs",
-        "classicHome"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.labs.classicHome",
-        "text" : "Classic Home"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23581,7 +23562,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c093a5ba0fa4d5597c96e1b613248a60175f73028a271c2862636b61a9a2b2a2",
+  "schema_hash" : "f590edffcb3e42e89831d8e96c6ba3eece1917143936341f49819ccb666cb37c",
   "sections" : [
     {
       "id" : "general",

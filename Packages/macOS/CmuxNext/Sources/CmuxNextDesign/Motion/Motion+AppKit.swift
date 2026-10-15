@@ -15,15 +15,7 @@ extension Motion {
     ///   screen the change applies at once (``canAnimate(in:)``).
     public static func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
                                completion: (@MainActor @Sendable () -> Void)? = nil) {
-        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
-        guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
-        let spring = self.spring(token)
-        let animation = Animation.spring(response: spring.response, dampingFraction: spring.dampingFraction, blendDuration: 0)
-        guard #available(macOS 15, *) else {
-            // macOS 14 has no SwiftUI-animation NSAnimationContext: the timed curve, not retargetable.
-            return runTimed(self.duration(token), changes, completion: traced("appkit.\(token.rawValue)", completion))
-        }
-        NSAnimationContext.animate(animation, changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
+        animateSpring(token, in: view, changes, settleAtSleep: nil, completion: completion)
     }
 
     /// Animates `NSView.animator()` opacity or color changes with a fade token.
@@ -67,14 +59,17 @@ extension Motion {
     }
 
     /// Whether a change of `view` can animate. A window with no screen (a
-    /// display unplugged or asleep, a screenless host, an offscreen window)
-    /// never advances an AppKit animation, so its final value and its
-    /// completion would wait for an indefinite time; such a change applies
-    /// at once. Decided per animation, from the animated view's window. A
-    /// view outside a window, or no view, animates as before.
+    /// display unplugged, a screenless host, an offscreen window) or on a
+    /// sleeping display (``DisplaySleep``) never advances an AppKit
+    /// animation, so its final value and its completion would wait for an
+    /// indefinite time; such a change applies at once. Decided per animation,
+    /// from the animated view's window. A view outside a window, or no view,
+    /// animates as before. A change already running when the display goes
+    /// to sleep ends at once only if it opted in (`settleAtSleep`).
     public static func canAnimate(in view: NSView?) -> Bool {
         guard let window = view?.window else { return true }
-        return window.screen != nil
+        guard let screen = window.screen else { return false }
+        return !DisplaySleep.shared.isAsleep(screen)
     }
 
     /// The proxy to set a constraint through inside a Motion animation of
@@ -88,7 +83,7 @@ extension Motion {
 
     /// Applies `animator()` changes at once and runs `completion` now (no
     /// display advances an animation group, so its handler cannot be awaited).
-    private static func snap(_ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?) {
+    static func snap(_ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
@@ -98,7 +93,7 @@ extension Motion {
     }
 
     /// Opens a `MotionTrace` span now and closes it when `completion` runs.
-    private static func traced(_ name: String, _ completion: (@MainActor @Sendable () -> Void)?) -> (@MainActor @Sendable () -> Void)? {
+    static func traced(_ name: String, _ completion: (@MainActor @Sendable () -> Void)?) -> (@MainActor @Sendable () -> Void)? {
         guard MotionTrace.isEnabled else { return completion }
         MotionTrace.begin(name)
         return {
@@ -107,7 +102,7 @@ extension Motion {
         }
     }
 
-    private static func runTimed(_ duration: TimeInterval, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?,
+    static func runTimed(_ duration: TimeInterval, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?,
                                  curve: CAMediaTimingFunction? = nil) {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration

@@ -1,0 +1,116 @@
+// Leo, 2026-10-14: tooltips and hover cards showed at once (or nearly: the minimap's turn preview
+// after 110 ms) on everything the pointer passed. They now share the
+// app's hover intent (ui/hoverIntent.ts): the first waits the hover delay (450 ms; AppKit's tooltip
+// delay is about 1 s), a neighbor's then shows at once, and half a second away cools it again.
+// These run on the real timers, through the components' own pointer handlers.
+import { afterAll, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
+const scope = globalThis as Record<string, unknown>;
+const replacements: Record<string, unknown> = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  IntersectionObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+for (const key of Object.getOwnPropertyNames(dom.window))
+  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
+    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
+const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+Object.assign(scope, replacements);
+
+const VIEWPORT = 600;
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
+dom.window.HTMLElement.prototype.scrollTo = function () {} as typeof HTMLElement.prototype.scrollTo;
+
+const { act } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+
+afterAll(() => {
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+const wait = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
+const TURNS = 8;
+const turns = Array.from({ length: TURNS }, (_, index) => [
+  row(`t${index}-user`, "user", `Question ${index}`),
+  row(`t${index}-answer`, "assistant", `Answer ${index}.`),
+  { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
+]).flat();
+
+test("the minimap's turn preview waits the hover delay, then follows the pointer at once until the rail cools", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    const rail = dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+    expect(rail).not.toBeNull();
+    const pitch = Number.parseFloat(rail.style.height) / TURNS;
+    const popover = () => dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__popover");
+    const visible = () => popover() !== null && !popover()!.hidden;
+    const move = (index: number) =>
+      act(async () => {
+        rail.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, clientY: pitch * index + 1 }));
+      });
+    const leave = () =>
+      act(async () => {
+        rail.dispatchEvent(new dom.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: null }));
+        rail.dispatchEvent(new dom.window.MouseEvent("pointerleave", { bubbles: false, relatedTarget: null }));
+      });
+
+    await move(2);
+    await wait(200);
+    expect(visible()).toBe(false);
+    await wait(650);
+    expect(visible()).toBe(true);
+    // Warm: the next tick's preview at once.
+    await move(3);
+    expect(visible()).toBe(true);
+    // Off the rail past the warm time: the next waits again.
+    await leave();
+    expect(visible()).toBe(false);
+    await wait(600);
+    await move(4);
+    await wait(200);
+    expect(visible()).toBe(false);
+    await wait(650);
+    expect(visible()).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

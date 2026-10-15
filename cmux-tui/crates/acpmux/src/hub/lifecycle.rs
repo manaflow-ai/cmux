@@ -249,7 +249,7 @@ impl Hub {
             }
             // The permission mode a new chat starts in (start_mode.rs): full
             // access unless the person picked or set otherwise. Soft.
-            let start_mode = if mode_eligible { self.start_mode(&session, defaults.mode.as_deref()).await } else { None };
+            let start_mode = if mode_eligible { self.start_mode(&session).await } else { None };
             if let Some(mode) = start_mode
                 && let Err(err) = self.set_mode(&session, &mode).await
             {
@@ -337,7 +337,7 @@ impl Hub {
             }
         }
 
-        self.record_launch_roots(session, profile).await;
+        self.record_spawn_inputs(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Default::default();

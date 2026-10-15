@@ -6,6 +6,7 @@
     "agent.list",
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
     "agent.report",
     "browser.activate",
@@ -124,6 +125,8 @@
     "pane.swap",
     "pane.viewport_width.set",
     "pane.zoom",
+    "participant.avatar.get",
+    "participant.avatar.set",
     "project.add",
     "project.list",
     "project.observe",
@@ -199,9 +202,11 @@
     "sidebar.group.update",
     "sidebar.item.add",
     "sidebar.item.remove",
+    "sidebar.item.remove_ref",
     "sidebar.item.update",
     "sidebar.move",
     "sidebar.pin",
+    "sidebar.reset",
     "sidebar.section.add",
     "sidebar.section.move",
     "sidebar.section.remove",
@@ -527,6 +532,7 @@
       "conversation-history",
       "conversation-thread",
       "conversation-link-resolve",
+      "conversation-inbox-op",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -546,7 +552,11 @@
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
+      "cloud-conversation-runs",
+      "cloud-conversation-run",
+      "cloud-participant-avatar-get",
       "cloud-conversation-op",
+      "cloud-inbox-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
@@ -556,6 +566,13 @@
       "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read",
+      "conversation-attachment-link",
+      "cloud-attachment-upload",
+      "cloud-attachment-read",
+      "cloud-attachment-link",
+      "conversation-run-append",
+      "conversation-runs",
+      "conversation-run",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"
@@ -659,7 +676,25 @@
       ]
     },
     {
+      "name": "conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-inbox-changed",
       "streams": [
         "subscribe"
       ]
@@ -765,6 +800,18 @@
       "name": "pane-closed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "participant-avatar-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "chief-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {
@@ -1401,6 +1448,11 @@
       "variant": "CopyWorkspaceId",
       "classification": "presentation-only",
       "route": "tree snapshot + frontend clipboard"
+    },
+    {
+      "variant": "PinWorkspace",
+      "classification": "direct",
+      "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)"
     },
     {
       "variant": "CloseWorkspace",

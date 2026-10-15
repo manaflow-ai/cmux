@@ -177,13 +177,6 @@ pub struct SessionDefaults {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PermissionPolicy>,
-    /// The harness permission mode a new chat starts in (a mode id of the
-    /// harness, e.g. Claude's `default` or Codex's `agent`): the person's
-    /// last mode pick in a chat of this profile (`hub/start_mode.rs`).
-    /// Absent: the cmux setting `agents.defaultPermissionMode`, else full
-    /// access. Written only by a pick, never by `_acpmux/defaults`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<String>,
     /// Profiles to use, in order, when a session asks for this family:
     /// `["claude-cr", "claude"]` sends `-m claude` to the CodeRouter route
     /// first. Absent: the family's only profile, else the profile named
@@ -206,9 +199,6 @@ impl SessionDefaults {
         }
         if top.policy.is_some() {
             self.policy = top.policy;
-        }
-        if top.mode.is_some() {
-            self.mode = top.mode.clone();
         }
         if !top.prefer.is_empty() {
             self.prefer = top.prefer.clone();
@@ -460,6 +450,13 @@ pub struct Config {
     /// the cmux app, and for hermetic tests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
+    /// `lastPermissionMode`: the level of the person's latest mode pick in
+    /// any chat (`fullAccess`, `standard` or `ask`), the start mode of every
+    /// new chat on every harness (`hub/start_mode.rs`). Written only by a
+    /// pick from the app pane; wins over `defaultPermissionMode` and the
+    /// cmux setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_permission_mode: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -639,7 +636,6 @@ impl Config {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                mode: None,
                 prefer: vec![],
                 env: BTreeMap::new(),
             });
@@ -879,6 +875,9 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
     }
     cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
 }
 
 /// The cmux terminal launch credential (plans/cmux-next/identity.md
@@ -886,6 +885,14 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
 /// daemon, agents and hooks serve many terminals, so none of them carries it.
 /// Both scrubs remove it from every child they prepare.
 pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
+
+/// A Chief host's credential and participant (optchat-chief: the token file
+/// that binds as that Chief, `agent_mux` for the default Chief). The host
+/// that starts a Chief home's acpmux is one Chief of many; the daemon serves
+/// every Chief of the home and the person, so no child it starts carries
+/// the starter's credential, not even through a preset (hq-6d 2026-10-14).
+/// Both scrubs remove them from every child they prepare.
+pub const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
 
 /// Whether `key` is one a Claude Code session plants for its children.
 pub(crate) fn is_nested_claude_key(key: &str) -> bool {
@@ -921,6 +928,9 @@ pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, fami
     }
     cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
 }
 
 mod launchers;
