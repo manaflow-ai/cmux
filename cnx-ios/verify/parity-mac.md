@@ -60,7 +60,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Edit Workspace Description… | — | — | not on the Mac either | The Mac reports it needs a daemon capability (`workspace-description-v1`) the daemon does not have. |
 | Mark Workspace as Read / Unread | `ack-tab-notifications` on unread tabs + `set-workspace-metadata {marked_unread}` | row menu > **Options** > **Mark Workspace as Read / Unread**; opening marks read | works (parity2) | |
 | Duplicate Workspace | composed app-side (new workspace, then each tab) | — | missing | The Mac composes it in the app (its tabs' programs and folders); a phone would have to start programs in folders it may not choose (`cwd`). Use New Workspace in the same folder. |
-| Workspace groups | personal groups (`set-personal-workspace {group}`, `workspace_group.*`) | — | missing | On a Mac with personal order, groups are personal resource ops not on the phone's lane; the phone shows grouped workspaces in the Mac's order, without the group headers. |
+| Workspace groups | personal groups as `cmux.protocol/2` state operations: `workspace_group.create {name, color, room}`, `workspace_group.update {name \| color \| collapsed}`, `workspace_group.delete`, `workspace.place {workspace, group}` | the list shows each group's header in the Mac's order (tap: **Collapse / Expand Workspace Group**); hold a header for **Rename Group…**, **Set Workspace Group Color…** (the nine colors), **Collapse / Expand Workspace Group**, **Ungroup Workspaces**, **Delete Group** (asks first); a row's menu > **Group** > **Move Workspace to Group…** (the Mac's groups, then **Move Workspace to New Group**) and **Remove Workspace from Group** | works (round 3, unit-tested; live pending) | Each change shows at once and comes back if the Mac refuses. A new group takes the Mac's next color and "New Group" when unnamed. Move Workspace Up / Down stays inside the workspace's group. The phone shows only groups of this Mac's workspaces (cnx-hostd refuses changes to a group that holds another machine's workspaces) and shows them whatever the Mac window's room. Not on the phone: Move Workspace Group Up / Down, group icon, Pin/Unpin Group, New Workspace in Group, Close All Workspaces in Group (SECURITY.md "Workspace groups"). |
 | Move to Window / New Window, Show in Finder, Copy Path | app-local | Copy Directory (terminal page) | not applicable | Mac windows and Finder. |
 
 ## Terminal
@@ -295,7 +295,7 @@ Findings fixed in round 2:
 - **Folder trust from the phone**: left on the Mac by decision; the phone gives the steps.
 - **Duplicate Workspace**: the Mac composes it from its tabs' programs and folders; a phone
   may not choose either.
-- **Workspace groups** (personal order): more resource ops on the lane; not reviewed yet.
+- **Workspace groups** (personal order): done in round 3 (see the Workspaces table; live pending).
 - **Reopen Saved Tab Group**: recreates terminals; same live check as Restart Shell needed.
 - **Open Link in New Tab, Checkpoints, Commit, Push, New Chief…, Memory Inspector, Reset
   Terminal, Keep Running After Close**: not on the link (or Mac-only by design).

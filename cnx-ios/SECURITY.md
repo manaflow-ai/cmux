@@ -447,6 +447,55 @@ v2 failure response (`origin.forbidden`, reason `phone_policy`).
   (`SidebarLayoutService.migrateLegacyPins`), so the phone never adds layout
   items itself.
 
+## Workspace groups (`feat-cnx-ios-parity3`)
+
+Parity round 3 shows the Mac's workspace groups in the phone's Workspaces list
+and adds the Mac's group actions that fit a phone. On a Mac with personal order
+the Mac's sidebar keeps groups as the person's own rows in the home session and
+changes them with `cmux.protocol/2` state operations
+(`StateResourceClient+Groups.swift`); the phone sends the same ones. The legacy
+commands (`create-personal-group`, `set-personal-workspace {group}`) are not
+used, and `set-personal-workspace` still refuses `group`. The shared-group
+commands already on the list (`create-workspace-group` …
+`move-workspace-to-group`) are for a Mac without personal order; the phone does
+not send them. Four resource operations are new, in both `policy.rs` and
+`DaemonLanePolicy.swift` (deny by default; the mirror test checks them and their
+params):
+
+| New entry | What the phone sends | Why |
+| --- | --- | --- |
+| `workspace_group.create` | `params {machine: current, session: current, name, color, room}`, an idempotency key. `name`: 1-256 characters, not blank, no control characters. `color`: one of the Mac's nine group colors. `room`: 1-64 of `[A-Za-z0-9_.:-]` | Move Workspace to New Group (the Mac's `workspace.moveToNewGroup`), in the room of the Mac window that shows the workspace. |
+| `workspace_group.update` | `params {…, workspace_group, name?, color?, collapsed?}` (at least one), and hostd forwards it only when the Mac's own `list-personal` has that group and every row in it is a workspace of this session (`registry_id` from `list-workspaces`) | Rename Group…, Set Workspace Group Color…, Collapse / Expand Workspace Group. |
+| `workspace_group.delete` | `params {…, workspace_group}`, same ownership check | Ungroup Workspaces and Delete Group (both keep the workspaces open; the Mac records the group in its closed history, so Reopen Closed brings it back). |
+| `workspace.place` | `params {…, workspace: "ws_…", group: "<id>" or null}`, and hostd forwards it only when `list-workspaces` lists that `resource_id`, and, for a group, that group passes the same check | Move Workspace to Group… and Remove Workspace from Group (and the second step of Move Workspace to New Group). |
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. None of the four carries a program, a path, a URL, an environment or text that is run. Only the params above pass; `command`, `argv`, `cwd`, `env`, `index`, `icon`, `pinned`, `top_index` and anything else are refused. A group name is stored and drawn as text in the Mac's sidebar (the same field the Mac's own rename writes). |
+| Mutates or destroys objects the session does not own? | Only the person's own sidebar organization, and only objects the Mac itself confirms (`services::owned_check`, on a separate daemon connection, before the line is sent; a Mac that cannot answer refuses). `workspace.place` resolves `workspace` in this session's own state (`machine`/`session` must be `current`), and hostd also requires that `list-workspaces` lists it. Update, delete and place-into-a-group take only a group whose rows are all this session's workspaces (or an empty one), so a phone never renames, recolors, folds or deletes a group that holds another machine's workspaces, and never moves a workspace into one (the Mac's own rule: a group holds one machine's workspaces, `SidebarEdits.canMove`). No workspace is closed: delete removes the group record and leaves its workspaces open and ungrouped. `update` never takes `room`, which would move the group and pin every member to another room. A new group can only go into one of the person's existing rooms (the daemon refuses an unknown room). |
+| Reads local state the remote should not see? | Nothing new: the phone reads groups, rooms and room pins from `list-personal`, already allowed in round 2. The ownership checks read `list-personal` and `list-workspaces` on hostd's own connection; their replies never reach the phone. |
+| Origin | The phone's lane has origin `agent`; none of the four is a user-only operation (`USER_ONLY_OPERATIONS`), and a phone's line carries no origin claim. |
+
+- **Swift lane:** `DaemonLanePolicy` checks the same values (`groupRefusal`),
+  sends `workspace_group.create` on as checked, and refuses update, delete and
+  place (it has no ownership check), as it does Unpin.
+- **Rule 6 (tests):** hostd `policy::tests::allows_the_workspace_group_ops`
+  (the eight lines the phone sends), `refuses_other_workspace_group_shapes`
+  (`workspace_group.list` / `.move`, room operations, `index`, `collapsed` on
+  create, `room` / `top_index` / `pinned` / `icon` on update, `cwd`,
+  `command`, `argv`, `env`, a blank, long or multi-line name, a hex or unknown
+  color, a bad room or group id, a non-`ws_` workspace, a non-Bool
+  `collapsed`, another machine or session, no idempotency key),
+  `group_ownership_is_checked_against_the_macs_state` (a group with another
+  machine's workspace, another machine's group, an unknown group, an unlisted
+  workspace refused; an empty group of the person's allowed),
+  `mirrors_the_swift_allowlist`; Swift `DaemonLanePolicyGroupTests`
+  (`allowedShapesPass`, `otherShapesAreRefused`).
+- **Not on the phone:** Move Workspace Group Up / Down (`workspace_group.move`
+  with `top_index`), group icon and Pin/Unpin Group, New Workspace in Group,
+  Close All Workspaces in Group, Group Selected Workspaces, and moving a group
+  to another room or window. They stay refused until reviewed.
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
