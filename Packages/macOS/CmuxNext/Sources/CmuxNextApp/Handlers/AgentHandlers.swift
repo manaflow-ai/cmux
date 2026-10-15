@@ -165,6 +165,15 @@ enum AgentHandlers {
             }
             view.showFileSearch()
         })
+        // Ask a Side Question… (`/btw`) starts a side question in the focused chat's composer.
+        registry.bind("agentPane.sideQuestion", run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.sideQuestionNeedsFocus) }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.sideQuestionNeedsAgentChat)
+            }
+            view.askSideQuestion()
+        })
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)

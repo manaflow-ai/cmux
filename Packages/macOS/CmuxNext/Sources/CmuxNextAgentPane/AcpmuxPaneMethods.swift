@@ -64,6 +64,11 @@ nonisolated enum AcpmuxPaneMethods {
         // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
         // `side` with its chat; only that tag, never `_acpmux/tag`.
         "_acpmux/side",
+        // A side session about a chat in the pane's scope (`/btw`, direct.ts btw): acpmux starts a
+        // read-only session beside the chat, tagged `side`, and sends the question as its first
+        // prompt, so it runs an agent turn like a prompt; its reply names the new session, which
+        // becomes the pane's (``AcpmuxPaneSessions/starting``) so `chat.sideChat` may open it.
+        "_acpmux/btw",
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
         "_acpmux/offer_respond",
@@ -203,7 +208,7 @@ nonisolated enum AcpmuxPaneMethods {
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
+        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond",
     ]
 
@@ -266,6 +271,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt": .always,
         // A side question runs an agent turn too (in a throwaway fork of the chat).
         "_acpmux/ask": .always,
+        // A side session's question is its first prompt.
+        "_acpmux/btw": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,
