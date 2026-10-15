@@ -81,6 +81,7 @@ public final class TabStripView: NSView {
     /// area (`TabStripView+ClosingMode.swift`); the monitor follows it outside the strip meanwhile.
     let closingExit = DemandTimer(owner: "TabStrip.closingModeExit")
     var closingExitMonitor: Any?
+    var closingExitGlobalMonitor: Any?
     var hasSynced = false
     var lastSelectedID: TabID?
     var lastModelOrder: [TabID] = []

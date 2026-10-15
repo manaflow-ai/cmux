@@ -22,16 +22,25 @@ extension TabStripView {
                 return event
             }
         }
-        closingModePointerMoved(to: window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) })
+        // Moves over other apps' windows or the desktop never reach a local monitor.
+        if closingExitGlobalMonitor == nil {
+            closingExitGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
+                MainActor.assumeIsolated { // main-proof: NSEvent.h: monitor handlers are called on the main thread
+                    self?.closingModePointerEvent(event, outsideApp: true)
+                }
+            }
+        }
+        closingModePointerMoved(to: pointerInStrip)
     }
 
-    private func closingModePointerEvent(_ event: NSEvent) {
-        guard event.window === window else {
-            if event.type != .mouseMoved { exitClosingMode() }
-            return
-        }
-        let point = convert(event.locationInWindow, from: nil)
-        if event.type != .mouseMoved, !bounds.contains(point) {
+    /// The pointer now, in strip coordinates, wherever it is on screen.
+    private var pointerInStrip: CGPoint? {
+        window.map { convert($0.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil) }
+    }
+
+    private func closingModePointerEvent(_ event: NSEvent, outsideApp: Bool = false) {
+        let point = pointerInStrip
+        if event.type != .mouseMoved, outsideApp || event.window !== window || !(point.map(bounds.contains) ?? false) {
             exitClosingMode()
         } else {
             closingModePointerMoved(to: point)
@@ -66,6 +75,8 @@ extension TabStripView {
     func endClosingModeWatch() {
         closingExit.cancel()
         if let closingExitMonitor { NSEvent.removeMonitor(closingExitMonitor) }
+        if let closingExitGlobalMonitor { NSEvent.removeMonitor(closingExitGlobalMonitor) }
         closingExitMonitor = nil
+        closingExitGlobalMonitor = nil
     }
 }
