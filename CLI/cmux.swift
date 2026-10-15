@@ -7232,15 +7232,16 @@ struct CMUXCLI {
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
                 let labelWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
                 let stateWidth = max(5, rows.map { $0.2.count }.max() ?? 5)
-                let providerWidth = max(8, rows.map { $0.3.count }.max() ?? 8)
                 func pad(_ text: String, _ width: Int) -> String {
                     text.padding(toLength: width, withPad: " ", startingAt: 0)
                 }
                 let labelHeader = hasLabels ? "\(pad("LABEL", labelWidth))  " : ""
-                print("\(pad("NAME", nameWidth))  \(labelHeader)\(pad("STATE", stateWidth))  \(pad("PROVIDER", providerWidth))  IMAGE")
+                // The hosting service and raw image ids are implementation details;
+                // they stay in --json for scripts but not in the human table.
+                print("\(pad("NAME", nameWidth))  \(labelHeader)STATE")
                 for row in rows {
                     let labelCell = hasLabels ? "\(pad(row.1, labelWidth))  " : ""
-                    print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
+                    print("\(pad(row.0, nameWidth))  \(labelCell)\(row.2)")
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let planId = limits["planId"] as? String {
@@ -7378,11 +7379,8 @@ struct CMUXCLI {
                     break
                 }
                 let id = (response["id"] as? String) ?? vmId
-                let provider = (response["provider"] as? String) ?? "?"
-                let image = (response["image"] as? String) ?? "?"
                 let status = (response["status"] as? String) ?? "unknown"
-                print("\(id)  [\(provider)] \(status)")
-                print("image: \(image)")
+                print("\(id)  \(status)")
 
             case "prompt", "skill":
                 // The Machines panel's "Copy Cloud Prompt" / "Open Cloud Agent", as CLI.
@@ -7627,8 +7625,6 @@ struct CMUXCLI {
                     break
                 }
                 let id = (response["id"] as? String) ?? "?"
-                let provider = (response["provider"] as? String) ?? "?"
-                let image = (response["image"] as? String) ?? "?"
                 // Older backends ignore create-time naming; preserve their rename behavior.
                 if let machineName, !machineName.isEmpty, response["displayName"] as? String != machineName {
                     _ = try? client.sendV2(
@@ -7652,8 +7648,6 @@ struct CMUXCLI {
                     print("  run      cmux vm exec \(id) -- uname -a")
                     print("  web      cmux vm open \(id) <port>")
                     print("  remove   cmux vm rm \(id)")
-                    print("")
-                    print("  provider \(provider) · \(image)")
                     break
                 }
                 // Create the VM then drop the user into its workspace through the shared
@@ -7806,12 +7800,8 @@ struct CMUXCLI {
                 }
                 let id = (response["id"] as? String) ?? "?"
                 let snapshotId = response["snapshot_id"] as? String
-                let provider = (response["provider"] as? String) ?? "?"
-                let image = (response["image"] as? String) ?? "?"
                 if detach {
                     print("OK \(id)")
-                    print("  provider: \(provider)")
-                    print("  image:    \(image)")
                     print("  snapshot: \(snapshotId ?? "native fork")")
                     break
                 }
@@ -7857,12 +7847,8 @@ struct CMUXCLI {
                     break
                 }
                 let id = (response["id"] as? String) ?? "?"
-                let provider = (response["provider"] as? String) ?? normalizedProvider ?? "?"
-                let image = (response["image"] as? String) ?? snapshotId
                 if detach {
                     print("OK \(id)")
-                    print("  provider: \(provider)")
-                    print("  image:    \(image)")
                     break
                 }
                 print("Restored Cloud VM \(id)")
@@ -8129,11 +8115,9 @@ struct CMUXCLI {
                     print(jsonString(response))
                     break
                 }
-                let provider = (response["provider"] as? String) ?? "?"
                 let status = (response["status"] as? String) ?? "unknown"
                 print("cmux Cloud VM handoff")
                 print("id:       \(vmId)")
-                print("provider: \(provider)")
                 print("status:   \(status)")
                 print("attach:   cmux vm ssh \(vmId)")
                 print("inspect:  cmux vm tools \(vmId)")
@@ -15434,14 +15418,10 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
-        let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
         if detach {
             print("OK \(id)")
-            print("  provider: \(provider)")
-            print("  image:    \(image)")
             print("  base:     true")
             if let generation {
                 print("  gen:      \(generation)")
@@ -15526,15 +15506,11 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
-        let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
         let retainedProviderVmId = base?["retainedProviderVmId"] as? String
         if detach {
             print("OK \(id)")
-            print("  provider: \(provider)")
-            print("  image:    \(image)")
             print("  base:     true")
             print("  reset:    true")
             if let generation {
