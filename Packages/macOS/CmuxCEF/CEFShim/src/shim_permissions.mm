@@ -9,6 +9,7 @@
 
 #include <map>
 
+#include "include/base/cef_logging.h"
 #include "include/cef_permission_handler.h"
 #include "shim_internal.h"
 
@@ -36,6 +37,7 @@ class Handler : public CefPermissionHandler {
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser, uint64_t prompt_id, const CefString& requesting_origin,
                               uint32_t requested_permissions,
                               CefRefPtr<CefPermissionPromptCallback> callback) override {
+    LOG(WARNING) << "cmux permission prompt requested=" << requested_permissions;
     // A request that groups a host kind with another stays with Chromium.
     if (!browser || requested_permissions == 0 || (requested_permissions & ~kHostPermissions) != 0) {
       return false;
