@@ -367,9 +367,10 @@ final class SidebarListView: NSView {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        let followed = hoverFollowsScroll
         hoverFollowsScroll = true
+        defer { hoverFollowsScroll = followed }
         updateHover()
-        hoverFollowsScroll = false
     }
     func pruneOffscreen() {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)

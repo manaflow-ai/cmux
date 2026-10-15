@@ -53,6 +53,8 @@ parser.add_argument("--variants", default="",
 parser.add_argument("--floor-frames", default="",
                     help="--clean: extra frames for the plain floor (a window position probe), separated by ';'")
 opts = parser.parse_args()
+if opts.b_app and not opts.b_tag:
+    parser.error("--b-app needs --b-tag")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP, TAG, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_TAG", ""), os.environ.get("NX_APP_STOP")
