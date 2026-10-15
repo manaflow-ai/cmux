@@ -47,6 +47,9 @@ import PackageDescription
 //   CmuxNextComputerUse -> AgentActivity, Compat, Settings (the macOS Computer Use helper: launch,
 //     v2 helper and its disclaimed spawner, the cua helper manifest reader; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextHistoryDaemon -> History, Daemon (the daemon history-v1 client and location trail; no UI)
+//   CmuxNextStash -> Actions, AgentPane, Compat, Daemon, DaemonService, History (Stash on this Mac's
+//     daemon: the Stashed page's source, the Stash actions, the New Tab count; the App answers StashHost)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
@@ -239,6 +242,8 @@ let package = Package(
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
                 "CmuxNextNowPlaying",
+                "CmuxNextStash",
+                "CmuxNextHistoryDaemon",
                 // The window focus rules (cmux-focus-core) run in-process over the app FFI.
                 "CCmuxAppFFI",
             ],
@@ -252,6 +257,20 @@ let package = Package(
         .target(
             name: "CmuxNextNowPlaying",
             dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Stash (a native OneTab, cx-rws36): the Stashed page's source on this Mac's daemon, the
+        // Stash actions and the New Tab count. The App only answers `StashHost`.
+        .target(
+            name: "CmuxNextStash",
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The daemon's history module (history-v1) as the app's client: visits, entries and the
+        // location trail. No UI; keeps CmuxNextHistory free of the daemon.
+        .target(
+            name: "CmuxNextHistoryDaemon",
+            dependencies: ["CmuxNextDaemon", "CmuxNextHistory"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
