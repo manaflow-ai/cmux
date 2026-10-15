@@ -80,8 +80,8 @@ test("a click on the field's Send button asks the agent, as Return does", async 
       />,
     ),
   );
-  const field = host.querySelector<HTMLInputElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
   await act(async () => {
     setValue.call(field, "fix the flaky upload test");
     field.dispatchEvent(new window.Event("input", { bubbles: true }));
