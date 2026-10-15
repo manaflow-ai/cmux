@@ -287,6 +287,16 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
 
     test("a side session's composer says Reply in this session… and offers no /btw", async () => {
       const page = await openChat(SIDE, true);
+      // The `side` tag comes with the session list, which can land after the composer shows.
+      await page
+        .waitForFunction(
+          () =>
+            document.querySelector(".acpmux-composer-prompt .acpmux-md-placeholder")?.textContent ===
+            "Reply in this session…",
+          undefined,
+          { timeout: 10_000 },
+        )
+        .catch(() => undefined);
       expect(await page.locator(".acpmux-composer-prompt .acpmux-md-placeholder").innerText()).toBe(
         "Reply in this session…",
       );
