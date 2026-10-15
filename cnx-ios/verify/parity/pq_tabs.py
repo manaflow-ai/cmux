@@ -19,8 +19,9 @@ import time
 import pq
 from journey import Fail, check
 
-# The rig Mac's layout for this round (pq.py's default is the first parity round's).
-pq.RBASE = os.environ.get("PQ_RBASE", "~/cnx-ios-e2e/p2")
+# The rig Mac's layout for this round (PQ_RBASE; pq.py's default is the first parity round's).
+if "PQ_RBASE" not in os.environ:
+    pq.RBASE = "~/cnx-ios-e2e/p2"
 HERE = os.path.dirname(os.path.abspath(__file__))
 CNX = os.path.normpath(os.path.join(HERE, "../.."))
 PROJ = f"{pq.RBASE}/proj"
