@@ -5,15 +5,15 @@ extension CEFTab: BrowserEmulating {
     public func applyEmulation(_ emulation: BrowserEmulation?) {
         guard emulation != deviceEmulation else { return }
         deviceEmulation = emulation
-        deviceEmulationScale = nil
+        deviceEmulationViewport = nil
         applyDeviceEmulation()
     }
 
     /// Sends the daemon's DevTools calls (or the reset) to the page; the
     /// overrides live in the browser-side DevTools session, so they hold
     /// across navigations. Called again when the browser is created
-    /// (`attach`) and when the page area changes size (the fit scale). One
-    /// worker sends the newest state only.
+    /// (`attach`) and when the page area changes size (a device's fit scale,
+    /// a fit's layout size). One worker sends the newest state only.
     func applyDeviceEmulation() {
         guard browserID != nil, !isClosed else { return }
         guard deviceEmulation != nil || deviceEmulationApplied else { return }
@@ -24,10 +24,10 @@ extension CEFTab: BrowserEmulating {
             while let self, self.deviceEmulationDirty, !self.isClosed, let browserID = self.browserID {
                 self.deviceEmulationDirty = false
                 let emulation = self.deviceEmulation
-                let scale = emulation.map { $0.fitScale(in: self.container.pageViewportFrame.size) } ?? 1
-                self.deviceEmulationScale = scale
+                let viewport = emulation?.viewport(in: self.container.pageViewportFrame.size)
+                self.deviceEmulationViewport = viewport
                 self.deviceEmulationApplied = emulation != nil
-                for (method, params) in CEFDeviceEmulation.calls(emulation, scale: scale) {
+                for (method, params) in CEFDeviceEmulation.calls(emulation, viewport: viewport) {
                     do {
                         _ = try await runtime.devTools(browserID, method: method, params: params)
                     } catch {
@@ -39,10 +39,11 @@ extension CEFTab: BrowserEmulating {
         }
     }
 
-    /// The page area changed size: refit a device that no longer fits (or now fits better).
+    /// The page area changed size: refit a device that no longer fits (or
+    /// now fits better), or resize a fit's layout (no reload).
     func deviceEmulationViewDidResize() {
         guard let emulation = deviceEmulation else { return }
-        guard emulation.fitScale(in: container.pageViewportFrame.size) != deviceEmulationScale else { return }
+        guard emulation.viewport(in: container.pageViewportFrame.size) != deviceEmulationViewport else { return }
         applyDeviceEmulation()
     }
 }
@@ -60,7 +61,10 @@ nonisolated enum CEFDeviceEmulation {
         ]
     }
 
-    static func calls(_ emulation: BrowserEmulation?, scale: CGFloat) -> [(String, [String: Any])] {
+    /// The daemon's calls with the view's numbers: a device's fit scale, or
+    /// a fit's layout size and scale. A fit that shows the page as is
+    /// (`viewport` nil) clears the metrics override and keeps the other calls.
+    static func calls(_ emulation: BrowserEmulation?, viewport: BrowserEmulation.Viewport?) -> [(String, [String: Any])] {
         guard let emulation else { return reset }
         guard let list = try? JSONSerialization.jsonObject(with: Data(emulation.chromiumCallsJSON.utf8)) as? [[String: Any]] else {
             return []
@@ -68,7 +72,15 @@ nonisolated enum CEFDeviceEmulation {
         return list.compactMap { call in
             guard let method = call["method"] as? String else { return nil }
             var params = call["params"] as? [String: Any] ?? [:]
-            if method == "Emulation.setDeviceMetricsOverride" { params["scale"] = Double(scale) }
+            guard method == "Emulation.setDeviceMetricsOverride" else { return (method, params) }
+            guard let viewport else {
+                return emulation.fit != nil ? ("Emulation.clearDeviceMetricsOverride", [:]) : (method, params)
+            }
+            params["scale"] = Double(viewport.scale)
+            if emulation.fit != nil {
+                params["width"] = Int(viewport.size.width)
+                params["height"] = Int(viewport.size.height)
+            }
             return (method, params)
         }
     }
