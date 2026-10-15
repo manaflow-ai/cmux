@@ -384,7 +384,7 @@ were added to `policy.rs` or `DaemonLanePolicy.swift`:
 | Rename Tab… | `rename-surface {surface, name}` | The person's own tab; the name is text the daemon shows. |
 | Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. Agent chats have no duplicate. |
 | Drag to reorder tabs | `move-tab {surface, pane, index}` | Position only, within the person's workspaces. |
-| New Workspace in a recent folder | `new-workspace {name}`, then `send {surface, text: "cd '<folder>' && clear\n"}` into the new terminal | The same input the person can type into any phone terminal; no `cwd` reaches the daemon. The folder is quoted; a folder with a newline or NUL is never sent. |
+| New Workspace in a recent folder | `new-workspace {name}`, then `send {surface, text: "cd '<folder>' && clear\n"}` into the new terminal | The same input the person can type into any phone terminal; no `cwd` reaches the daemon. The folder is single-quoted, and a folder with any control or format character (DEL, ^U, ESC, line separators), a backslash or `!` is never typed, since a shell's line editor acts on those inside quotes (`foldersThatCouldEditTheLineAreNeverTyped`). |
 
 Tests: CnxKit `WorkspaceTabsSourceTests` (`agentChatsAreOneModelAgnosticEntry`,
 `newAgentChatWithOpensTheChooser`, `aKindTheMacCantOpenStaysWithItsReason`,
