@@ -80,8 +80,14 @@ public final class BrowserFitFrameView: NSView {
         value = emulation?.fit?.value ?? ""
         label.stringValue = text
         if note.isHidden != !Self.explains { note.isHidden = !Self.explains; needsLayout = true }
+        let title = Strings.title(value)
+        if choose.attributedTitle.string != title {
+            // Set as an attributed title every time it differs (a plain title would drop the muted color).
+            choose.title = title
+            applyColors()
+            needsLayout = true
+        }
         if changed {
-            choose.title = Strings.title(value)
             applyColors()
             needsDisplay = true
             needsLayout = true
