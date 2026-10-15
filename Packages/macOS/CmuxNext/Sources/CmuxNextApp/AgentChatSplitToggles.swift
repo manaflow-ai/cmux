@@ -48,6 +48,10 @@ final class AgentChatSplitToggles {
     /// kind just runs).
     func toggle(_ id: String, cwd: String?, url: String? = nil, chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
+        // Debug Settings (Leo 2026-10-15): Terminal adds another terminal right of the last one on every click.
+        if id == "splitRight", AgentChatHeaderTunables.terminalButtonAdds.value {
+            return open(id, cwd: cwd, url: url, chat: chat, store: store, actions: actions)
+        }
         guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
             return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
         }
