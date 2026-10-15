@@ -72,18 +72,24 @@ export function EffortPicker({
   }, [open]);
   const levelRow = (choice: Choice) =>
     row(defaulted && choice.id === selectedVisible?.id ? { ...choice, hint: t("picker.default") } : choice);
+  // One line per row, as a native menu: the check in its own leading gutter (empty when the row is
+  // not chosen, so every label starts at the same x), the label, a hint, and a short note (Ultracode)
+  // in secondary text on the same line, its full text in the tooltip when the menu clips it.
   const row = (choice: Choice) => (
     <MenuRadioItem key={choice.id} value={choice.id} className="acpmux-effort-item">
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex items-center gap-1.5">
-          <span className="acpmux-menu-label">{choice.name}</span>
-          {choice.hint && (
-            <span className="rounded border-[length:var(--cmux-hairline,0.5px)] border-edge px-1 text-caption text-dim">
-              {choice.hint}
-            </span>
-          )}
-        </span>
-        {choice.description && <span className="text-detail text-dim">{choice.description}</span>}
+      <span className="acpmux-effort-text">
+        <span className="acpmux-menu-label">{choice.name}</span>
+        {choice.hint && (
+          <span className="acpmux-effort-hint rounded border-[length:var(--cmux-hairline,0.5px)] border-edge px-1 text-caption text-dim">
+            {choice.hint}
+          </span>
+        )}
+        {choice.description && (
+          // tooltip-allow: the note is cut with an ellipsis when the menu is narrow; the tooltip is its whole text
+          <span className="acpmux-effort-detail" title={choice.description}>
+            {choice.description}
+          </span>
+        )}
       </span>
     </MenuRadioItem>
   );
