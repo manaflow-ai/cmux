@@ -181,6 +181,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// connection, until a workspace can be shown.
     private func showConnecting() {
         let view = connectingView ?? DaemonConnectingView(frame: .zero)
+        if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)
         themeScope.show(nil)
@@ -225,7 +226,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil
+        if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
         connectingView = nil
+        DebugTimings.markLaunch("workspace_content_shown")
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
             for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }

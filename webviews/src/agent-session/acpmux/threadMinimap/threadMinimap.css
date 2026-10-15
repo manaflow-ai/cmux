@@ -16,6 +16,10 @@
   /* The Codex rail's spring: 160 ms with about 0.8% overshoot. */
   --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
 }
+/* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
+:root[data-borders="none"] .acpmux-minimap {
+  --acpmux-minimap-rim: transparent;
+}
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
@@ -157,11 +161,13 @@
   width: 320px;
   max-width: calc(100vw - 16px);
   box-sizing: border-box;
+  /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
+     none clears it through --acpmux-minimap-rim. */
   padding: 8px;
   border-radius: 12px;
   background: var(--acpmux-minimap-card);
   box-shadow:
-    0 0 0 0.5px var(--acpmux-minimap-card-ring),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
   color: var(--agent-text);
   font: var(--text-body, 13px) / 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
