@@ -103,16 +103,6 @@ final class PaneHeaderView: NSView {
         window?.performDrag(with: event)
     }
 
-    /// The avatar's disc and the pill's capsule in the superview's coordinates for a header of
-    /// `width` (the thread rows' mask, PaneHost+ThreadLayer.swift); none while they are hidden.
-    func controlRects(width: CGFloat) -> [CGRect] {
-        guard !title.isEmpty else { return [] }
-        let s = PaneHeaderView.avatarSize, w = HeaderBar.pillWidth(title), h = PaneHeaderView.pillHeight
-        return [CGRect(x: (width - s) / 2, y: PaneHeaderView.avatarTop, width: s, height: s),
-                CGRect(x: (width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)]
-            .map { $0.offsetBy(dx: frame.minX, dy: frame.minY) }
-    }
-
     override func layout() {
         super.layout()
         let s = PaneHeaderView.avatarSize

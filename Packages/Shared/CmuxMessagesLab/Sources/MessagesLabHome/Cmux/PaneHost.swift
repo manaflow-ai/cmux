@@ -58,12 +58,12 @@ final class HostView: NSView {
     weak var liftedThread: UIView?
     /// The window view the thread layer was last searched in.
     var threadLayerSearch: ObjectIdentifier?
-    /// The header's controls' blur under an open thread view, and the shapes cut from `threadHost`
+    /// The header band's blur under an open thread view, and the band cut from `threadHost`
     /// (PaneHost+ThreadLayer.swift).
     let headerVeil = LayerHostView()
-    let veilTint = CALayer()
+    let veilBackdrop = ThreadBackdrop()
     var veilOpen = false
-    var threadHoles: [CGRect] = []
+    var threadBand: CGRect = .null
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))

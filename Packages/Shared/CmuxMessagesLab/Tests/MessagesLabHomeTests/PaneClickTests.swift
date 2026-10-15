@@ -248,4 +248,28 @@ import Testing
         #expect(window.firstResponder === field)
         #expect(Self.lastIntents?.pasted == [pb.name])
     }
+
+    // MARK: The header under an open thread or reply view
+
+    /// The header band blurs and darkens with the transcript: a ThreadBackdrop of its own over the band
+    /// opens and closes with the window view's thread view, and the vendored thread layer (its backdrop
+    /// and the thread's rows) draws only below the band, so nothing of it covers the avatar or pill.
+    @Test func theHeaderBandBlursWithAnOpenThreadView() throws {
+        let (controller, _, demo) = Self.pane()
+        let host = controller.host
+        host.layoutSubtreeIfNeeded()
+        let band = CGRect(x: 0, y: 0, width: host.bounds.width, height: Fixture.headerHeight)
+        #expect(host.veilBackdrop.root.superlayer === host.headerVeil.root)
+        #expect(host.veilBackdrop.root.frame == band)
+        let below = try #require(host.threadHost.root.mask)
+        #expect(below.frame.minY == band.maxY)
+        #expect(!below.frame.intersects(band))
+        #expect(!host.veilOpen)
+        controller.dispatch(.reply(PartRef(messageId: "m1", partIndex: 0)))
+        #expect(demo.threadOpen)
+        #expect(host.veilOpen)
+        controller.dispatch(.closeThread)
+        #expect(!demo.threadOpen)
+        #expect(!host.veilOpen)
+    }
 }
