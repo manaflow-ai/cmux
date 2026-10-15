@@ -16,9 +16,9 @@ import { warmViteServer } from "./support/warmDevServer";
 type Inset = { spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
-  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 8% text over the edge. */
+  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 30% text over the edge. */
   const EDGE = 0.18;
-  const FOCUS = 0.08 + 0.92 * EDGE;
+  const FOCUS = 0.3 + 0.7 * EDGE;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
