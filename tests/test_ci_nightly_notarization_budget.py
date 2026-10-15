@@ -13,29 +13,31 @@ WORKFLOW = ROOT / ".github/workflows/auto-resume-nightly-notarization.yml"
 
 
 class NightlyNotarizationBudgetTests(unittest.TestCase):
-    def test_poll_job_covers_four_hour_apple_queue_with_upload_headroom(self) -> None:
+    def test_recovery_polls_cover_four_hour_apple_queues_with_upload_headroom(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        match = re.search(
-            r"^  poll:\n(?P<body>.*?)(?=^  wait-and-staple:)",
-            workflow,
-            re.MULTILINE | re.DOTALL,
-        )
-        self.assertIsNotNone(match, "automatic notarization poll job is missing")
-        body = match.group("body")
+        for job, next_job in (("poll", "wait-and-staple"), ("poll-outer", "staple-outer")):
+            with self.subTest(job=job):
+                match = re.search(
+                    rf"^  {re.escape(job)}:\n(?P<body>.*?)(?=^  {re.escape(next_job)}:)",
+                    workflow,
+                    re.MULTILINE | re.DOTALL,
+                )
+                self.assertIsNotNone(match, f"{job} job is missing")
+                body = match.group("body")
 
-        timeout = re.search(r"^    timeout-minutes: (\d+)$", body, re.MULTILINE)
-        deadline = re.search(
-            r"deadline=\$\(\( \$\(date \+%s\) \+ (\d+) \* 60 \)\)",
-            body,
-        )
-        self.assertIsNotNone(timeout, "poll job timeout is missing")
-        self.assertIsNotNone(deadline, "poll deadline is missing")
-        timeout_minutes = int(timeout.group(1))
-        poll_minutes = int(deadline.group(1))
+                timeout = re.search(r"^    timeout-minutes: (\d+)$", body, re.MULTILINE)
+                deadline = re.search(
+                    r"deadline=\$\(\( \$\(date \+%s\) \+ (\d+) \* 60 \)\)",
+                    body,
+                )
+                self.assertIsNotNone(timeout, f"{job} timeout is missing")
+                self.assertIsNotNone(deadline, f"{job} deadline is missing")
+                timeout_minutes = int(timeout.group(1))
+                poll_minutes = int(deadline.group(1))
 
-        self.assertEqual(poll_minutes, 240)
-        self.assertEqual(timeout_minutes, 270)
-        self.assertGreaterEqual(timeout_minutes, poll_minutes + 30)
+                self.assertEqual(poll_minutes, 240)
+                self.assertEqual(timeout_minutes, 270)
+                self.assertGreaterEqual(timeout_minutes, poll_minutes + 30)
 
 
 if __name__ == "__main__":

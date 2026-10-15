@@ -153,7 +153,10 @@ jobs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 90
+    # Apple left the RC v0.65.2 helper submissions in progress beyond the
+    # previous 80-minute budget. Keep this inexpensive polling worker alive
+    # for four hours, with time left to upload polling evidence afterward.
+    timeout-minutes: 270
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
       cancel-in-progress: false
@@ -225,7 +228,7 @@ jobs:
             printf '%s\n' "$state_file" > "$RUNNER_TEMP/recovery-$variant.state-file"
           done
 
-          deadline=$(( $(date +%s) + 80 * 60 ))
+          deadline=$(( $(date +%s) + 240 * 60 ))
           while :; do
             pending=false
             terminal_failure=false
@@ -544,7 +547,9 @@ jobs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 90
+    # Keep outer-DMG recovery aligned with the helper poll budget. Apple can
+    # queue the outer submission after the helper has already been accepted.
+    timeout-minutes: 270
     environment: release
     permissions:
       actions: read
@@ -612,7 +617,7 @@ jobs:
             state_file="$(awk -F= '$1 == "STATE_FILE" { print substr($0, index($0, "=") + 1) }' "$RUNNER_TEMP/outer-$variant.env")"
             printf '%s\n' "$state_file" > "$RUNNER_TEMP/outer-$variant.state-file"
           done
-          deadline=$(( $(date +%s) + 80 * 60 ))
+          deadline=$(( $(date +%s) + 240 * 60 ))
           while :; do
             pending=false
             terminal_failure=false
