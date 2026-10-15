@@ -308,7 +308,8 @@ def main():
             try:
                 # cmux.json is JSONC: insert the old keys as text, inside "tabs" or a new "tabs".
                 old = '"tabBar": {"terminal": "never", "browser": "always", "agent": "never"}'
-                match = re.search(r'"tabs"\s*:\s*\{', saved_text)
+                # The top-level "tabs" object only (two-space indent), never a nested one or a comment.
+                match = re.search(r'^  "tabs"\s*:\s*\{', saved_text, re.M)
                 if match:
                     after = saved_text[match.end():].lstrip()
                     text = saved_text[:match.end()] + " " + old + ("" if after.startswith("}") else ",") + saved_text[match.end():]
@@ -317,7 +318,10 @@ def main():
                     text = saved_text[:first] + ' "tabs": {' + old + "}," + saved_text[first:]
                 with open(config, "w") as handle:
                     handle.write(text)
-                time.sleep(2)  # test harness: the config reloads
+                read = wait(lambda: (lambda r: r if (r or {}).get("value") == "never" else None)(
+                    rpc("settings.get", {"path": "tabs.tabBar.agent"})), 15) or rpc("settings.get", {"path": "tabs.tabBar.agent"})
+                row("the app re-read the old cmux.json (settings.get tabs.tabBar.agent)", "exists, \"never\"",
+                    str(read)[:160], (read or {}).get("exists") is True and read.get("value") == "never")
                 opened_workspace(lambda: action("newTab", focus=True), "New Workspace with an old tabs.tabBar in cmux.json")
                 strip("an old cmux.json with tabs.tabBar never still shows the tab bar", False, choice=None)
                 answer = rpc("settings.get", {"path": "tabs.swapCmdTAndCmdN"})
