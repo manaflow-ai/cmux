@@ -37,6 +37,22 @@
   --cv-font: system-ui;
   --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
+/* A wider column on a wide pane (layout.json `chatWidth`, chatWidth.ts, cx-ncc.107): `wide` caps
+   everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
+   prose keeps the standard 800px measure (--cv-prose) at the column's left edge. */
+:root[data-chat-width="wide"] {
+  --cv-column: clamp(720px, 62.5%, 960px);
+}
+:root[data-chat-width="wideBlocks"] {
+  --cv-column: clamp(720px, 70%, 1120px);
+  --cv-prose: 800px;
+}
+.cv-md > .cv-p,
+.cv-md > .cv-h,
+.cv-md > .cv-list,
+.cv-md > .cv-quote {
+  max-width: var(--cv-prose, none);
+}
 
 /* ---------- User bubble ---------- */
 
