@@ -167,7 +167,6 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
         .spawn()
         .unwrap();
     {
-        use std::io::BufRead;
         let mut line = String::new();
         BufReader::new(holder.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
         assert_eq!(line.trim(), "held");
