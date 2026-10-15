@@ -40,7 +40,7 @@ struct AcpmuxOfferToolsTests {
     }
 
     /// The Labs switch as the app holds it: any thread reads it at a daemon start.
-    final class Labs: Sendable {
+    nonisolated final class Labs: Sendable {
         let on: Mutex<Bool>
         init(_ on: Bool) { self.on = Mutex(on) }
         var isOn: Bool { on.withLock { $0 } }
@@ -49,7 +49,8 @@ struct AcpmuxOfferToolsTests {
     @Test func previewFeaturesGiveTheDaemonTheSessionOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let host = AcpmuxHost(resolve: { fixture.environment }, offersSessionTools: { true })
+        let environment = fixture.environment
+        let host = AcpmuxHost(resolve: { environment }, offersSessionTools: { true })
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["1"], "acpmux started without ACPMUX_OFFER_TOOLS=1: \(fixture.launches)")
@@ -58,7 +59,8 @@ struct AcpmuxOfferToolsTests {
     @Test func withoutPreviewFeaturesTheDaemonGetsNoOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let host = AcpmuxHost(resolve: { fixture.environment }, offersSessionTools: { false })
+        let environment = fixture.environment
+        let host = AcpmuxHost(resolve: { environment }, offersSessionTools: { false })
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["unset"], "acpmux started with ACPMUX_OFFER_TOOLS: \(fixture.launches)")
@@ -68,7 +70,8 @@ struct AcpmuxOfferToolsTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let labs = Labs(false)
-        let host = AcpmuxHost(resolve: { fixture.environment }, offersSessionTools: { labs.isOn })
+        let environment = fixture.environment
+        let host = AcpmuxHost(resolve: { environment }, offersSessionTools: { labs.isOn })
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         labs.on.withLock { $0 = true }
