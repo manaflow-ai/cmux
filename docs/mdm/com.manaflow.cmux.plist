@@ -328,7 +328,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<string>Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.</string>
 			<key>pfm_name</key>
 			<string>tabs.tabBar.terminal</string>
 			<key>pfm_range_list</key>
@@ -346,7 +346,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<string>Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.</string>
 			<key>pfm_name</key>
 			<string>tabs.tabBar.browser</string>
 			<key>pfm_range_list</key>
@@ -364,7 +364,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
+			<string>Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.</string>
 			<key>pfm_name</key>
 			<string>tabs.tabBar.agent</string>
 			<key>pfm_range_list</key>
@@ -1707,6 +1707,20 @@
 			<real>16</real>
 			<key>pfm_range_min</key>
 			<real>10</real>
+			<key>pfm_title</key>
+			<string>Interface Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Text size of tabs, the sidebar and other controls. Terminal text has its own size.</string>
+			<key>pfm_name</key>
+			<string>appearance.interfaceScale</string>
+			<key>pfm_range_max</key>
+			<real>1.25</real>
+			<key>pfm_range_min</key>
+			<real>0.90000000000000002</real>
 			<key>pfm_title</key>
 			<string>Interface Size</string>
 			<key>pfm_type</key>

@@ -669,6 +669,13 @@
       "title" : "Hue",
       "type" : "number"
     },
+    "appearance.interfaceScale" : {
+      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "maximum" : 1.25,
+      "minimum" : 0.9,
+      "title" : "Interface Size",
+      "type" : "number"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
@@ -2821,7 +2828,7 @@
     },
     "tabs.tabBar.agent" : {
       "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
@@ -2832,7 +2839,7 @@
     },
     "tabs.tabBar.browser" : {
       "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",
@@ -2843,7 +2850,7 @@
     },
     "tabs.tabBar.terminal" : {
       "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
       "enum" : [
         "auto",
         "always",

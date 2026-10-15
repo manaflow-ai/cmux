@@ -2241,7 +2241,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.terminal",
@@ -2317,7 +2317,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.browser",
@@ -2393,7 +2393,7 @@
       },
       "help" : {
         "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
+        "text" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.tabBar.agent",
@@ -9490,10 +9490,6 @@
         "font",
         "text",
         "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -9513,6 +9509,68 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale"
+      ],
+      "kind" : "number",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.09999999999999998,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -24147,7 +24205,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "74130fb304575c2b8aefed852cb2211f10ce7aaf4b9446a2239d5d196335a754",
+  "schema_hash" : "85c908af27eaa0b8e233cab4f6b1fa5e54646340ff18a5d6784a0adaf9a826fa",
   "sections" : [
     {
       "id" : "general",
