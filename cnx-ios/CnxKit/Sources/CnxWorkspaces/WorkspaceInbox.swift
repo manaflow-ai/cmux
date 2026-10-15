@@ -56,7 +56,9 @@ public struct RecentSection: Hashable, Sendable, Identifiable {
     public var workspaces: [Workspace]
 
     public var id: String {
-        group.map { "group-\(macID)-\($0.id)" } ?? "loose-\(macID)-\(workspaces.first?.id ?? "")"
+        // A group can show as two runs for a moment (a row moved in before the Mac's order
+        // arrives): the first row keeps each run's id unique.
+        group.map { "group-\(macID)-\($0.id)-\(workspaces.first?.id ?? "")" } ?? "loose-\(macID)-\(workspaces.first?.id ?? "")"
     }
 
     /// Consecutive rows of one Mac and one group make one section.

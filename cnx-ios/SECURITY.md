@@ -496,6 +496,20 @@ params):
   Close All Workspaces in Group, Group Selected Workspaces, and moving a group
   to another room or window. They stay refused until reviewed.
 
+
+Round 3 review notes (accepted, said here):
+
+- **An empty group** passes the ownership check whoever made it (no member to tell), and
+  between the check and the forward the person's other Mac could move one of its workspaces
+  into a group. Either way the effect is limited to the person's own sidebar grouping (a
+  rename, a color, a delete that keeps every workspace open); no program, folder or content
+  is reachable.
+- **On the Swift lane** (a Mac without cnx-hostd's ownership reads) `workspace_group.create`
+  passes and `workspace.place` is refused, so Move Workspace to New Group fails there; the
+  phone then deletes the group it just made, so no empty group stays.
+- Live (round 3, rig `cnx-p3-153f3482`): every group action read back from the Mac's
+  `list-personal` (`verify/parity-mac.md`, `groups`).
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now

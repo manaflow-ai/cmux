@@ -242,7 +242,7 @@ public final class AgentChatStore {
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
         if denyingPermission, let permission = pendingPermission {
-            let options = permission.request.options
+            let options = permission.request.phoneOptions
             let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
             respond(to: permission.request, option: deny)
         }

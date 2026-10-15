@@ -201,25 +201,37 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             let firstID = DaemonTree.tabID(surface: first)
             guard let pane = listed.tabPlaces[firstID]?.pane,
                   let createdID = listed.workspaces.first(where: { $0.tabs.contains { $0.id == firstID } })?.id else {
+                // Its first tab is all there is of it: close it, so no empty copy stays.
+                _ = try? await client.request("close-surface", params: ["surface": first])
                 throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
             }
+            // Pages only on a Mac that streams browser tabs; one that fails is left out (as
+            // New Browser Tab is optional elsewhere), never the terminals after it.
+            let pages = Self.streamsBrowser(capabilities(workspace.macID))
             var firstUsed = false
-            for step in plan {
-                switch step {
-                case .terminal(let folder):
-                    let shell: Int
-                    if firstUsed {
-                        shell = try surface(await client.request("new-tab", params: ["pane": pane]))
-                    } else {
-                        shell = first
-                        firstUsed = true
+            do {
+                for step in plan {
+                    switch step {
+                    case .terminal(let folder):
+                        let shell: Int
+                        if firstUsed {
+                            shell = try surface(await client.request("new-tab", params: ["pane": pane]))
+                        } else {
+                            shell = first
+                            firstUsed = true
+                        }
+                        if let folder, let line = Self.changeDirectoryLine(folder) {
+                            _ = try? await client.request("send", params: ["surface": shell, "text": line])
+                        }
+                    case .browser(let url):
+                        guard pages else { continue }
+                        _ = try? await client.request("new-browser-tab", params: ["url": url, "pane": pane])
                     }
-                    if let folder, let line = Self.changeDirectoryLine(folder) {
-                        _ = try? await client.request("send", params: ["surface": shell, "text": line])
-                    }
-                case .browser(let url):
-                    _ = try surface(await client.request("new-browser-tab", params: ["url": url, "pane": pane]))
                 }
+            } catch {
+                // A half-made copy is never left behind.
+                _ = try? await client.request("close-workspace", params: ["key": createdID])
+                throw error
             }
             // Only pages: the first shell goes, as the Mac's builder closes its initial tab.
             if !firstUsed, !plan.isEmpty {

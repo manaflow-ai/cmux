@@ -23,6 +23,9 @@ import Testing
         // Nothing single-use: keep what was offered, so acpmux's refusal says why.
         let lasting = ACPPermissionRequest(id: "q", toolCall: Self.call, options: [options[1]])
         #expect(lasting.phoneOptions.map(\.id) == ["allow_always"])
+        // A lasting Allow with a single-use Deny: not a lone Deny (review, round 3).
+        let mixed = ACPPermissionRequest(id: "r", toolCall: Self.call, options: [options[1], options[2]])
+        #expect(mixed.phoneOptions.map(\.id) == ["allow_always", "reject_once"])
     }
 
     @MainActor final class GoneActions: FeedActions {

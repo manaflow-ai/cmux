@@ -37,7 +37,13 @@ extension LiveWorkspaceCreationBackend: WorkspaceGroupBackend {
         guard let id = Self.createdGroupID(created) else {
             throw WorkspaceCreationError("The Mac made the group but didn't say which one")
         }
-        try await resource(client, "workspace.place", Self.placeParams(workspace, group: id), key: "cnx-ios-group-place")
+        do {
+            try await resource(client, "workspace.place", Self.placeParams(workspace, group: id), key: "cnx-ios-group-place")
+        } catch {
+            // The group was made for this workspace only: an empty group must not stay behind.
+            _ = try? await resource(client, "workspace_group.delete", ["workspace_group": id], key: "cnx-ios-group-delete")
+            throw error
+        }
         await settleGroups()
     }
 

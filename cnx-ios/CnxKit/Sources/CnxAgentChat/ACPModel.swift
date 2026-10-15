@@ -352,8 +352,10 @@ public struct ACPPermissionRequest: Hashable, Sendable, Identifiable {
     /// so offering one cost a Face ID and then failed. A request with no single-use option
     /// keeps its options, so acpmux's refusal says why.
     public var phoneOptions: [ACPPermissionOption] {
-        let once = options.filter { $0.kind == .allowOnce || $0.kind == .rejectOnce }
-        return once.isEmpty ? options : once
+        // Without a single-use Allow the options stay as the agent sent them (acpmux's
+        // refusal of a lasting grant then says why), rather than a lone Deny.
+        guard options.contains(where: { $0.kind == .allowOnce }) else { return options }
+        return options.filter { $0.kind == .allowOnce || $0.kind == .rejectOnce }
     }
 }
 

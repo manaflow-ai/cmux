@@ -288,9 +288,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     static let maxHistory = 2000
     /// The records a chat shows: acpmux's `transcript`, and by name the queue changes
     /// (Edit queued prompt, Move up / down, a held queue) that an older Mac's
-    /// `transcript` leaves out, so the queue rows follow the Mac's queue.
+    /// `transcript` leaves out, so the queue rows follow the Mac's queue; and Claude Code's API
+    /// retries (a harness record, never `transcript`), so a retrying turn says so.
     static let chatKinds: JSONValue = .array(
-        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed"].map { .string($0) })
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry"].map { .string($0) })
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub
