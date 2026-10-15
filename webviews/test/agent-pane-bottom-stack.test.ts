@@ -260,6 +260,20 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     await page.close();
   });
 
+  // The queue and the strip are one tab over the card (composerLocation.css): the queue sits flush on
+  // the strip, and the tab stands a few px above the card (Leo 10-14: it merged into the card).
+  for (const height of [760, 480])
+    test(`at ${height} px the queue sits on the strip and the tab stands a few px above the card`, async () => {
+      const page = await open(height);
+      const { parts } = await layout(page);
+      await page.close();
+      const part = (name: string) => parts.find((each) => each.name === name)!;
+      expect(Math.abs(part("strip").top - part("queue").bottom)).toBeLessThanOrEqual(0.5);
+      const gap = part("card").top - part("strip").bottom;
+      expect(gap).toBeGreaterThanOrEqual(2);
+      expect(gap).toBeLessThanOrEqual(6);
+    });
+
   test("in a short pane the transcript keeps room and the queue scrolls inside its height", async () => {
     const page = await open(480);
     const drawn = await layout(page);

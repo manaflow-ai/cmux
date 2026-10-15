@@ -211,8 +211,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   opacity: 1;
 }
-/* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
-   composerLocation.css draws it around the strip's seam). Focus is quiet, as the New Tab box's
+/* The card's rim is --acpmux-card-ring (styles.css draws it, whole, under a location strip too). Focus is quiet, as the New Tab box's
    (Lawrence, Leo 10-14): the same one-device-pixel rim, its tone one 8% step toward the text, never a
    wider ring or the accent, and clear with appearance.borders none. Shell mode takes its own accent,
    the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */

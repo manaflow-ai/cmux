@@ -32,7 +32,7 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     const layers: string[] = [];
     let depth = 0;
     let current = "";
-    // Under a location strip the card draws its rim on ::before, leaving out the strip's seam.
+    // A card that draws its rim on ::before is read there too.
     const before = getComputedStyle(element, "::before");
     const shadows = [style.boxShadow, before.content !== "none" ? before.boxShadow : "none"]
       .filter((value) => value !== "none")

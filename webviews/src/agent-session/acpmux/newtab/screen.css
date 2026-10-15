@@ -4,7 +4,7 @@
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
 @media (max-height:480px){.nt-screen{padding-top:12px}}
 .nt-screen>*{width:100%}
-/* The box (Leo 10-13, coherence pass; Lawrence 10-14): the composer's surface (composerStates.css: lighter than the page in a light theme, one small step toward the text in a dark one), solid, so on a wallpaper it sits as chrome, not a film over the art and not a gray slab. Its rim (--acpmux-card-ring, which the location strip's seam redraws) is one device pixel in the composer's edge, clear under appearance.borders none; focus keeps that rim and only lifts its tone a little, never a wider ring or the accent. Its shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
+/* The box (Leo 10-13, coherence pass; Lawrence 10-14): the composer's surface (composerStates.css: lighter than the page in a light theme, one small step toward the text in a dark one), solid, so on a wallpaper it sits as chrome, not a film over the art and not a gray slab. Its rim (--acpmux-card-ring, whole under the location strip) is one device pixel in the composer's edge, clear under appearance.borders none; focus keeps that rim and only lifts its tone a little, never a wider ring or the accent. Its shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;background:var(--acpmux-composer-surface,var(--cmux-surface-solid,var(--acpmux-base)));position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring),var(--acpmux-composer-shadow,var(--elevation-1))}
 .nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
 .nt-box:focus-within{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) color-mix(in srgb,var(--agent-text) 8%,var(--acpmux-composer-edge))}
@@ -83,8 +83,8 @@
   box-sizing: border-box;
 }
 /* The location strip (ComposerContext, the composer's own; hq#1957 composer location strip) heads
-   the card, a tab on its top edge: the strip and the card stack with no gap, the strip's fill is
-   the card's over the theme's solid surface, and it stands in from the card's sides by the card's
+   the card, a tab over its top edge a few px apart in its own hairline (composerLocation.css), the
+   strip's fill the card's over the theme's solid surface, and it stands in from the card's sides by the card's
    corner radius. Its wrapper only marks the page as touched, so it draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
