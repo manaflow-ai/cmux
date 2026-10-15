@@ -28,15 +28,16 @@ import Testing
         let selected = try #require(strip.cells[TabID("tab1")])
         let others = strip.cells.filter { $0.key != TabID("tab1") }.map(\.value)
 
-        // What AppKit posts when the window comes to the front.
-        NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: window)
+        // What the strip's observer reports when AppKit posts didBecomeMain / didResignMain for
+        // its window (driven directly: tests never post to the process-global center).
+        strip.windowMain.changed(isMain: true)
         #expect(selected.backgroundLayer.backgroundColor != nil, "the main window's selected tab is filled")
 
         for cell in others { cell.titleLayer.foregroundColor = Self.sentinel }
         let clock = ContinuousClock()
-        let resign = clock.measure { NotificationCenter.default.post(name: NSWindow.didResignMainNotification, object: window) }
+        let resign = clock.measure { strip.windowMain.changed(isMain: false) }
         #expect(selected.backgroundLayer.backgroundColor == nil, "a window in back fills no tab")
-        let become = clock.measure { NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: window) }
+        let become = clock.measure { strip.windowMain.changed(isMain: true) }
         #expect(selected.backgroundLayer.backgroundColor != nil, "the fill is back when the window is main again")
 
         let repainted = others.filter { $0.titleLayer.foregroundColor != Self.sentinel }.count
