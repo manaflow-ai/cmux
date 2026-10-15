@@ -6,7 +6,7 @@ import Testing
 import WebKit
 @testable import CmuxNextAgentPane
 
-/// `/btw` behind Debug Settings' Side sessions (/btw) (`agent.sideSessions`, off by default): with the
+/// `/btw` behind Debug Settings' Side sessions (/btw) (`agentPane.debug.sideSessions`, off by default): with the
 /// toggle off the palette has no Ask a Side Question… and the page is told side sessions are off
 /// (no `/btw`); with it on the palette offers the action in a focused agent chat, the page is told
 /// they are on, and running the action sends the chat's page the `sideQuestion` command, which

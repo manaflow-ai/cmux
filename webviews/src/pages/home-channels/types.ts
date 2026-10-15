@@ -146,6 +146,8 @@ export interface HomeConversation {
   lastAuthor?: string;
   /** The status of the last message's work part, when it has one (a Chief's live state). */
   lastWork?: "running" | "waiting" | "done" | "failed";
+  /** A Chief's state as the owner derives it (home-inbox-v1): typing, its runs, its last work. */
+  chiefState?: "working" | "waiting" | "idle";
 }
 
 export interface HomeMention {

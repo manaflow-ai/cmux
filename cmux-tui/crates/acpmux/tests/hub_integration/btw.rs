@@ -332,7 +332,11 @@ async fn a_codex_side_session_runs_sandboxed_read_only_and_the_adapter_is_refuse
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let codex = root.join("bin").join("codex");
     std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
-    std::fs::write(&codex, format!("#!/bin/sh\nexec python3 {app_server} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &codex,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", crate::daemon_env::sh_quote(app_server)),
+    )
+    .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
     let codex_home = root.join("codex-home");
     std::fs::create_dir_all(&codex_home).unwrap();
