@@ -875,7 +875,7 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "device", "device");
             insert_optional_string(&mut params, flags, "orientation", "orientation");
-            // --fit 16:9: a desktop layout scaled to the tab's width, full height.
+            // --fit 16:9 | 1280: a desktop layout scaled to the tab's width, full height.
             insert_optional_string(&mut params, flags, "fit", "fit");
             if let Some(custom) = flags.take("custom-json") {
                 let custom = serde_json::from_str(&custom).map_err(|error| {
@@ -885,7 +885,7 @@ fn parse_tab_strings(
             }
             if params.is_empty() {
                 return Err(UsageError::new(
-                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9; `cmux browser devices list` lists the devices",
+                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9|1280; `cmux browser devices list` lists the devices",
                 ));
             }
             request(ResourceOperation::BrowserTabEmulate, selectors, flags, params)

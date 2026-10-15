@@ -118,10 +118,10 @@ final class SectionHeaderRowView: SidebarRowView {
         if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
         glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
         machineIcon.configure(icon: ownIcon)
-        name.stringValue = title
-        name.font = SidebarStyle.headerFont
-        badge.stringValue = badgeText ?? ""
-        badge.font = SidebarStyle.headerFont
+        name.setString(title)
+        name.setFont(SidebarStyle.headerFont)
+        badge.setString(badgeText ?? "")
+        badge.setFont(SidebarStyle.headerFont)
         chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
@@ -137,10 +137,10 @@ final class SectionHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            name.textColor = Palette.textTertiary
-            badge.textColor = Palette.textTertiary
-            glyph.contentTintColor = Palette.textSecondary
-            chevron.contentTintColor = Palette.textTertiary
+            name.setColor(Palette.textTertiary)
+            badge.setColor(Palette.textTertiary)
+            glyph.setTint(Palette.textSecondary)
+            chevron.setTint(Palette.textTertiary)
             status.backgroundColor = statusTone.map(Self.color)?.cgColor
         }
         status.isHidden = statusTone == nil

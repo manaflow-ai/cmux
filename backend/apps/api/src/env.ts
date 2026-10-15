@@ -119,6 +119,23 @@ export interface Env {
   readonly BILLING_LEVELS_KEY?: string
   /** Payment service key of the usage sync (billing-usage-sync.ts). Test mode only in this phase: a live key is refused. */
   readonly STRIPE_USAGE_KEY?: string
+  /** Prepaid Cloud Chief credits (credits.ts): the top-up key (test mode only; default STRIPE_USAGE_KEY) and the top-up webhook's signing secret. */
+  readonly STRIPE_CREDITS_KEY?: string
+  readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
+  /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
+  readonly CHIEF_CREDITS_MARGIN?: string
+  /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
+  readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
+  /** "0" turns the brain's credits gate off on this deployment (default on). */
+  readonly CHIEF_CREDITS_ENFORCE?: string
+  /** Top-up amounts a person may pick, comma list of whole USD (default 10,20,50,100). */
+  readonly CHIEF_CREDITS_TOPUP_USD?: string
+  /** Optional payment-service product id for the top-up line (else an inline "cmux Cloud credits" line). */
+  readonly CHIEF_CREDITS_PRODUCT?: string
+  /** Dogfood grant (credits-admin.ts): comma list of team_ or user_ ids, the USD per entry, and the round (raise to grant again). */
+  readonly CHIEF_CREDITS_DOGFOOD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_USD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
   /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
   readonly BILLING_USAGE_PRICE_SET?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */

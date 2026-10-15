@@ -7,6 +7,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use base64::Engine as _;
 use serde_json::{Value, json};

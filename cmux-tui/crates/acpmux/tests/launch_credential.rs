@@ -4,6 +4,11 @@
 //! acpmux's own environment or in a preset never reaches the harness. Its own
 //! binary, so setting the process environment touches no other test.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

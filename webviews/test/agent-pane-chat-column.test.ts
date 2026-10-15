@@ -68,7 +68,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     return event;
   };
   /// A chat a turn is running in: a prompt, a command with output to open, and a long reply so far.
-  function newChat(): Chat {
+  function newChat(thought?: string): Chat {
     const chat: Chat = {
       id: `0190a000-0000-7000-8000-${String(chats.size + 1).padStart(12, "0")}`,
       seq: 0,
@@ -77,6 +77,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     chats.set(chat.id, chat);
     record(chat, "mux", "user_message", { text: "Why does the build retry?", promptId: "p-1" });
     record(chat, "mux", "turn_started", {});
+    if (thought) thinks(chat, thought);
     record(
       chat,
       "in",
@@ -104,6 +105,14 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     for (let index = 1; index <= 24; index++) record(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
     return chat;
   }
+  /// A thought chunk from the agent.
+  const thinks = (chat: Chat, text: string) =>
+    record(
+      chat,
+      "in",
+      "agent_thought_chunk",
+      update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } }),
+    );
   /// One more record, live to the page.
   const push = (chat: Chat, dir: string, kind: string, msg: Record<string, unknown>) =>
     chat.ws!.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(chat, dir, kind, msg) }));
@@ -163,8 +172,15 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// view must follow what is drawn, not an estimate a later frame takes back (cx-next-ghostty-config).
   const LOADED = 6;
 
-  async function open(chat: Chat, width: number, height = 700, loaded = false): Promise<Page> {
+  async function open(chat: Chat, width: number, height = 700, loaded = false, foldThoughts = false): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
+    // The Debug toggle agentPane.debug.foldLongThoughts, as the app sets it on <html>.
+    if (foldThoughts)
+      await page.addInitScript(() => {
+        const set = () => document.documentElement.setAttribute("data-fold-long-thoughts", "on");
+        if (document.documentElement) set();
+        else document.addEventListener("readystatechange", set, { once: true });
+      });
     if (loaded)
       await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: LOADED });
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -527,6 +543,66 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await commandToggle(page).hover();
     await page.waitForTimeout(250);
     expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 0, onTool: 0 });
+    await page.close();
+  });
+
+  // A long thought folds once done, behind the Debug toggle agentPane.debug.foldLongThoughts
+  // (conversation/ThoughtRow.tsx): only what is below it moves, so the rows above it stay put.
+  const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
+  const thoughtToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Thought" });
+
+  test("a long thought streams in full, then folds when the next step starts without moving the rows above it", async () => {
+    const chat = newChat();
+    thinks(chat, THOUGHT);
+    const page = await open(chat, 900, 700, false, true);
+    // Streaming: the whole thought, with nothing to open.
+    await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
+    expect(await thoughtToggle(page).count()).toBe(0);
+    await page.locator(".acpmux-scroll").hover();
+    await page.mouse.wheel(0, -1600);
+    await page.waitForTimeout(300);
+    await watch(page, "Paragraph 12.");
+    push(chat, "in", "tool_call", {
+      ...update({
+        sessionUpdate: "tool_call",
+        toolCallId: "c2",
+        title: "bun test",
+        kind: "execute",
+        status: "completed",
+        rawInput: { command: "bun test" },
+      }),
+    });
+    await thoughtToggle(page).waitFor({ state: "attached" });
+    const tops = (await stop(page)).map((frame) => frame.top);
+    expect(await thoughtToggle(page).getAttribute("aria-expanded")).toBe("false");
+    expect(tops.length).toBeGreaterThan(5);
+    expect(new Set(tops)).toEqual(new Set([tops[0]!]));
+    await page.close();
+  });
+
+  test("opening and closing a folded thought keeps its line under the pointer", async () => {
+    const page = await open(newChat(THOUGHT), 900, 700, false, true);
+    await toStart(page);
+    const toggle = thoughtToggle(page);
+    await toggle.waitFor();
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+    await watch(page, "Thought");
+    await toggle.click();
+    await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
+    await page.waitForTimeout(300);
+    await toggle.click();
+    await page.waitForTimeout(300);
+    const tops = (await stop(page)).map((frame) => frame.top);
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(new Set(tops)).toEqual(new Set([tops[0]!]));
+    await page.close();
+  });
+
+  test("with the Debug toggle off, a long thought stays in full once done", async () => {
+    const page = await open(newChat(THOUGHT), 900);
+    await toStart(page);
+    await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
+    expect(await thoughtToggle(page).count()).toBe(0);
     await page.close();
   });
 });
