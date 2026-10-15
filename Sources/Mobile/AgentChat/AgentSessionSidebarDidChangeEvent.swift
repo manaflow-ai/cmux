@@ -42,6 +42,12 @@ struct AgentSessionSidebarDidChangeEvent: Sendable {
         self.init(panelIds: Set(panelIds), workspaceIds: Set(workspaceIds))
     }
 
+    @MainActor
+    func affects(_ workspace: Workspace) -> Bool {
+        workspaceIds.contains(workspace.id)
+            || panelIds.contains { workspace.panels[$0] != nil }
+    }
+
     func post(center: NotificationCenter = .default) {
         center.post(
             name: Self.notificationName,
