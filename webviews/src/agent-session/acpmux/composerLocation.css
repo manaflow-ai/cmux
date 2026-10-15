@@ -124,11 +124,24 @@
   font: inherit;
 }
 .acpmux-location-button { cursor: default; }
-.acpmux-location-button:hover,
 .acpmux-location-button[aria-expanded="true"],
 .acpmux-location-button[data-popup-open] {
   background: var(--acpmux-composer-hover);
   color: var(--agent-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-location-button:hover {
+    background: var(--acpmux-composer-hover);
+    color: var(--agent-text);
+  }
+}
+/* The strip's buttons are 22 px tall (the small ghost size); their press target reaches 28 px, the
+   bar's chips' height, past the strip's edge without moving anything (cg-composer click polish). */
+.acpmux-location-button { position: relative; }
+.acpmux-location-button::before {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
 }
 .acpmux-location-button:active { background: color-mix(in srgb, var(--agent-text) 18%, var(--agent-page-bg, var(--acpmux-base))); }
 .acpmux-location-button:focus-visible {
@@ -415,12 +428,17 @@
   --acpmux-row-hover: var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent));
   --acpmux-row-press: color-mix(in srgb, currentcolor 12%, transparent);
 }
-.acpmux-composer-bar .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
-.acpmux-composer-bar .acpmux-plan:hover,
-.acpmux-composer-bar .acpmux-steer:hover,
-.acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
+.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"] {
   background: var(--acpmux-row-hover);
+}
+/* Hover only under a fine pointer (cg-composer click polish): a tap never leaves a wash behind. */
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer-bar .acpmux-picker-button:hover,
+  .acpmux-composer-bar .acpmux-plan:hover,
+  .acpmux-composer-bar .acpmux-steer:hover,
+  .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
+    background: var(--acpmux-row-hover);
+  }
 }
 .acpmux-composer-bar .acpmux-picker-button:active,
 .acpmux-composer-bar .acpmux-plan:active,
@@ -431,11 +449,15 @@
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
   color: var(--acpmux-warning);
 }
-.acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
   color: var(--agent-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
+  .acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
+  .acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover {
+    color: var(--agent-text);
+  }
 }
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button:hover,
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button[aria-expanded="true"] {
