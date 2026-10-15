@@ -454,14 +454,19 @@ async fn an_edited_rc_file_refreshes_the_login_env_without_a_spawn() {
 /// An edit that lands while the login shell is still reading the previous
 /// edit is read too: the login env ends at the last edit, never one behind.
 /// Edit A marks when the shell starts reading it, then takes about 1.5 s;
-/// edit B lands right after the mark, so A's read is running.
+/// edit B lands right after the mark, so A's read is running. The shell
+/// lives in a quiet folder: the daemon's log in the scratch folder would
+/// keep the watcher's burst open past A's read.
 #[tokio::test]
 async fn an_edited_rc_file_during_a_read_is_read_again() {
     let dir = scratch("race", "export NO_PROXY=before-edit\n");
+    std::fs::create_dir_all(dir.join("sh")).unwrap();
+    std::fs::copy(dir.join("loginsh"), dir.join("sh/loginsh")).unwrap();
+    let shell = dir.join("sh/loginsh");
     let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
-    let _d = start_config(&dir, config, &[]).await;
+    let _d = start_config(&dir, config, &[("SHELL", shell.to_str().unwrap())]).await;
     assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
-    // The mark is outside HOME, so it is no watched folder's event.
+    // The mark is in no watched folder.
     let mark = dir.join("reading-a");
     std::fs::write(
         dir.join("home/.zshrc"),
