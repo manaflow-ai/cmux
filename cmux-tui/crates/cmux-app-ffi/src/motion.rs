@@ -1,17 +1,19 @@
 //! The C ABI of cmux-motion for the macOS app (`include/cmux_motion_ffi.h`,
 //! Swift module `CCmuxMotionFFI`): the closed-form spring step, the token
-//! table, the structural bounce rule and the per-kind switches. The app's
+//! table, the structural bounce rule and the per-kind switches, and the
+//! tab strip's tweens and geometry (Chrome's strip motion). The app's
 //! `MotionClock` keeps only the display link and the layer updates; the
 //! physics and the rules live once, in cmux-motion. Every function is pure
 //! (no globals, no allocation) and never panics on any input.
 
 use cmux_motion::{
     AnimationSwitches, MotionBounce, MotionFade, MotionKind, MotionPolicy, MotionSpeed,
-    MotionSpring, SpringParameters, advance_spring,
+    MotionSpring, MotionTween, SpringParameters, TabStripGeometry, TweenCurve, TweenValue,
+    advance_spring,
 };
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 2;
 
 /// `SpringParameters`.
 #[repr(C)]
@@ -156,4 +158,184 @@ pub extern "C" fn cmux_motion_animates(kind: u8, policy: CmuxMotionPolicy) -> bo
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_fade_seconds(fade: u8, policy: CmuxMotionPolicy) -> f64 {
     MotionFade::ALL.get(usize::from(fade)).map_or(0., |f| self::policy(&policy).fade(*f))
+}
+
+/// `TweenParameters`: seconds and curve (0 easeOutQuad).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CmuxMotionTween {
+    pub duration: f64,
+    pub curve: u8,
+}
+
+/// One scalar on a tween (`TweenValue`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CmuxMotionTweenState {
+    pub value: f64,
+    pub from: f64,
+    pub target: f64,
+    pub elapsed: f64,
+    pub duration: f64,
+}
+
+/// `TabStripGeometry`, the same fields in the same order.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CmuxMotionTabStripGeometry {
+    pub max_width: f64,
+    pub open_start_width: f64,
+    pub close_end_width: f64,
+    pub min_active_width: f64,
+    pub min_inactive_width: f64,
+    pub pinned_width: f64,
+    pub reorder_threshold: f64,
+    pub closing_mode_below_pad: f64,
+    pub closing_mode_trailing_pad: f64,
+    pub closing_mode_exit_delay: f64,
+}
+
+/// The curve for a C ABI curve number: easeOutQuad is the only one (0);
+/// any other number takes it too.
+fn curve(_c: u8) -> TweenCurve {
+    TweenCurve::EaseOutQuad
+}
+
+impl From<CmuxMotionTweenState> for TweenValue {
+    fn from(s: CmuxMotionTweenState) -> Self {
+        TweenValue {
+            value: s.value,
+            from: s.from,
+            target: s.target,
+            elapsed: s.elapsed,
+            duration: s.duration,
+        }
+    }
+}
+
+impl From<TweenValue> for CmuxMotionTweenState {
+    fn from(s: TweenValue) -> Self {
+        Self {
+            value: s.value,
+            from: s.from,
+            target: s.target,
+            elapsed: s.elapsed,
+            duration: s.duration,
+        }
+    }
+}
+
+/// The tween token `token` (`MotionTween` order: 0 tabOpen, 1 tabClose, 2
+/// tabMove) at speed `fast` from the spec. Returns false for an unknown
+/// token or a null `out`.
+///
+/// # Safety
+/// `out` is null or points to a writable `CmuxMotionTween`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_tween_base(token: u8, out: *mut CmuxMotionTween) -> bool {
+    let Some(token) = MotionTween::ALL.get(usize::from(token)) else { return false };
+    if out.is_null() {
+        return false;
+    }
+    let p = token.base();
+    // SAFETY: `out` is non-null and writable per the contract above.
+    unsafe { out.write(CmuxMotionTween { duration: p.duration, curve: p.curve as u8 }) };
+    true
+}
+
+/// Seconds of tween token `token` under `policy`: 0 under speed off,
+/// Reduce Motion, or with the token's kind switched off (tabOpen and
+/// tabClose follow newTab); 0 for an unknown token.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_motion_tween_seconds(token: u8, policy: CmuxMotionPolicy) -> f64 {
+    MotionTween::ALL.get(usize::from(token)).map_or(0., |t| self::policy(&policy).tween(*t))
+}
+
+/// Points `state` at `target`: the same target changes nothing (returns
+/// false); a new one restarts `duration` seconds from the current value (no
+/// velocity); a duration that is not positive applies it at once. False
+/// for a null `state`.
+///
+/// # Safety
+/// `state` is null or points to a valid, writable `CmuxMotionTweenState`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_tween_retarget(
+    state: *mut CmuxMotionTweenState,
+    target: f64,
+    duration: f64,
+) -> bool {
+    if state.is_null() {
+        return false;
+    }
+    // SAFETY: `state` is non-null, valid and writable per the contract above.
+    let s = unsafe { &mut *state };
+    let mut t = TweenValue::from(*s);
+    let changed = t.retarget(target, duration);
+    *s = t.into();
+    changed
+}
+
+/// Advances `state` by `dt` seconds (capped at 0.1 s) on `curve` (0
+/// easeOutQuad). Ends exactly on the target. True while still moving;
+/// false (and no change) for a null `state`.
+///
+/// # Safety
+/// `state` is null or points to a valid, writable `CmuxMotionTweenState`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_tween_step(
+    state: *mut CmuxMotionTweenState,
+    dt: f64,
+    curve: u8,
+) -> bool {
+    if state.is_null() {
+        return false;
+    }
+    // SAFETY: `state` is non-null, valid and writable per the contract above.
+    let s = unsafe { &mut *state };
+    let mut t = TweenValue::from(*s);
+    let moving = t.step(dt, self::curve(curve));
+    *s = t.into();
+    moving
+}
+
+/// Progress of `curve` (0 easeOutQuad) at time fraction `t` (clamped to 0..=1).
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_motion_ease(curve: u8, t: f64) -> f64 {
+    self::curve(curve).progress_f64(t)
+}
+
+/// The tab strip geometry for `density` (0 compact, 1 comfortable) from the
+/// spec (design-tokens.json `motion.tabStrip`). False for an unknown
+/// density or a null `out`.
+///
+/// # Safety
+/// `out` is null or points to a writable `CmuxMotionTabStripGeometry`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_tab_strip_geometry(
+    density: u8,
+    out: *mut CmuxMotionTabStripGeometry,
+) -> bool {
+    let g = match density {
+        0 => TabStripGeometry::COMPACT,
+        1 => TabStripGeometry::COMFORTABLE,
+        _ => return false,
+    };
+    if out.is_null() {
+        return false;
+    }
+    let c = CmuxMotionTabStripGeometry {
+        max_width: g.max_width,
+        open_start_width: g.open_start_width,
+        close_end_width: g.close_end_width,
+        min_active_width: g.min_active_width,
+        min_inactive_width: g.min_inactive_width,
+        pinned_width: g.pinned_width,
+        reorder_threshold: g.reorder_threshold,
+        closing_mode_below_pad: g.closing_mode_below_pad,
+        closing_mode_trailing_pad: g.closing_mode_trailing_pad,
+        closing_mode_exit_delay: g.closing_mode_exit_delay,
+    };
+    // SAFETY: `out` is non-null and writable per the contract above.
+    unsafe { out.write(c) };
+    true
 }

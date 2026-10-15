@@ -37,7 +37,6 @@ export const PICKER_LABELS = {
   effort: "picker.effort",
   plan: "picker.plan",
   build: "picker.build",
-  planHint: "picker.planHint",
   fullAccessWarning: "picker.fullAccessWarning",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
@@ -622,7 +621,6 @@ export function ComposerPickers({
             type="button"
             className="acpmux-plan"
             aria-pressed={planning}
-            title={t(PICKER_LABELS.planHint)}
             onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
           >
             {planning ? <PlanIcon /> : <BuildIcon />}
