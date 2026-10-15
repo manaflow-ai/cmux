@@ -50,7 +50,7 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
 ${css}
 .flex{display:flex}
 </style></head><body>
-<div class="acpmux-shell"><div class="acpmux-composer acpmux-composer-bar" style="flex:1;margin-top:320px;padding:0">
+<div class="acpmux-shell"><div class="acpmux-composer" style="flex:1;margin-top:320px;padding:0"><div class="acpmux-composer-bar">
   <span class="acpmux-picker acpmux-composer-plus"><button class="acpmux-picker-button" style="width:28px">+</button></span>
   <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
@@ -86,7 +86,7 @@ ${css}
   </span>
   </div>
   <span class="acpmux-composer-actions"><button class="acpmux-send" style="width:28px;height:28px">↑</button></span>
-</div></div>
+</div></div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
 </div>

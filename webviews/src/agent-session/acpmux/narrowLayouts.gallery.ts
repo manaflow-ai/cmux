@@ -140,7 +140,7 @@ export function narrowProblems(document: Document): string[] {
       if (!visible(value) || value.scrollWidth > value.clientWidth + 1)
         problems.push(`“${value.textContent?.trim()}” is not shown in full in a wide pane`);
   // The model goes to its icon only where the row cannot hold its controls (a pane under about
-  // 328 px): with room to spare its name shows, even if it ends in an ellipsis.
+  // 334 px): with room to spare its name shows, even if it ends in an ellipsis.
   if (view.innerWidth >= 340)
     for (const name of document.querySelectorAll(".acpmux-model-name"))
       if (!visible(name)) problems.push("the model is cut to its icon in a pane with room for its name");

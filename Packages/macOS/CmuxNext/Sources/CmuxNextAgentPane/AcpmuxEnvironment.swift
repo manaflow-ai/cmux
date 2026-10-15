@@ -33,6 +33,20 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public static let computerUseKeys = ["CMUX_NEXT_CUA_SOCKET", "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]
     public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
 
+    /// The build-session kill switch (cx-9ettq): with either set, acpmux
+    /// starts no agent and the Chief host does not start. A GUI test job sets
+    /// one on the app; `childEnvironment` passes it to every acpmux daemon,
+    /// router and Chief host the app starts.
+    public static let agentLaunchKeys = ["ACPMUX_AGENT_LAUNCH", "CMUX_AGENTS_DISABLED"]
+
+    /// Whether `environment` turns agent launches off (`ACPMUX_AGENT_LAUNCH=deny`
+    /// or `CMUX_AGENTS_DISABLED=1`, the same test as acpmux's launch_policy.rs).
+    public static func agentLaunchDisabled(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        let launch = environment["ACPMUX_AGENT_LAUNCH"]?.trimmingCharacters(in: .whitespaces).lowercased()
+        let disabled = environment["CMUX_AGENTS_DISABLED"]?.trimmingCharacters(in: .whitespaces)
+        return launch == "deny" || disabled == "1"
+    }
+
     public var logPath: String { home.appendingPathComponent("daemon.log").path }
 
     /// Resolves the environment of `build` (nil: no build, the shared home),
@@ -90,6 +104,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
+        for key in agentLaunchKeys {
+            if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
+        }
         if let cli = bundledBinDirectory?.appendingPathComponent("cmux").path, isExecutable(cli) {
             childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
         }
