@@ -176,12 +176,17 @@ def assert_successful_split(
     socket_path: Path,
     fake_home: Path,
     label: str,
+    target: str | None = None,
 ) -> None:
+    split_args = ["__tmux-compat", "split-window"]
+    if target is not None:
+        split_args.extend(["-t", target])
+    split_args.extend(["-h", "-P", "-F", "#{pane_id}"])
     proc = run_cli(
         cli_path,
         socket_path,
         fake_home,
-        ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+        split_args,
     )
     if proc.returncode != 0:
         raise AssertionError(
@@ -207,7 +212,13 @@ def assert_resplit_after_close(
     # persisted column anchor is therefore stale when the next spawn arrives.
     state.close_teammate_without_cli()
 
-    assert_successful_split(cli_path, socket_path, fake_home, "second split-window")
+    assert_successful_split(
+        cli_path,
+        socket_path,
+        fake_home,
+        "second split-window",
+        target="surface:2",
+    )
 
 
 def main() -> int:
