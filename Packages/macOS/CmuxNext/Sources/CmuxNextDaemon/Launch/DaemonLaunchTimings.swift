@@ -28,7 +28,7 @@ public final class DaemonLaunchTimings: @unchecked Sendable {
         for (name, date) in early { receiver(name, date) }
     }
 
-    func mark(_ name: String) {
+    public func mark(_ name: String) {
         signposter.emitEvent("daemon", "\(name, privacy: .public)")
         let now = Date()
         let receiver = state.withLock { state -> (@Sendable (String, Date) -> Void)? in
