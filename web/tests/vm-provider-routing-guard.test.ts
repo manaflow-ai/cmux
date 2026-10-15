@@ -82,7 +82,8 @@ function machine(options: { newLauncher?: boolean; fresh?: boolean } = {}): Mach
       `printf '%s\\n' "$*" >> ${JSON.stringify(calls)}`,
       'case "$*" in',
       // FAKE_CATALOG_STATUS answers the catalog with that status instead (403 with the server's no-account error).
-      `  */opencode/config*) if [ -n "\${FAKE_CATALOG_STATUS-}" ]; then printf '%s\\n%s' '{"error":{"message":"No OpenCode account is shared with this team."}}' "$FAKE_CATALOG_STATUS"; else printf '%s\\n200' ${JSON.stringify(catalog)}; fi ;;`,
+      // FAKE_CATALOG_EXIT fails the catalog request the way curl does when the alias does not resolve (6).
+      `  */opencode/config*) if [ -n "\${FAKE_CATALOG_EXIT-}" ]; then exit "$FAKE_CATALOG_EXIT"; elif [ -n "\${FAKE_CATALOG_STATUS-}" ]; then printf '%s\\n%s' '{"error":{"message":"No OpenCode account is shared with this team."}}' "$FAKE_CATALOG_STATUS"; else printf '%s\\n200' ${JSON.stringify(catalog)}; fi ;;`,
       `  *) printf '%s' '{"teamId":"t","agents":{"claude":true,"codex":true,"opencode":true}}' ;;`,
       "esac",
       "",
@@ -132,10 +133,16 @@ async function cmux(m: Machine, ...args: string[]) {
 }
 
 /** Runs the guard the way the Mac does: `sh -c <script> cmux-provider-routing <openai> <anthropic>`. */
+/**
+ * Runs the guard the way the Mac does: `sh -c <script> cmux-provider-routing <openai> <anthropic>`.
+ * Its only output is one result line naming, per provider, `ok` or why that
+ * provider's key must be held back; the Mac delivers everything else.
+ */
 async function guard(m: Machine, openai: string, anthropic: string, extra: Record<string, string> = {}) {
   const result = await runChild("sh", ["-c", GUARD, "cmux-provider-routing", openai, anthropic], { env: { ...env(m), ...extra } });
-  expect(result.stdout).toBe("");
-  return result;
+  const line = /^CMUX-ROUTING-RESULT openai=(\S+) anthropic=(\S+)\n$/.exec(result.stdout);
+  expect(line).not.toBeNull();
+  return { ...result, openai: line?.[1], anthropic: line?.[2] };
 }
 
 const envLine = (m: Machine, name: string) =>
@@ -290,10 +297,17 @@ describe("Cloud Secrets provider routing guard (running machines)", () => {
     expect(readFileSync(m.codex, "utf8")).toBe('model_provider = "mine"\n');
   });
 
-  test("fails loudly when the machine env cannot be written, so the Mac keeps the key off the machine", async () => {
+  test("names the provider whose endpoint could not be written; the other provider stays deliverable", async () => {
     const m = machine();
-    writeFileSync(path.join(m.bin, "cmux"), "#!/bin/sh\nexit 1\n");
-    expect((await guard(m, "direct", "plane")).status).not.toBe(0);
+    const shim = path.join(m.bin, "cmux-shim");
+    writeFileSync(shim, GUEST_CMUX_SHIM);
+    chmodSync(shim, 0o755);
+    writeFileSync(path.join(m.bin, "cmux"), `#!/bin/sh\ncase "$*" in *ANTHROPIC_BASE_URL*) exit 1 ;; esac\nexec ${JSON.stringify(shim)} "$@"\n`);
+    const result = await guard(m, "direct", "direct");
+    expect(result.status).toBe(0);
+    expect(result.openai).toBe("ok");
+    expect(result.anthropic).toBe("env");
+    expect(envLine(m, "OPENAI_BASE_URL")).toBe(`export OPENAI_BASE_URL='${OPENAI}'`);
   });
 });
 
@@ -348,16 +362,38 @@ describe("today's image, guarded: a user's key reaches its provider, never CodeR
     expect(readlinkSync(m.planeCopy)).toBe("/dev/null");
   });
 
-  test("an OpenCode catalog that cannot be fetched keeps the OpenAI key off the machine until a retry succeeds", async () => {
+  for (const [why, failure] of [["does not resolve from exec", { FAKE_CATALOG_EXIT: "6" }], ["answers 503", { FAKE_CATALOG_STATUS: "503" }]] as const) {
+    test(`an OpenCode catalog that ${why} never holds a key back, and OpenCode never fetches with the user's key`, async () => {
+      const m = machine({ fresh: true });
+      const result = await guard(m, "direct", "keep", failure);
+      expect(result.status).toBe(0);
+      expect(result.openai).toBe("ok");
+      // A cmux stub stands in for the providers, so a team-mode launch has a
+      // file and never fetches (the baked launcher fetches only when it is absent).
+      const team = path.join(m.home, ".config/cmux/opencode-team.json");
+      expect(JSON.parse(readFileSync(team, "utf8"))).toEqual({});
+      await cmux(m, "env", "set", `OPENAI_API_KEY=${USER_KEY}`);
+      mkdirSync(path.join(m.home, ".config/cmux/agent-auth"), { recursive: true });
+      writeFileSync(path.join(m.home, ".config/cmux/agent-auth/opencode"), "team\n");
+      const before = existsSync(m.calls) ? readFileSync(m.calls, "utf8") : "";
+      const opencode = await launch(m, "opencode");
+      expect(opencode.OPENCODE_CONFIG).toBe(team);
+      const after = existsSync(m.calls) ? readFileSync(m.calls, "utf8") : "";
+      expect(after.slice(before.length)).not.toContain("opencode/config");
+      expect(after).not.toContain(USER_KEY);
+      // A later sync that reaches the catalog replaces the stub with the real providers.
+      rmSync(path.join(m.home, ".cache/cmux"), { recursive: true, force: true });
+      expect((await guard(m, "direct", "keep")).openai).toBe("ok");
+      expect(JSON.parse(readFileSync(team, "utf8")).provider.go.options.apiKey).toBe(PLACEHOLDER);
+    });
+  }
+
+  test("a user's own OpenCode team file is never replaced by the stub", async () => {
     const m = machine({ fresh: true });
-    // A transient failure: a team-mode launch would fetch again with the
-    // user's key, so the guard fails and the Mac does not deliver the key.
-    expect((await guard(m, "direct", "keep", { FAKE_CATALOG_STATUS: "503" })).status).not.toBe(0);
-    expect(existsSync(path.join(m.home, ".config/cmux/opencode-team.json"))).toBe(false);
-    // The next sync, once the fetch succeeds.
-    rmSync(path.join(m.home, ".cache/cmux"), { recursive: true, force: true });
-    expect((await guard(m, "direct", "keep")).status).toBe(0);
-    expect(JSON.parse(readFileSync(path.join(m.home, ".config/cmux/opencode-team.json"), "utf8")).provider.go.options.apiKey).toBe(PLACEHOLDER);
+    const team = path.join(m.home, ".config/cmux/opencode-team.json");
+    writeFileSync(team, '{"provider":{"mine":{}}}');
+    await guard(m, "direct", "keep", { FAKE_CATALOG_EXIT: "6" });
+    expect(readFileSync(team, "utf8")).toBe('{"provider":{"mine":{}}}');
   });
 
   test("a team with no OpenCode account, or a user who chose own mode, does not block the key", async () => {

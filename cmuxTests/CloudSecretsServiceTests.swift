@@ -24,6 +24,8 @@ struct CloudSecretsServiceTests {
         var execStdout = ""
         /// Exit code for an exec; 0 unless a test says otherwise.
         var execExitCode: @Sendable (String) -> Int = { _ in 0 }
+        /// What the routing guard prints: every provider routed unless a test says otherwise.
+        var guardStdout = "CMUX-ROUTING-RESULT openai=ok anthropic=ok\n"
 
         /// Deliveries and execs in order: "deliver:<names>" or "exec:<command>".
         var events: [String] {
@@ -60,7 +62,7 @@ struct CloudSecretsServiceTests {
                     self.lock.lock()
                     self.commandsStorage.append((machine, command))
                     self.eventsStorage.append("exec:" + command)
-                    let stdout = self.execStdout
+                    let stdout = command.contains("cmux-provider-routing") ? self.guardStdout : self.execStdout
                     let exitCode = self.execExitCode(command)
                     self.lock.unlock()
                     return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: "")
@@ -485,6 +487,79 @@ struct CloudSecretsServiceTests {
             )
         }
         #expect(recorder.deliveries.isEmpty)
+    }
+
+    // MARK: - Partial delivery
+
+    @Test func aProviderTheGuardCouldNotRouteHoldsBackOnlyItsKey() async throws {
+        let recorder = RecordingTransport()
+        recorder.guardStdout = "CMUX-ROUTING-RESULT openai=codex anthropic=ok\n"
+        let service = makeService(recorder)
+        try await service.set([
+            CloudSecretInput(name: "GH_TOKEN", value: "ghp_partial"),
+            CloudSecretInput(name: "OPENAI_API_KEY", value: "sk-proj-partial"),
+            CloudSecretInput(name: "ANTHROPIC_API_KEY", value: "sk-ant-partial"),
+        ], scope: .all, source: .manual, sync: false)
+
+        let result = await service.sync(machineID: "m1")
+
+        // Everything not at risk lands; only the OpenAI key waits.
+        #expect(recorder.deliveries.first?.entries.map(\.key) == ["ANTHROPIC_API_KEY", "GH_TOKEN"])
+        #expect(result.sent == ["ANTHROPIC_API_KEY", "GH_TOKEN"])
+        let message = try #require(result.error)
+        #expect(message.contains("OPENAI_API_KEY"))
+        #expect(message.contains("Codex"))
+        #expect(!message.contains("could not update its environment"))
+        #expect(!message.contains("sk-proj-partial"))
+        #expect(service.delivery(for: "m1")?.delivered["OPENAI_API_KEY"] == nil)
+        #expect(service.delivery(for: "m1")?.lastError == message)
+
+        // The next sync, once the machine can route OpenAI, delivers the key.
+        recorder.guardStdout = "CMUX-ROUTING-RESULT openai=ok anthropic=ok\n"
+        let retry = await service.sync(machineID: "m1")
+        #expect(retry.error == nil)
+        #expect(recorder.deliveries.last?.entries.map(\.key).contains("OPENAI_API_KEY") == true)
+        #expect(service.delivery(for: "m1")?.delivered["OPENAI_API_KEY"] != nil)
+        #expect(service.delivery(for: "m1")?.lastError == nil)
+    }
+
+    @Test func aGuardWithoutAResultStillDeliversEveryKeyThatIsNotAProviderKey() async throws {
+        let recorder = RecordingTransport()
+        recorder.guardStdout = ""
+        recorder.execExitCode = { command in command.contains("cmux-provider-routing") ? 1 : 0 }
+        let service = makeService(recorder)
+        try await service.set([
+            CloudSecretInput(name: "DATABASE_URL", value: "postgres://partial"),
+            CloudSecretInput(name: "OPENAI_API_KEY", value: "sk-proj-noresult"),
+        ], scope: .all, source: .manual, sync: false)
+
+        let result = await service.sync(machineID: "m1")
+
+        #expect(recorder.deliveries.first?.entries.map(\.key) == ["DATABASE_URL"])
+        let message = try #require(result.error)
+        #expect(message.contains("OPENAI_API_KEY"))
+        #expect(message.contains("exit 1"))
+    }
+
+    @Test func envSetDeliversWhatIsSafeAndNamesWhatItHeldBack() async throws {
+        let recorder = RecordingTransport()
+        recorder.guardStdout = "CMUX-ROUTING-RESULT openai=ok anthropic=env\n"
+        let transport = recorder.transport
+        do {
+            try await CloudSecretsProviderRouting.deliverGuarded(
+                machineID: "m1",
+                entries: [
+                    CloudEnvDelivery.Entry(key: "OPENAI_API_KEY", value: "sk-proj-env"),
+                    CloudEnvDelivery.Entry(key: "ANTHROPIC_API_KEY", value: "sk-ant-env"),
+                ],
+                exec: transport.exec, deliver: { try await transport.deliver("m1", $0) }
+            )
+            Issue.record("expected the held-back Anthropic key to be reported")
+        } catch {
+            #expect(error.localizedDescription.contains("ANTHROPIC_API_KEY"))
+            #expect(!error.localizedDescription.contains("sk-ant-env"))
+        }
+        #expect(recorder.deliveries.first?.entries.map(\.key) == ["OPENAI_API_KEY"])
     }
 
     // MARK: - Socket parameters
