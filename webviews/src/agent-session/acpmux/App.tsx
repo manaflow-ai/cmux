@@ -5065,18 +5065,21 @@ function AcpmuxPane() {
   // A side view (replay, the Inspector, diff review) or the Harnesses screen takes the card's place.
   const summaryCovered = Boolean(replaying) || inspectorOpen || Boolean(diffFiles) || harnessesOpen;
   const summaryPanel = (
-    <SummaryCard
-      // Another chat closes this one's gallery, as it does the image viewer.
-      key={snapshot.sessionId}
-      card={summaryCard}
-      rows={snapshot.rows}
-      changes={lastChanges}
-      onOpenChanges={toggleLastChanges}
-      onOpenOutput={openOutput}
-      onOpenImage={openImage}
-      subagents={cardSubagents}
-      actions={{ terminal: newTerminal, browser: newBrowser }}
-    />
+    // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark.
+    <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+      <SummaryCard
+        // Another chat closes this one's gallery, as it does the image viewer.
+        key={snapshot.sessionId}
+        card={summaryCard}
+        rows={snapshot.rows}
+        changes={lastChanges}
+        onOpenChanges={toggleLastChanges}
+        onOpenOutput={openOutput}
+        onOpenImage={openImage}
+        subagents={cardSubagents}
+        actions={{ terminal: newTerminal, browser: newBrowser }}
+      />
+    </SubagentHarnessContext.Provider>
   );
   return (
     <ShortcutsContext.Provider value={shortcuts}>

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -9,6 +9,7 @@ import { chatGallery } from "./chatGallery";
 import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
 
@@ -17,7 +18,9 @@ import type { SummaryCardControl } from "./cardState";
 /// the header's summary button and Escape do. Its head counts the subagents live. Its
 /// first row opens a new terminal or a new browser beside the chat, as the chat menu's New terminal
 /// and New browser do (`actions`). The summary is read from the transcript only while it shows, so a live turn
-/// pays nothing for it otherwise. A subagent row shows that subagent (`subagents.onOpen`).
+/// pays nothing for it otherwise. A subagent row shows that subagent (`subagents.onOpen`). The
+/// Subagents section's title opens a Subagents tab beside the Summary (SubagentsTab.tsx), as the
+/// ChatGPT desktop app's right pane does; its close button goes back to the summary.
 export function SummaryCard({
   card,
   rows,
@@ -52,6 +55,8 @@ export function SummaryCard({
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
+  /// The Subagents tab: absent until the Subagents title opens it, then shown or behind Summary.
+  const [tab, setTab] = useState<"summary" | "subagents" | undefined>(undefined);
   const shown = card.shown;
   const views = subagents.views;
   const agents = useMemo(() => (shown ? [...subagentsIn(rows, views).values()] : []), [shown, rows, views]);
@@ -63,6 +68,13 @@ export function SummaryCard({
   const panel = useRef<HTMLElement>(null);
   const edges = useScrollEdges();
   const close = card.close;
+  // Closing the Subagents tab leaves focus on the Subagents title that opened it.
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (tab || !refocus.current) return;
+    refocus.current = false;
+    panel.current?.querySelector<HTMLElement>(".acpmux-summary-title__button")?.focus();
+  }, [tab]);
   // Escape closes it (the gallery's own Escape first). Focus in the card goes to the header's
   // button; focus elsewhere (the composer) stays where it is.
   useEscapeCloses(shown && !gallery, () => {
@@ -80,6 +92,7 @@ export function SummaryCard({
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
   const title = t("summary.open");
+  const onSubagents = tab === "subagents";
   return (
     <>
       <aside
@@ -90,8 +103,45 @@ export function SummaryCard({
         data-placement={card.push ? "push" : "over"}
       >
         <div className="acpmux-summary-card__head">
-          <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-          {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
+          {tab ? (
+            // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
+            <div className="acpmux-summary-tabs">
+              <button
+                type="button"
+                className="acpmux-summary-tab"
+                aria-pressed={!onSubagents}
+                data-selected={onSubagents ? undefined : ""}
+                onClick={() => setTab("summary")}
+              >
+                {t("summary.title")}
+              </button>
+              <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+                <button
+                  type="button"
+                  className="acpmux-summary-tab__label"
+                  aria-pressed={onSubagents}
+                  onClick={() => setTab("subagents")}
+                >
+                  {t("summary.subagents")}
+                </button>
+                <button
+                  type="button"
+                  className="acpmux-summary-tab__close"
+                  aria-label={t("summary.subagents.closeTab")}
+                  title={t("summary.subagents.closeTab")}
+                  onClick={() => {
+                    refocus.current = true;
+                    setTab(undefined);
+                  }}
+                >
+                  <Icon name="action.close" size={10} />
+                </button>
+              </span>
+            </div>
+          ) : (
+            <span className="acpmux-summary-card__title">{t("summary.title")}</span>
+          )}
+          {!tab && counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
           <button
             type="button"
             className="acpmux-summary-card__close"
@@ -107,7 +157,12 @@ export function SummaryCard({
             <Icon name="action.close" size={12} />
           </button>
         </div>
-        {summary && (
+        {onSubagents && (
+          <div className="acpmux-summary-card__body" ref={edges}>
+            <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
+          </div>
+        )}
+        {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
             {(actions?.terminal || actions?.browser) && (
               <div className="acpmux-summary-actions">
@@ -133,6 +188,7 @@ export function SummaryCard({
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={subagents.autoOpen}
+                onShowAll={() => setTab("subagents")}
               />
             )}
             <SummaryBody
