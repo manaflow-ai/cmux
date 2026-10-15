@@ -67,6 +67,7 @@ public extension PageDescriptor {
         if let reserved = namespaces.first(where: { PageID.isReserved($0) || !$0.lowercased().hasPrefix(host + ".") }) {
             throw .reservedNamespace(reserved)
         }
-        return PageDescriptor(id: host, resource: resource, namespaces: namespaces)
+        // An app's own content decides what sits under a click that only brings the window forward.
+        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, acceptsFirstMouse: false)
     }
 }

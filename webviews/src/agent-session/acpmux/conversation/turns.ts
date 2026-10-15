@@ -428,9 +428,12 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, statu
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
-  const plan = statusCards ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
-  if (!plan) return [status, ...rows];
-  const work = rows.filter((row) => row !== plan);
+  // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
+  // the stored one, so the row draws again, done, once another row follows it.
+  const shown = last.kind === "activity" ? [...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }] : rows;
+  const plan = statusCards ? [...shown].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+  if (!plan) return [status, ...shown];
+  const work = shown.filter((row) => row !== plan);
   // The answer streams under the list; the line has nothing left to say.
   if (answering) return [...work.slice(0, -1), plan, last];
   return [...work, plan, activityLine(user, work, plan, clockOffset)];

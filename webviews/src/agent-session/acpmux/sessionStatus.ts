@@ -21,12 +21,11 @@ export function sessionStatusOn(): boolean {
 }
 
 /// Whether the in-session status cards show; re-renders when the host flips the toggle.
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+}
+
 export function useSessionStatus(): boolean {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => current,
-  );
+  return useSyncExternalStore(subscribe, () => current);
 }
