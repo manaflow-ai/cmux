@@ -26076,127 +26076,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Message other Chiefs"
+            "value" : "Make and edit other Chiefs"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "مراسلة Chiefs آخرين"
+            "value" : "إنشاء Chiefs آخرين وتعديلهم"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Poruke drugim Chiefovima"
+            "value" : "Pravi i uređuje druge Chiefove"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Send beskeder til andre Chiefs"
+            "value" : "Opret og redigér andre Chiefs"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Anderen Chiefs schreiben"
+            "value" : "Andere Chiefs erstellen und bearbeiten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Escribir a otros Chiefs"
+            "value" : "Crear y editar otros Chiefs"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Écrire aux autres Chiefs"
+            "value" : "Créer et modifier d'autres Chiefs"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Scrivi ad altri Chief"
+            "value" : "Crea e modifica altri Chief"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "他の Chief にメッセージ"
+            "value" : "他の Chief を作成・編集"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ផ្ញើសារទៅ Chief ផ្សេង"
+            "value" : "បង្កើត និងកែ Chief ផ្សេង"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "다른 Chief에게 메시지"
+            "value" : "다른 Chief 만들기 및 편집"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Send meldinger til andre Chiefs"
+            "value" : "Opprett og rediger andre Chiefs"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pisz do innych Chiefów"
+            "value" : "Twórz i edytuj innych Chiefów"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Enviar mensagens a outros Chiefs"
+            "value" : "Criar e editar outros Chiefs"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Писать другим Chief"
+            "value" : "Создавать и менять других Chief"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ส่งข้อความถึง Chief อื่น"
+            "value" : "สร้างและแก้ไข Chief อื่น"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Diğer Chief'lere mesaj"
+            "value" : "Diğer Chief'leri oluştur ve düzenle"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Писати іншим Chief"
+            "value" : "Створювати й змінювати інших Chief"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nhắn Chief khác"
+            "value" : "Tạo và sửa Chief khác"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "给其他 Chief 发消息"
+            "value" : "创建和编辑其他 Chief"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "傳訊息給其他 Chief"
+            "value" : "建立和編輯其他 Chief"
           }
         }
       }

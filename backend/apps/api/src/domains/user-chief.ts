@@ -140,9 +140,16 @@ const levelSync = (state: UserState, agent: string): Array<OutboxItem> => {
 export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx: ReduceContext): ReduceResult<UserState> => {
   const owner = stateIn.user?.id
   if (!owner) return reject("validation.invalid", "call user.ensure first")
-  // Only the user's own session or app install writes chief records; never an agent or a system op.
+  // Only the user's own session or app install writes chief records; never an agent or a system op,
+  // except a Chief with the chiefs grant from its Cloud brain (UserDO.chiefManage, server code only):
+  // a create with only a display name, or a rename of another chief (brain-chiefs.ts holds the ceiling).
   const p = ctx.principal
-  if ((p.kind !== "session" && p.kind !== "install") || p.agent || p.user !== owner) return reject("auth.forbidden", "only the user writes chief records")
+  const viaChief = p.kind === "agent" && p.agent !== undefined && p.user === owner && p.identity === `agent:${p.agent} via chief` && chiefActive(stateIn, p.agent)
+  if (viaChief) {
+    const keys = Object.keys(params)
+    const allowed = op === "chief.create" ? ["display_name"] : op === "chief.update" ? ["chief", "expected_rev", "display_name"] : []
+    if (allowed.length === 0 || keys.some((k) => !allowed.includes(k)) || (op === "chief.update" && params.chief === p.agent)) return reject("auth.forbidden", "a Chief creates chiefs and renames other chiefs only")
+  } else if ((p.kind !== "session" && p.kind !== "install") || p.agent || p.user !== owner) return reject("auth.forbidden", "only the user writes chief records")
   const now = formatNow(ctx.now)
   const state = compactChiefs(stateIn, ctx.now)
   const chiefs = state.chiefs ?? {}
