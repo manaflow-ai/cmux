@@ -58,8 +58,10 @@ struct CardSwipe: Equatable, Sendable {
     /// lift's event, 40-57 ms).
     static let flingCountSpeed: CGFloat = 600
     /// Display-link ticks from that decision to the count: it read 24-28 ms
-    /// ahead of Safari's at once (the finger is still moving).
-    static let flingCountTicks = 4
+    /// ahead of Safari's at once (the finger is still moving); after 4 it
+    /// changed a frame after the card's first move (19-26 ms, Safari 5-12),
+    /// after 3 on that frame (+1 to +6 ms).
+    static let flingCountTicks = 3
     /// The touch slop is caught up over this long once the drag is recognised.
     static let slopCatchUp = 0.08
     static let settle = ZoomSpring(response: 0.57, damping: 0.94)
@@ -107,7 +109,11 @@ struct CardSwipe: Equatable, Sendable {
     /// Where the fly-off ends: past the screen's leading edge.
     static func flyOffOffset(cardMinX: CGFloat, cardWidth: CGFloat) -> CGFloat {
         // Safari's flung card ends just past the edge (its right edge at 0).
-        -(cardMinX + cardWidth)
+        // The card is lifted (scaled about its centre), so its drawn right
+        // edge is half the lift's growth past the slot's: without it the
+        // card was still 8 pt on screen when the curve ended, and the end of
+        // the fling was 20 ms late.
+        -(cardMinX + cardWidth * (1 + liftScale) / 2)
     }
 }
 
