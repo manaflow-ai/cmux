@@ -45,8 +45,9 @@ struct AcpmuxSocketPathParityTests {
     /// The relay client of a capture slot's long tagged home connects to a path that fits, and a
     /// path that does not is refused before `NWEndpoint.unix` sees it (cx-qukj2).
     @Test func routerClientNeverHoldsAnOverlongPath() {
-        // A showcase launch's acpmux home under TMPDIR: 136 bytes as `<home>/router/router.sock`.
-        let home = URL(fileURLWithPath: "/var/folders/8x/3k2mz9qj1vd5w0t7n4cp6h8r0000gn/T/cmux-showcase/.acpmux/builds/com.cmuxterm.app.debug.cxfootb-352cfa5c", isDirectory: true)
+        // The capture slot that trapped (slot clones carry the tag twice in the build key):
+        // `<home>/router/router.sock` is 112 bytes.
+        let home = URL(fileURLWithPath: "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.cxfootb.352cfa5c.capslot4--cxfootb-352cfa5c", isDirectory: true)
         #expect(!LocalRouterClient.fits(home.appendingPathComponent("router/router.sock").path))
         #expect(LocalRouterClient.fits(AcpmuxEnvironment.routerSocketPath(home: home, uid: getuid())))
         #expect(!LocalRouterClient.fits("/tmp/" + String(repeating: "x", count: 100)))
