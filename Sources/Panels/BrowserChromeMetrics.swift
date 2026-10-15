@@ -77,8 +77,9 @@ struct BrowserChromeMetrics: Equatable {
     /// Point size of the permission prompt's capability glyph. Base `14`.
     var promptBarIconFontSize: CGFloat { scaled(14) }
 
-    /// Point size of the permission prompt's message. Base `13`.
-    var promptBarMessageFontSize: CGFloat { scaled(13) }
+    /// Point size of the permission prompt's message (design review: matches
+    /// the omnibar's text). Base `12`.
+    var promptBarMessageFontSize: CGFloat { scaled(12) }
 
     /// Point size of the permission prompt's button titles. Base `12`.
     var promptBarButtonFontSize: CGFloat { scaled(12) }
