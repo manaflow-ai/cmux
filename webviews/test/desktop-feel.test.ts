@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // DESKTOP-FEEL (R139) in real engines (headless Chromium and WebKit from Playwright), on the diff
 // viewer (test/browser/desktop-feel.html) and the markdown editor (/markdown on the dev server):
 // - content selects: a diff line's code, a file bar's path, markdown prose and a code block;
@@ -18,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("desktop-feel.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -94,7 +96,8 @@ const fenced = "code block text";
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/test/browser/desktop-feel.html");
+  }, 240_000);
 
   afterAll(() => {
     server?.kill();
