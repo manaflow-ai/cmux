@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+use cmux_agent_pane_policy::build_identity::{BuildIdentity, NIGHTLY_BUNDLE_ID};
 use serde::Deserialize;
 
 use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF};
@@ -986,12 +987,14 @@ fn stop_lock_holder(lock: &Path) {
 fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
     // Without HOME the person's default home cannot be ruled out: keep all.
     let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
+    // NIGHTLY's Chief home, named by the build identity resolver.
+    let nightly = BuildIdentity::new(Some(NIGHTLY_BUNDLE_ID), None);
     let Ok(canonical) = std::fs::canonicalize(home) else { return };
-    // The default home under the inherited HOME and under the account's
-    // home (a job runner's HOME differs from it).
+    // NIGHTLY's home under the inherited HOME and under the account's home
+    // (a job runner's HOME differs from it).
     let defaults = [Some(PathBuf::from(user)), account_home().map(PathBuf::from)];
     if defaults.into_iter().flatten().any(|user| {
-        std::fs::canonicalize(user.join(".cmux/chief/default")).ok().as_deref()
+        std::fs::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
             == Some(canonical.as_path())
     }) {
         return;
