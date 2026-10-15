@@ -4,10 +4,11 @@ with Safari's own curve (SafariCurves.swift, built from Safari's per-frame
 positions on the same simulator and input).
 
 The recording is tracked by a page/card header colour (real frame times),
-normalised to progress over the motion's span, aligned at its onset (the last
-frame before it moves 0.5 %) and compared with Safari's curve sampled at the
-same times. Pass: every crossing (t10/t50/t90/t99) within one 60 Hz frame of
-Safari's, or the whole curve within 2 pt. Exit 1 on a failure.
+normalised to progress over the motion's span, aligned to Safari's curve by a
+least-squares fit of its onset half, and compared with Safari's curve sampled
+at the same times. Pass: every crossing (t10/t50/t90/t99) within one 60 Hz frame of
+Safari's (none missing), or the whole curve within 2 pt; and the first moving
+frame within 8 pt of Safari's first (no first-frame jump). Exit 1 on a failure.
 """
 import json, re, subprocess, sys
 import numpy as np
@@ -27,7 +28,7 @@ SPECS = {
     # GitHub springs back from the turnaround (centre x to its slot).
     'snapBack': ('1f853c', 'cx', None, 297.65),
     # GitHub flies off from where the finger ended (right edge to 0).
-    'fling': ('1f853c', 'x1', None, 0.0),
+    'fling': ('1f853c', 'x1', None, 0.0, 90, 28, True),
     # CmuxTabsKit demo (run.sh --app kit): Springs (orange, active) zooms and
     # springs back; ✕ on it moves Note (cream) from row 3 left to row 2
     # right. Its orange tiles are up to ~106 px wide at full size, so the
@@ -51,8 +52,12 @@ def curves():
     return out
 
 
-def track(video, hexc, band_px=90, tol=28):
-    """Per frame (real pts): bbox of the header colour, in points (402 pt wide)."""
+def track(video, hexc, band_px=90, tol=28, lock_rows=False):
+    """Per frame (real pts): bbox of the header colour, in points (402 pt wide).
+
+    lock_rows: once the header band is found, keep looking in its rows when
+    too little of it is left on screen to pass the band width (a card flung
+    off the edge moves sideways only)."""
     w, h = 603, 1311
     s = w / 402
     pts = [float(p.strip(',')) for p in subprocess.run(
@@ -63,15 +68,21 @@ def track(video, hexc, band_px=90, tol=28):
     c = np.array([int(hexc[i:i + 2], 16) for i in (0, 2, 4)], dtype=np.int16)
     n = len(raw) // (w * h * 3)
     rows = []
+    locked = None
     for i in range(n):
         f = np.frombuffer(raw[i * w * h * 3:(i + 1) * w * h * 3], dtype=np.uint8).reshape(h, w, 3).astype(np.int16)
         m = np.abs(f - c).max(axis=2) < tol
         # The header band only: rows where the colour runs across at least
         # 60 pt (the page's own coloured bars and dots are narrower).
         band = m.sum(1) >= band_px
+        if lock_rows:
+            if band.sum() >= 6:
+                locked = band
+            elif locked is not None:
+                band = locked
         m = m & band[:, None]
         cols = np.nonzero(m.sum(0) >= 6)[0]
-        if len(cols) < 3:
+        if len(cols) < (1 if lock_rows else 3):
             rows.append((pts[i], None))
             continue
         x0, x1 = cols[0] / s, (cols[-1] + 1) / s
@@ -97,12 +108,25 @@ def compare(motion, video):
     hexc, field, a, b, *band = SPECS[motion]
     saf = curves()[motion.split('-')[-1]]
     t, p, span, at_release = progress(track(video, hexc, *band), field, a, b)
-    # Aligned at the onset (Safari's tables start at rest), or for the fling
-    # at the finger's end (Safari's table starts there, holds included).
-    i = 1 if at_release else int(np.argmax(p > 0.005))
-    t0 = t[max(0, i - 1)]
-    tt = (t - t0) * 1000
     st = np.arange(len(saf)) * 1000 / 60
+    # Aligned by a least-squares fit of the onset half (progress 0.5 %-50 %)
+    # to Safari's curve: a recording has no frames while the screen is still,
+    # so the frame before the onset can be 5-35 ms earlier, and a first frame
+    # that barely moves put a whole run a frame off. The first frame's own
+    # step is checked apart (`jump`). The fling's onset is the finger's end.
+    i = 1 if at_release else max(1, int(np.argmax(p > 0.005)))
+    base = (t - t[i]) * 1000 + st[int(np.argmax(saf > 0.005))]
+    sel = (p > 0.005) & (p < 0.5)
+    if at_release:
+        sel = (p > 0.0) & (p < 0.5)
+    best = (float('inf'), 0.0)
+    for tau in np.arange(-50, 50.25, 0.25):
+        e = float(np.sum((p[sel] - np.interp(base[sel] + tau, st, saf)) ** 2))
+        best = min(best, (e, tau))
+    tt = base + best[1]
+    # The first moving frame against Safari's (a jump shows here).
+    k0 = int(np.argmax(p > 0.005))
+    jump = (p[k0] - saf[int(np.argmax(saf > 0.005))]) * span
 
     def cross(times, prog, q):
         """The time `prog` first reaches `q`, interpolated between frames."""
@@ -123,9 +147,9 @@ def compare(motion, video):
     mask = (tt >= 0) & (tt <= st[-1])
     delta = np.abs(p[mask] - np.interp(tt[mask], st, saf)) * span
     worst = float(delta.max()) if len(delta) else float('nan')
-    cross_ok = all(abs(d) <= 16.7 for _, _, _, d in rows if d == d)
-    ok = cross_ok or worst <= 2.0
-    return {'motion': motion, 'crossings': rows, 'max_delta_pt': worst, 'pass': ok}
+    cross_ok = all(abs(d) <= 16.7 for _, _, _, d in rows) and all(o == o for _, o, _, _ in rows)
+    ok = (cross_ok or worst <= 2.0) and (at_release or abs(jump) <= 8.0)
+    return {'motion': motion, 'crossings': rows, 'max_delta_pt': worst, 'jump_pt': float(jump), 'pass': ok}
 
 
 if __name__ == '__main__':
@@ -134,5 +158,5 @@ if __name__ == '__main__':
         print(json.dumps(r))
     else:
         print(f"{r['motion']}: " + '  '.join(f't{int(q*100)} {o:.0f}/{s:.0f} ({d:+.0f})' for q, o, s, d in r['crossings'])
-              + f"  max {r['max_delta_pt']:.1f} pt  {'PASS' if r['pass'] else 'FAIL'}")
+              + f"  max {r['max_delta_pt']:.1f} pt  jump {r['jump_pt']:+.1f} pt  {'PASS' if r['pass'] else 'FAIL'}")
     sys.exit(0 if r['pass'] else 1)
