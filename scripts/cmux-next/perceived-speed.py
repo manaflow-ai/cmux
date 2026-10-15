@@ -49,19 +49,19 @@ SCALE = 4
 
 # How a person opens each surface. Every run starts from the same place: the base workspace (the
 # bottom one, made at the start of `run`) selected, through actions (not measured). "prep" steps run
-# next, unmeasured; "key" or "action" is the measured trigger; "after" closes what it opened (a page
-# with no tabs, such as Settings, is left by the next run's reset). A step is a key [key, modifiers]
+# next, unmeasured; "key" or "action" is the measured trigger; "after" closes what it opened (Settings
+# and What's New open as tabs: Cmd-W). A step is a key [key, modifiers]
 # or {"action": id}. Cmd-N puts a workspace at the top. workspace-switch gives that one a terminal
 # so the two workspaces differ, and switches by action: Cmd-1 is a New Tab page quick action.
 RESET = [{"action": "workspace.selectLast"}]
 SURFACES = {
     "new-tab": {"key": ["t", ["command"]], "after": ["w", ["command"]]},
     "new-workspace": {"key": ["n", ["command"]], "after": ["w", ["command"]]},
-    "settings": {"key": [",", ["command"]], "after": None},
-    "palette": {"action": "commandPalette", "after": ["escape", []]},
+    "settings": {"key": [",", ["command"]], "after": ["w", ["command"]]},
+    "palette": {"key": ["p", ["command", "shift"]], "after": ["escape", []]},
     "terminal": {"key": ["`", ["control"]], "after": ["w", ["command"]]},
     "browser": {"key": ["l", ["command", "shift"]], "after": ["w", ["command"]]},
-    "whats-new": {"action": "updates.whatsNew", "after": None},
+    "whats-new": {"action": "updates.whatsNew", "after": ["w", ["command"]]},
     "workspace-switch": {"prep": [["n", ["command"]], {"action": "newSurface"}, {"action": "workspace.selectLast"}],
                          "action": "workspace.selectFirst", "after": ["w", ["command", "shift"]]},
 }
@@ -195,7 +195,8 @@ def find_socket(bundle_id, since, dirs):
 
 def step(app, spec):
     if isinstance(spec, dict):
-        return app.call("action.run", {"id": spec["action"], **({"args": spec["args"]} if spec.get("args") else {})})
+        # A script run changes the view only with focus: true (ActionInvocation.allowsViewChange).
+        return app.call("action.run", {"id": spec["action"], "focus": True, **({"args": spec["args"]} if spec.get("args") else {})})
     return app.key(*spec)
 
 
@@ -249,18 +250,21 @@ def table(outs):
         return statistics.median(values) if values else None
 
     ranked = []
-    for surface, runs in rows.items():
+    for surface, every in rows.items():
+        # A run where nothing changed opened nothing (the trigger missed): it is no evidence either way.
+        missed = sum(1 for r in every if r.get("first_frame_ms") is None)
+        runs = [r for r in every if r.get("first_frame_ms") is not None] or every
         unsettled = sum(1 for r in runs if r.get("settle_ms") is None and r.get("first_frame_ms") is not None)
-        ranked.append((surface, len(runs), *(median([r.get(k) for r in runs]) for k in
-                       ("diff_area", "shift", "first_frame_ms", "settle_ms", "repaints", "dropped")), unsettled))
+        ranked.append((surface, len(every), *(median([r.get(k) for r in runs]) for k in
+                       ("diff_area", "shift", "first_frame_ms", "settle_ms", "repaints", "dropped")), unsettled, missed))
     ranked.sort(key=lambda r: (-(r[2] or 0), -(r[3] or 0)))
-    lines = ["| surface | runs | frame-1 vs settled (area) | shift | first frame ms | settled ms | repaints | dropped | unsettled |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
-    for surface, runs, area, shift, first, settle, repaints, dropped, unsettled in ranked:
+    lines = ["| surface | runs | frame-1 vs settled (area) | shift | first frame ms | settled ms | repaints | dropped | unsettled | no change |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for surface, runs, area, shift, first, settle, repaints, dropped, unsettled, missed in ranked:
         fmt = lambda v, p="{:.1f}": "n/a" if v is None else p.format(v)  # noqa: E731
         lines.append(f"| {surface} | {runs} | {fmt(area * 100 if area is not None else None, '{:.2f}%')} | "
                      f"{fmt(shift, '{:.3f}')} | {fmt(first, '{:.0f}')} | {fmt(settle, '{:.0f}')} | "
-                     f"{fmt(repaints, '{:.0f}')} | {fmt(dropped, '{:.0f}')} | {unsettled}/{runs} |")
+                     f"{fmt(repaints, '{:.0f}')} | {fmt(dropped, '{:.0f}')} | {unsettled}/{runs} | {missed}/{runs} |")
     return "\n".join(lines)
 
 
