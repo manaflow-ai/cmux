@@ -30,6 +30,29 @@ struct SidebarAgentParentTests {
     }
 
     @Test func aStartedSessionsRowNamesItsCoordinatorsWorkspace() throws {
+        defer { SidebarStatusGroupingTests.resetToggles() }
+        SidebarStatusGroupingTests.toggles(status: true, elbows: true)
+        let rows = Self.mappedRows()
+        let coordinator = try #require(rows.first { $0.title == "coordinator" })
+        let worker = try #require(rows.first { $0.title == "worker" })
+        let loner = try #require(rows.first { $0.title == "loner" })
+        #expect(worker.parentWorkspace == coordinator.id, "the worker's mux.parent names the coordinator's session")
+        #expect(coordinator.parentWorkspace == nil)
+        #expect(loner.parentWorkspace == nil)
+    }
+
+    /// Review of #20905: with the elbow off, no row reads a lane, so no row is linked (and a lane
+    /// change maps no row again).
+    @Test func withTheElbowOffNoRowIsLinked() throws {
+        defer { SidebarStatusGroupingTests.resetToggles() }
+        SidebarStatusGroupingTests.toggles(status: true, elbows: false)
+        let rows = Self.mappedRows()
+        #expect(rows.count == 3)
+        #expect(rows.allSatisfy { $0.agentLink == nil && $0.parentWorkspace == nil }, "\(rows.map(\.title))")
+    }
+
+    /// The three workspaces mapped and shown as the window's sidebar shows them.
+    static func mappedRows() -> [SidebarWorkspace] {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
             Self.workspace(1, "coordinator", session: "s-coord", harness: "claude"),
@@ -47,12 +70,6 @@ struct SidebarAgentParentTests {
                                                       rowSource: SidebarAgentLinks.linking(nil, lanes: lanes, turns: turns))
         let model = SidebarModel(sections: [])
         SidebarRows(model: model).show(sections)
-        let rows = model.sections.flatMap(\.workspaces)
-        let coordinator = try #require(rows.first { $0.title == "coordinator" })
-        let worker = try #require(rows.first { $0.title == "worker" })
-        let loner = try #require(rows.first { $0.title == "loner" })
-        #expect(worker.parentWorkspace == coordinator.id, "the worker's mux.parent names the coordinator's session")
-        #expect(coordinator.parentWorkspace == nil)
-        #expect(loner.parentWorkspace == nil)
+        return model.sections.flatMap(\.workspaces)
     }
 }

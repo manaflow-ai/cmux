@@ -67,10 +67,37 @@ import Testing
     @Test func aChildHangsOffItsParentWithTheElbow() {
         defer { SidebarStatusGroupingTests.resetToggles() }
         let sidebar = Sidebar(Self.rows, elbows: true)
+        // The worker asks, so its tree sits under Needs you, the coordinator above it.
         #expect(sidebar.drawn == [
-            "Working, 3 workspaces", "coord", "⎿ worker", "other",
+            "Needs you, 2 workspaces", "coord", "⎿ worker",
+            "Working, 1 workspaces", "other",
             "No agent, 1 workspaces", "shell",
         ], "\(sidebar.drawn)")
+    }
+
+    /// Review of #20905: a child that asks under a finished coordinator, with Done folded, was
+    /// drawn nowhere. Its tree goes under Needs you, which never folds.
+    @Test func aChildThatAsksNeverHidesInAFoldedSection() {
+        defer { SidebarStatusGroupingTests.resetToggles() }
+        let rows = [Self.agent("coord", .success), Self.agent("worker", .waiting(kind: nil), parent: "coord"),
+                    Self.agent("done", .success)]
+        let sidebar = Sidebar(rows, elbows: true)
+        sidebar.model.toggleStatusBucket(.done)
+        sidebar.view.list.reload(animated: false)
+        sidebar.view.layoutSubtreeIfNeeded()
+        #expect(sidebar.drawn == ["Needs you, 2 workspaces", "coord", "⎿ worker", "Done, 1 workspaces"], "\(sidebar.drawn)")
+    }
+
+    /// Review of #20905: a row update that keeps the row's place (a new title) patched the row's
+    /// content in place and dropped its elbow.
+    @Test func aChildKeepsItsElbowWhenItsRowUpdates() {
+        defer { SidebarStatusGroupingTests.resetToggles() }
+        let sidebar = Sidebar(Self.rows, elbows: true)
+        var worker = Self.rows[3]
+        worker.title = "worker, renamed"
+        #expect(sidebar.model.patchWorkspaces([worker]), "a new title moves no row")
+        sidebar.view.layoutSubtreeIfNeeded()
+        #expect(sidebar.drawn.prefix(3) == ["Needs you, 2 workspaces", "coord", "⎿ worker"], "\(sidebar.drawn)")
     }
 
     @Test func offTheListIsThePlainStatusList() {
@@ -90,6 +117,6 @@ import Testing
         #expect(sidebar.drawn.prefix(2) == ["Needs you, 1 workspaces", "worker"], "\(sidebar.drawn)")
 
         sidebar.parent("worker", "other")
-        #expect(sidebar.drawn.prefix(4) == ["Working, 3 workspaces", "coord", "other", "⎿ worker"], "\(sidebar.drawn)")
+        #expect(sidebar.drawn.prefix(3) == ["Needs you, 2 workspaces", "other", "⎿ worker"], "\(sidebar.drawn)")
     }
 }
