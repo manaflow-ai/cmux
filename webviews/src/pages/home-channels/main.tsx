@@ -23,6 +23,7 @@ import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import { ComposerEdit, hostEdit } from "./composerEdit";
+import { QUOTE_COMMAND, quoteSelection } from "./quoteSelection";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "../../agent-session/acpmux/conversation/conversation.css";
@@ -62,6 +63,12 @@ export function mountDaemonHomeChannelsPage(
   const carry = new PendingCarry();
   // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
   const edit = client ? hostEdit(client) : undefined;
+  // The app's menu on selected message text: Quote in Reply.
+  void client
+    ?.subscribe<{ command?: string }>("cmux.page.command", (data) => {
+      if (data.command === QUOTE_COMMAND) quoteSelection(document);
+    })
+    .catch(() => {});
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <ComposerEdit.Provider value={edit}>

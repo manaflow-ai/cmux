@@ -32,7 +32,6 @@ function installDom(): Document {
     "HTMLElement",
     "Element",
     "Node",
-    "CustomEvent",
     "MouseEvent",
     "KeyboardEvent",
     "getComputedStyle",
@@ -48,7 +47,6 @@ function installDom(): Document {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     Node: dom.window.Node,
-    CustomEvent: dom.window.CustomEvent,
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
@@ -96,9 +94,10 @@ function message(doc: Document, text: string): HTMLElement {
 }
 
 function select(node: Node) {
-  const range = document.createRange();
+  const doc = node.ownerDocument!;
+  const range = doc.createRange();
   range.selectNodeContents(node);
-  const selection = window.getSelection()!;
+  const selection = doc.getSelection()!;
   selection.removeAllRanges();
   selection.addRange(range);
 }
