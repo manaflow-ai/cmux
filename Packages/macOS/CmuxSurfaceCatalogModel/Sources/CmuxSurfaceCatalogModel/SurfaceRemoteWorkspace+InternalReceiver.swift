@@ -38,6 +38,22 @@ extension SurfaceRemoteWorkspace {
 
     /// Whether this workspace is internal plumbing that no reader may show or adopt.
     public var isInternalReceiver: Bool { Self.isInternalReceiverWorkspaceName(name) }
+
+    /// The receiver workspaces a link sweep may close: every internal receiver on the
+    /// machine, sorted by id, once this Mac has no link delivery of its own in flight.
+    ///
+    /// A receiver whose delivery ended without cleanup (the app quit, the link
+    /// dropped before the close landed) is hidden from every reader, so nothing else
+    /// would ever remove it. While a delivery of this session is running, its
+    /// receiver could already be in the graph before the delivery knows its id, so
+    /// the sweep waits for the next connect instead of guessing.
+    public static func leakedInternalReceiverIDs(
+        in workspaces: [SurfaceRemoteWorkspace],
+        deliveriesInFlight: Int
+    ) -> [String] {
+        guard deliveriesInFlight == 0 else { return [] }
+        return workspaces.filter(\.isInternalReceiver).map(\.id).sorted()
+    }
 }
 
 extension SurfaceCatalogSnapshot {

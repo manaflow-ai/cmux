@@ -22,6 +22,24 @@ struct SurfaceInternalReceiverWorkspaceTests {
         #expect(!SurfaceRemoteWorkspace.isInternalReceiverWorkspaceName(" \(receiverName)"))
     }
 
+    @Test("a link sweep closes leaked receivers only, and none while a delivery is in flight")
+    func leakedReceiverSweep() {
+        let workspaces = [
+            SurfaceRemoteWorkspace(id: "ws-real", name: "workspace-1", index: 0, focused: false),
+            SurfaceRemoteWorkspace(id: "ws-named", name: "cmux env staging", index: 1, focused: false),
+            SurfaceRemoteWorkspace(id: "ws-recv-b", name: receiverName, index: 2, focused: false),
+            SurfaceRemoteWorkspace(
+                id: "ws-recv-a",
+                name: SurfaceRemoteWorkspace.internalReceiverWorkspaceName(title: SurfaceRemoteWorkspace.fileReceiverTitle),
+                index: 3,
+                focused: true
+            ),
+        ]
+        #expect(SurfaceRemoteWorkspace.leakedInternalReceiverIDs(in: workspaces, deliveriesInFlight: 0) == ["ws-recv-a", "ws-recv-b"])
+        #expect(SurfaceRemoteWorkspace.leakedInternalReceiverIDs(in: workspaces, deliveriesInFlight: 1).isEmpty)
+        #expect(SurfaceRemoteWorkspace.leakedInternalReceiverIDs(in: Array(workspaces.prefix(2)), deliveriesInFlight: 0).isEmpty)
+    }
+
     @Test("the receiver workspace, its terminal and projections into it are hidden; the real workspace stays")
     func snapshotHidesReceiver() {
         let real = SurfaceRemoteWorkspace(id: "ws-real", name: "workspace-1", index: 0, focused: false)

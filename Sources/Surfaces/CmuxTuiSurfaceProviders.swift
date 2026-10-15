@@ -159,6 +159,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// When this Mac first saw each failed tabless run that carries no exit time,
     /// so ``SurfaceResource/retainingFailedExits(_:firstSeen:now:)`` can age it out like the others.
     var failedExitFirstSeen: SurfaceResource.FailedExitFirstSeen = [:]
+    /// Link deliveries (`cmux env receive`, `cmux file receive`) this provider is
+    /// running; the receiver sweep on connect waits while any is.
+    var receiverDeliveriesInFlight = 0
     /// Rename receipts are transient read-your-write fences. They are keyed by
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
@@ -1660,6 +1663,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // machine, ports, and display rows immediately.
             scheduleRefresh(force: true)
             notificationSync?.linkDidConnect()
+            scheduleLeakedReceiverSweep()
         case .snapshot(let cursor, _, let payload):
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine),
