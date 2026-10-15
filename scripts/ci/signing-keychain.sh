@@ -95,19 +95,22 @@ create_keychain() {
   mkdir -p "$state_dir"
   chmod 700 "$state_dir"
   # Global, not local: the EXIT trap runs after this function returns.
-  certificate="$(mktemp "$state_dir/certificate.XXXXXX")"
-  trap 'rm -f "${certificate:-}"' EXIT
+  # security import infers the format from the file name, so the file is a
+  # .p12 in a private directory, and the import also names the format.
+  certificate_dir="$(mktemp -d "$state_dir/certificate.XXXXXX")"
+  certificate="$certificate_dir/certificate.p12"
+  trap 'rm -rf "${certificate_dir:-}"' EXIT
   password="$(uuidgen)"
 
-  printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+  printf '%s\n' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
   "$SECURITY_TOOL" delete-keychain "$name" >/dev/null 2>&1 || true
   "$SECURITY_TOOL" create-keychain -p "$password" "$name"
   # Written before the import, so a failed import is still found and deleted.
   printf '%s' "$password" > "$(password_file "$name")"
   "$SECURITY_TOOL" set-keychain-settings -lut "$TIMEOUT_SECONDS" "$name"
   "$SECURITY_TOOL" unlock-keychain -p "$password" "$name"
-  "$SECURITY_TOOL" import "$certificate" -k "$name" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-  rm -f "$certificate"
+  "$SECURITY_TOOL" import "$certificate" -k "$name" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+  rm -rf "$certificate_dir"
   "$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh" "$name"
   "$SECURITY_TOOL" set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$name" >/dev/null
   "$SECURITY_TOOL" list-keychains -d user -s "$name"
@@ -151,7 +154,7 @@ delete_keychains() {
     fi
   done
   if [ -n "$state_dir" ]; then
-    rm -f "$state_dir"/certificate.* 2>/dev/null || true
+    rm -rf "$state_dir"/certificate.* 2>/dev/null || true
   fi
   if [ "${#names[@]}" -gt 0 ]; then
     echo "Deleted signing keychain(s): ${names[*]}"
