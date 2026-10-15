@@ -337,6 +337,9 @@ final class SSHService {
             session.installPhase = nil
             logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
             await link.handle(.installFinished(.success))
+            // The machine's agent daemon still runs the replaced binary (cx-brq9m): hand it over to
+            // the new one, keeping its agents, before the next chat needs it.
+            await handOffAgentDaemonAfterInstall(session)
             reconnect(session)
         } catch {
             session.installPhase = nil
