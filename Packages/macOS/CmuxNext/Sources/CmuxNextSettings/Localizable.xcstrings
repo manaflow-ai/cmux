@@ -94055,127 +94055,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The size of chat messages and the composer."
+            "value": "The size of chat messages."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حجم رسائل المحادثة ومربع الكتابة."
+            "value": "حجم رسائل المحادثة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Veličina poruka u razgovoru i polja za pisanje."
+            "value": "Veličina poruka u razgovoru."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Størrelsen på chatbeskeder og skrivefeltet."
+            "value": "Størrelsen på chatbeskeder."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Größe von Chatnachrichten und des Eingabefelds."
+            "value": "Die Größe von Chatnachrichten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El tamaño de los mensajes del chat y del editor de mensajes."
+            "value": "El tamaño de los mensajes del chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La taille des messages et du champ de saisie."
+            "value": "La taille des messages de discussion."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La dimensione dei messaggi della chat e del compositore."
+            "value": "La dimensione dei messaggi della chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットのメッセージと入力欄の文字サイズです。"
+            "value": "チャットのメッセージの文字サイズです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទំហំសារជជែក និងប្រអប់សរសេរ។"
+            "value": "ទំហំសារជជែក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 메시지와 입력란의 크기입니다."
+            "value": "채팅 메시지의 크기입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Størrelsen på chatmeldinger og skrivefeltet."
+            "value": "Størrelsen på chatmeldinger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rozmiar wiadomości czatu i pola wiadomości."
+            "value": "Rozmiar wiadomości czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O tamanho das mensagens do chat e do campo de mensagem."
+            "value": "O tamanho das mensagens do chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Размер сообщений чата и поля ввода."
+            "value": "Размер сообщений чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ขนาดของข้อความแชตและช่องเขียน"
+            "value": "ขนาดของข้อความแชต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbet mesajlarının ve yazma alanının boyutu."
+            "value": "Sohbet mesajlarının boyutu."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Розмір повідомлень чату й поля введення."
+            "value": "Розмір повідомлень чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kích thước tin nhắn trò chuyện và ô soạn thảo."
+            "value": "Kích thước tin nhắn trò chuyện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天消息和输入框的大小。"
+            "value": "聊天消息的大小。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天訊息和輸入框的大小。"
+            "value": "聊天訊息的大小。"
           }
         }
       }

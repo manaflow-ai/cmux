@@ -70,7 +70,7 @@ public nonisolated struct AppFontsSetting: Sendable {
             SettingDescriptor(
                 chatSizePath, section: .appearance, group: group,
                 title: SettingsText.keyed("settings.fonts.chatSize", "Chat Text Size"),
-                help: SettingsText.keyed("settings.fonts.chatSize.help", "The size of chat messages and the composer."),
+                help: SettingsText.keyed("settings.fonts.chatSize.help", "The size of chat messages."),
                 kind: .number(SettingNumber(AppFonts.chatSizeRange, step: 1, unit: .points, placeholder: AppFonts.defaultChatSize)),
                 default: .number(AppFonts.defaultChatSize),
                 keywords: ["font", "text", "size", "chat", "composer", "bigger", "smaller"]
