@@ -12,7 +12,8 @@ import SwiftUI
 /// §0.9), and offers Reload under the error code. The hang prompt is an
 /// opaque card with Exit page and Wait. `BrowserPageRecoveryOverlay` hosts it, and
 /// the panel mounts that as an occluding page overlay so it shows above a
-/// Chromium page window; neither takes keyboard focus on appear.
+/// Chromium page window. Neither takes keyboard focus on appear; their
+/// buttons are reachable with Tab, and VoiceOver announces the card.
 struct ChromiumPageFailureOverlay: View {
     let failure: ChromiumPageFailureState.Failure
     let metrics: BrowserChromeMetrics
@@ -38,6 +39,32 @@ struct ChromiumPageFailureOverlay: View {
         }
         .transition(.opacity)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: failure)
+        // Tell VoiceOver the page changed; the buttons stay reachable with the
+        // keyboard (Tab), and nothing takes focus on appear.
+        .onAppear { Self.announce(failure) }
+        .onChange(of: failure) { _, newValue in Self.announce(newValue) }
+    }
+
+    /// The VoiceOver announcement for a newly shown crash page or hang card.
+    static func announcement(for failure: ChromiumPageFailureState.Failure) -> String {
+        switch failure {
+        case .crashed(let exit, let isRepeat, _):
+            ChromiumPageGone(exit).title(repeated: isRepeat)
+        case .unresponsive:
+            String(localized: "browser.chromium.unresponsive.title", defaultValue: "Page unresponsive")
+        }
+    }
+
+    private static func announce(_ failure: ChromiumPageFailureState.Failure) {
+        guard let element = NSApp.mainWindow ?? NSApp.keyWindow else { return }
+        NSAccessibility.post(
+            element: element,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: announcement(for: failure),
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
     }
 
     // MARK: Crash page
@@ -80,7 +107,6 @@ struct ChromiumPageFailureOverlay: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
-                .focusable(false)
                 .padding(.top, metrics.recoverySpacing / 2)
                 .accessibilityIdentifier("BrowserChromiumCrashReloadButton")
             }
@@ -115,7 +141,6 @@ struct ChromiumPageFailureOverlay: View {
                         .cmuxFont(size: metrics.recoveryBodyFontSize)
                 }
                 .controlSize(.regular)
-                .focusable(false)
                 .accessibilityIdentifier("BrowserChromiumUnresponsiveExitButton")
                 Button(action: primaryAction) {
                     Text(String(localized: "browser.chromium.unresponsive.wait", defaultValue: "Wait"))
@@ -123,7 +148,6 @@ struct ChromiumPageFailureOverlay: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
-                .focusable(false)
                 .accessibilityIdentifier("BrowserChromiumUnresponsiveWaitButton")
             }
         }
