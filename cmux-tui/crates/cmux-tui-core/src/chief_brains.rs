@@ -1143,7 +1143,7 @@ fn stop_lock_holder(lock: &Path) {
 
 /// Removes the per-Chief acpmux homes `<home>/c/<tail>/a` that brains of
 /// earlier builds used (before one acpmux per Chief home): `acpmux daemon
-/// shutdown` there first (that Chief's own daemon, not the shared one),
+/// shutdown --end-agents` there first (that Chief's own daemon, not the shared one),
 /// then the folder. Only inside this build's Chief home `home`, never in
 /// the person's shared `~/.cmux/chief/default` (NIGHTLY's), and not while
 /// a brain an earlier owner left holds that Chief's lock (it still uses
@@ -1178,7 +1178,7 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         let mut command = std::process::Command::new(acpmux);
         command
-            .args(["daemon", "shutdown"])
+            .args(["daemon", "shutdown", "--end-agents"])
             .env_clear()
             .env("ACPMUX_HOME", &old)
             .stdin(std::process::Stdio::null())
@@ -1189,7 +1189,7 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
                 command.env(key, value);
             }
         }
-        // On this thread only: `daemon shutdown` ends that daemon's agents
+        // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
         // first (acpmux bounds its own grace), then the folder goes.
         // No acpmux to ask: its daemon may still run there; keep the folder.
         let Ok(mut child) = command.spawn() else { continue };
