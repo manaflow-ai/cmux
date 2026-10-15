@@ -176,6 +176,13 @@ def row(j, title, timeout=30):
         j.sim.drag(201, 300, 201, 650, 0.4, 20, 0.2)
         e = j.sim.wait(prefix=title, kind="Button", timeout=timeout)
     check(e, f"no row {title!r} on the phone")
+    # Under the tab bar: scroll it up into the middle of the list.
+    for _ in range(6):
+        if e.frame[1] + e.frame[3] < 760:
+            break
+        j.sim.drag(201, 650, 201, 300, 0.5, 30, 0.4)
+        time.sleep(0.8)
+        e = j.sim.wait(prefix=title, kind="Button", timeout=5) or e
     return e
 
 
@@ -188,15 +195,19 @@ def row_menu(j, title):
 
 
 def menu_item(j, label, timeout=6):
-    e = j.sim.wait(label=label, timeout=timeout)
+    # A menu row's icon can carry the same label (an "xmark" image is "Close"): the row first.
+    e = j.sim.wait(label=label, kind="Button", timeout=timeout) or j.sim.wait(label=label, timeout=2)
     check(e, f"no {label!r} in the menu; menu: {[x.label for x in j.sim.find(kind='Button')][:16]}")
     j.sim.tap_el(e)
     time.sleep(1.0)
 
 
 def row_action(j, title, *path):
-    """Hold the row, then tap each menu entry of `path` (submenus open in place)."""
+    """Hold the row, then tap each menu entry of `path` (submenus open in place).
+    A hold the simulator dropped (a loaded host) is tried once more."""
     row_menu(j, title)
+    if not j.sim.wait(label=path[0], timeout=4):
+        row_menu(j, title)
     for label in path:
         menu_item(j, label)
 
@@ -264,6 +275,14 @@ def flow_mark_unread(j):
 def flow_bulk_close(j):
     names = [f"{PREFIX}x1", f"{PREFIX}x2", f"{PREFIX}x3"]
     make_workspaces(names)
+    # Setup on the Mac, on this lane's own workspaces only: put them last in the person's
+    # order, so Close Workspaces Below on the first closes only the other two.
+    rows = (daemon({"cmd": "list-personal", "id": "p2ws"}).get("data") or {}).get("workspaces") or []
+    for name in names:
+        w = mac_workspace(name)
+        daemon({"cmd": "set-personal-workspace", "id": "p2ws", "session_id": w["registry_id"], "workspace_key": w["key"],
+                "index": len(rows) + 10})
+    time.sleep(1.5)
     order = mac_order()
     first = min(names, key=order.index)
     below = order[order.index(first) + 1:]
@@ -290,8 +309,11 @@ def flow_open_folder(j):
     btn = j.sim.wait(ident="workspaces.new", timeout=10)
     check(btn, "no New Workspace button")
     x, y = btn.center
-    j.sim.long_press(x, y, 1.2)
-    time.sleep(1.2)
+    for _ in range(2):
+        j.sim.long_press(x, y, 1.2)
+        time.sleep(1.2)
+        if j.sim.wait(label="Open Folder…", timeout=4):
+            break
     menu_item(j, "Open Folder…")
     field = j.sim.wait(ident="workspaces.openFolder.path", timeout=6) or j.sim.wait(kind="TextField", timeout=4)
     check(field, "no folder field")
@@ -306,12 +328,15 @@ def flow_open_folder(j):
     deadline = time.time() + 20
     cwd = None
     while time.time() < deadline:
-        tabs = pq.mac_tabs() or []
-        cwd = next((t.get("cwd") for t in tabs if isinstance(t, dict) and (t.get("workspace_key") == ws["key"] or t.get("workspace") == ws["title"])), None)
+        data = daemon({"cmd": "list-workspaces", "id": "p2ws"}).get("data") or {}
+        entry = next((w for w in data.get("workspaces", []) if w.get("key") == ws["key"]), {})
+        cwds = [t.get("cwd") for sc in entry.get("screens", []) for p in sc.get("panes", []) for t in p.get("tabs", [])]
+        cwd = next((c for c in cwds if c), None)
         if cwd and cwd.rstrip("/") == path.rstrip("/"):
             break
         time.sleep(0.5)
     close_on_mac([name])
+    check(cwd and cwd.rstrip("/") == path.rstrip("/"), f"terminal folder {cwd!r}, wanted {path}")
     return f"{name} on the Mac in {time.time() - t:.1f} s; terminal folder {cwd}"
 
 
