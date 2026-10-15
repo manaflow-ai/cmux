@@ -95,6 +95,34 @@ impl Surface {
         }
     }
 
+    /// Wait, at most until `deadline`, for a hosted PTY's mirror to reach
+    /// the grid last asked of its host. A hosted resize returns once the
+    /// size is sent; the host's resize arrives later on its stream. An attach
+    /// that sized the grid waits here so its replay is built at the new grid
+    /// instead of being followed by a second, `resized` replay. Returns
+    /// whether the mirror matches (always for a local or idle PTY).
+    pub(crate) fn wait_for_hosted_viewer_size(&self, deadline: Instant) -> bool {
+        let Surface::Pty(pty) = self else { return true };
+        loop {
+            let observed = pty.stream_progress.revision();
+            #[cfg(any(unix, windows))]
+            let target = match &*pty.runtime.lock().unwrap() {
+                PtyRuntime::Hosted(host) => host.viewer_size(),
+                _ => None,
+            };
+            #[cfg(not(any(unix, windows)))]
+            let target: Option<(u16, u16)> = None;
+            let Some(target) = target else { return true };
+            let geometry = *pty.geometry.lock().unwrap();
+            if (geometry.cols, geometry.rows) == target {
+                return true;
+            }
+            if pty.stream_progress.wait_for_change_until(observed, Some(deadline)).is_none() {
+                return false;
+            }
+        }
+    }
+
     pub(crate) fn pending_resize_completion(
         &self,
         cols: u16,
