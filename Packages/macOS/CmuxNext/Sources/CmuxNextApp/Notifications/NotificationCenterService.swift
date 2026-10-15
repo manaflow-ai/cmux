@@ -55,7 +55,7 @@ final class NotificationCenterService {
     /// When a banner shows an agent's last message (Show Previews, like macOS).
     @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
     /// Whether the screen is locked now (Show Previews `whenUnlocked`); tests pin it.
-    @ObservationIgnored var screenLocked: () -> Bool = { ScreenLock.isLocked }
+    @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
@@ -343,7 +343,7 @@ final class NotificationCenterService {
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let title = program?.title(localizations: localizations)
             ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
-        let body = Self.bannerBody(notification, previews: previews, screenLocked: screenLocked())
+        let body = notification.bannerBody(previews: previews, screenLocked: screenLocked())
         desktop.post(id: id, title: title, subtitle: subtitle, body: body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
                      attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
