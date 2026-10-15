@@ -11,8 +11,13 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 
-/** One item of an agent's todo list (an ACP `plan` entry). */
-export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
+/** One item of an agent's todo list (an ACP `plan` entry), with Claude's present-tense
+ * `activeForm` ("Tightening the grid spacing") when acpmux sends one (`_meta.claude`). */
+export type AcpmuxPlanEntry = {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  activeForm?: string;
+};
 
 /** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
 export type AcpmuxBackgroundTask = {

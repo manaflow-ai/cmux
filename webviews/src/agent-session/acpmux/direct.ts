@@ -2781,14 +2781,17 @@ function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
   };
 }
 
-/// An ACP `plan` update's entries as a todo list; an entry without text is left out.
+/// An ACP `plan` update's entries as a todo list; an entry without text is left out. A Claude
+/// todo's present-tense `activeForm` comes under `_meta.claude` (acpmux, cx-ncc.105).
 function planEntries(entries: unknown): AcpmuxPlanEntry[] {
   if (!Array.isArray(entries)) return [];
   return entries.flatMap((entry) => {
     const content = typeof entry?.content === "string" ? entry.content.trim() : "";
     if (!content) return [];
     const status = entry.status === "completed" || entry.status === "in_progress" ? entry.status : "pending";
-    return [{ content, status }];
+    const active = entry._meta?.claude?.activeForm;
+    const activeForm = typeof active === "string" ? active.trim() : "";
+    return [activeForm ? { content, status, activeForm } : { content, status }];
   });
 }
 

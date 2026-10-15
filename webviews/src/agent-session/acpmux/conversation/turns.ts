@@ -433,7 +433,8 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, labs 
 }
 
 /// The activity line of a live turn: its running tool call as its row names it (a command as
-/// itself: "Ran …" would say it has finished), else the todo in progress. The label is its text
+/// itself: "Ran …" would say it has finished), else the todo in progress, in its present tense
+/// when the agent gave one (Claude's `activeForm`, cx-ncc.105). The label is its text
 /// and its version, so the memoized row redraws when the call's paths arrive; it carries no items,
 /// so Find never counts the call's output a second time. Its clock ticks from the prompt.
 function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clockOffset: number): AcpmuxRow {
@@ -441,9 +442,8 @@ function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clock
     .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
     .reverse()
     .find((item) => item.tool && (item.tool.status === "pending" || item.tool.status === "in_progress"));
-  const label = running?.tool
-    ? runningLabel(running.tool, running.text)
-    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+  const doing = plan.plan?.find((entry) => entry.status === "in_progress");
+  const label = running?.tool ? runningLabel(running.tool, running.text) : (doing?.activeForm ?? doing?.content ?? "");
   let version = 1;
   for (let index = 0; index < label.length; index += 1) version = (version * 31 + label.charCodeAt(index)) % 1_000_003;
   return { id: `${ACTIVITY_LINE}-${user.id}`, version, at: user.at + clockOffset, kind: ACTIVITY_LINE, text: label };

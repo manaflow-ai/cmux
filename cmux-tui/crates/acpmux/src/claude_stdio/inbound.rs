@@ -730,8 +730,10 @@ fn with_edit(call: &mut Value, name: &str, input: &Value) {
 }
 
 /// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
-/// (pending, in_progress or completed, as ACP names them). Nil for input
-/// that is not a todo list.
+/// (pending, in_progress or completed, as ACP names them), and its
+/// present-tense `activeForm` under `_meta.claude` (cx-ncc.105), which the
+/// pane's activity line shows for the todo in progress. Nil for input that
+/// is not a todo list.
 fn todo_plan(input: &Value) -> Option<Value> {
     let entries: Vec<Value> = input
         .get("todos")?
@@ -744,7 +746,15 @@ fn todo_plan(input: &Value) -> Option<Value> {
                 .and_then(Value::as_str)
                 .filter(|status| matches!(*status, "in_progress" | "completed"))
                 .unwrap_or("pending");
-            Some(json!({"content": content, "status": status, "priority": "medium"}))
+            let mut entry = json!({"content": content, "status": status, "priority": "medium"});
+            if let Some(active) = todo
+                .get("activeForm")
+                .and_then(Value::as_str)
+                .filter(|active| !active.trim().is_empty())
+            {
+                entry["_meta"] = json!({"claude": {"activeForm": active}});
+            }
+            Some(entry)
         })
         .collect();
     Some(json!({"sessionUpdate": "plan", "entries": entries}))
