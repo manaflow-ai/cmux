@@ -4,13 +4,14 @@
 //! The cmux-codex-acp translator shows a `commandExecution` item as a tool
 //! call and drops its `processId`. This watches the same app-server lines:
 //! an exec item with a process id that is still open when its turn
-//! completes, or whose item completes while it runs (unified exec handing
+//! completes (not interrupted), or whose item completes while it runs (unified exec handing
 //! back a session id), is a background terminal. It is reported the way
 //! Claude Code's shells are, as a `background_task_update` session update
 //! (`toolCallId` the item, `taskId` the process id), so the hub's registry
 //! takes it unchanged. Its end is the item's later completion, or the
 //! answer to a kill's `thread/backgroundTerminals/terminate`, which this
-//! sends under its own request ids. The app-server's exit is the hub's
+//! sends under its own request ids; an item end while a terminate waits is
+//! the kill's. `terminated: false` refuses the kill. The app-server's exit is the hub's
 //! (`processes_lost`).
 //!
 //! Not built: `thread/backgroundTerminals/list` at session load (the hub
@@ -22,6 +23,9 @@ use serde_json::{Value, json};
 /// The app-server method that stops a background terminal, and the method
 /// the hub sends the bridge for it (`{threadId, processId}`).
 pub const TERMINATE: &str = "thread/backgroundTerminals/terminate";
+
+/// A terminate's answer when Codex had no such process.
+const GONE: &str = "Codex no longer had this background terminal";
 
 /// The prefix of this bridge's own request ids to the app-server; the
 /// translator's are numbers.
@@ -41,9 +45,26 @@ pub(super) struct Background {
     open: Vec<Exec>,
     /// Those reported running and not ended.
     running: Vec<Exec>,
-    /// Terminate requests sent: our id, the hub's id, the thread and process.
-    asked: Vec<(String, Value, String, String)>,
+    /// Terminate requests waiting for their answer.
+    asked: Vec<Asked>,
     next: u64,
+}
+
+/// A terminate sent and not answered yet.
+struct Asked {
+    /// Our request id, and the hub's.
+    id: String,
+    client: Value,
+    thread: String,
+    process: String,
+    /// Its item completed before the answer: it ended as asked.
+    ended: bool,
+}
+
+/// A JSON-RPC error answer to the hub's request `client`.
+fn error(client: Value, message: &str) -> Out {
+    let error = json!({"code": -32603, "message": message});
+    Out::Client(json!({"jsonrpc": "2.0", "id": client, "error": error}))
 }
 
 fn text<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
@@ -82,7 +103,7 @@ impl Background {
         let id = format!("{ID_PREFIX}{}", self.next);
         let thread = text(&params, "threadId").unwrap_or("").to_owned();
         let process = text(&params, "processId").unwrap_or("").to_owned();
-        self.asked.push((id.clone(), client, thread, process));
+        self.asked.push(Asked { id: id.clone(), client, thread, process, ended: false });
         let line = json!({"jsonrpc": "2.0", "id": id, "method": TERMINATE, "params": params});
         Some(vec![Out::Server(line)])
     }
@@ -94,25 +115,31 @@ impl Background {
             return None;
         }
         let id = raw.get("id").and_then(Value::as_str).filter(|id| id.starts_with(ID_PREFIX))?;
-        let at = self.asked.iter().position(|a| a.0 == id)?;
-        let (_, client, thread, process) = self.asked.remove(at);
-        let mut out = Vec::new();
+        let at = self.asked.iter().position(|a| a.id == id)?;
+        let Asked { client, thread, process, ended, .. } = self.asked.remove(at);
         if let Some(error) = raw.get("error") {
-            out.push(Out::Client(json!({"jsonrpc": "2.0", "id": client, "error": error})));
-            return Some(out);
+            return Some(vec![Out::Client(
+                json!({"jsonrpc": "2.0", "id": client, "error": error}),
+            )]);
         }
         let result = raw.get("result").cloned().unwrap_or(Value::Null);
+        let terminated = result.get("terminated").and_then(Value::as_bool) == Some(true);
         let i = self.running.iter().position(|e| e.thread == thread && e.process == process);
-        if let Some(exec) = i.map(|i| self.running.remove(i)) {
-            let terminated = result.get("terminated").and_then(Value::as_bool) == Some(true);
-            out.push(if terminated {
-                update(&exec, "stopped", json!({}))
-            } else {
-                update(&exec, "completed", json!({"reason": "Codex no longer had this process"}))
-            });
+        let exec = i.map(|i| self.running.remove(i));
+        let answer = Out::Client(json!({"jsonrpc": "2.0", "id": client, "result": result}));
+        if ended {
+            return Some(vec![answer]);
         }
-        out.push(Out::Client(json!({"jsonrpc": "2.0", "id": client, "result": result})));
-        Some(out)
+        Some(match (exec, terminated) {
+            (Some(exec), true) => vec![update(&exec, "stopped", json!({})), answer],
+            (None, true) => vec![answer],
+            // Codex has no such process: it ended unseen, and the caller
+            // hears that nothing was stopped.
+            (Some(exec), false) => {
+                vec![update(&exec, "completed", json!({"reason": GONE})), error(client, GONE)]
+            }
+            (None, false) => vec![error(client, GONE)],
+        })
     }
 
     /// The background updates one app-server line makes, which go out
@@ -134,6 +161,11 @@ impl Background {
                     .into_iter()
                     .partition::<Vec<_>, _>(|e| e.thread == thread);
                 self.open = open;
+                // An interrupted or failed turn left its commands open
+                // without handing them to the background.
+                if p.pointer("/turn/status").and_then(Value::as_str) != Some("completed") {
+                    return Vec::new();
+                }
                 left.into_iter().map(|exec| self.announce(exec)).collect()
             }
             _ => Vec::new(),
@@ -151,6 +183,15 @@ impl Background {
                 return Vec::new();
             }
             let exec = self.running.remove(i);
+            // A terminate waits for its answer: this end is the kill's.
+            let asked = self
+                .asked
+                .iter_mut()
+                .find(|a| a.thread == exec.thread && a.process == exec.process);
+            if let Some(asked) = asked {
+                asked.ended = true;
+                return vec![update(&exec, "stopped", json!({}))];
+            }
             let state =
                 if text(item, "status") == Some("completed") { "completed" } else { "failed" };
             return vec![update(&exec, state, json!({"exitCode": item.get("exitCode")}))];
@@ -179,13 +220,7 @@ impl Background {
         let asked = std::mem::take(&mut self.asked);
         *self = Background { next: self.next, ..Background::default() };
         let message = format!("codex app-server stopped: {why}");
-        asked
-            .into_iter()
-            .map(|(_, client, _, _)| {
-                let error = json!({"code": -32603, "message": message});
-                Out::Client(json!({"jsonrpc": "2.0", "id": client, "error": error}))
-            })
-            .collect()
+        asked.into_iter().map(|a| error(a.client, &message)).collect()
     }
 }
 

@@ -97,7 +97,9 @@ harness itself exited. Its last output is kept and its command is shown with
   bridge (`codex_app_server/background.rs`) watches the raw app-server lines
   beside the translator, which drops `processId`. An exec item with a
   `processId` is a background terminal when its `item/completed` still says
-  `inProgress`, or when its turn completes before the item does. It is
+  `inProgress`, or when its turn completes (status `completed`) before the
+  item does; a turn that was interrupted or failed hands nothing to the
+  background. It is
   reported as a `background_task_update` (`toolCallId` the item id, `taskId`
   the `processId`, `origin` `background`), so the hub's registry folds it as
   it folds Claude's. A later `item/completed` ends it (`exited` or `failed`,
@@ -109,9 +111,14 @@ harness itself exited. Its last output is kept and its command is shown with
 - Output comes from `item/commandExecution/outputDelta`. The bridge spools it
   to a file per process in the session's state directory.
 - To stop a process, acpmux calls `thread/backgroundTerminals/terminate`
-  `{threadId, processId}` (built). The bridge sends it under its own request
-  ids. `terminated: true` ends it `killed` by the person; `false` (Codex no
-  longer had it) ends it `exited` with that detail.
+  `{threadId, processId}` (built), on the thread that runs it: a subagent's
+  own thread (its `subagentSessionId`), else the chat's. The bridge sends it
+  under its own request ids. `terminated: true` ends it `killed` by the
+  person, and so does an item end that arrives before the answer. `false`
+  (Codex no longer had it) refuses the kill with that error and ends the
+  process `exited` with that detail.
+- `process/tail` is Claude-only for now (#20917): a Codex process has no
+  output file yet.
 - Codex caps a session at 64 unified-exec processes; that cap is compiled
   in.
 
@@ -182,7 +189,10 @@ process's command line and its kill never leave the machine.
   its process runs, is listed `running` with harness `codex`; one that exits
   keeps its exit code; `process/kill` calls
   `thread/backgroundTerminals/terminate` and the process ends `killed` by
-  the person, once; the app-server's exit marks it `lost`.
+  the person, once, also when Codex ends the item before answering; a
+  subagent's terminal is terminated on its own thread; a terminal Codex no
+  longer has is refused and ended; an interrupted turn lists nothing; the
+  app-server's exit marks it `lost`.
 
 ## Open questions
 

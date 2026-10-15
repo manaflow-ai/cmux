@@ -338,10 +338,10 @@ impl Hub {
                 "only Claude Code's and Codex's background processes can be stopped",
             ));
         }
-        let (task, running) = {
+        let (task, running, subagent) = {
             let table = self.process_table(&session);
             let p = table.processes.iter().find(|p| p.id == id).ok_or_else(unknown)?;
-            (p.task_id.clone(), p.state == ProcessState::Running)
+            (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
         };
         if !running {
             return Ok(json!({}));
@@ -360,9 +360,11 @@ impl Hub {
         }
         let inserted = self.process_table(&session).stopping.insert(id.to_owned());
         let agent_session = session.meta().agent_session_id;
-        // Codex: the app-server's terminate (`codex_app_server/background.rs`).
+        // Codex: the app-server's terminate (`codex_app_server/background.rs`),
+        // on the thread that runs it (a subagent's session is its thread).
         let (stop, params, harness) = if codex {
-            let params = json!({"threadId": agent_session, "processId": task});
+            let thread = subagent.or(agent_session);
+            let params = json!({"threadId": thread, "processId": task});
             (crate::codex_app_server::TERMINATE, params, "Codex")
         } else {
             let params = json!({"sessionId": agent_session, "taskId": task});
