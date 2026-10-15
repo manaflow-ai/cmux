@@ -58,10 +58,10 @@ impl ReopenRequest {
 
 /// What a reopen created, in public ids.
 #[derive(Default)]
-struct Reopened {
-    workspaces: Vec<String>,
-    screens: Vec<String>,
-    tabs: Vec<String>,
+pub(super) struct Reopened {
+    pub(super) workspaces: Vec<String>,
+    pub(super) screens: Vec<String>,
+    pub(super) tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
     placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
@@ -69,7 +69,7 @@ struct Reopened {
 }
 
 impl Reopened {
-    fn note_workspace(&mut self, workspace: String) {
+    pub(super) fn note_workspace(&mut self, workspace: String) {
         if !self.workspaces.contains(&workspace) {
             self.workspaces.push(workspace);
         }
@@ -85,7 +85,7 @@ impl Reopened {
 }
 
 /// Split `members` into the ones to restore and the ones to keep.
-fn choose(
+pub(super) fn choose(
     members: Vec<Value>,
     chosen: Option<&[usize]>,
 ) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
@@ -530,14 +530,14 @@ impl Mux {
         Ok(())
     }
 
-    fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
+    pub(super) fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
         self.with_state(|state| {
             state.resource_indexes.tab_ids.get(&surface).map(|id| id.to_string())
         })
         .context("reopened tab has no public id")
     }
 
-    fn public_screen_of_pane(&self, pane: PaneId) -> anyhow::Result<(String, String)> {
+    pub(super) fn public_screen_of_pane(&self, pane: PaneId) -> anyhow::Result<(String, String)> {
         self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
             let workspace = &state.workspaces[workspace];
@@ -548,7 +548,7 @@ impl Mux {
 
     /// Restore one tab record into `pane`. `reattach` lets a still-running
     /// terminal get a new view instead of a new process.
-    fn reopen_tab_record(
+    pub(super) fn reopen_tab_record(
         self: &Arc<Self>,
         actor: &Actor,
         pane: PaneId,
@@ -650,7 +650,7 @@ impl Mux {
         Ok(())
     }
 
-    fn reopen_closed_tab(
+    pub(super) fn reopen_closed_tab(
         self: &Arc<Self>,
         actor: &Actor,
         record: &Value,
