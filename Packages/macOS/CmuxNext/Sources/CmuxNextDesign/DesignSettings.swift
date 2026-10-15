@@ -41,6 +41,11 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
+    public var animationBounce: MotionBounce = .none
+    /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
+    /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
+    public var enabledAnimations: Set<MotionKind> = [.newTab]
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); off by default.
     public var paneAnimations = false
