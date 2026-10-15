@@ -124,6 +124,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "reopen-saved-tab-group",
         "ack-tab-notifications",
         "notify",
+        // Restart Shell: a dead terminal tab of the person's gets its shell
+        // again, on this Mac, under the same terminal id; the surface only
+        // (`creation_fields`). Verified live (cnx-ios/SECURITY.md "Restart Shell").
+        "restart-tab",
         // Agent chat tabs: only an acpmux session tab of this Mac's own
         // acpmux, checked below (`agent_tab_verdict`).
         "new-conversation-tab",
@@ -181,6 +185,8 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         ["origin", "mutation_id", "expected_generation", "expected_revision", "expected_terminal_revision"];
     let size = ["cols", "rows"];
     let extra: &[&'static str] = match command {
+        // The tab's recorded launch on this Mac; the phone names only the tab.
+        "restart-tab" => return Some(["surface"].into_iter().collect()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -598,6 +604,30 @@ mod tests {
             assert_eq!(answer["ok"], false);
             assert_eq!(answer["error_code"], "forbidden");
             assert_eq!(answer["id"], 1);
+        }
+    }
+
+    /// Restart Shell: the dead tab's own shell again, on this Mac; the phone
+    /// names the tab and nothing else (no program, folder, env or alias).
+    #[test]
+    fn restart_shell_takes_only_the_tab() {
+        assert_eq!(policy().evaluate(br#"{"id":1,"cmd":"restart-tab","surface":12}"#), Verdict::Forward);
+        assert_eq!(
+            policy().evaluate(br#"{"id":1,"cmd":"restart-tab","surface":"tab_01J"}"#),
+            Verdict::Forward
+        );
+        for line in [
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"command":"id"}"#.as_slice(),
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"argv":["sh"]}"#,
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"cwd":"/"}"#,
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"env":{"BASH_ENV":"/tmp/x"}}"#,
+            br#"{"id":1,"cmd":"restart-tab","tab":12}"#,
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"initial_command":"id"}"#,
+        ] {
+            let Verdict::Refuse(answer) = policy().evaluate(line) else {
+                panic!("forwarded {}", String::from_utf8_lossy(line));
+            };
+            assert!(answer.contains("forbidden"), "{answer}");
         }
     }
 

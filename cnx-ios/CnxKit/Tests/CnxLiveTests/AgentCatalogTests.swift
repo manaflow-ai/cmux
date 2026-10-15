@@ -100,6 +100,86 @@ import Testing
     }
 }
 
+/// Parity round 2: a Mac that says what a phone may start (acpmux `remote`) decides it, so
+/// Codex (the `codex app-server` bridge, started in its asking mode) is startable; and the
+/// phone's New Agent Chat starts where the Mac's last pick does (acpmux `lastPicks`).
+@Suite struct AgentCatalogRemoteTests {
+    func json(_ text: String) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+    }
+
+    var harnesses: String {
+        """
+        {"defaultHarness": "claude",
+         "harnesses": {
+           "codex": {"argv": ["/opt/homebrew/bin/codex", "app-server"], "family": "codex",
+                     "remote": {"startable": true, "modes": ["ask"]}},
+           "codex-acp": {"argv": ["codex-acp"], "family": "codex",
+                         "remote": {"startable": false, "reason": "this agent has no mode that asks before each change"}},
+           "opencode": {"argv": ["opencode", "acp"], "family": "opencode",
+                        "remote": {"startable": false, "reason": "this agent has no mode that asks before each change"}},
+           "claude": {"argv": ["claude"], "family": "claude", "start": {"model": "claude-opus-5-5"},
+                      "remote": {"startable": true, "modes": ["default", "plan"]}},
+           "cmux": {"argv": ["claude"], "family": "claude", "remote": {"startable": true, "modes": ["default", "plan"]}}
+         },
+         "lastPicks": {"lastAgent": "codex",
+                       "global": {"harness": "codex", "model": "gpt-5.5"},
+                       "folders": [{"folder": "/Users/p/web", "harness": "cmux", "model": "z-ai/glm-5.3"},
+                                   {"folder": "/Users/p/old", "harness": "opencode", "model": "x"}]}}
+        """
+    }
+
+    @Test func codexOnTheBridgeIsStartableInItsAskingMode() throws {
+        let catalog = AgentCatalog(harnesses: try json(harnesses))
+        let codex = try #require(catalog.harness("codex"))
+        #expect(codex.canStart)
+        #expect(codex.askingModes == ["ask"])
+        #expect(catalog.harness("codex-acp")?.unavailableReason == AgentCatalog.refusedReason)
+        #expect(catalog.harness("opencode")?.unavailableReason == AgentCatalog.refusedReason)
+        #expect(catalog.harness("claude")?.askingModes == ["default", "plan"])
+    }
+
+    /// An older Mac (no `remote`): Codex stays refused, since its acpmux would leave a
+    /// phone-started Codex in a mode that does not ask.
+    @Test func anOlderMacKeepsCodexRefused() throws {
+        let reply = try json(#"{"harnesses": {"codex": {"argv": ["codex", "app-server"], "family": "codex"}}}"#)
+        #expect(AgentCatalog(harnesses: reply).harness("codex")?.canStart == false)
+    }
+
+    @Test func newAgentChatStartsWhereTheMacsLastPickDoes() throws {
+        let catalog = AgentCatalog(harnesses: try json(harnesses))
+        // The folder's own pick wins.
+        let inWeb = try #require(catalog.resolve(.macDefault, folder: "/Users/p/web"))
+        #expect(inWeb.harness.id == "cmux")
+        #expect(inWeb.model == "z-ai/glm-5.3")
+        // Elsewhere: the pick anywhere.
+        let elsewhere = try #require(catalog.resolve(.macDefault, folder: "/Users/p/other"))
+        #expect(elsewhere.harness.id == "codex")
+        #expect(elsewhere.model == "gpt-5.5")
+        // A folder pick the phone can't start falls to the pick anywhere.
+        #expect(catalog.resolve(.macDefault, folder: "/Users/p/old")?.harness.id == "codex")
+        // A start that names a harness is not the Mac's default.
+        #expect(catalog.resolve(AgentChatStart(harness: "claude"), folder: "/Users/p/web")?.harness.id == "claude")
+        // The agent alone (no model pick): its own default model.
+        var agentOnly = catalog
+        agentOnly.lastPicks = AgentLastPicks(lastAgent: "codex")
+        let picked = try #require(agentOnly.resolve(.macDefault))
+        #expect(picked.harness.id == "codex")
+        #expect(picked.model == nil)
+        // No picks: the Mac's default agent.
+        agentOnly.lastPicks = nil
+        #expect(agentOnly.resolve(.macDefault)?.harness.id == "claude")
+    }
+
+    @Test func aPhonePicksOnlyModesThatAsk() {
+        let modes = ["default", "acceptEdits", "plan", "bypassPermissions", "ask", "agent", "agent-full-access"]
+            .map { ACPMode(id: $0, name: $0) }
+        #expect(ACPMode.phoneChoices(modes, current: "default").map(\.id) == ["default", "plan", "ask"])
+        // The current mode stays listed (checked) even when it does not ask.
+        #expect(ACPMode.phoneChoices(modes, current: "agent").map(\.id) == ["default", "plan", "ask", "agent"])
+    }
+}
+
 /// New Workspace in a folder (Recent Directories): the new terminal changes to it as the
 /// person would type; the phone never sends `cwd`. Agent chats never start in a home folder.
 @Suite struct WorkspaceFolderTests {

@@ -43,9 +43,12 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
     public var models: [AgentModelChoice]
     /// The model a new chat starts on (acpmux `start.model`), if the Mac said.
     public var defaultModel: String?
+    /// The modes a chat this phone starts may run in, the start mode first (acpmux's
+    /// `remote.modes`: modes that ask before each change); empty when the Mac didn't say.
+    public var askingModes: [String]
 
     public init(id: String, name: String, family: String, isDefault: Bool = false, unavailableReason: String? = nil,
-                models: [AgentModelChoice] = [], defaultModel: String? = nil) {
+                models: [AgentModelChoice] = [], defaultModel: String? = nil, askingModes: [String] = []) {
         self.id = id
         self.name = name
         self.family = family
@@ -53,6 +56,7 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
         self.unavailableReason = unavailableReason
         self.models = models
         self.defaultModel = defaultModel
+        self.askingModes = askingModes
     }
 
     public var canStart: Bool { unavailableReason == nil }
@@ -62,9 +66,13 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
 /// with the remote rules applied, so the menu says what a phone can start and why not.
 public struct AgentCatalog: Hashable, Sendable {
     public var harnesses: [AgentHarnessChoice]
+    /// The agent and model the Mac's New Tab page picked last (acpmux `lastPicks`), so the
+    /// phone's New Agent Chat starts where the Mac's does; nil when the Mac didn't say.
+    public var lastPicks: AgentLastPicks?
 
-    public init(harnesses: [AgentHarnessChoice]) {
+    public init(harnesses: [AgentHarnessChoice], lastPicks: AgentLastPicks? = nil) {
         self.harnesses = harnesses
+        self.lastPicks = lastPicks
     }
 
     public static let empty = AgentCatalog(harnesses: [])
@@ -81,8 +89,18 @@ public struct AgentCatalog: Hashable, Sendable {
 
     public func harness(_ id: String) -> AgentHarnessChoice? { harnesses.first { $0.id == id } }
 
-    /// The harness and model a start resolves to here; nil when nothing can start.
-    public func resolve(_ start: AgentChatStart) -> (harness: AgentHarnessChoice, model: String?)? {
+    /// The harness and model a start resolves to here; nil when nothing can start. The Mac's
+    /// default (`start` names neither) is the Mac's last pick in `folder`, else its last pick
+    /// anywhere, else the agent it picked last, else ``defaultChoice``, as the Mac's New Agent
+    /// Chat (its `newTab.lastPicks`); a last pick the phone can't start is skipped.
+    public func resolve(_ start: AgentChatStart, folder: String? = nil) -> (harness: AgentHarnessChoice, model: String?)? {
+        if start.harness == nil, start.model == nil {
+            for picked in lastPicks?.picks(in: folder) ?? [] {
+                guard let harness = harness(picked.harness), harness.canStart else { continue }
+                let model = picked.model.flatMap { $0 == harness.defaultModel || $0 == "default" ? nil : $0 }
+                return (harness, model)
+            }
+        }
         guard let harness = start.harness.map({ harness($0) }) ?? defaultChoice, harness.canStart else { return nil }
         guard let model = start.model, model != harness.defaultModel, model != "default" else { return (harness, nil) }
         return (harness, model)
@@ -102,6 +120,37 @@ public struct AgentCatalog: Hashable, Sendable {
     }
 }
 
+
+/// The agent and model a Mac's New Tab page picked last, anywhere and per folder
+/// (the Mac's `newTab.lastAgent` and `newTab.lastPicks`, through acpmux `lastPicks`).
+public struct AgentLastPicks: Hashable, Sendable {
+    public struct Pick: Hashable, Sendable {
+        public var harness: String
+        /// nil: the agent alone was picked (its own default model).
+        public var model: String?
+
+        public init(harness: String, model: String? = nil) {
+            self.harness = harness
+            self.model = model
+        }
+    }
+
+    public var lastAgent: String?
+    public var global: Pick?
+    /// Keyed by absolute folder.
+    public var folders: [String: Pick]
+
+    public init(lastAgent: String? = nil, global: Pick? = nil, folders: [String: Pick] = [:]) {
+        self.lastAgent = lastAgent
+        self.global = global
+        self.folders = folders
+    }
+
+    /// The pick in `folder`, then the pick anywhere, then the agent picked last.
+    public func picks(in folder: String?) -> [Pick] {
+        [folder.flatMap { folders[$0] }, global, lastAgent.map { Pick(harness: $0) }].compactMap { $0 }
+    }
+}
 
 extension NewTabKind {
     /// The Mac's default agent chat.

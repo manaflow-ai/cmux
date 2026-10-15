@@ -7,6 +7,7 @@
 //! owner, scoped to the owner's agent conversations), `acpmux`, `file` and
 //! `browser` (a streamed Mac browser tab, `browser.rs`).
 
+pub mod acpmux_policy;
 pub mod auth;
 pub mod browser;
 pub mod browser_track;

@@ -38,7 +38,11 @@ extension AppServices {
         cloud.confirmWindow = { [weak self] in self?.windows.active?.window }
         cloud.start()
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
-                    agentTabHost: { [weak self] in self?.agentTabs.localHost }, settings: { [weak self] in self?.settings },
+                    agentTabHost: { [weak self] in self?.agentTabs.localHost },
+                    newChatPicks: { [weak self] in
+                        NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks)
+                    },
+                    settings: { [weak self] in self?.settings },
                     bundleID: environment.launch.bundleID, computerName: { await MacName.computerName() })
         iphone.pairWindow = { [weak self] in self?.windows.active?.window }
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,

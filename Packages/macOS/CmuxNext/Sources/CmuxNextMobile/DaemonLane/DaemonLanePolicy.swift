@@ -52,6 +52,8 @@ public struct DaemonLanePolicy: Sendable {
         "move-tab-group-to-split", "move-tab-group-to-column", "move-tab-group-to-new-workspace",
         "ungroup-tab-group", "close-tab-group", "save-tab-group", "unsave-tab-group", "delete-saved-tab-group",
         "reopen-saved-tab-group", "ack-tab-notifications", "notify",
+        // Restart Shell: the dead tab's own shell again on this Mac; the surface only (creationFields).
+        "restart-tab",
         // Browser tabs the phone can already drive over SSH (CmuxTUIBrowser).
         "new-browser-tab", "browser-frame-presented", "browser-mouse", "browser-mouse-guarded", "browser-wheel",
         "browser-wheel-guarded", "browser-key", "browser-key-press", "browser-insert-text", "browser-navigate",
@@ -102,6 +104,8 @@ public struct DaemonLanePolicy: Sendable {
             "new-workspace": size.union(["name"]),
             "create-workspace": mutation.union(["name", "key"]),
             "create-terminal": mutation.union(size).union(["workspace", "key", "name"]),
+            // The tab's recorded launch on this Mac; the phone names only the tab.
+            "restart-tab": ["surface"],
         ]
     }()
 

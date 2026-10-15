@@ -215,7 +215,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                                          isForPerson: true)
         }
         let catalog = try await agentCatalog(on: workspace.macID, models: start.model != nil)
-        guard let (choice, model) = catalog.resolve(start) else {
+        guard let (choice, model) = catalog.resolve(start, folder: cwd) else {
             if let id = start.harness, let reason = catalog.harness(id)?.unavailableReason {
                 throw WorkspaceCreationError(reason, isForPerson: true)
             }

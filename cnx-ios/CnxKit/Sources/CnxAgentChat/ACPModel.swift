@@ -405,6 +405,19 @@ public struct ACPMode: Hashable, Sendable, Codable, Identifiable {
     }
 }
 
+extension ACPMode {
+    /// Modes a phone may switch an agent to: those that ask before each change (Claude Code's
+    /// `default` and `plan`, the Codex bridge's `ask`). The Mac's cnx-hostd refuses any other
+    /// (`acpmux_policy.rs` `PHONE_MODES`), so the menus offer only these.
+    public static let phoneModeIDs: Set<String> = ["default", "plan", "ask"]
+
+    /// `modes` a phone may pick, plus the current one (shown checked, so a chat the Mac moved
+    /// to another mode still says which).
+    public static func phoneChoices(_ modes: [ACPMode], current: String?) -> [ACPMode] {
+        modes.filter { phoneModeIDs.contains($0.id) || $0.id == current }
+    }
+}
+
 /// Agent `session/update` notifications (discriminator `sessionUpdate`).
 public enum ACPSessionUpdate: Hashable, Sendable {
     case agentMessageChunk(text: String, messageId: String?)
