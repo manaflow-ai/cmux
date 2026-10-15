@@ -86,6 +86,10 @@ public final class WebKitBrowserPage: BrowserPage {
         let (stream, continuation) = AsyncStream<BrowserPageEvent>.makeStream(bufferingPolicy: .bufferingNewest(64))
         eventStream = stream
         eventContinuation = continuation
+        // A consumer that stops iterating also stops the observation.
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.stopObserving() }
+        }
         if isClosed {
             continuation.finish()
         } else {
@@ -174,7 +178,8 @@ public final class WebKitBrowserPage: BrowserPage {
         )
     }
 
-    /// Adds a `WKUserScript` to the web view's user content controller.
+    /// Adds a `WKUserScript` to the web view's user content controller
+    /// (shared by every web view using that controller).
     /// - Parameter script: The script.
     public func addUserScript(_ script: BrowserPageUserScript) {
         let userScript = WKUserScript(
@@ -225,6 +230,10 @@ public final class WebKitBrowserPage: BrowserPage {
     }
 
     /// WebKit has no DevTools Protocol.
+    /// - Parameters:
+    ///   - method: Ignored.
+    ///   - params: Ignored.
+    /// - Returns: Never returns.
     /// - Throws: ``BrowserEngineError/unsupported(_:)`` always.
     public func sendDevToolsProtocolMessage(method: String, params: Data?) async throws -> Data {
         throw BrowserEngineError.unsupported("devToolsProtocol")
@@ -265,6 +274,7 @@ public final class WebKitBrowserPage: BrowserPage {
     public func setContentVisible(_ visible: Bool) {}
 
     /// WebKit has no trusted input path.
+    /// - Parameter event: Ignored.
     /// - Throws: ``BrowserEngineError/unsupported(_:)`` always.
     public func dispatchInput(_ event: BrowserPageInputEvent) async throws {
         throw BrowserEngineError.unsupported("trustedInput")
@@ -294,8 +304,7 @@ public final class WebKitBrowserPage: BrowserPage {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
-        observations.forEach { $0.invalidate() }
-        observations.removeAll()
+        stopObserving()
         eventContinuation?.finish()
         eventContinuation = nil
     }
@@ -307,6 +316,11 @@ public final class WebKitBrowserPage: BrowserPage {
         case .page: .page
         case .isolated(let name): .world(name: name)
         }
+    }
+
+    private func stopObserving() {
+        observations.forEach { $0.invalidate() }
+        observations.removeAll()
     }
 
     private func startObserving() {
