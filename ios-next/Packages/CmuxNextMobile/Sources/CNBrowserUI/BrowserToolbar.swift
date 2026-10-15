@@ -120,20 +120,25 @@ struct BrowserToolbar: View {
                 .position(x: row.midX, y: row.midY)
                 .allowsHitTesting(!collapsed)
                 .accessibilityHidden(true)
+            // The settled collapsed bar has only the pill (see controlsGone).
+            if !chrome.controlsGone {
             backButton(layout.back)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(local == nil ? sideOpacity : 0)
                 .position(x: layout.back.midX, y: layout.back.midY)
                 .allowsHitTesting(history.visible)
                 .accessibilityHidden(!history.visible)
+            }
             capsule(layout.capsule)
                 .position(x: layout.capsule.midX, y: layout.capsule.midY)
+            if !chrome.controlsGone {
             rightButton(layout.right)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(chrome.editing ? 1 : sideOpacity)
                 .position(x: layout.right.midX, y: layout.right.midY)
                 .allowsHitTesting(chrome.editing || sideOpacity > 0)
                 .accessibilityHidden(!chrome.editing && sideOpacity == 0)
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background(alignment: .topLeading) {
@@ -267,6 +272,7 @@ struct BrowserToolbar: View {
         let glyphOpacity: Double = (collapsed || chrome.editing ? 0 : 1) * (chrome.menuOpen ? 0.3 : 1)
         ZStack {
             // Leading page-menu slot (48 pt).
+            if !chrome.controlsGone {
             Button(action: unlessSwiped(onMenu)) {
                 PageMenuGlyph()
                     .fill(style.colors.label)
@@ -282,6 +288,7 @@ struct BrowserToolbar: View {
             .accessibilityLabel("Page Menu")
             .accessibilityHidden(collapsed || chrome.editing || showsStartPage)
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             if let local {
                 localLabel(local, r)
@@ -306,6 +313,7 @@ struct BrowserToolbar: View {
             }
 
             // Trailing reload / stop.
+            if !chrome.controlsGone {
             Button(action: unlessSwiped(onReload)) {
                 ZStack {
                     if tab?.loading == true {
@@ -327,6 +335,7 @@ struct BrowserToolbar: View {
             .accessibilityLabel(tab?.loading == true ? "Stop" : "Reload")
             .accessibilityHidden(collapsed || chrome.editing || showsStartPage || local != nil)
             .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .frame(width: r.width, height: r.height)
         .overlay(alignment: .bottomLeading) {
@@ -347,16 +356,17 @@ struct BrowserToolbar: View {
             if collapsed {
                 Capsule().fill(Color.clear)
                     .contentShape(.capsule)
-                    .highPriorityGesture(DragGesture(minimumDistance: 0, coordinateSpace: .local).onEnded { _ in
+                    .highPriorityGesture(DragGesture(minimumDistance: 0, coordinateSpace: .local).onChanged { _ in
+                        chrome.prepareExpand()
+                    }.onEnded { _ in
                         #if DEBUG
                         PillTrace.touchUp()
                         #endif
                         chrome.expand(tap: true)
                     })
-                    .accessibilityElement()
-                    .accessibilityLabel("Show toolbar, \(labelText)")
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { chrome.expand(tap: true) }
+                    // The address label under it is already the one
+                    // "Show toolbar" button (two had the same frame).
+                    .accessibilityHidden(true)
             }
         }
         .accessibilityElement(children: .contain)

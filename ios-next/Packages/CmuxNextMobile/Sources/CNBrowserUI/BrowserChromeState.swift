@@ -11,6 +11,13 @@ final class BrowserChromeState {
     var bar: Bar = .expanded
     /// Back and tabs circles (and capsule glyphs); animated on their own ramp.
     var sidesVisible = true
+    /// The collapsed bar has settled: its hidden controls (back, tabs, page
+    /// menu, reload) leave the hierarchy. They are drawn through glass,
+    /// whose content kept them in the accessibility tree despite
+    /// accessibilityHidden. They come back as an expand begins (touch-down
+    /// on the pill, the first finger travel toward expanding), so they
+    /// slide and fade back exactly as before.
+    private(set) var controlsGone = false
     var editing = false
     var editText = ""
     var menuOpen = false
@@ -29,12 +36,24 @@ final class BrowserChromeState {
 
     func collapse() {
         guard bar == .expanded, !editing, !menuOpen else { return }
-        withAnimation(style.motion.resolve(style.motion.collapse)) { bar = .collapsed }
+        withAnimation(style.motion.resolve(style.motion.collapse)) { bar = .collapsed } completion: { [weak self] in
+            guard let self, self.bar == .collapsed else { return }
+            self.controlsGone = true
+        }
         withAnimation(style.motion.sideOut) { sidesVisible = false }
+    }
+
+    /// An expand may follow (touch-down on the pill, finger travel toward
+    /// expanding): put the hidden controls back while they are still
+    /// invisible, so the expand animates them from where they are.
+    func prepareExpand() {
+        if controlsGone { controlsGone = false }
     }
 
     func expand(tap: Bool) {
         guard bar == .collapsed else { return }
+        // Without a prepare (VoiceOver's action), they fade in in place.
+        prepareExpand()
         withAnimation(style.motion.resolve(tap ? style.motion.expandTap : style.motion.expandScroll)) { bar = .expanded }
         withAnimation(style.motion.sideIn) { sidesVisible = true }
     }
@@ -45,6 +64,12 @@ final class BrowserChromeState {
     func pageDragged(_ dy: CGFloat) {
         if (dy > 0) != (dragTravel > 0) { dragTravel = 0 }
         dragTravel += dy
+        if dragTravel > 0 {
+            prepareExpand()
+        } else if bar == .collapsed, !controlsGone {
+            // A drag that turned back without expanding: out again.
+            controlsGone = true
+        }
         if dragTravel < -style.metrics.collapseThreshold { collapse() }
         if dragTravel > style.metrics.expandThreshold { expand(tap: false) }
     }
