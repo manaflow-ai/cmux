@@ -6700,6 +6700,10 @@ extension TabManager {
                 }
                 Self.hashBrowserSessionState(workspace.panels[panelId] as? BrowserPanel, into: &hasher)
             }
+            // The workspace Dock is saved with the workspace; its browser
+            // panels' pages must mark the session dirty too. The stored
+            // property, so this never creates a Dock.
+            hasher.combine(workspace._dockSplit?.sessionBrowserAutosaveFingerprint() ?? 0)
             if let progress = workspace.progress {
                 hasher.combine(Int((progress.value * 1000).rounded()))
                 hasher.combine(progress.label)

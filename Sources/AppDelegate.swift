@@ -4795,6 +4795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             notificationStore: notificationStore
                         )
                     )
+                    hasher.combine(dock.sessionBrowserAutosaveFingerprint())
                 }
 
                 switch liveRoute.sidebarSelection.selection {

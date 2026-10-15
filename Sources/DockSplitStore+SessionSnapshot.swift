@@ -132,6 +132,18 @@ extension DockSplitStore {
         return hasher.finalize()
     }
 
+    /// Hashes the browser state this Dock's session snapshot persists (see
+    /// `TabManager.hashBrowserSessionState`), so a navigation in a Dock
+    /// browser panel marks the session dirty too.
+    func sessionBrowserAutosaveFingerprint() -> Int {
+        var hasher = Hasher()
+        for panelId in orderedSessionPanelIds().prefix(SessionPersistencePolicy.maxPanelsPerWorkspace) {
+            hasher.combine(panelId)
+            TabManager.hashBrowserSessionState(panels[panelId] as? BrowserPanel, into: &hasher)
+        }
+        return hasher.finalize()
+    }
+
     /// Captures one Dock panel for the Dock-local closed-item history without
     /// walking every other panel in the split tree.
     func closedPanelSessionSnapshot(

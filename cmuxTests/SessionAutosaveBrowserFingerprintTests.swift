@@ -35,6 +35,32 @@ final class SessionAutosaveBrowserFingerprintTests: XCTestCase {
     }
 
     @MainActor
+    func testDockBrowserNavigationChangesAutosaveFingerprint() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = try XCTUnwrap(workspace.dockSplit)
+        let panel = BrowserPanel(workspaceId: workspace.id)
+        let pane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        dock.panels[panel.id] = panel
+        let tabID = try XCTUnwrap(dock.bonsplitController.createTab(
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            kind: panel.panelType.rawValue,
+            isDirty: panel.isDirty,
+            inPane: pane
+        ))
+        dock.bindSurface(tabID, toPanelId: panel.id)
+        panel.showCloudAddress(try XCTUnwrap(URL(string: "https://example.com/a")))
+        let before = manager.sessionAutosaveFingerprint()
+        let dockBefore = dock.sessionBrowserAutosaveFingerprint()
+
+        panel.showCloudAddress(try XCTUnwrap(URL(string: "https://example.com/b")))
+
+        XCTAssertNotEqual(dockBefore, dock.sessionBrowserAutosaveFingerprint())
+        XCTAssertNotEqual(before, manager.sessionAutosaveFingerprint(), "a Dock browser navigation must mark the session dirty")
+    }
+
+    @MainActor
     func testUnchangedBrowserURLKeepsAutosaveFingerprint() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -46,7 +72,12 @@ final class SessionAutosaveBrowserFingerprintTests: XCTestCase {
             creationPolicy: .restoration
         ))
         panel.showCloudAddress(try XCTUnwrap(URL(string: "https://example.com/a")))
+        let before = manager.sessionAutosaveFingerprint()
 
-        XCTAssertEqual(manager.sessionAutosaveFingerprint(), manager.sessionAutosaveFingerprint())
+        // Pane visibility and focus changes alone persist nothing new.
+        panel.showCloudAddress(try XCTUnwrap(URL(string: "https://example.com/a")))
+        _ = panel.preferredURLStringForSessionSnapshot()
+
+        XCTAssertEqual(before, manager.sessionAutosaveFingerprint())
     }
 }
