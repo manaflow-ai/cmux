@@ -163,8 +163,7 @@ final class CloudPlacementCoordinator {
                     defaultValue: "The pane does not identify a unique machine tab. Reopen it from the machine workspace."
                 ))
             }
-            guard let currentProvider = catalog.provider(for: resource.machine),
-                  currentProvider === placementProvider else { return false }
+            guard catalog.provider(for: resource.machine) === provider else { return false }
             self.receipts[resource.id, default: [:]][projection.panelID] = result
             self.movedTabs[resource.machine, default: [:]][result.tabID] = result.workspaceID
             self.confirmPlacement(result, on: resource.machine)
@@ -295,7 +294,8 @@ final class CloudPlacementCoordinator {
                 id: tabID,
                 intoRemoteWorkspace: remoteWorkspaceID
             )
-            guard catalog.provider(for: resource.machine) === provider else { return false }
+            guard let currentProvider = catalog.provider(for: resource.machine),
+                  currentProvider === placementProvider else { return false }
             self.movedTabs[resource.machine, default: [:]][placement.tabID] = placement.workspaceID
             self.confirmPlacement(placement, on: resource.machine)
             var replacements: [SurfaceProjection: SurfaceProjection] = [:]
