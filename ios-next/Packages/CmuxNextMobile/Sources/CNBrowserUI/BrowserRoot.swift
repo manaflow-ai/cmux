@@ -528,8 +528,9 @@ struct BrowserScreen: View {
                     newTabSlot = nil
                     creatingTab = false
                     Task { await tabs.browser.attach(id) }
-                    // Safari: a new tab opens with the address field focused.
-                    if phase == .page { beginEditing() }
+                    // Safari: a new tab opens with the address field focused
+                    // (not the fresh page after the last tab closed).
+                    if phase == .page, !newTabZoom.fromLoneSlot { beginEditing() }
                 }
                 if phase == .page {
                     tabs.endSelecting()
@@ -1050,8 +1051,9 @@ struct BrowserScreen: View {
             } else {
                 newTabSlot = nil
                 creatingTab = false
-                // Safari: a new tab opens with the address field focused.
-                if zoomState.phase == .page { beginEditing() }
+                // Safari: a new tab opens with the address field focused
+                // (not the fresh page after the last tab closed).
+                if zoomState.phase == .page, !newTabZoom.fromLoneSlot { beginEditing() }
                 await tabs.browser.attach(id)
             }
         }
