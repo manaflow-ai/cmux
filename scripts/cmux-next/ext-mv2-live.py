@@ -192,8 +192,12 @@ class Job:
         before = {t.get("id") for t in cdp.targets(self.port)}
         # A tab a person opens (origin remote), not an agent-driven one: extensions
         # cannot reach agent-driven tabs (fork API 20, cmux_tab_set_extension_access).
-        opened = self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": url},
-                                          "focus": True, "origin": "remote"})
+        for _ in range(3):  # right after a start the action can miss its 2 s deadline
+            opened = self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": url},
+                                              "focus": True, "origin": "remote"})
+            if (opened.get("error") or {}).get("code") != "timeout":
+                break
+            time.sleep(2)
         self.last_created = ((opened.get("result") or {}).get("created") or [None])[0]
         key = match or url
         target = cdp.wait_target(self.port, lambda t: t.get("type") == "page" and t.get("id") not in before
@@ -752,9 +756,13 @@ def phase_ublock(args):
         cli = os.path.join(job.app, "Contents/Resources/bin/cmux")
         env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX")}
         env["CMUX_SOCKET_PATH"] = job.socket
-        done = subprocess.run([cli, "browser", str(tab), "eval", "document.title"], env=env,
-                              capture_output=True, text=True, timeout=60)
-        out = (done.stdout + done.stderr).strip()
+        for _ in range(3):  # a page that reopens (password fill guard) asks for a retry
+            done = subprocess.run([cli, "browser", str(tab), "eval", "document.title"], env=env,
+                                  capture_output=True, text=True, timeout=60)
+            out = (done.stdout + done.stderr).strip()
+            if "retry" not in out:
+                break
+            time.sleep(2)
         refused = "enabled extension with access" in out or "extension_host_access" in out
         want = args.agent_read
         ok = ("Example Domain" in out and not refused) if want == "allowed" else refused
