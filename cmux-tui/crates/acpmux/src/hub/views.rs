@@ -261,6 +261,8 @@ impl Hub {
         // The folder's branch and HEAD when the session started (`git_state.rs`).
         v["gitBranch"] = json!(m.git_branch);
         v["gitHead"] = json!(m.git_head);
+        // What the session's turns cost together (`turn_usage.rs`).
+        v["totals"] = json!(m.totals);
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());

@@ -48,6 +48,9 @@ pub struct SessionSetup {
     /// The record grants the `profile` tool (chief_profile.rs): the
     /// launcher section of AGENTS.md names `chief profile`.
     pub profile_tool: bool,
+    /// The record grants the `chiefs` tool: the launcher section names
+    /// `chief chiefs`.
+    pub chiefs_tool: bool,
 }
 
 /// Whether this host copies the user's Claude Code settings env into its
@@ -314,6 +317,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.instructions.as_deref(),
         &Tools::Cli(chief),
         setup.profile_tool,
+        setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
     match setup.tools {
