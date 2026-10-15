@@ -72,14 +72,20 @@ pub(super) fn handle_with(
     if let Err(error) = require_owner(mux, client) {
         return send_resource_response(writer, id, operation, Err(error));
     }
-    let socket = match target(mux, operation, &request.fields, socket) {
-        Ok(socket) => socket,
+    let route = match target(mux, operation, &request.fields, socket) {
+        Ok(route) => route,
         Err(error) => return send_resource_response(writer, id, operation, Err(error)),
     };
     let line = tool_line(operation, &request.fields);
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
     let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
-        let answer = disabled_unless_answered(operation, ask(operation, &line, socket.as_deref()));
+        let socket = match route {
+            Route::Default(socket) => Ok(socket),
+            Route::Named(chief) => named_socket(&mux, operation, &chief).map(Some),
+        };
+        let answer = socket.and_then(|socket| {
+            disabled_unless_answered(operation, ask(operation, &line, socket.as_deref()))
+        });
         send_resource_response(
             &thread_writer,
             reply_id,
@@ -100,18 +106,29 @@ pub(super) fn handle_with(
         )
 }
 
-/// The tools socket the request goes to: `default` (the configured socket,
-/// or a test's) for no `chief`, null or the default Chief; the named Chief's
-/// own brain socket for another live Chief.
+/// Where a request goes: the default Chief's brain (the configured socket, or
+/// a test's), or a live Chief named by id.
+enum Route {
+    Default(Option<PathBuf>),
+    Named(String),
+}
+
+/// How long `chief.engine.set` waits for a brain it started on demand to
+/// serve its tools socket.
+#[cfg(unix)]
+const START_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The route of the request: [`Route::Default`] for no `chief`, null or the
+/// default Chief; [`Route::Named`] for another live Chief.
 fn target(
     mux: &Mux,
     operation: ResourceOperation,
     fields: &serde_json::Map<String, Value>,
     default: Option<PathBuf>,
-) -> Result<Option<PathBuf>, ResourceError> {
+) -> Result<Route, ResourceError> {
     let chief = match fields.get("chief") {
-        None | Some(Value::Null) => return Ok(default),
-        Some(Value::String(chief)) if chief == DEFAULT_CHIEF => return Ok(default),
+        None | Some(Value::Null) => return Ok(Route::Default(default)),
+        Some(Value::String(chief)) if chief == DEFAULT_CHIEF => return Ok(Route::Default(default)),
         Some(Value::String(chief)) => chief.as_str(),
         Some(_) => {
             return Err(ResourceError::validation_invalid(Some("chief"), "chief must be a string"));
@@ -136,14 +153,66 @@ fn target(
     if !live {
         return Err(failed("not_found", format!("no Chief {chief}")));
     }
-    crate::chief_brains::tools_socket(chief).map(Some).map_err(|(reason, message)| {
+    Ok(Route::Named(chief.to_owned()))
+}
+
+/// The tools socket of live Chief `chief`'s brain (runs on the request's own
+/// thread). `chief.engine.set` starts a brain that does not run now (never
+/// started, stopped after its idle time, or between restarts) through the
+/// supervisor, the same start a message gives it, and waits up to
+/// [`START_WAIT`] for its socket to answer; reads and `chief.stop` never
+/// start a brain. A socket that does not answer is `unavailable` in `ask`.
+#[cfg(unix)]
+fn named_socket(
+    mux: &Mux,
+    operation: ResourceOperation,
+    chief: &str,
+) -> Result<PathBuf, ResourceError> {
+    let failed = |reason: &str, message: String| {
         // As for the default Chief: with agents off no brain starts, so say why.
         if crate::agent_launch::disabled() {
-            failed(crate::agent_launch::REASON, crate::agent_launch::MESSAGE.to_owned())
-        } else {
-            failed(reason, message)
+            return ResourceError::operation_failed(
+                operation.wire_name(),
+                crate::agent_launch::REASON,
+                json!({"message": crate::agent_launch::MESSAGE}),
+            );
         }
-    })
+        ResourceError::operation_failed(operation.wire_name(), reason, json!({"message": message}))
+    };
+    let answering = || {
+        crate::chief_brains::tools_socket(chief)
+            .ok()
+            .filter(|path| super::chief_inspect::checked(path).is_ok())
+    };
+    if let Some(path) = answering() {
+        return Ok(path);
+    }
+    if operation == ResourceOperation::ChiefEngineSet && crate::chief_brains::taken().is_some() {
+        mux.chiefs().brains.start_for_control(chief);
+        // A readiness probe with a deadline: the brain binds its socket
+        // when its host is up, and there is no start event to wait on.
+        let deadline = std::time::Instant::now() + START_WAIT;
+        while std::time::Instant::now() < deadline {
+            if let Some(path) = answering() {
+                return Ok(path);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    crate::chief_brains::tools_socket(chief).map_err(|(reason, message)| failed(reason, message))
+}
+
+#[cfg(not(unix))]
+fn named_socket(
+    _mux: &Mux,
+    operation: ResourceOperation,
+    _chief: &str,
+) -> Result<PathBuf, ResourceError> {
+    Err(ResourceError::operation_failed(
+        operation.wire_name(),
+        "not_configured",
+        json!({"message": "Chief brains run on unix only"}),
+    ))
 }
 
 /// cx-tgf4h: with agents off in this build session the daemon starts no

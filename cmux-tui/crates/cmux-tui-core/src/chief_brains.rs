@@ -307,6 +307,9 @@ enum Signal {
     Created(Box<ChiefRecord>),
     Updated(Box<ChiefRecord>),
     Deleted(String),
+    /// `chief.engine.set` for this Chief: start its brain when it does
+    /// not run (as a message would).
+    Control(String),
     #[cfg_attr(not(unix), allow(dead_code))]
     Exited {
         chief: String,
@@ -364,6 +367,13 @@ impl Slot {
             _ => return,
         };
         self.send(signal);
+    }
+
+    /// `chief.engine.set` names this Chief (chief_control.rs): start its
+    /// brain when it does not run now.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn start_for_control(&self, chief: &str) {
+        self.send(Signal::Control(chief.to_owned()));
     }
 
     /// A committed registry write (not a replay).
@@ -641,6 +651,16 @@ impl Supervisor {
                 stop_lock_holder(&mux_home.join("state/host.lock"));
                 self.end_sessions(&chief);
                 self.brains.remove(&chief);
+            }
+            Signal::Control(chief) => {
+                // A running brain only counts as active (no restart later).
+                if let Some(brain) = self.brains.get_mut(&chief)
+                    && brain.process.is_some()
+                {
+                    brain.last_activity = Instant::now();
+                    return;
+                }
+                self.wake(&chief);
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}
