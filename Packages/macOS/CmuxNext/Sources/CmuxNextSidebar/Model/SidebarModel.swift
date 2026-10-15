@@ -381,7 +381,7 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         hidesWorkspaces = !preferences.showProjects
-        grouping.by = preferences.groupBy
+        grouping.follow(preferences)
         groupsByComputer = preferences.groupsByComputer
     }
 

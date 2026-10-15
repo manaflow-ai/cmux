@@ -18,9 +18,10 @@ import Testing
             self.rows = rows
             let design = DesignSettings()
             design.sidebarSections.groupBy = .status
+            // What both Labs flags parse to (`SidebarSectionsSetting.parse`).
+            design.sidebarSections.statusElbow = elbows
             model = SidebarModel(sections: Self.sections(rows))
             model.applyListPreferences(design.sidebarSections)
-            model.elbowsChildren = elbows
             view = SidebarView(model: model, design: design)
             view.frame = NSRect(x: 0, y: 0, width: 260, height: 900)
             view.list.reload(animated: false)

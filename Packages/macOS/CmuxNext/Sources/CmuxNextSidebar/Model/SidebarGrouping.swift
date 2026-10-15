@@ -21,6 +21,12 @@ public nonisolated struct SidebarGrouping: Hashable, Sendable {
 
     public init() {}
 
+    /// The `sidebar.*` preferences it follows: the grouping, and the elbows (already gated on
+    /// both Labs flags by `SidebarSectionsSetting.parse`).
+    public mutating func follow(_ preferences: SidebarSectionsPreferences) {
+        (by, elbowsChildren) = (preferences.groupBy, preferences.statusElbow)
+    }
+
     /// The bucket `row` shows under (`SidebarModel.settledGrouping` drops a hold the active row lost).
     public func bucket(_ row: SidebarWorkspace) -> SidebarStatusBucket {
         if let held, held.row == row.id { return held.bucket }
