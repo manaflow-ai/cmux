@@ -41,4 +41,23 @@ import Testing
         store.remove("s/12:tab")
         #expect(store.load("s/12:tab") == nil)
     }
+
+    /// Round 11 A5: a frame rendered off the main thread and written late
+    /// must not replace a newer frame, nor bring back a closed tab's file.
+    @Test func aLateFrameNeverReplacesANewerOneOrAClosedTab() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = TerminalFrameStore(directory: dir)
+        let old = store.ticket(for: "t")
+        store.save(Data([2]), for: "t")  // a newer frame, written at once (going to the background)
+        store.save(Data([1]), for: "t", ticket: old)
+        #expect(store.load("t") == Data([2]))
+        let late = store.ticket(for: "t")
+        store.remove("t")  // the tab closed
+        store.save(Data([3]), for: "t", ticket: late)
+        #expect(store.load("t") == nil)
+        let next = store.ticket(for: "t")
+        store.save(Data([4]), for: "t", ticket: next)
+        #expect(store.load("t") == Data([4]))
+    }
 }
