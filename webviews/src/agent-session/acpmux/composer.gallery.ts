@@ -98,6 +98,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -410,8 +411,30 @@ export default agentPaneEntry({
         await ctx.waitFor(() => prompt() === "draft");
       },
     },
+    "queued-steering": {
+      note: "A prompt sent now to an agent that cannot steer (⌘Return) waits first under Steering: it stops the turn and runs next. The queued prompts stay under Queued and count from 1.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
+      }),
+    },
+    "steer-marks": {
+      note: "Under a steer's bubble: Steering while the agent has not read it, Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
+      snapshot: chat(
+        [
+          user("Add retries", 6),
+          user("Use the cache dir, not tmp", 5, { steer: "landed" }),
+          assistant("Using the cache dir now.", 4),
+          user("Stop and fix the space thing first", 3, { steer: "stopped" }),
+          assistant("Fixing the space handling…", 2),
+          user("Also keep the old flag working", 1, { steer: "waiting" }),
+          assistant("Reading the flag parser…", 0.5, { streaming: true }),
+        ],
+        { isWorking: true },
+      ),
+    },
     "queued-long": {
-      note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
+      note: 'Many queued prompts fold: the next two show, then one "3 more queued" row. The cut-off one shows a tooltip on hover and opens whole on click.',
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -419,7 +442,7 @@ export default agentPaneEntry({
           {
             id: "q2",
             prompt:
-              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then summarize what changed",
+              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then check the upload path and the sync worker for the same pattern, write down which ones you changed and why, and summarize what changed",
           },
           { id: "q3", prompt: "And update the README" },
           { id: "q4", prompt: "Run the whole suite" },
@@ -429,8 +452,25 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // Target the queue row itself so the pointer enters the span that owns the truncation
         // check; a text target can resolve to the row or a parent in the gallery driver.
-        await ctx.hover({ selector: ".acpmux-queued:nth-child(2) .acpmux-queued-text" });
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q2"] .acpmux-queued-text' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
+    },
+    "queued-long-open": {
+      note: 'Play: "3 more queued" opens the whole queue in place, in order, and reads Show less; it closes back the same way.',
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "Check every caller of the fetch helper for its own retries" },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-queue-fold" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 5);
       },
     },
     "queued-send-remove": {
@@ -451,7 +491,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.hover({ text: "Then add a test for the 429 path" });
-        await ctx.click({ selector: '.acpmux-queued:first-child button[aria-label="Remove queued prompt"]' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] button[aria-label="Remove queued prompt"]' });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
         await ctx.click({ role: "button", name: "Stop" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
