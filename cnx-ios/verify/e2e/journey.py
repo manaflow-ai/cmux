@@ -1993,6 +1993,93 @@ w("\r\x1b[2KSTREAMDONE\n")
         return {"notes": f"3 hostd kills: link up {[r['reconnect_s'] for r in rows]} s (median {median:.2f}, worst {worst:.2f}), "
                          f"paths {[r['path'] for r in rows]}; terminal input reached the Mac after each", "kills": rows}
 
+    def _axe_type(self, text):
+        subprocess.run(["axe", "type", text, "--udid", self.sim.udid], capture_output=True, timeout=60)
+
+    def _chat_send(self, prompt):
+        f = self.sim.wait(kind="TextView", timeout=10) or self.sim.wait(kind="TextField", timeout=5)
+        check(f, "no chat composer")
+        self.sim.tap_el(f); time.sleep(0.6)
+        self._axe_type(prompt); time.sleep(0.5)
+        send = self.sim.find(label="Send", kind="Button")
+        if send:
+            self.sim.tap_el(send[0])
+        else:
+            x, y, w, h = f.frame
+            self.sim.tap(363, y + h + 25 if h < 60 else y + h - 10)
+        return time.time()
+
+    def s_codex_chat(self):
+        """Codex from the phone (model calls: only with CNX_E2E_REAL_CODEX=1): + > New Agent
+        Chat With… > Codex > Start Chat in the seed workspace; it replies; then a prompt that
+        needs a shell command makes Codex ask first ("wants to run a command") on the phone.
+        The ask is declined (Deny), nothing runs."""
+        if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
+            raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex makes model calls)")
+        s = self.sim
+        self.open_seed_workspace()
+        video = os.path.join(self.out, f"codex-chat-{self.run_id}.mp4")
+        s.record_start(video)
+        notes = []
+        try:
+            if not s.find(label="1 Tab") and not s.find(contains=" Tabs"):
+                b = s.find(label="Tabs", kind="Button")
+                check(b, "no Tabs button")
+                s.tap_el(b[0]); time.sleep(1.5)
+            s.tap(62, 812); time.sleep(1.5)
+            e = s.wait(label="New Agent Chat With…", kind="Button", timeout=5)
+            check(e, "no 'New Agent Chat With…' in the + menu")
+            s.tap_el(e); time.sleep(0.8)
+            row = s.wait(prefix="Codex", kind="Button", timeout=15)
+            check(row, "no Codex row in the agent chooser")
+            s.tap_el(row); time.sleep(0.8)
+            start = s.wait(label="Start Chat", kind="Button", timeout=5)
+            check(start, "no Start Chat")
+            t = time.time()
+            s.tap_el(start)
+            deadline = t + 120
+            while time.time() < deadline:
+                time.sleep(0.5)
+                bad = [e.label for e in s.find(contains="Couldn")] + [e.label for e in s.find(contains="Trust ")]
+                check(not bad, f"the chat did not start: {bad[:1]}")
+                if not s.find(contains="Opening") and time.time() - t > 3:
+                    break
+            notes.append(f"Codex chat open {time.time()-t:.1f} s")
+            prompt = "Reply with exactly the word PONG and nothing else."
+            t = self._chat_send(prompt)
+            reply = None
+            while time.time() - t < 240:
+                hits = [e for e in s.find(contains="PONG") if prompt not in (e.label or "")
+                        and e.kind not in ("TextView", "TextField") and prompt not in (e.value or "")]
+                if hits:
+                    reply = time.time() - t
+                    break
+                check(not s.find(contains="Agent stopped"), "Agent stopped")
+                time.sleep(1)
+            check(reply is not None, "no PONG reply within 240 s")
+            notes.append(f"replied PONG in {reply:.1f} s")
+            s.shot(f"codex-chat-pong-{self.run_id}")
+            t = self._chat_send("Run this shell command in the current folder: echo hi > macnext-approval.txt")
+            ask = None
+            while time.time() - t < 240:
+                if s.find(contains="wants to run") or s.find(label="Allow", kind="Button"):
+                    ask = time.time() - t
+                    break
+                if any("wants to run" in o[4] for o in s.ocr()):
+                    ask = time.time() - t
+                    break
+                time.sleep(1.5)
+            s.shot(f"codex-chat-ask-{self.run_id}")
+            check(ask is not None, "Codex never asked before running the command within 240 s")
+            notes.append(f"asked before the command after {ask:.1f} s")
+            deny = s.find(label="Deny", kind="Button") or s.find(contains="Deny")
+            if deny:
+                s.tap_el(deny[0]); time.sleep(2)
+                notes.append("declined")
+        finally:
+            s.record_stop()
+        return {"notes": "; ".join(notes) + f"; video {os.path.relpath(video, self.out)}"}
+
     def s_transport_wireguard(self):
         self.back_to_list()
         a = self.settings_transport("WireGuard")
@@ -2065,6 +2152,7 @@ w("\r\x1b[2KSTREAMDONE\n")
             ("feed", "Feed events and inline answer", "approvals", self.s_feed),
             ("feed_terminal", "Feed: a terminal agent's events (real Codex), Needs input opens the tab", "feedterm", self.s_feed_terminal),
             ("transport_wireguard", "Settings > Transport: WireGuard (stays on for the next steps)", "fastconn", self.s_transport_wireguard),
+            ("codex_chat", "Codex chat from the phone: replies, asks before a command (real Codex)", "parity", self.s_codex_chat),
             ("browser_stream", "Browser tab streams to the phone (https://example.com)", "rbhost", self.s_browser_stream),
             ("hostd_kill_reconnect", "Terminal back within ~2 s after a cnx-hostd kill", "machost", self.s_hostd_kill_reconnect),
             ("chief", "Chief: real Mac conversation, send/receive, model", "chieflive", self.s_chief),
