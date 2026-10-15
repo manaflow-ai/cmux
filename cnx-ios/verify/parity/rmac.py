@@ -8,7 +8,7 @@ the agents' model route). An edited bundle is a new ad hoc identity whose Keycha
 items wait on a prompt nobody sees.
 
 Layout (~/cnx-ios-e2e/parity): e2e/ (the rig modules), rig/mac/<app> (unzipped once).
-Agents: Claude through the team subrouter's local proxy (`sr`, 127.0.0.1:31415), so
+Agents: Claude through the team subrouter (`sr`'s server, port 31415), so
 real model calls run on this mini without a person's Claude login.
 """
 import json
@@ -25,8 +25,10 @@ from mac import Mac  # noqa: E402
 # has only the rig modules, so the driver sends that one file next to them.
 rig_mac.REPO = os.path.join(BASE, "repo")
 
+# The team subrouter server over Tailscale, not the mini's loopback proxy: acpmux runs a
+# phone-started Claude in its remote-chain Seatbelt profile, which shuts loopback.
 AGENT_ENV = {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:31415",
+    "ANTHROPIC_BASE_URL": os.environ.get("PQ_ANTHROPIC_BASE_URL", "http://100.89.225.106:31415"),
     "ANTHROPIC_API_KEY": "sr-local",
 }
 

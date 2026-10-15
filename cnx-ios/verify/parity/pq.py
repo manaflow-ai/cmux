@@ -238,3 +238,47 @@ def plus_menu(j, title):
     e = s.wait(label=title, kind="Button", timeout=5)
     check(e, f"no {title!r} in the + menu")
     return s.tap_el(e)
+
+
+def type_text(text):
+    """Types with axe (hardware keyboard events)."""
+    subprocess.run(["axe", "type", text, "--udid", load()["udid"]], capture_output=True, timeout=60)
+
+
+def wait_opened(j, timeout=60):
+    """Until the "Opening …" pill is gone; returns (seconds, toast or None)."""
+    t = time.time()
+    seen = False
+    while time.time() - t < timeout:
+        time.sleep(0.5)
+        if j.sim.find(contains="Opening"):
+            seen = True
+            continue
+        bad = [e.label for e in j.sim.find(contains="Couldn")] + [e.label for e in j.sim.find(contains="Trust ")] + \
+              [e.label for e in j.sim.find(contains="Update cmux")]
+        if bad:
+            return time.time() - t, bad[0]
+        if seen or time.time() - t > 3:
+            return time.time() - t, None
+    raise Fail("still opening after the timeout")
+
+
+def chat_prompt(j, prompt, expect, timeout=180):
+    """Types into the chat composer, sends, waits for `expect` in a reply."""
+    s = j.sim
+    f = s.wait(kind="TextView", timeout=10) or s.wait(kind="TextField", timeout=5)
+    check(f, "no chat composer")
+    s.tap_el(f); time.sleep(0.6)
+    type_text(prompt)
+    time.sleep(0.5)
+    x, y, w, h = f.frame
+    s.tap(363, y + h + 25 if h < 60 else y + h - 10)
+    t = time.time()
+    while time.time() - t < timeout:
+        hits = [e for e in s.find(contains=expect) if prompt not in (e.label or "")]
+        if hits:
+            return time.time() - t, hits[0].label
+        if s.find(contains="Agent stopped"):
+            raise Fail("Agent stopped: " + " ".join(e.label for e in s.find(contains="Error"))[:200])
+        time.sleep(1)
+    raise Fail(f"no {expect!r} reply within {timeout} s")
