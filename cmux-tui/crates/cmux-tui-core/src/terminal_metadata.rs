@@ -493,7 +493,7 @@ pub(crate) struct TerminalMetadata {
     /// replaced mirror terminal (resize, reconnect) keeps feeding them.
     program_status: crate::program_status::SharedProgramStatus,
     /// The running shell command (`terminal-activity-v1`).
-    activity: crate::terminal_activity::ShellActivity,
+    pub(crate) activity: crate::terminal_activity::ShellActivity,
 }
 
 impl TerminalMetadata {
