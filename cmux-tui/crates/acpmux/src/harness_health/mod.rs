@@ -171,6 +171,12 @@ static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| 
         .expect("sign-in pattern") // crash-allow: constant pattern
 });
 
+/// Whether a CLI's message names signing in (`_acpmux/complete` tells a
+/// signed-out harness by it, as the health check does by a probe error).
+pub fn names_sign_in(text: &str) -> bool {
+    SIGN_IN.is_match(text)
+}
+
 impl HealthService {
     pub fn new() -> Self {
         Self::default()

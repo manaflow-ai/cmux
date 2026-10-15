@@ -8,7 +8,7 @@
     "benchmark": "bun run bench/diff-stream.bench.ts",
     "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && vp check && bun run acpmux-protocol:check",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
-    "check:type-scale": "python3 ../scripts/cmux-next/check-type-scale.py",
+    "check:type-scale": "python3 ../scripts/cmux-next/gen-type-scale.py --check && python3 ../scripts/cmux-next/check-type-scale.py",
     "check:status-glyphs": "python3 ../scripts/cmux-next/gen-status-glyphs.py --check",
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",
     "check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py",

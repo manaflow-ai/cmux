@@ -437,6 +437,76 @@ class FailureIssueTests(unittest.TestCase):
     def test_a_recovered_publication_that_failed_its_delta_republish_reports(self):
         self.assertEqual(self.publication("recovered", **{"republish-nightly-deltas": "failure"}), (True, False))
 
+    def test_an_already_published_recovered_build_neither_reports_nor_closes(self):
+        # Another run published this build and owns the issue; this run's
+        # no-op moved no marker (tag_status empty) and republished nothing.
+        outcome = {"republish-nightly-deltas": "skipped"}
+        self.OUTPUTS = {"decide": self.OUTPUTS["decide"], "publish-nightly": {"tag_status": "", "already_published": "true"}}
+        self.assertEqual(self.publication("recovered", **outcome), (False, False))
+
+
+def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), classic_builds: tuple = ()):
+    """Run the real recheck step against local copies of the three feeds."""
+    script = step(workflow()["jobs"]["publish-nightly"], "Recheck the recovered build against both feeds")["run"]
+    with tempfile.TemporaryDirectory() as temp:
+        work = Path(temp)
+        for name, builds in (("next", next_builds), ("legacy", legacy_builds), ("classic", classic_builds)):
+            (work / name).mkdir()
+            for appcast in ("appcast.xml", "appcast-arm64.xml", "appcast-x86_64.xml"):
+                feed(work / name / appcast, *builds)
+        script = script.replace("https://files.cmux.com/nightly", str(work / "classic"))
+        output = work / "output"
+        output.touch()
+        env = dict(
+            os.environ,
+            NIGHTLY_BUILD=str(build),
+            NIGHTLY_NEXT_FEED_BASE=str(work / "next"),
+            NIGHTLY_NEXT_LEGACY_FEED_BASE=str(work / "legacy"),
+            GITHUB_OUTPUT=str(output),
+        )
+        result = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
+        result.output = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)  # type: ignore[attr-defined]
+        return result
+
+
+class RecheckTests(unittest.TestCase):
+    """Two runs can take the same recovered build (run 38689026338 and its
+    continuation 38689412336). The second one finds its build already on the
+    feed: that ends its publication as a no-op, not as a failure, while a build
+    below the feed still fails."""
+
+    def test_a_build_above_every_feed_publishes(self):
+        result = run_recheck(49801, (49701,), (49601,), (49501,))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.output.get("already_published"), "true")
+
+    def test_a_build_another_run_already_published_is_a_no_op(self):
+        result = run_recheck(49801, (49701, 49801), (49601,), (49501,))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.output.get("already_published"), "true")
+        self.assertIn("already published", result.stdout)
+
+    def test_a_build_below_a_feed_still_fails(self):
+        for feeds in (((49901,), (), ()), ((49801,), (49601,), (49901,)), ((49801, 49901), (), ())):
+            result = run_recheck(49801, *feeds)
+            self.assertNotEqual(result.returncode, 0, feeds)
+            self.assertNotEqual(result.output.get("already_published"), "true", feeds)
+
+    def test_an_already_published_build_skips_every_later_publication_step(self):
+        steps = workflow()["jobs"]["publish-nightly"]["steps"]
+        names = [s.get("name") for s in steps]
+        recheck = names.index("Recheck the recovered build against both feeds")
+        self.assertEqual(steps[recheck].get("id"), "recheck")
+        for later in steps[recheck + 1:]:
+            self.assertIn("steps.recheck.outputs.already_published != 'true'", later.get("if", ""), later.get("name"))
+
+    def test_an_already_published_build_republishes_no_deltas(self):
+        outcome = dict.fromkeys(workflow()["jobs"]["republish-nightly-deltas"]["needs"], "success")
+        outcome["generate-nightly-deltas"] = "skipped"
+        outputs = {"decide": {"should_publish": "true", "track": "nightly-next"},
+                   "publish-nightly": {"source": "recovered", "already_published": "true"}}
+        self.assertFalse(job_runs("republish-nightly-deltas", outcome, outputs))
+
 
 def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
     """Run the real continuation step against one candidate, with gh, the
