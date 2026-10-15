@@ -7,6 +7,11 @@
 // - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
 //   (`_meta.acpmux.interrupt`); the button says so.
 // - Esc on an empty composer stops the turn.
+// - Stop always frees the chat: acpmux's forced end of a turn whose agent ignored the cancel says
+//   so, and a turn still open a few seconds after Stop stops showing as working (cosmic-gray,
+//   2026-10-14: a chat stuck "running" after `/permissions`, Stop doing nothing).
+// - A slash command that runs only in Claude Code's terminal (`/permissions`) is not sent: the
+//   composer keeps it and names the control to use.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -67,6 +72,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   let seq = opening.length;
   const prompts: Record<string, any>[] = [];
   const cancels: Record<string, any>[] = [];
+  /// `_acpmux/events` reads: a lag resync's refetch, which rebuilds the transcript.
+  let eventReads = 0;
 
   function answer(method: string): unknown {
     switch (method) {
@@ -80,6 +87,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       case "_acpmux/attach":
         return { session: summary, lastSeq: opening.length, events: opening };
       case "_acpmux/events":
+        eventReads += 1;
         return { events: [], hasMore: false, lastSeq: seq };
       default:
         return null;
@@ -122,6 +130,27 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       }, 300);
   }
 
+  let socket: { send(data: string): void } | undefined;
+  /// An acpmux record, as the attached page gets it.
+  const record = (kind: string, msg: Record<string, unknown>) =>
+    socket?.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+      }),
+    );
+
+  /// acpmux dropped events for the page: it refetches and replays the whole transcript.
+  async function lag(page: Page): Promise<void> {
+    const before = eventReads;
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [SESSION] } }));
+    const deadline = Date.now() + 5_000;
+    while (eventReads === before && Date.now() < deadline) await page.waitForTimeout(50);
+    expect(eventReads).toBeGreaterThan(before);
+    await page.waitForTimeout(300);
+  }
+
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -141,6 +170,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
           };
           if (message.method === "session/prompt") return prompted(ws, message.params ?? {}, message.id);
           if (message.method === "session/cancel") cancels.push(message.params ?? {});
+          socket = ws;
           if (message.id !== undefined)
             ws.send(
               JSON.stringify({
@@ -237,6 +267,108 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await failed.waitFor();
       expect(await failed.getByRole("button", { name: "Retry" }).count()).toBe(1);
       await page.close();
+    });
+
+    test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
+      record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
+      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
+      await page.close();
+    });
+
+    test("a turn still open a few seconds after Stop stops showing as working, and says so", async () => {
+      const page = await openChat();
+      // This acpmux never ends the turn (one without the forced end).
+      await page.getByRole("button", { name: "Stop" }).click();
+      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("a Stop the agent answered leaves the next turn alone", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
+      record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1" });
+      // The next prompt's turn starts inside Stop's grace and is still running after it.
+      record("turn_started", { turnId: "turn-2" });
+      await page.waitForTimeout(6_000);
+      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
+      await page.close();
+    });
+
+    test("a turn that starts after Stop is never judged by that Stop", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      // The stopped turn had already ended (the button was a frame stale): no turn_end follows,
+      // and the next prompt's turn starts inside Stop's grace.
+      record("turn_started", { turnId: "turn-2" });
+      await page.waitForTimeout(6_000);
+      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
+      await page.close();
+    });
+
+    test("a transcript rebuild inside Stop's grace does not cancel it", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      // The replay passes the stopped turn's own turn_started again; it is not a new turn.
+      await lag(page);
+      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("a turn Stop gave up on stays not working after a transcript rebuild", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
+      await lag(page);
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("/permissions is not sent to Claude: the composer keeps it and names the access menu", async () => {
+      const page = await openChat();
+      const before = prompts.length;
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("/permissions");
+      // The slash menu takes the first Enter when it is open.
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-attachment-note", { hasText: "access menu" }).waitFor({ timeout: 5_000 });
+      await page.waitForTimeout(300);
+      expect(prompts.length).toBe(before);
+      expect((await composerText(page)).trim()).toBe("/permissions");
+      await page.close();
+    });
+
+    test("a Claude Code variant's chat keeps /permissions in the composer too", async () => {
+      summary.harness = "claude-sr";
+      try {
+        const page = await openChat();
+        const before = prompts.length;
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.keyboard.type("/permissions");
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Enter");
+        await page.locator(".acpmux-attachment-note", { hasText: "access menu" }).waitFor({ timeout: 5_000 });
+        expect(prompts.length).toBe(before);
+        await page.close();
+      } finally {
+        summary.harness = "claude";
+      }
     });
 
     test("Esc on an empty composer stops the turn", async () => {
