@@ -250,6 +250,15 @@ pub(super) struct TerminalExitDetachEffects {
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
     empty_revision: Option<u64>,
+    /// The typed end each `SurfaceExited` carries.
+    end: Option<Arc<Value>>,
+}
+
+impl TerminalExitDetachEffects {
+    pub(super) fn with_end(mut self, end: Option<Arc<Value>>) -> Self {
+        self.end = end;
+        self
+    }
 }
 
 impl TerminalExitDetachProjection {
@@ -273,6 +282,7 @@ impl TerminalExitDetachProjection {
             changed_screens: self.changed_screens,
             selection_resync: self.selection_resync,
             empty_revision,
+            end: None,
         }
     }
 }

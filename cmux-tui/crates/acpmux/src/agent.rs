@@ -251,6 +251,9 @@ pub(crate) fn harness_command(
         // A terminal's launch credential names that one terminal; no agent
         // acts as the terminal that started acpmux, not even through a preset.
         .env_remove(crate::config::LAUNCH_CREDENTIAL_ENV)
+        // Nor as the Chief whose host started acpmux (config::CHIEF_CREDENTIAL_ENV).
+        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[0])
+        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[1])
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
@@ -347,6 +350,8 @@ impl ChildAgent {
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
     ) -> Result<Arc<Self>> {
+        // The build-session kill switch: no agent process at all (cx-9ettq).
+        crate::launch_policy::refuse_if_disabled()?;
         let codex = (translator.is_none()
             && command_line.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv))
