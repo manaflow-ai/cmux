@@ -1,6 +1,6 @@
 # cmux-next Mac build for the cnx-ios overnight work
 
-Run this Mac build: `~/cnx-ios-builds/20261015-5484863b73-mac-prod/cmux NEXT iOS Test.app` (5484863b7323)
+Run this Mac build: `~/cnx-ios-builds/20261015-6b2ed0bb5d-mac-prod/cmux NEXT iOS Test.app` (6b2ed0bb5db7)
 
 Branch `feat-cnx-ios-macnext` integrates every Mac-side fix for the cmux-next
 iOS work. It is for dogfood builds only; it never merges anywhere. Each build
@@ -23,6 +23,7 @@ before opening a new one.
 | Merge (round 2) | `feat-cnx-ios` 30e51dff | acpmux replies over 16 KiB that the link splits into chunks join again (phone side); `cnx-ios/rust` stays equal to feat-cnx-ios except the Chief avatar fields. iOS-only outside `cnx-ios/`. Clean. |
 | Merge (round 2) | `feat-cnx-ios-parity` 52e2b628 | Mac side: `CnxApproverSync.rootsClearPending`, so acpmux gets an empty workspace-folder list once after iPhone connections turn off, even with no approvers left; plus the parity tab actions on the phone and the agentcwd decision text (cc91107b). SECURITY.md conflict resolved to the parity text for the agentcwd and parity sections, keeping this branch's pairing-seed and Feed sections. No unit test exists for CnxApproverSync (it needs a person-proven acpmux socket); the logic was reviewed: turning connections off makes the folder stream yield `[]`, `updateWorkspaceRoots([])` sets the pending flag, a proven connection sends `[]` at once, otherwise `needed` stays true until a connection is proven and `send()` delivers it. The Release build compiles it. |
 | Merge (round 3) | `feat-cnx-ios` aa685b82 | parity round 2, Mac side (61bdd4de, 35a1c8a3, 102cf50b, 3f475855, 93d588f7, 1585ab34, a432d416, ea83f361): a phone-started Codex chat starts in Codex's asking mode; cnx-hostd refuses phone prompts to sessions whose current mode does not ask; the remote sandbox opens only Claude's real endpoint (proxy agents work); restart-tab; the phone's sidebar order and unpin checked against the Mac's own; notification.clear; the Mac's last-picked agent as the phone's default. Clean merge. `cnx-ios/rust` equals feat-cnx-ios except the Chief avatar fields (cnx-hostd key `e5697f409291ea8f`). |
+| Merge (round 4) | `feat-cnx-ios` 249459d7 (da8718a0, two doc commits later) | parity round 3, Mac side: workspace group operations on the allowlist (1ab26caa, 3a2d214f), saved-group params narrowed (5e59118b), opencode refusal reason (f8460ee9), a relay 503 means don't retry (f3ff65e0), a phone-started Claude chat's shell commands no longer fail on /tmp (5204c0f7, 58abd667), queue events reach chat clients (47a337d5, fff79f52), review fixes (ee607662). Clean merge. cnx-hostd key `335b8fb3126e8954`. |
 
 Checked and not needed in round 2: `feat-cnx-ios-termqa` has no daemon or Mac commits since 9063df14; PR #20809's head (c53859d8) adds only a merge of feat-cmux-next after 9db5f180, whose fixes are already here through machost-d5.
 
@@ -47,6 +48,7 @@ cnx-hostd (fleet side fixed in cmuxterm-hq #2091). Now (b20242a0):
 
 | When (UTC) | SHA | Fleet job | Path | Result |
 | --- | --- | --- | --- | --- |
+| 2026-10-15 13:45 | 6b2ed0bb | prod 216a93b6 (aws-m4pro-7), rig cnx-e2e-6b2ed0bb 250b1698 (linux pool) | `~/cnx-ios-builds/20261015-6b2ed0bb5d-mac-prod/cmux NEXT iOS Test.app` | all checks pass (below) |
 | 2026-10-15 11:30 | 5484863b | prod d4a8cd12, rig cnx-e2e-5484863b 396fa87f (linux pool) | `~/cnx-ios-builds/20261015-5484863b73-mac-prod/cmux NEXT iOS Test.app` | all checks pass (below) |
 | 2026-10-15 08:20 | 1e5ee660 | prod cbf2ed30 (aws-m4pro-3), rig cnx-e2e-1e5ee660 16077cda (linux pool) | `~/cnx-ios-builds/20261015-1e5ee66013-mac-prod/cmux NEXT iOS Test.app` | all checks pass (below) |
 | 2026-10-15 05:20 | 9063df14 | prod cbd41d5d (aws-m4pro-3), rig cnx-e2e-9063df14 79c6e58c (linux pool) | `~/cnx-ios-builds/20261015-9063df1493-mac-prod/cmux NEXT iOS Test.app` | bundle checks pass; live checks below |
@@ -144,3 +146,29 @@ Rig notes for round 3:
 - mini-cmux10s was overloaded (load ~200 from CI) during round 3, so the rig moved to mini-cmux8s.
 
 Both rigs quit, their daemons stopped and their simulators deleted.
+
+## Verification of 6b2ed0bb (round 4)
+
+Bundle: `codesign --verify --deep --strict` pass; cnx-hostd universal, key `335b8fb3126e8954`
+= this commit's, built from 6b2ed0bb; `browser-stream-v1` present; acpmux and cmux-tui built
+from 6b2ed0bb; grid hold and Codex shim fix present; the embedded browser host rendered
+https://example.com (first frame 630 ms, from a copy on mini-cmux8s).
+
+| Check (rig cnx-e2e-6b2ed0bb) | Result |
+| --- | --- |
+| Claude chat from the phone runs one shell command (laptop rig, the laptop's Claude login as is) | **pass**: New Agent Chat With… > Claude Code opened in 3.1 s; one permission, Allow once + Face ID (simulator match); `echo macnext-$((6*7)) > claude-shell.txt && cat claude-shell.txt` ran on the Mac (the file holds `macnext-42`) and the reply carried the output 10.5 s after the prompt. Screenshots `verify/claude-shell-*.png` in the build folder. |
+| Codex chat asks before a command (laptop rig) | **pass**: open 5.4 s, "PONG" 6.5 s, "Codex wants to run a command" 13.9 s after the command prompt; declined, nothing ran. `verify/codex-chat-*.png`. |
+| Journey to a terminal, both rigs | pass, including `workspace_list` (now leaves out the Mac's Home workspace, which the phone never lists) |
+| Browser tab streams, WebRTC (mini-cmux8s) | pass: 4.9 s |
+| cnx-hostd kill, WebRTC | pass: link up 2.09, 2.38, 2.25 s (median 2.25, WebRTC direct) |
+| WireGuard on | pass: Connected in 4.4 s |
+| Browser tab streams, WireGuard | pass: 4.9 s |
+| cnx-hostd kill, WireGuard | pass: link up 2.15, 2.25, 1.88 s (median 2.15, WireGuard relay) |
+
+Rig changes this round: `claude_shell` step; agent steps open the seed workspace on whatever
+tab it restores; `choose_space` retries Continue once after the page settles (the mini runs
+now pass onboarding unaided). The hostd-kill reconnects were 0.2-0.4 s slower than in rounds
+1-3 (median 2.15-2.25 s against 1.83-2.03 s); still about 2 s, worth watching.
+
+Both rigs quit, their daemons stopped and their simulators deleted; no prompt from either rig
+app (the SecurityAgent on mini-cmux8s predates the rig).
