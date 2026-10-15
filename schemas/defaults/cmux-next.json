@@ -524,6 +524,7 @@
     "setting.tabs.barOrder": "aboveToolbar",
     "setting.tabs.barPosition": "top",
     "setting.tabs.cmdWClosesPinnedTabs": false,
+    "setting.tabs.hoverPreviews": "full",
     "setting.tabs.newTabPosition": "end",
     "setting.tabs.newTabTemplate": "default",
     "setting.tabs.plusButton": "hover",
