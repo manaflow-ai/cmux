@@ -247,9 +247,49 @@ pub struct PersonGate {
     spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
     /// The person's phones that may allow with a signature (`approvers.rs`).
     pub approvers: super::approvers::ApproverSet,
+    /// The folders of the workspaces the person's app lists now
+    /// (`_acpmux/workspace_roots_set`, memory only): a Web session may start
+    /// there too (`remote_guard::web_roots`, which drops `/`, home and its
+    /// ancestors and resolves symlinks).
+    pub workspace_roots: StdMutex<Vec<String>>,
 }
 
+/// At most this many workspace roots.
+pub const MAX_WORKSPACE_ROOTS: usize = 256;
+
 impl PersonGate {
+    /// `_acpmux/workspace_roots_set {roots}` (the person only): replaces the
+    /// workspace folders. Absolute paths without control characters.
+    pub fn set_workspace_roots(&self, params: &Value) -> Result<Value, RpcError> {
+        let list = params
+            .get("roots")
+            .and_then(Value::as_array)
+            .ok_or_else(|| RpcError::invalid_params("roots must be a list of absolute folders"))?;
+        if list.len() > MAX_WORKSPACE_ROOTS {
+            return Err(RpcError::invalid_params(format!("at most {MAX_WORKSPACE_ROOTS} roots")));
+        }
+        let mut roots = Vec::with_capacity(list.len());
+        for root in list {
+            let root = root
+                .as_str()
+                .filter(|r| {
+                    r.starts_with('/') && !r.chars().any(char::is_control) && r.len() <= 4096
+                })
+                .ok_or_else(|| RpcError::invalid_params("each root is an absolute folder"))?;
+            if !roots.iter().any(|r: &String| r == root) {
+                roots.push(root.to_owned());
+            }
+        }
+        let count = roots.len();
+        *self.workspace_roots.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = roots;
+        Ok(serde_json::json!({"count": count}))
+    }
+
+    /// The workspace folders the person's app last set.
+    pub fn workspace_roots(&self) -> Vec<String> {
+        self.workspace_roots.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
     /// `_acpmux/person_holds`: proof that this run holds the key the app
     /// gave it, over the app's fresh `nonce`: lowercase hex HMAC-SHA256(key,
     /// "acpmux-person-holds-v1" 0 instance 0 nonce). None without a key. An
@@ -593,6 +633,10 @@ impl Hub {
             // Who may sign an allow is the person's own choice (`approvers.rs`).
             method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
                 Err(person_required("changing or reading trusted approvers"))
+            }
+            // Which folders a remote connection may start sessions in.
+            method::MUX_WORKSPACE_ROOTS_SET => {
+                Err(person_required("changing the workspace folders"))
             }
             method::MUX_PERMISSION_RESPOND => {
                 let option = params.get("optionId").filter(|v| !v.is_null());

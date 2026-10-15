@@ -58,6 +58,7 @@ extension IPhoneHostService {
         let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
+        defer { followWorkspaceFolders() }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
             executable: executable,
@@ -82,6 +83,19 @@ extension IPhoneHostService {
                 guard let chats = settings()?.chatSettings else { return [] }
                 let home = FileManager.default.homeDirectoryForCurrentUser.path
                 return (chats.roots + chats.managedRoots).map { $0.hasPrefix("~/") ? home + $0.dropFirst() : $0 }
+            },
+            workspaceFolders: { [weak daemon] in
+                var folders: [String] = []
+                for workspace in daemon?.store.workspaces ?? [] {
+                    for screen in workspace.screens {
+                        for pane in screen.panes {
+                            for case let cwd? in pane.tabs.map(\.cwd) where cwd.hasPrefix("/") && !folders.contains(cwd) {
+                                folders.append(cwd)
+                            }
+                        }
+                    }
+                }
+                return folders
             },
             agentTabHost: agentTabHost,
             computerName: computerName,

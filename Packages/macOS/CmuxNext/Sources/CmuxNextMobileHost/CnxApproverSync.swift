@@ -23,6 +23,10 @@ final class CnxApproverSync {
     /// The last `approvers_set` params; nil until the first update.
     private var params: [String: Any]?
     private var hasApprovers: Bool { (params?["approvers"] as? [Any])?.isEmpty == false }
+    /// The folders of this Mac's workspaces a phone may start agent chats in
+    /// (`_acpmux/workspace_roots_set`); nil until the first update.
+    private var workspaceRoots: [String]?
+    private var needed: Bool { hasApprovers || workspaceRoots?.isEmpty == false }
     private var nextID = 10
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.approvers")
 
@@ -40,7 +44,20 @@ final class CnxApproverSync {
         self.params = params
         if proven {
             send()
-        } else if connection == nil, reconnect == nil, hasApprovers {
+        } else if connection == nil, reconnect == nil, needed {
+            connect()
+        }
+    }
+
+    /// The folders of the workspaces the daemon lists now (each tab's folder). acpmux lets
+    /// a remote connection (a phone, through cnx-hostd) start sessions there, under its own
+    /// guards: never `/`, the home folder or above it; symlinks resolved.
+    func updateWorkspaceRoots(_ roots: [String]) {
+        guard roots != workspaceRoots else { return }
+        workspaceRoots = roots
+        if proven {
+            sendRoots()
+        } else if connection == nil, reconnect == nil, needed {
             connect()
         }
     }
@@ -101,25 +118,32 @@ final class CnxApproverSync {
             send()
         default:
             if let error = message["error"] as? [String: Any] {
-                logger.error("approvers_set refused: \(String(describing: error["message"]), privacy: .public)")
+                logger.error("acpmux refused a person update: \(String(describing: error["message"]), privacy: .public)")
             } else {
                 let count = ((message["result"] as? [String: Any])?["count"] as? NSNumber)?.intValue ?? -1
-                logger.info("acpmux holds \(count, privacy: .public) phone approvers")
+                logger.info("acpmux took \(count, privacy: .public) approvers or workspace folders")
             }
         }
     }
 
     private func send() {
+        sendRoots()
         guard let connection, proven, let params else { return }
         nextID += 1
         connection.send(Self.frame(id: nextID, method: "_acpmux/approvers_set", params: params))
+    }
+
+    private func sendRoots() {
+        guard let connection, proven, let workspaceRoots else { return }
+        nextID += 1
+        connection.send(Self.frame(id: nextID, method: "_acpmux/workspace_roots_set", params: ["roots": workspaceRoots]))
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {
         guard connection === line else { return }
         connection = nil
         proven = false
-        if hasApprovers { scheduleReconnect() }
+        if needed { scheduleReconnect() }
     }
 
     private func scheduleReconnect() {

@@ -539,14 +539,18 @@ fn outside_roots(field: &str) -> RpcError {
     ))
 }
 
-/// The folders a Web connection may work in: `webRoots` from config.json
-/// and the known projects (every local session's cwd), each in the
+/// The folders a Web connection may work in: `webRoots` from config.json,
+/// the known projects (every local session's cwd) and the workspace folders
+/// the person's app set (`_acpmux/workspace_roots_set`), each in the
 /// filesystem's own spelling. A root that is `/`, the home directory or any
 /// ancestor of it is dropped: one session started in `~` must not open
 /// `~/.ssh` or `~/Library` to the Web. Compared by path components.
 async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
     let mut raw: Vec<String> = hub.config.read().await.web_roots.clone();
     raw.extend(hub.sessions().iter().map(|s| s.meta().cwd.to_string_lossy().into_owned()));
+    // The folders of the workspaces the person's app lists now (its own
+    // daemon's tabs, `_acpmux/workspace_roots_set`), under the same guards.
+    raw.extend(hub.person.workspace_roots());
     raw.sort();
     raw.dedup();
     let home = match dirs::home_dir() {
