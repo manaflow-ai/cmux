@@ -19,7 +19,7 @@ and for a tab:
   2. warm: with a card shown, the next row's (tab's) card shows at once (under 0.35 s);
   3. leaving a row before the delay cancels its card;
   4. quick return: a hover just after the card went shows at once;
-  5. a held mouse button (a real drag across rows) shows no card (real input only);
+  5. a held mouse button (a terminal selection dragged onto a row) shows no card (real input only);
   6. `sidebar.hoverCards.delay` 300 shows the card by 0.9 s;
   7. `sidebar.hoverCards.enabled` false: no card after 2.5 s, and a shown card goes at once.
 
@@ -209,30 +209,41 @@ def quick_return(kind, first, second, delay_ms):
     shown = cold(kind + " quick return", first, delay_ms)
     if not shown:
         return
+    # The card lingers 200 ms after the pointer leaves (cardGrace), then hides; for 300 ms after
+    # that (Chrome's kShowWithoutDelayTimeBuffer) a new hover shows at once. Return at ~270 ms.
+    left = time.monotonic()
     move(None)
-    gone = quiet_wait(lambda: showing() is None, 1.0, step=0.02)
+    time.sleep(max(0.0, 0.27 - (time.monotonic() - left)))
+    phase = cards().get("phase", "")
     start = time.monotonic()
     move(second)
     back = quiet_wait(showing, 1.0, step=0.02)
     took = time.monotonic() - start
-    check(bool(gone) and bool(back) and took < 0.35,
-          f"{kind}: a hover just after the card went shows at once ({took:.2f} s; hid {bool(gone)}, shown {back})")
+    check(phase.startswith("grace") and bool(back) and took < 0.35,
+          f"{kind}: a hover just after the card went shows at once ({took:.2f} s; phase before {phase[:24]}, shown {back})")
 
 
-def held_button(points):
-    """A real press on the first row, dragged across the others while held: no card."""
-    if opts.input != "real" or len(points) < 2:
+def held_button(row_point):
+    """A real press in the terminal (a text selection, not a row drag), held while the pointer
+    moves onto a workspace row and slowly across it for longer than the delay: no card."""
+    if opts.input != "real":
         print("skip held mouse button (synthetic input)", flush=True)
         return
     settle()
-    (x0, y0), (x1, y1) = to_screen(points[0][1]), to_screen(points[-1][1])
-    # About 2.5 s of drag events (pointer-probe posts ~120 Hz), longer than the delay.
-    drag = subprocess.Popen([PROBE, "drag", str(x0), str(y0 + 2), str(x1), str(y1 + 2), "300"], stdout=subprocess.DEVNULL)
+    left = 4.0
+    rows_frame = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+    for row in rows_frame:
+        if str(row.get("key", "")).startswith("workspace"):
+            left = row["window_frame"][0] + 4
+            break
+    (x0, y0), (x1, y1) = to_screen([OFF[0], row_point[1]]), to_screen([left, row_point[1]])
+    # 900 drag events at ~120 Hz (about 7.5 s); the pointer is over the row for about 2 s of it.
+    drag = subprocess.Popen([PROBE, "drag", str(x0), str(y0), str(x1), str(y1), "900"], stdout=subprocess.DEVNULL)
     seen = None
     while drag.poll() is None:  # bounded by the probe's own drag
         seen = seen or showing()
         time.sleep(0.05)
-    check(seen is None, f"rows: no card while a mouse button is held across rows (shown: {seen})")
+    check(seen is None, f"rows: no card while a mouse button is held over a row for ~2 s (shown: {seen})")
 
 
 def set_setting(path, value):
@@ -304,7 +315,8 @@ try:
         warm(kind, points[1][1], first)
         cancel(kind, points[0][1], 1300)
         quick_return(kind, points[0][1], points[1][1], 1300)
-    held_button(rows)
+    if rows:
+        held_button(rows[0][1])
 
     if rows:
         set_setting("sidebar.hoverCards.delay", 300)
@@ -316,8 +328,8 @@ try:
         # A shown card goes at once when cards are turned off.
         shown = cold("rows (before off)", rows[0][1], 1300)
         set_setting("sidebar.hoverCards.enabled", False)
-        gone = quiet_wait(lambda: showing() is None, 0.5, step=0.02)
-        check(bool(shown) and bool(gone), "off: the shown card goes at once")
+        gone = quiet_wait(lambda: showing() is None, 1.0, step=0.02)
+        check(bool(shown) and bool(gone), "off: the shown card goes within 1 s of the settings write (file write + reload)")
         for kind, points in (("rows", rows), ("tabs", tabs)):
             if not points:
                 continue

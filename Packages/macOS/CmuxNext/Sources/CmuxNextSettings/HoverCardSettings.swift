@@ -16,6 +16,7 @@ public nonisolated struct HoverCardSettings: Sendable, Equatable {
         guard var reader = ConfigFieldReader(root, at: ["sidebar", "hoverCards"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
         if let value = reader.number("delay", range: delayRange) { settings.delayMilliseconds = value }
+        diagnostics += reader.diagnostics
         return settings
     }
 }

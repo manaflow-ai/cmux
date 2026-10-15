@@ -143,7 +143,8 @@ public final class HoverCardCoordinator {
         // On the card the pointer is on no target (the card ignores the mouse,
         // so the window under it hit-tests): it holds the card.
         let onCard = card?.contains(now) == true
-        send(.hit(onCard ? nil : hitTest()?.target, moved: true, aiming: aiming))
+        // A held mouse button (a press, a drag, a selection) gives no target a card, as in Chrome.
+        send(.hit(onCard || mouseButtonDown() ? nil : hitTest()?.target, moved: true, aiming: aiming))
     }
 
     /// The shown card's frame on screen, nil while none shows.
@@ -166,6 +167,9 @@ public final class HoverCardCoordinator {
 
     private func geometryChanged(in window: NSWindow?, liveResizeEnded: Bool) {
         if !liveResizeEnded, window?.inLiveResize == true { return }
+        // Content moving under a held button (a click's relayout, a drag) changes nothing: a hit
+        // of nil here would end the click's quiet, and the card would come back on release.
+        if mouseButtonDown() { followShownTarget(); return }
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
@@ -180,8 +184,9 @@ public final class HoverCardCoordinator {
 
     public func dismiss(_ reason: HoverDismissal) { send(.dismiss(reason)) }
 
-    /// Hover cards were turned off: a pending or shown card goes now. Turned
-    /// on: the next pointer move starts one.
+    /// Hover cards were turned off: a pending or shown card goes now, a
+    /// pinned one (Show Resource Usage) too, since the user just asked for no
+    /// cards. Turned on: the next pointer move starts one.
     private func hoverCardsSettingChanged() {
         guard !hoverCardsEnabled(), machine.activeTarget != nil else { return }
         dismiss(.action)
@@ -190,6 +195,7 @@ public final class HoverCardCoordinator {
 
     public func unsuppress(_ reason: HoverSuppression) {
         send(.unsuppress(reason))
+        guard !mouseButtonDown() else { return }
         send(.hit(pointerIsOnCard() ? nil : hitTest()?.target, moved: false))
     }
 
@@ -322,7 +328,7 @@ public final class HoverCardCoordinator {
     /// The target under the pointer now, from the sources of the window
     /// on top at that point.
     private func hitTest() -> HoverCardHit? {
-        guard appIsActive(), hoverCardsEnabled(), !mouseButtonDown() else { return nil }
+        guard appIsActive(), hoverCardsEnabled() else { return nil }
         let point = currentPointer()
         let top = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
             ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
