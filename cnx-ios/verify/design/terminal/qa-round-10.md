@@ -59,6 +59,18 @@ ignored, a fourth 20 s later works) fits a Mac that was coming online. The rig c
 launches). Not fixed: no reproduction; a candidate fix is one button with a stable identity whose
 label and style change.
 
+## G-17 with real Codex
+
+`reg.py --agent codex` now: stops a Codex left in the tab (Control C twice from the key bar, the composer
+focused first), types `mkdir -p ~/cnx-ios-e2e/tq10/proj && cd … && codex --yolo` and the prompt on the
+phone, and reads the Mac's screen only for timing: "streaming" once eight answer rows are on screen while
+Codex works, "idle" once it worked and then shows no working indicator on two reads in a row. Codex
+v0.162.1, GPT-6-Astra max (the laptop's login and its default model).
+
+- The first real-Codex 1337 run on the new build (`03:18`) is **invalid** and was discarded
+  (`termqa-raw/tq10/INVALID-new-1015-031821.json`): the idle check matched the prompt's own "400" before
+  Codex began, so the scenario ran while Codex streamed. Fixed in `2027a77a`.
+
 ## Next
 
 (updated as the round goes)

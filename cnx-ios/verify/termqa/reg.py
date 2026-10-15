@@ -87,9 +87,12 @@ def install(build):
         j.s_sign_in()
     import rigsetup
     i, _ = sim.wait_any([dict(ident="setup.teams.create"), dict(ident="setup.teams.choose"),
-                         dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton")], timeout=30)
-    if i in (0, 1):
-        p = sim.find(ident="setup.teams.personal") or sim.find(label="Not now", kind="Button")
+                         dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton"),
+                         dict(contains="Choose a space")], timeout=30)
+    if i in (0, 1, 4):
+        # Old builds: "Choose a space" lists Personal as a row with no identifier.
+        p = (sim.find(ident="setup.teams.personal") or sim.find(label="Not now", kind="Button")
+             or [e for e in sim.find(contains="Personal") if e.frame[1] > 100])
         sim.tap_el(p[0])
         sim.wait_any([dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton")], timeout=20)
     if sim.find(contains="Connect your Mac"):
