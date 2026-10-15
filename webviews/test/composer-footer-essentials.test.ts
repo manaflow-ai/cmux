@@ -88,14 +88,12 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     await page.close();
   });
 
-  test("a new chat's location row draws this Mac as its icon; the folder keeps its name", async () => {
+  // When this Mac's name gives way to its icon is the strip's call (composer-location-strip.test.ts).
+  test("a new chat's location row names the folder without this Mac's path", async () => {
     const page = await open("agent-pane.composer", "footer-essentials-new-chat");
-    const computer = await read(page, '.acpmux-location-picker [title^="Computer: "]');
-    expect(computer?.visible).not.toContain("This Mac");
-    expect(computer?.title).toContain("This Mac");
-    expect(computer?.text).toContain("This Mac");
     const folder = await read(page, ".acpmux-location-picker .acpmux-location-label");
-    expect(folder?.visible).toBe("atlas-web");
+    // A folder's name may be cut in the middle (head and tail spans), so read it without the seam.
+    expect(folder?.visible?.replace(/\s+/g, "")).toBe("atlas-web");
     await page.close();
   });
 

@@ -163,15 +163,11 @@ export function ComposerContext({
               }}
             />
           )}
-          {/* This Mac is the computer a chat runs on unless it says otherwise: a local chat draws the
-              computer's icon alone (Leo 2026-10-13: the footer "tells too much"); an SSH or Cloud
-              chat names its machine. */}
           <LocationPicker
             label={t(CONTEXT_LABELS.computer)}
             menu="Computer"
             kind="computer"
             icon={<ComputerIcon />}
-            quiet={selectedComputer === "local" && currentComputer !== undefined}
             value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
             options={computers}
             selected={selectedComputer}
@@ -310,23 +306,18 @@ function LocationFace({
   icon,
   value,
   chevron,
-  quiet = false,
   middle = false,
 }: {
   icon?: React.ReactNode;
   value: string;
   chevron: boolean;
-  /// The icon stands for the value, which only assistive tech reads (the title has it too).
-  quiet?: boolean;
   middle?: boolean;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
     <>
       {icon}
-      {quiet ? (
-        <span className="sr-only">{value}</span>
-      ) : tail ? (
+      {tail ? (
         <span className="acpmux-location-label" data-middle="">
           <span className="acpmux-location-head">{head}</span>
           <span className="acpmux-location-tail">{tail}</span>
@@ -407,7 +398,6 @@ function LocationPicker({
   selected,
   disabled,
   icon,
-  quiet = false,
   middle = false,
   kind,
   allowPath = false,
@@ -423,8 +413,6 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   icon?: React.ReactNode;
-  /// Draw the icon alone; the value stays in the title and for assistive tech.
-  quiet?: boolean;
   /// The name is cut in the middle (a folder's).
   middle?: boolean;
   /// "computer": the picker whose name gives way to its icon in a narrow strip.
@@ -461,7 +449,7 @@ function LocationPicker({
           aria-label={label + ": " + value}
           title={label + ": " + (allowPath && selected ? selected : value)}
         >
-          <LocationFace icon={icon} value={value} chevron={false} quiet={quiet} middle={middle} />
+          <LocationFace icon={icon} value={value} chevron={false} middle={middle} />
         </span>
       </span>
     );
@@ -470,7 +458,7 @@ function LocationPicker({
     setOpen(false);
     setQuery("");
   };
-  const button = <LocationFace icon={icon} value={value} chevron quiet={quiet} middle={middle} />;
+  const button = <LocationFace icon={icon} value={value} chevron middle={middle} />;
   if (!allowPath)
     return (
       // tooltip-allow: at or under a 460 px pane the computer shows only its icon; the tooltip names it
@@ -480,7 +468,6 @@ function LocationPicker({
           <MenuButton
             className="acpmux-location-button ui-ghost ui-ghost-sm"
             label={kind === "computer" ? label + ": " + value : label}
-            title={quiet ? `${label}: ${value}` : undefined}
           >
             {button}
           </MenuButton>

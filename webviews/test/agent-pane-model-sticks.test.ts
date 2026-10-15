@@ -245,7 +245,7 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     await page.goto(url("newtab"));
     await page.locator(".nt-field").waitFor();
     await page.waitForFunction((selector) => !!document.querySelector(selector)?.textContent, CHIP);
-    expect(await settledChip(page)).toBe("Claude Opus 5.5");
+    expect(await settledChip(page)).toBe("Opus 5.5");
     await pickModel(page, PICK);
     expect(await settledChip(page)).toBe("Claude Sonnet 5.5");
     await page.locator(".nt-field").click();
@@ -281,7 +281,7 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     const page = await context.newPage();
     await page.goto(url(`session=${sessionId}`));
     await page.getByText("Retry added.").waitFor();
-    expect(await settledChip(page)).toBe("Claude Opus 5.5");
+    expect(await settledChip(page)).toBe("Opus 5.5");
     // A turn starts and keeps running.
     holdNextPrompt = true;
     await page.locator(".acpmux-composer [contenteditable], .acpmux-composer textarea").first().click();

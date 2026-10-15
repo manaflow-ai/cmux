@@ -212,7 +212,7 @@ export default agentPaneEntry({
     },
     // The location row is a new chat's only (locationRow.ts).
     "footer-essentials-new-chat": {
-      note: "A new chat's location row: this Mac's computer as its icon alone, the folder by name.",
+      note: "A new chat's location row: the folder by name, the computer as the strip draws it.",
       ready: { newSession: true, cwd: CWD },
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
