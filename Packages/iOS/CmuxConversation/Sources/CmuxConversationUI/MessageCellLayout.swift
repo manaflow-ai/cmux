@@ -276,7 +276,7 @@ extension MessageCellLayout {
     /// A detected item's underline: the text color, lightened as
     /// DataDetectorsUI does (see `ConversationDataDetection.underlineAlpha`).
     private static func detectedUnderlineColor(textColor: UIColor) -> UIColor {
-        UIColor { traits in
+        UIColor.resolving { traits in
             let color = textColor.resolvedColor(with: traits)
             var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
             color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)

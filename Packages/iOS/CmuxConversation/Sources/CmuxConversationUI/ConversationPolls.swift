@@ -58,7 +58,7 @@ enum PollStyle {
     static let stampFont = UIFont.systemFont(ofSize: 13, weight: .semibold)
 
     static func color(_ pair: (light: PollCardColors.RGBA, dark: PollCardColors.RGBA)) -> UIColor {
-        UIColor { traits in
+        UIColor.resolving { traits in
             let c = traits.userInterfaceStyle == .dark ? pair.dark : pair.light
             return UIColor(red: c.r, green: c.g, blue: c.b, alpha: c.a)
         }
