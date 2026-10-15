@@ -103,6 +103,7 @@ final class DaemonConnectingView: NSView {
             statusTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { @MainActor [weak self] in
                 guard let self else { return }
                 statusDue = true
+                DebugTimings.markLaunch("connecting_status_shown")
                 Motion.animate(.fadeIn, in: self.titleLabel) { self.titleLabel.animator().alphaValue = 1 }
             }
         }
@@ -126,6 +127,7 @@ final class DaemonConnectingView: NSView {
         case .unavailable(let error):
             cancelStagger()
             statusDue = true
+            DebugTimings.markLaunch("connecting_status_shown")
             titleLabel.alphaValue = 1
             if !mark.isRevealed { mark.reveal() }
             if case .sessionRestoreTimedOut = error {
