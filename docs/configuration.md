@@ -216,8 +216,7 @@ Lists each workspace's live coding-agent sessions (Claude Code, Codex) under the
 ```json
 {
   "sidebar": {
-    "compactAgentStatus": true
-
+    "compactAgentStatus": true,
     "showAgentSessions": true
   }
 }
