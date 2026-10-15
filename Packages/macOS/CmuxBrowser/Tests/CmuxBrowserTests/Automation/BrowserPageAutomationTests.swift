@@ -112,7 +112,7 @@ struct ChromiumBrowserPageAutomationTests {
         page.close()
         let automation = BrowserPageAutomation(page: page)
 
-        await #expect(throws: BrowserAutomationPageError.pageUnavailable) {
+        await #expect(throws: BrowserAutomationPageError.pageUnavailable(nil)) {
             _ = try await automation.captureViewportPNG()
         }
     }
@@ -197,6 +197,47 @@ struct ChromiumBrowserPageAutomationTests {
         #expect(page.methods() == ["Emulation.setDeviceMetricsOverride", "Emulation.clearDeviceMetricsOverride"])
         #expect((page.calls[0].params["width"] as? NSNumber)?.intValue == 390)
         #expect((page.calls[0].params["height"] as? NSNumber)?.intValue == 844)
+    }
+
+    @Test("Geolocation and offline overrides use DevTools emulation")
+    func emulation() async throws {
+        let page = ScriptedChromiumPage()
+        let automation = BrowserPageAutomation(page: page)
+        let position = try #require(BrowserGeolocationOverride(latitude: 37.77, longitude: -122.42, accuracy: 5))
+
+        try await automation.applyEmulation(BrowserEmulationOverrides(geolocation: position, offline: true))
+        try await automation.applyEmulation(BrowserEmulationOverrides())
+
+        #expect(page.methods() == [
+            "Emulation.setGeolocationOverride", "Network.emulateNetworkConditions",
+            "Emulation.clearGeolocationOverride", "Network.emulateNetworkConditions",
+        ])
+        #expect((page.calls[0].params["latitude"] as? NSNumber)?.doubleValue == 37.77)
+        #expect(page.calls[1].params["offline"] as? Bool == true)
+        #expect(page.calls[3].params["offline"] as? Bool == false)
+    }
+
+    @Test("Mouse steps and text insertion are trusted DevTools input")
+    func mouseAndText() async throws {
+        let page = ScriptedChromiumPage()
+        let automation = BrowserPageAutomation(page: page)
+
+        try await automation.dispatchMouse(.moved, x: 10, y: 20)
+        try await automation.dispatchMouse(.pressed, x: 10, y: 20, button: .left, clickCount: 1, modifiers: [.shift])
+        try await automation.dispatchMouse(.wheel, x: 10, y: 20, deltaY: 120)
+        try await automation.insertText("héllo")
+
+        #expect(page.methods() == [
+            "Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.insertText",
+        ])
+        #expect(page.calls[0].params["type"] as? String == "mouseMoved")
+        #expect(page.calls[0].params["button"] as? String == "none")
+        #expect(page.calls[1].params["type"] as? String == "mousePressed")
+        #expect(page.calls[1].params["button"] as? String == "left")
+        #expect((page.calls[1].params["clickCount"] as? NSNumber)?.intValue == 1)
+        #expect((page.calls[1].params["modifiers"] as? NSNumber)?.intValue == 8)
+        #expect((page.calls[2].params["deltaY"] as? NSNumber)?.doubleValue == 120)
+        #expect(page.calls[3].params["text"] as? String == "héllo")
     }
 
     @Test("Key presses are trusted DevTools key events")

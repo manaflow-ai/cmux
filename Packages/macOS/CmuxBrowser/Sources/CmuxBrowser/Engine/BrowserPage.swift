@@ -34,8 +34,9 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
 
     /// The current page state.
     var state: BrowserPageState { get }
-    /// Page events. A page has one consumer, its panel; a second call returns
-    /// the same stream.
+    /// Page events. A page has one consumer, its panel: every read returns
+    /// the same single-consumer stream, so iterating it from two tasks at
+    /// once is a programmer error. The stream finishes when the page closes.
     var events: AsyncStream<BrowserPageEvent> { get }
     /// The app's decision handler. Conformers hold it weakly.
     var uiDelegate: (any BrowserPageUIDelegate)? { get set }
@@ -67,9 +68,10 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
     /// - Parameters:
     ///   - script: The JavaScript source.
     ///   - world: The world to run in.
-    /// - Returns: The completion value as Foundation JSON objects, or `nil`.
-    /// - Throws: ``BrowserEngineError/javaScript(_:)`` when the script throws,
-    ///   or the engine's evaluation error.
+    /// - Returns: The completion value as Foundation JSON objects, or `nil`
+    ///   for `undefined`.
+    /// - Throws: The engine's evaluation error: WebKit's `WKError`, or
+    ///   ``BrowserEngineError/javaScript(_:)`` from engines without their own.
     func evaluateJavaScript(_ script: String, in world: BrowserPageScriptWorld) async throws -> Any?
 
     /// Runs `body` as the body of an async function and returns what it
@@ -80,7 +82,8 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
     ///     must be JSON-compatible.
     ///   - world: The world to run in.
     /// - Returns: The resolved value as Foundation JSON objects, or `nil`.
-    /// - Throws: ``BrowserEngineError/javaScript(_:)`` on rejection.
+    /// - Throws: The engine's evaluation error on rejection, as
+    ///   ``evaluateJavaScript(_:in:)``.
     func callAsyncJavaScript(
         _ body: String,
         arguments: [String: any Sendable],
@@ -143,6 +146,12 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
     /// - Parameter terminate: `true` ends the page's content process; `false`
     ///   keeps waiting.
     func answerUnresponsive(terminate: Bool)
+    /// Turns the engine's agent navigation guard on while an agent (socket
+    /// or CLI) drives the page: every main-frame navigation, redirect and
+    /// back/forward commit to a page refused by
+    /// `String.isRefusedForAgentNavigation` is cancelled in the engine.
+    /// - Parameter enabled: `true` while an agent drives the page.
+    func setAgentNavigationGuard(_ enabled: Bool)
     /// The back/forward history with page state, for restoring later.
     /// - Returns: The state, or `nil` when the engine cannot export it now.
     func exportRestoreState() -> BrowserPageRestoreState?
@@ -154,6 +163,10 @@ extension BrowserPage {
     /// Engines that never report an unresponsive page have nothing to answer.
     /// - Parameter terminate: Ignored.
     public func answerUnresponsive(terminate: Bool) {}
+
+    /// Engines without privileged internal pages (WebKit) need no guard.
+    /// - Parameter enabled: Ignored.
+    public func setAgentNavigationGuard(_ enabled: Bool) {}
 
     /// Runs a find-in-page script in the page world, so the shared find
     /// service works on every engine.

@@ -546,6 +546,11 @@ runs:
           ""|default) ;;
           webkit|chromium)
             XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_UI_TEST_BROWSER_ENGINE=$BROWSER_ENGINE")
+            # A Chromium run's build embeds CEF; a test that finds no engine
+            # must fail, not fall back to checking the not-bundled path.
+            if [ "$BROWSER_ENGINE" = chromium ]; then
+              XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_UI_TEST_REQUIRE_CEF=1")
+            fi
             echo "Browser engine under test: $BROWSER_ENGINE"
             ;;
           *) echo "::error::browser-engine must be webkit or chromium, got '$BROWSER_ENGINE'"; exit 1 ;;

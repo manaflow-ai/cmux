@@ -33,6 +33,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     /// The team that owns ``cloudResource``'s machine. Absent in snapshots
     /// written before multi-team Cloud; restore then adopts the selected team.
     var cloudTeamID: String? = nil
+    /// The engine the panel rendered with; omitted for WebKit, so a snapshot
+    /// without it restores in WebKit.
+    var engine: BrowserEngineKind? = nil
 
     init(
         urlString: String?,
@@ -90,6 +93,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case interactionState
         case keepsPageActive
         case cloudTeamID
+        case engine
     }
 
     init(from decoder: Decoder) throws {
@@ -111,5 +115,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         interactionState = try container.decodeIfPresent(Data.self, forKey: .interactionState)
         keepsPageActive = try container.decodeIfPresent(Bool.self, forKey: .keepsPageActive)
         cloudTeamID = try container.decodeIfPresent(String.self, forKey: .cloudTeamID)
+        // An engine this build does not know restores in WebKit.
+        engine = (try? container.decodeIfPresent(String.self, forKey: .engine)).flatMap { $0 }
+            .flatMap(BrowserEngineKind.init(rawValue:))
     }
 }

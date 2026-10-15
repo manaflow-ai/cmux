@@ -196,8 +196,13 @@ public struct ChromiumDevToolsCodec: Sendable {
     ///
     /// A host-only cookie (domain without a leading dot) is set through a
     /// `url` and no `domain`, which is how the protocol makes a host-only
-    /// cookie; a domain cookie keeps its dotted domain.
-    public func setCookieParams(_ cookie: HTTPCookie) -> [String: any Sendable] {
+    /// cookie; a domain cookie keeps its dotted domain. The URL takes the
+    /// scheme of the page when it is on the cookie's host (Chromium records
+    /// the source scheme), else `https` for a secure cookie and `http` otherwise.
+    /// - Parameters:
+    ///   - cookie: the cookie to store.
+    ///   - pageURL: the page the cookie is set from, if known.
+    public func setCookieParams(_ cookie: HTTPCookie, pageURL: URL? = nil) -> [String: any Sendable] {
         var params: [String: any Sendable] = [
             "name": cookie.name,
             "value": cookie.value,
@@ -208,7 +213,12 @@ public struct ChromiumDevToolsCodec: Sendable {
         if cookie.domain.hasPrefix(".") {
             params["domain"] = cookie.domain
         } else {
-            let scheme = cookie.isSecure ? "https" : "http"
+            let pageScheme = pageURL.flatMap { url -> String? in
+                guard url.host?.lowercased() == cookie.domain.lowercased(),
+                      let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
+                return scheme
+            }
+            let scheme = cookie.isSecure ? "https" : (pageScheme ?? "http")
             params["url"] = "\(scheme)://\(cookie.domain)\(cookie.path.hasPrefix("/") ? cookie.path : "/" + cookie.path)"
         }
         if let expires = cookie.expiresDate {
@@ -252,9 +262,12 @@ public struct ChromiumDevToolsCodec: Sendable {
         let native = event.nativeKey
         var held = modifiers.union(native?.modifiers ?? [])
         held.remove(.numericPad)
-        let text = typedText(for: event, modifiers: held)
+        // A held Shift types the shifted letter, as a real keyboard does.
+        let key = held.contains(.shift) && event.key.count == 1 ? event.key.uppercased() : event.key
+        let text = typedText(for: key, modifiers: held)
+        let commands = editingCommands(for: key, modifiers: held)
         var base: [String: any Sendable] = [
-            "key": event.key,
+            "key": key,
             "code": event.code,
             "windowsVirtualKeyCode": event.legacyKeyCode,
             "location": event.location,
@@ -273,6 +286,9 @@ public struct ChromiumDevToolsCodec: Sendable {
             if withText, let text {
                 params["text"] = text
                 params["unmodifiedText"] = text
+            }
+            if withText, !commands.isEmpty {
+                params["commands"] = commands
             }
             return params
         }
@@ -294,18 +310,30 @@ public struct ChromiumDevToolsCodec: Sendable {
         }
     }
 
-    /// The text a key inserts, nil for keys that insert none (named keys, or
-    /// a chord with Command/Control which is a shortcut, not typing).
-    func typedText(for event: BrowserKeyboardEvent, modifiers: BrowserKeyboardNativeModifiers) -> String? {
+    /// The text a key inserts, nil for keys that insert none: named keys
+    /// (Tab moves focus and inserts nothing, as in Puppeteer), and chords with
+    /// Command/Control, which are shortcuts, not typing.
+    func typedText(for key: String, modifiers: BrowserKeyboardNativeModifiers) -> String? {
         if !modifiers.intersection([.command, .control]).isEmpty { return nil }
-        switch event.key {
-        case "Enter": return "\r"
-        case "Tab": return "\t"
-        default: break
+        if key == "Enter" { return "\r" }
+        guard key.count == 1 else { return nil }
+        guard let scalar = key.unicodeScalars.first, scalar.value >= 0x20, scalar.value != 0x7F else { return nil }
+        return key
+    }
+
+    /// The macOS editing commands a Command chord runs. Chromium on macOS
+    /// runs Command+A/C/V/X/Z only when the key event names the command,
+    /// because AppKit, not the page, normally turns the chord into one.
+    func editingCommands(for key: String, modifiers: BrowserKeyboardNativeModifiers) -> [String] {
+        guard modifiers.contains(.command), !modifiers.contains(.control), !modifiers.contains(.option) else { return [] }
+        switch key.lowercased() {
+        case "a": return ["selectAll"]
+        case "c": return ["copy"]
+        case "x": return ["cut"]
+        case "v": return ["paste"]
+        case "z": return modifiers.contains(.shift) ? ["redo"] : ["undo"]
+        default: return []
         }
-        guard event.key.count == 1 else { return nil }
-        guard let scalar = event.key.unicodeScalars.first, scalar.value >= 0x20, scalar.value != 0x7F else { return nil }
-        return event.key
     }
 
     /// The protocol's modifier bitmask: Alt=1, Ctrl=2, Meta=4, Shift=8.
@@ -316,6 +344,44 @@ public struct ChromiumDevToolsCodec: Sendable {
         if modifiers.contains(.command) { mask |= 4 }
         if modifiers.contains(.shift) { mask |= 8 }
         return mask
+    }
+
+    // MARK: - Input.dispatchMouseEvent
+
+    /// `Input.dispatchMouseEvent` parameters for one mouse step at `x`, `y`
+    /// (CSS pixels from the viewport's top-left).
+    /// - Parameters:
+    ///   - action: what the mouse does.
+    ///   - x: horizontal position.
+    ///   - y: vertical position.
+    ///   - button: the button pressed or released; `nil` for none.
+    ///   - clickCount: 1 for a click, 2 for a double click.
+    ///   - modifiers: modifier keys held.
+    ///   - deltaX: horizontal wheel delta, for ``BrowserAutomationMouseAction/wheel``.
+    ///   - deltaY: vertical wheel delta, for ``BrowserAutomationMouseAction/wheel``.
+    public func mouseEventParams(
+        _ action: BrowserAutomationMouseAction,
+        x: Double,
+        y: Double,
+        button: BrowserAutomationMouseButton?,
+        clickCount: Int,
+        modifiers: BrowserKeyboardNativeModifiers,
+        deltaX: Double = 0,
+        deltaY: Double = 0
+    ) -> [String: any Sendable] {
+        var params: [String: any Sendable] = [
+            "type": action.rawValue,
+            "x": x,
+            "y": y,
+            "modifiers": protocolModifiers(modifiers),
+            "button": (button ?? .noButton).rawValue,
+            "clickCount": max(0, clickCount),
+        ]
+        if action == .wheel {
+            params["deltaX"] = deltaX
+            params["deltaY"] = deltaY
+        }
+        return params
     }
 
     // MARK: - Emulation

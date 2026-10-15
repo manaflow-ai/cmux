@@ -2122,17 +2122,30 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
-    /// The engine rendering this panel's page, fixed at creation.
+    /// The engine the panel was created with. Fixed (and readable off the
+    /// main actor); see ``activeEngineKind`` for what renders now.
     let engineKind: BrowserEngineKind
+    /// The engine rendering the page now: ``engineKind``, or WebKit after a
+    /// Chromium runtime failed to start (``fallBackToWebKit(reason:)``).
+    var activeEngineKind: BrowserEngineKind { enginePage?.engineKind ?? .webkit }
+    /// The engines this panel resolves against (fallback notices, start failures).
+    let engineRuntime: BrowserEngineRuntime
     /// The page of a non-WebKit engine; `nil` for WebKit panels, whose page
     /// is ``webView``.
     private(set) var enginePage: (any BrowserPage)?
     /// Why this panel opened in WebKit although another engine was wanted,
     /// shown once per run as a notice; `nil` otherwise.
     @Published private(set) var engineFallbackNotice: BrowserEngineUnavailableReason?
+    /// Why this panel opened (or fell back) in WebKit although another engine
+    /// was wanted; kept for automation (`engine_fallback_reason`), unlike the
+    /// once-per-run notice.
+    private(set) var engineFallbackReason: BrowserEngineUnavailableReason?
     /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
     @Published var isEngineDevToolsOpen = false
     var enginePageEventsTask: Task<Void, Never>?
+    /// Identity of the latest load handed to the non-WebKit page, so browser
+    /// automation can wait for that load to commit (`automationNavigationCoordinator`).
+    var activeEngineNavigationToken: AnyObject?
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
     let pageOverlays = BrowserPageOverlayCoordinator()
@@ -2195,7 +2208,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Transfers ownership of subsequent dialogs without presenting existing CLI requests.
     func takeBrowserDialogOwnership(_ owner: BrowserDialogOwner) {
+        let changed = browserDialogOwner != owner
         browserDialogOwner = owner
+        if changed { syncAgentNavigationGuard() }
     }
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 
@@ -2910,8 +2925,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func discardHiddenWebViewForMemory(reason: String, now: Date = Date()) -> Bool {
-        // A non-WebKit page is not discarded yet; its blank web view holds nothing.
-        guard enginePage == nil else { return false }
+        // A non-WebKit page releases its engine content instead (BrowserPanel+EnginePageMemorySaver).
+        if enginePage != nil { return releaseEnginePageForMemory(reason: reason, now: now) }
         let urgency = BrowserHiddenWebViewDiscardUrgency(reason: reason)
         guard hiddenWebViewDiscardBlockers(urgency: urgency).isEmpty else { return false }
 
@@ -3769,8 +3784,10 @@ final class BrowserPanel: Panel, ObservableObject {
             runtime: engineRuntime
         )
         self.engineKind = enginePageSetup.page?.engineKind ?? .webkit
+        self.engineRuntime = engineRuntime ?? .shared
         self.enginePage = enginePageSetup.page
         self.engineFallbackNotice = enginePageSetup.notice
+        self.engineFallbackReason = enginePageSetup.fallback
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -5077,6 +5094,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func refreshBackgroundAppearance() {
+        applyEnginePagePlaceholderColor()
         applyConfiguredWebViewBackground()
         backgroundAppearanceRevision &+= 1
     }
@@ -5914,6 +5932,12 @@ final class BrowserPanel: Panel, ObservableObject {
         skipsAppSessionBootstrap: Bool = false
     ) -> WKNavigation? {
         if let enginePage {
+            // Last line of the agent URL rule for loads an agent starts here
+            // (open with a URL, reload paths); the engine's guard covers
+            // redirects and back/forward.
+            if browserDialogOwner == .automation, originalURL.isRefusedForAgentNavigation {
+                return nil
+            }
             routeNavigationToEnginePage(
                 enginePage,
                 request: request,
@@ -6180,6 +6204,10 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
         takeBrowserDialogOwnership(dialogOwner)
+        if dialogOwner == .automation,
+           refusesAgentNavigation(rawInput: input, resolvedURL: resolveSmartNavigation(from: input)?.url) {
+            return nil
+        }
         // Only a person's address bar opens Settings; automation never takes focus.
         if dialogOwner == .user, openCmuxPageForChromiumRoute(input) { return nil }
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
@@ -6439,7 +6467,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
         BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
-            shouldRenderWebView: shouldRenderWebView,
+            shouldRenderWebView: shouldRenderWebView || enginePage != nil,  // an engine page renders itself
             hasPendingRemoteNavigation: hasPendingRemoteNavigation,
             hasCurrentURL: (
                 currentURL
@@ -6449,7 +6477,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
             hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
-            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
+            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination && enginePage == nil,
             isDownloading: isDownloading,
             activeDownloadCount: activeDownloadCount,
             preferredDeveloperToolsVisible: preferredDeveloperToolsVisible,
@@ -6743,6 +6771,24 @@ extension BrowserPanel {
         faviconPNGData = pngData
     }
 
+    /// Drops a non-WebKit page whose engine stopped being available (its
+    /// runtime failed to start) and shows the page in WebKit with the
+    /// once-per-run fallback notice.
+    func fallBackToWebKit(reason: BrowserEngineUnavailableReason) {
+        guard enginePage != nil else { return }
+        let url = currentURL
+        closeEnginePage()
+        enginePage = nil
+        engineFallbackReason = reason
+        if engineRuntime.fallbackNotices.recordFallback(reason) {
+            engineFallbackNotice = reason
+        }
+        objectWillChange.send()
+        if let url, url.absoluteString != blankURLString {
+            navigate(to: url)
+        }
+    }
+
     /// Clears the fallback notice once the person dismissed it.
     func dismissEngineFallbackNotice() {
         engineFallbackNotice = nil
@@ -6753,7 +6799,7 @@ extension BrowserPanel {
     var page: any BrowserPage {
         if let enginePage { return enginePage }
         if let adapter = webKitPageAdapter, adapter.webView === webView { return adapter }
-        let adapter = WebKitBrowserPage(webView: webView)
+        let adapter = WebKitBrowserPage(webView: webView, devToolsController: self)
         webKitPageAdapter = adapter
         return adapter
     }
@@ -6761,7 +6807,7 @@ extension BrowserPanel {
     func goBack(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
-        if let enginePage { enginePage.goBack(); return }
+        if let enginePage { goEngineHistory(enginePage, offset: -1, dialogOwner: dialogOwner); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6802,7 +6848,7 @@ extension BrowserPanel {
     func goForward(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
-        if let enginePage { enginePage.goForward(); return }
+        if let enginePage { goEngineHistory(enginePage, offset: 1, dialogOwner: dialogOwner); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()

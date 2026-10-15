@@ -31,9 +31,11 @@ extension BrowserPanel {
     ) -> BrowserHiddenWebViewMemoryBudgetPlanner.Pane {
         let hasLiveProcess = !hiddenWebViewDiscardManager.isDiscardedForMemory
             && !hasRecoverableWebContentTermination
+        // A Chromium page is counted by its renderer; its placeholder web view holds nothing.
+        let processID = enginePage != nil ? enginePageContentProcessIdentifier : processIdentifier(webView)
         return BrowserHiddenWebViewMemoryBudgetPlanner.Pane(
             id: id,
-            processID: hasLiveProcess ? processIdentifier(webView) : nil,
+            processID: hasLiveProcess ? processID : nil,
             isVisible: isWebViewVisibleInUI,
             hiddenAt: hiddenWebViewIdleSince,
             isEvictable: hiddenWebViewDiscardManager.isEligibleForMemoryBudgetDiscard(now: now)

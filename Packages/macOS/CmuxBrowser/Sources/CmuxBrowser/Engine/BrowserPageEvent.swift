@@ -12,8 +12,11 @@ public enum BrowserPageEvent: Equatable, Sendable {
     case navigationCommitted(URL?)
     /// A main-frame navigation finished loading.
     case navigationFinished(URL?)
-    /// A main-frame navigation failed.
-    case navigationFailed(URL?, code: Int, message: String)
+    /// A main-frame navigation failed. `showsEngineErrorPage` is `true` when
+    /// the engine drew its own error or interstitial page (Chromium's
+    /// certificate and network error pages), so the app shows no error view
+    /// of its own over it.
+    case navigationFailed(URL?, code: Int, message: String, showsEngineErrorPage: Bool)
     /// The page's content process ended.
     case processTerminated(BrowserPageProcessExit)
     /// The page stopped (`true`) or resumed (`false`) handling input. While

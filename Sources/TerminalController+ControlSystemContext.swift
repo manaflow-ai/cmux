@@ -166,7 +166,9 @@ extension TerminalController: ControlSystemContext {
                 isBrowser: browserPanel != nil,
                 url: browserPanel?.currentURL?.absoluteString,
                 renderHealthRawValue: (panel as? TerminalPanel)?.surface.renderHealth.rawValue,
-                dockScopeRawValue: surface.dockScopeRawValue
+                dockScopeRawValue: surface.dockScopeRawValue,
+                browserEngineRawValue: browserPanel?.activeEngineKind.rawValue,
+                browserEngineFallbackReason: browserPanel.flatMap { v2BrowserEngineFallbackReason($0)?.code }
             )
             if let paneUUID = surface.paneID {
                 surfacesByPane[paneUUID, default: []].append(node)
