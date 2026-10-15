@@ -105,6 +105,7 @@ extension Workspace {
                 currentSessionID: panelId.flatMap {
                     service.registry.liveSessionSnapshot(surfaceID: $0.uuidString)?.sessionID
                 },
+                sessionAliases: [record.hookStoreLookupSessionID],
                 state: record.state,
                 agentSource: record.agentKind.sourceName,
                 panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] },
@@ -146,6 +147,7 @@ extension Workspace {
     nonisolated static func customSidebarAgentLifecycle(
         sessionID: String,
         currentSessionID: String?,
+        sessionAliases: [String] = [],
         state: ChatAgentState,
         agentSource: String,
         panelLifecycles: [String: AgentHibernationLifecycleState]?,
@@ -157,7 +159,10 @@ extension Workspace {
         guard currentSessionID == sessionID else { return nil }
 
         let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
-        guard lifecycleSessionIDs?[key] == sessionID else { return nil }
+        guard let lifecycleSessionID = lifecycleSessionIDs?[key],
+              lifecycleSessionID == sessionID || sessionAliases.contains(lifecycleSessionID) else {
+            return nil
+        }
         guard let lifecycle = panelLifecycles?[key] else { return nil }
         switch lifecycle {
         case .unknown: return "unknown"
