@@ -57,6 +57,36 @@ const onBranch = (branch: string) =>
     summary: { sessionId: "", cwd: CWD, branch, harness: "claude", model: "claude-opus-5-5", effort: "high" },
   });
 
+// A Claude chat as Leo's app shows it (2026-10-13): the agent names its model with the vendor
+// ("Claude Opus 5.5"), the access mode is the default, nothing used yet, on this Mac.
+function footerChat(mode: "default" | "full-access") {
+  const base = chat(finished);
+  return {
+    ...base,
+    catalog: CATALOG.map((entry) =>
+      entry.id === "claude"
+        ? {
+            ...entry,
+            models: entry.models.map((model) =>
+              model.id === "claude-opus-5-5" ? { ...model, name: "Claude Opus 5.5" } : model,
+            ),
+          }
+        : entry,
+    ),
+    summary: {
+      ...base.summary!,
+      usage: { used: 0, size: 200_000 },
+      modes: {
+        currentModeId: mode,
+        availableModes: [
+          { id: "default", name: "Default", description: "Ask before sensitive actions." },
+          { id: "full-access", name: "Full access", description: "Run actions without asking." },
+        ],
+      },
+    },
+  };
+}
+
 /// Claude Code's Ultracode switch, as acpmux's claude_stdio lists it beside the levels.
 const CLAUDE_ULTRACODE_OFF = {
   id: "ultracode",
@@ -175,6 +205,14 @@ export default agentPaneEntry({
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
       },
+    },
+    "footer-essentials": {
+      note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its lock alone, no context ring before any use, the folder without this Mac\'s name. Titles and labels keep the full text.',
+      snapshot: footerChat("default"),
+    },
+    "footer-full-access": {
+      note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
+      snapshot: footerChat("full-access"),
     },
     idle: {
       note: "After a turn: Send, the mode and model chips.",
