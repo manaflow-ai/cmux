@@ -121,7 +121,9 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         commands: PageNativeOp.commands.union(DiffPageCommand.all),
         csp: PageCSP(connect: ["cmux-page://cmux.diff"], script: ["'wasm-unsafe-eval'"]),
-        entry: diffEntry, dynamicPrefixes: ["__patch"])
+        entry: diffEntry, dynamicPrefixes: ["__patch"],
+        // Push (cmux.diff.git.push) acts on one click: not on a click that only brings the window forward.
+        acceptsFirstMouse: false)
 
     /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
     /// highlighting Shiki's JavaScript engine), with images and libraries from its own origin.

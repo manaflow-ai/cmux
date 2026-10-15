@@ -14,6 +14,7 @@ import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider"
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
+import { CHIEF_HARNESSES, DEFAULT_CHIEF_TOOLS } from "./types";
 
 type Props = {
   /** The conversation the page opens with; default: the page's own first choice. */
@@ -342,6 +343,17 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main-compose .hc-tray-item.done").length === 2);
       },
     },
+    "composer-menu": {
+      note: "Right-click in the composer: its own menu (Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention), never WebKit's. The gallery has no app host, so the edits are off.",
+      props: { select: "c-chief" },
+      play: async (ctx) => {
+        const field = ".lg-main-compose .hc-composer-field";
+        await ctx.waitFor(() => ctx.document.querySelector(field));
+        await ctx.contextMenu({ selector: field });
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Paste as Plain Text" }));
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Attach Files…" }));
+      },
+    },
     "row-menu": {
       note: "Right-click a list row: Pin, Mark as Read (it has unread messages) and Copy Link, on the popup layer.",
       props: { select: "c-chief" },
@@ -545,8 +557,9 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
         await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
-        // Every harness shows checked (the owner's default means every harness).
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
+        // The default tools and every harness show checked (the owner's default means every harness).
+        const checked = DEFAULT_CHIEF_TOOLS.length + CHIEF_HARNESSES.length;
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === checked);
       },
     },
     "primary-hover": {
