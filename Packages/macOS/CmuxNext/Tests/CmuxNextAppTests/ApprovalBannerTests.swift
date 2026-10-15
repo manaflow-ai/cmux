@@ -115,4 +115,89 @@ struct ApprovalBannerTests {
         for _ in 0..<50 { await Task.yield() }
         #expect(answerer.answered.isEmpty)
     }
+
+    /// Holds each prompt read until the test releases it, as a slow acpmux would.
+    final class SlowAnswerer: AgentApprovalAnswering {
+        var approval: AgentApproval?
+        var waiting: [CheckedContinuation<Void, Never>] = []
+
+        func pendingApproval(session: String) async -> AgentApproval? {
+            await withCheckedContinuation { waiting.append($0) }
+            return approval
+        }
+
+        func answer(_ approval: AgentApproval, allow: Bool) async -> Bool { true }
+
+        func release() {
+            let held = waiting
+            waiting = []
+            held.forEach { $0.resume() }
+        }
+    }
+
+    /// One agent chat tab on this Mac, and a service that answers through `answerer`.
+    func chat(answerer: any AgentApprovalAnswering) throws -> (NotificationCenterService, LocatedTab) {
+        let store = DaemonStore()
+        var tab = TabSnapshot(surface: 1, kind: .conversation)
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.thisMac, session: "sess-1"))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "api", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        let pane = try #require(workspace.screens.first?.panes.first)
+        let service = NotificationCenterService()
+        service.approvalAnswerer = answerer
+        service.localAgentHost = { Self.thisMac }
+        return (service, LocatedTab(tab: try #require(pane.tabs.first), pane: pane, workspace: workspace))
+    }
+
+    /// "Fix login needs input" as daemon notification `id`, delivered on `located`.
+    func ask(_ id: Int, _ service: NotificationCenterService, _ located: LocatedTab) throws {
+        let wire = #"{"notification":\#(id),"title":"Fix login needs input","body":"","level":"warning","surface":1,"source":"agent"}"#
+        let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
+        var decision = NotificationPolicy.Decision()
+        decision.desktop = true
+        service.deliver(notification, source: .agent, located: located, decision: decision, program: nil)
+    }
+
+    @Test func aChatReadWhileItsPromptIsReadPostsNoBanner() async throws {
+        let slow = SlowAnswerer()
+        slow.approval = Self.bash
+        let (service, located) = try chat(answerer: slow)
+        try ask(7, service, located)
+        for _ in 0..<200 where slow.waiting.isEmpty { await Task.yield() }
+        // The user looked at the chat (or answered it there) before acpmux replied.
+        service.acknowledge(located.tab)
+        slow.release()
+        for _ in 0..<200 { await Task.yield() }
+        #expect(service.desktop.posted.isEmpty, "no banner for a notification already read")
+    }
+
+    @Test func aNewerAskWhileTheFirstIsReadPostsOnlyTheNewerBanner() async throws {
+        let slow = SlowAnswerer()
+        slow.approval = Self.bash
+        let (service, located) = try chat(answerer: slow)
+        try ask(7, service, located)
+        for _ in 0..<200 where slow.waiting.isEmpty { await Task.yield() }
+        try ask(8, service, located)
+        for _ in 0..<200 where slow.waiting.count < 2 { await Task.yield() }
+        slow.release()
+        for _ in 0..<200 { await Task.yield() }
+        #expect(service.desktop.posted.map(\.id) == ["cmux-notification-8"])
+    }
+
+    @Test func aNewerApprovalBannerRetiresTheOlderOnesButtons() async throws {
+        let answerer = Answerer()
+        answerer.pending["sess-1"] = Self.bash
+        let (service, located) = try chat(answerer: answerer)
+        try ask(7, service, located)
+        for _ in 0..<200 where service.desktop.posted.isEmpty { await Task.yield() }
+        try ask(8, service, located)
+        for _ in 0..<200 where service.desktop.posted.count < 2 { await Task.yield() }
+        service.answerApproval(banner: "cmux-notification-7", surface: SurfaceID(rawValue: 1), allow: true)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(answerer.answered.isEmpty, "the older banner's prompt is the newer one's now")
+        service.answerApproval(banner: "cmux-notification-8", surface: SurfaceID(rawValue: 1), allow: true)
+        for _ in 0..<200 where answerer.answered.isEmpty { await Task.yield() }
+        #expect(answerer.answered.map(\.allow) == [true])
+    }
 }
