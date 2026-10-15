@@ -33,6 +33,8 @@ const theme: AgentSessionTheme = {
   softText: "#808090",
   accent: "#e8e8f0",
   accentSoft: "#303040",
+  danger: "#e05050",
+  shadow: "rgba(0, 0, 0, 0.3)",
 };
 
 /** The host's script for one theme change: the shared web theme, then the pane's. */
