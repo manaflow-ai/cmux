@@ -231,9 +231,12 @@ public final class MacScreenPane {
     #endif
 
     /// Whether a Relay Only change reconnects now (with retries: the host may
-    /// still be dropping the old connection).
+    /// still be dropping the old connection). A live stream does, shown or
+    /// hidden within its grace; a failed one only when shown. Others take the
+    /// setting and use it on their next connect (a hidden tab when it is shown).
     static func reconnectsOnRelayChange(streaming: Bool, failed: Bool, visible: Bool, gateOpen: Bool, stoppedByPerson: Bool) -> Bool {
-        (streaming || failed) && !stoppedByPerson
+        guard gateOpen, !stoppedByPerson else { return false }
+        return streaming || (failed && visible)
     }
 
     /// The Mac was forgotten: the session ends and the tab says it is not paired.
