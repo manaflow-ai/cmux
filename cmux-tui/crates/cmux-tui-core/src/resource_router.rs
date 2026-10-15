@@ -17,6 +17,7 @@ mod session;
 mod topology;
 
 pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
+pub(crate) use open_url::is_web_url;
 pub(crate) use open_url::right_pane_beside_focused_dock;
 pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};

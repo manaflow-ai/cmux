@@ -35,7 +35,8 @@
     "conversation",
     "setting",
     "keybinding",
-    "browser_device"
+    "browser_device",
+    "browser_profile"
   ],
   "types": {
     "BrowserDeviceList": {
@@ -87,6 +88,129 @@
             "name": "boolean"
           },
           "description": "False when no custom device had the title."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfile": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 36
+          },
+          "description": "`default` or a lowercase UUID."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The profile's place in the person's order."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileCreateResult": {
+      "kind": "object",
+      "fields": {
+        "browser_profile": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProfile"
+          }
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when a retry found the profile it created."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileList": {
+      "kind": "object",
+      "fields": {
+        "browser_profiles": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "BrowserProfile"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileOpenResult": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "browser_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "browser"
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          }
+        },
+        "profile_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The profile the tab's record names."
         }
       },
       "extra": false
@@ -14643,6 +14767,215 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "browser_profile",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The profile's name: 1 to 256 characters, not blank, with no control character. Names need not be unique; an ambiguous name is refused where a profile is named."
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32
+            },
+            "description": "A palette token (lowercase letters, digits and hyphens) or #RRGGBB / #RRGGBBAA."
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "An icon value as the app stores it for presentation records; an icon asset must exist."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Insertion index among the profiles; absent or past the end is last."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Creates an empty browser profile record in the home session's personal state (browser-profiles-v1). Each app engine keys its own cookie and site data store by the new id; the daemon stores only the record.",
+          "A retry with the same idempotency key answers the first result and creates no second profile. No operation deletes a profile: only a person does, in the app."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserProfileCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "browser_profile",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon and index only: never its import origin, cookies, history or site data."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProfileList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.open": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional"
+        },
+        "fields": {
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8192
+            },
+            "description": "An http or https URL with a host and no user name or password, with no control, space or invisible format character. Anything else is validation.invalid (field url)."
+          },
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "A browser profile: its id (`default` or a lowercase UUID), else its exact name. An unknown or ambiguous name is validation.invalid (field profile)."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The engine the app renders the page with. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default)."
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The tab's title until the page reports its own."
+          },
+          "activate": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": true,
+            "description": "False keeps the pane's selected tab."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Opens a frontend-rendered browser tab whose record names the profile (frontend-browser-tab-profile-v1): the app that shows it makes the page in that profile's store, with its cookies and site data. The tab is in the named pane, else the focused pane; workspace and screen only qualify a pane.",
+          "A retry with the same idempotency key answers the first result and opens no second tab."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserProfileOpenResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
