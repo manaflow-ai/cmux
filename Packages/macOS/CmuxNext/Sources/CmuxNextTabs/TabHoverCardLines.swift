@@ -4,7 +4,7 @@ import Foundation
 /// What a tab's hover card says, row by row (Leo 2026-10-14: like a browser's tab preview,
 /// with its memory): the title; where the tab is (a page's host, a folder and branch); what
 /// it is doing, for how long, and the agent's model; the program's own status words; and its
-/// memory, or that the page is hibernated and what that freed. Each row but the title is
+/// memory, or that the page is hibernated and what it was using. Each row but the title is
 /// optional, so a quiet tab's card stays two or three lines. Pure.
 struct TabHoverCardLines: Equatable {
     var title: String
@@ -35,14 +35,15 @@ struct TabHoverCardLines: Equatable {
     /// The card's rows below the title, in order.
     var rows: [String] { [place, status, detail, memory].compactMap(\.self) }
 
-    /// "Working · 3m · Opus 5.5", "cargo build · 12s"; nil for a tab doing nothing it reports.
+    /// "Working · 3m · Opus 5.5", "Running · 12s" (the command is the title already); nil for
+    /// a tab doing nothing it reports.
     static func status(_ facts: TabHoverFacts, now: Date) -> String? {
         let word: String? = switch facts.activity {
         case .working: Strings.hoverWorking
         case .needsInput: Strings.axNeedsInput
         case .idle: Strings.hoverIdle
         case .failed: Strings.axFailure
-        case .running: facts.command ?? Strings.axBusy
+        case .running: Strings.axBusy
         case nil: nil
         }
         let duration: String? = word == nil ? nil : facts.since.map { Self.elapsed(since: $0, now: now) }
@@ -50,24 +51,32 @@ struct TabHoverCardLines: Equatable {
     }
 
     /// "Memory 106 MB" (with the CPU when notable); for a hibernated page "Hibernated", with
-    /// what it freed when a sample from before is known; a dash until the first sample; nil
-    /// when the tab's numbers cannot be had (a remote chat, a page whose process was not found).
+    /// what it was using when a measured sample from before is known; a dash until the first
+    /// sample; nil when the tab's numbers cannot be had (a remote chat, a page whose renderer
+    /// was not matched or is shared with another tab, a terminal its daemon did not report).
     static func memory(_ item: TabItem, report: ResourceReport?) -> String? {
-        let tab = report?.tabs.first
+        let tab = report?.tabs.first { $0.id == item.id.rawValue }
         if item.isDormant {
-            guard let tab, tab.available, tab.usage.memoryBytes > 0 else { return Strings.hoverHibernated }
-            return Strings.hoverHibernatedFreed(ResourceFormat.memory(tab.usage.memoryBytes))
+            guard let tab, measured(tab), tab.usage.memoryBytes > 0 else { return Strings.hoverHibernated }
+            return Strings.hoverHibernatedWasUsing(ResourceFormat.memory(tab.usage.memoryBytes))
         }
         guard let tab else { return item.hover.kind == .other ? nil : Strings.hoverMemory("–") }
-        // No process measured (a renderer not found yet): no row, never "Zero KB".
-        guard tab.available, tab.processCount > 0 || tab.usage.memoryBytes > 0 else { return nil }
+        // Nothing measured: no row, never "Zero KB" or the app-side terminal estimate alone.
+        guard measured(tab) else { return nil }
         let memory = ResourceFormat.memory(tab.usage.memoryBytes)
         if let cpu = tab.usage.cpu, cpu >= notableCPU { return Strings.hoverMemoryCPU(memory, ResourceFormat.cpu(cpu)) }
         return Strings.hoverMemory(memory)
     }
 
-    /// A page address's host ("cmux.com"); the text itself when it has none (a file).
+    /// Whether a sample measured the tab's own processes (not only an app-side estimate).
+    static func measured(_ tab: TabResourceReport) -> Bool { tab.available && tab.processCount > 0 }
+
+    /// A page address's host ("cmux.com"); a local file's path from home ("~/Docs/a.html");
+    /// the text itself otherwise.
     static func host(_ address: String) -> String {
+        if let url = URL(string: address), url.isFileURL {
+            return (url.path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath
+        }
         guard let host = URL(string: address)?.host(), !host.isEmpty else { return address }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }

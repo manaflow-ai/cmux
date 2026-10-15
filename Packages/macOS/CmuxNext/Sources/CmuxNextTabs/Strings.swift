@@ -31,8 +31,8 @@ enum Strings {
     static var hoverWorking: String { String(localized: "tabs.hoverCard.working", defaultValue: "Working", bundle: .module) }
     static var hoverIdle: String { String(localized: "tabs.hoverCard.idle", defaultValue: "Idle", bundle: .module) }
     static var hoverHibernated: String { String(localized: "tabs.hoverCard.hibernated", defaultValue: "Hibernated", bundle: .module) }
-    static func hoverHibernatedFreed(_ memory: String) -> String {
-        String(format: String(localized: "tabs.hoverCard.hibernatedFreed", defaultValue: "Hibernated · %@ freed", bundle: .module), memory)
+    static func hoverHibernatedWasUsing(_ memory: String) -> String {
+        String(format: String(localized: "tabs.hoverCard.hibernatedWasUsing", defaultValue: "Hibernated · was using %@", bundle: .module), memory)
     }
     static func hoverMemory(_ memory: String) -> String {
         String(format: String(localized: "tabs.hoverCard.memory", defaultValue: "Memory %@", bundle: .module), memory)

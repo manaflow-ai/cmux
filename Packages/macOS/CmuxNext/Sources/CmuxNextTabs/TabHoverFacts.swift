@@ -2,7 +2,7 @@ public import Foundation
 
 /// What a tab's hover card says about the tab beyond its title (Leo 2026-10-14, like a
 /// browser's tab preview): what kind of tab it is, what it is doing and since when, the
-/// agent's model, the running command and the git branch. The App fills it from daemon and
+/// agent's model and the git branch. The App fills it from daemon and
 /// acpmux records; the card's memory comes from its live sample.
 public struct TabHoverFacts: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
@@ -20,18 +20,15 @@ public struct TabHoverFacts: Hashable, Sendable {
     public var since: Date?
     /// The agent's model ("Opus 5.5").
     public var model: String?
-    /// A terminal's running command, which words a `running` activity.
-    public var command: String?
     /// The git branch of the tab's folder.
     public var branch: String?
 
     public init(kind: Kind = .other, activity: Activity? = nil, since: Date? = nil, model: String? = nil,
-                command: String? = nil, branch: String? = nil) {
+                branch: String? = nil) {
         self.kind = kind
         self.activity = activity
         self.since = since
         self.model = model
-        self.command = command
         self.branch = branch
     }
 }

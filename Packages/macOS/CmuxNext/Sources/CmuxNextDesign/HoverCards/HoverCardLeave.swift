@@ -9,4 +9,10 @@ public nonisolated enum HoverCardLeave: Hashable, Sendable {
     /// takes the pointer: a browser's tab preview). Another target reached
     /// within `reshow` shows its card at once.
     case hides(reshow: Duration)
+
+    /// The card hides as the pointer leaves its target (`hides`).
+    public var hidesAtOnce: Bool {
+        if case .hides = self { return true }
+        return false
+    }
 }

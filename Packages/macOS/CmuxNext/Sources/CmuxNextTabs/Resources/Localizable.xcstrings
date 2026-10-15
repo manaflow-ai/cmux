@@ -7600,133 +7600,133 @@
         }
       }
     },
-    "tabs.hoverCard.hibernatedFreed": {
+    "tabs.hoverCard.hibernatedWasUsing": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hibernated · %@ freed"
+            "value": "Hibernated · was using %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "في وضع الإسبات · تم تحرير %@"
+            "value": "في وضع الإسبات · كانت تستخدم %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hibernirano · oslobođeno %@"
+            "value": "Hibernirano · koristila je %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "I dvale · %@ frigjort"
+            "value": "I dvale · brugte %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Im Ruhezustand · %@ freigegeben"
+            "value": "Im Ruhezustand · nutzte %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En hibernación · %@ liberados"
+            "value": "En hibernación · usaba %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En veille · %@ libérés"
+            "value": "En veille · utilisait %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ibernata · %@ liberati"
+            "value": "Ibernata · usava %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "休止中 · %@ を解放"
+            "value": "休止中 · %@ を使用していました"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងផ្អាក · បានដោះលែង %@"
+            "value": "កំពុងផ្អាក · ធ្លាប់ប្រើ %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "절전 중 · %@ 확보"
+            "value": "절전 중 · %@ 사용했음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "I dvale · %@ frigjort"
+            "value": "I dvale · brukte %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uśpiona · zwolniono %@"
+            "value": "Uśpiona · używała %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hibernada · %@ liberados"
+            "value": "Hibernada · usava %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спит · освобождено %@"
+            "value": "Спит · использовала %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "พักอยู่ · คืน %@"
+            "value": "พักอยู่ · เคยใช้ %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uykuda · %@ boşaltıldı"
+            "value": "Uykuda · %@ kullanıyordu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спить · звільнено %@"
+            "value": "Спить · використовувала %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang ngủ đông · đã giải phóng %@"
+            "value": "Đang ngủ đông · đã dùng %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已休眠 · 已释放 %@"
+            "value": "已休眠 · 曾占用 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已休眠 · 已釋放 %@"
+            "value": "已休眠 · 曾占用 %@"
           }
         }
       }
