@@ -29,6 +29,8 @@ public enum RemoteInstallError: Error, Hashable, Sendable {
         static let notWritable: Int32 = 17
         /// Another install or handoff holds the machine's install lock (cx-3r9mt).
         static let busy: Int32 = 18
+        /// The machine's binary is no longer the build the update was decided for (cx-3r9mt).
+        static let changed: Int32 = 19
     }
 
     /// The status of a refusal because another install holds the machine (cx-3r9mt).
@@ -85,6 +87,9 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     /// This install's hold on the machine's install lock (cx-3r9mt): one install or handoff per
     /// machine at a time, from any Mac; the fetch and the upload script of one install share it.
     public let lockToken: String
+    /// The `build_identity` the automatic update was decided for (cx-3r9mt): the script refuses
+    /// when the machine's binary changed since (another Mac installed meanwhile). Nil: no check.
+    public var expectedRemoteIdentity: String?
 
     public init(commit: String, platform: RemotePlatform, manifest: CmuxTUIManifest, remoteBinary: String,
                 base: URL = RemoteInstallPlan.base, lockToken: String = RemoteInstallPlan.newLockToken()) throws(RemoteInstallError) {
@@ -146,8 +151,13 @@ public struct RemoteInstallPlan: Hashable, Sendable {
         token='\(lockToken)'
         if mkdir "$lock" 2>/dev/null; then echo "$token" > "$lock/owner"
         elif [ "$(cat "$lock/owner" 2>/dev/null)" = "$token" ]; then :
-        elif [ -n "$(find "$lock" -maxdepth 0 -mmin +40 2>/dev/null)" ] && rm -rf "$lock" && mkdir "$lock" 2>/dev/null; then echo "$token" > "$lock/owner"
+        elif [ -n "$(find "$lock" -maxdepth 0 -mmin +40 2>/dev/null)" ] && mv "$lock" "$lock.stale.$token" 2>/dev/null && rm -rf "$lock.stale.$token" && mkdir "$lock" 2>/dev/null; then echo "$token" > "$lock/owner"
         else echo "cmux-install-busy another install or handoff runs on this machine" >&2; exit \(RemoteInstallError.Code.busy); fi
+        expect='\(expectedRemoteIdentity.map { $0.filter { $0.isHexDigit || $0.isLetter || $0.isNumber } } ?? "")'
+        if [ -n "$expect" ] && [ -x "$dest" ]; then
+          cur=$("$dest" remote-probe --json 2>/dev/null | tr ',' '\\n' | sed -n 's/.*"build_identity" *: *"\\([^"]*\\)".*/\\1/p' | head -n 1)
+          if [ -n "$cur" ] && [ "$cur" != "$expect" ]; then echo "cmux-install-changed the machine now runs $cur" >&2; exit \(RemoteInstallError.Code.changed); fi
+        fi
         digest() {
           if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
           elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
@@ -167,6 +177,7 @@ public struct RemoteInstallPlan: Hashable, Sendable {
           exit \(RemoteInstallError.Code.checksum)
         fi
         chmod 755 "$stage"
+        touch "$lock" 2>/dev/null || true
         if ! out=$("$stage" remote-probe --json 2>&1); then
           echo "cmux-install-unrunnable $out" >&2
           exit \(RemoteInstallError.Code.unrunnable)
@@ -186,7 +197,7 @@ public struct RemoteInstallPlan: Hashable, Sendable {
           elif command -v wget >/dev/null 2>&1; then fetch() { wget -c -q -T 60 -O "$stage" "$url"; }
           else echo "cmux-install-nodownloader" >&2; exit \(RemoteInstallError.Code.noDownloader); fi
           n=0
-          until fetch; do
+          until touch "$lock" 2>/dev/null; fetch; do
             n=$((n + 1))
             if [ "$n" -ge 6 ]; then echo "cmux-install-download failed after $n attempts" >&2; exit \(RemoteInstallError.Code.downloadFailed); fi
             sleep "$n"

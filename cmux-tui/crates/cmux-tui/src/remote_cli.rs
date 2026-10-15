@@ -2008,14 +2008,15 @@ fn run_update_need(args: &[String]) -> anyhow::Result<()> {
     } else {
         fs::read_to_string(source).with_context(|| format!("read {source}"))?
     };
-    let probe: serde_json::Value = serde_json::from_str(&text).context("the probe is not JSON")?;
+    let probe: Value = serde_json::from_str(&text).context("the probe is not JSON")?;
     let object = probe.as_object().ok_or_else(|| anyhow!("the probe is not a JSON object"))?;
     let remote = BuildFacts {
-        commit: object.get("build_identity").and_then(serde_json::Value::as_str).map(str::to_owned),
-        time: object.get("build_time").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        capabilities: object.get("daemon_capabilities").and_then(serde_json::Value::as_array).map(
-            |list| list.iter().filter_map(serde_json::Value::as_str).map(str::to_owned).collect(),
-        ),
+        commit: object.get("build_identity").and_then(Value::as_str).map(str::to_owned),
+        time: object.get("build_time").and_then(Value::as_u64).unwrap_or(0),
+        capabilities: object
+            .get("daemon_capabilities")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
     };
     let local = BuildFacts {
         commit: Some(BUILD_IDENTITY.to_owned()),
