@@ -8,10 +8,11 @@ belongs to a fresh verifier: not touched. Laptop load 20-30 at the start: no tim
 | Item | Status | Evidence |
 | --- | --- | --- |
 | G-14 TUI selection (vim, htop): a long press always selects | **implemented**: test `29260240` (red: type missing), fix `fd2e3c3a` (green: 15 of 15 with the selection and autoscroll suites, mini-cmux11s); iOS build green (`1769b3bf`, tag tq10). **Not run on the simulator yet** | below |
-| Hidden laptop rig (real Codex) | in progress | Rig |
+| Hidden laptop rig (real Codex) | **up**: Mac app hidden (0 on-screen windows, the front app unchanged, no Keychain or other prompt), rig set up with real onboarding, link `Online · Connected · WebRTC direct`; real `codex --yolo` (v0.162.1, the laptop's login) starts from the phone | Rig |
 | G-17 with real Codex (1259, 1337, 1350-b) | not run yet | |
 | G-14 autoscroll / full-scrollback copy on the simulator | not run yet | |
-| D6, V6-5, D10, V2-6, 60-min sessions, D7 | not run yet | |
+| D6 onboarding Continue | **not reproduced**: 10 of 10 fresh installs advanced on the first tap made the moment Continue is in the tree (7 at the page's push, 3 at the rig Mac's launch); the Not now→Continue swap could not be produced (the shared dev account always has an online Mac) | D6 |
+| V6-5, D10, V2-6, 60-min sessions, D7 | not run yet | |
 
 ## Rig (hidden laptop rig, tag tq10)
 
@@ -37,6 +38,26 @@ and back; the text comes from `viewportText`; Select All is the whole screen. Th
 cleared when a TUI starts, the TUI's when it ends; a tap clears either. The phone never forwards touches
 as mouse events, so a long press always selects, like Shift-drag on the Mac when the app captures the
 mouse (htop, vim `mouse=a`).
+
+## D6
+
+`rigsetup.py --immediate [--d6-only]` taps Continue the moment it is in the AX tree (polled every 50 ms
+plus the tree read), mid-push included. Fresh install each time (uninstall, keychain reset, install, dev
+sign-in, Personal on the team step). Recordings `termqa-raw/tq10/d6-setup-1.mp4`, `d6-imm-1..6.mp4`.
+
+| Probe | Runs | First tap advanced | Page left after |
+| --- | --- | --- | --- |
+| Tap at the page's push (Mac online) | 7 | 7 | 0.70-0.86 s (includes the tree poll) |
+| Tap as the rig Mac launches (0.22-0.31 s after `open`) | 3 | 3 | 0.92-1.09 s |
+| Watch 25 s on the page (2 runs) | | | `Continue` and "…is online" from 0.27-0.53 s, no flip |
+
+Code reading: `PairMacStep` swaps two views (`PrimaryCapsule("Continue")` / `TextCTA("Not now")`) in a
+`ZStack` with an opacity transition on `onlineMac != nil`. If the account's online-Mac state flips while
+a finger is down, the pressed button is replaced and the tap is lost; the round-1 report (three taps
+ignored, a fourth 20 s later works) fits a Mac that was coming online. The rig cannot produce the flip
+(another Mac of the shared dev account is always online, so Continue shows before the rig Mac
+launches). Not fixed: no reproduction; a candidate fix is one button with a stable identity whose
+label and style change.
 
 ## Next
 
