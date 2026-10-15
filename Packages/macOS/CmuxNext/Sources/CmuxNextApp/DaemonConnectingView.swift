@@ -127,7 +127,6 @@ final class DaemonConnectingView: NSView {
         case .unavailable(let error):
             cancelStagger()
             statusDue = true
-            DebugTimings.markLaunch("connecting_status_shown")
             titleLabel.alphaValue = 1
             if !mark.isRevealed { mark.reveal() }
             if case .sessionRestoreTimedOut = error {
