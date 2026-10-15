@@ -5,7 +5,7 @@
 // the rows), never one harness's fields. With the flag off the pane has neither the button nor the
 // rail. Connectors wait for acpmux to report each session's MCP servers (cx-ncc.105); Remote Control
 // is Claude-only and stays out (Leo, 2026-10-14).
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Counts } from "../changes/Counts";
 import type { TurnFile } from "../diff";
@@ -26,6 +26,10 @@ const ROW_ICON = rowIconSize(12);
 const DEFAULT_CARDS: Cards = { environment: true, context: false, outputs: true };
 /// The last open or closed, a per-viewer convenience: each pane keeps its own in state.
 const OPEN_KEY = "cmux.agentPane.sessionRail.open";
+/// Where the rail stops sitting beside the chat and covers it (summary.css `.acpmux-rail` overlay).
+const OVERLAY_QUERY = "(max-width:560px)";
+/// How long after an output click a narrowing counts as that diff's split.
+const SPLIT_SETTLE_MS = 2000;
 
 function readOpen(): boolean {
   try {
@@ -63,7 +67,25 @@ export function useSessionRail({
   const shown = enabled && open;
   const rows = snapshot.rows;
   const outputs = useMemo(() => (shown ? sessionSummary(rows).outputs : []), [shown, rows]);
+  // An output's diff opens beside the chat. When that split leaves the pane too narrow for the
+  // rail beside the chat, the rail would cover the chat, so it closes for now (not remembered).
+  const openedOutputAt = useRef(0);
+  useEffect(() => {
+    if (!shown || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(OVERLAY_QUERY);
+    const narrowed = () => {
+      if (query.matches && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) setOpen(false);
+    };
+    query.addEventListener("change", narrowed);
+    return () => query.removeEventListener("change", narrowed);
+  }, [shown]);
   if (!enabled) return {};
+  const openOutput = onOpenOutput
+    ? (path: string) => {
+        openedOutputAt.current = Date.now();
+        onOpenOutput(path);
+      }
+    : undefined;
   const toggle = () => {
     saveOpen(!open);
     setOpen(!open);
@@ -88,7 +110,7 @@ export function useSessionRail({
         outputs={outputs}
         cards={cards}
         onCard={(id, next) => setCards((current) => ({ ...current, [id]: next }))}
-        onOpenOutput={onOpenOutput}
+        onOpenOutput={openOutput}
       />
     ) : undefined,
   };
