@@ -102,6 +102,19 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         return nil
     }
 
+    private func browser(_ key: String, title: String = "Docs", in workspace: SurfaceRemoteWorkspace) -> SurfaceResource {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: key), title: title, detail: nil,
+            lifecycle: .running, agent: nil, remoteWorkspace: workspace, port: nil,
+            url: "https://example.com/\(key)"
+        )
+        resource.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_\(key)", workspace: workspace, screenID: "screen_1", paneID: "pane_1",
+            name: nil, index: 0, focused: true
+        )]
+        return resource
+    }
+
     private func display(_ key: String = SurfaceResourceID.desktopDisplayKey, in workspaces: [SurfaceRemoteWorkspace]) -> SurfaceResource {
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .display, key: key), title: key == SurfaceResourceID.desktopDisplayKey ? "Desktop" : key, detail: nil,
@@ -375,6 +388,39 @@ struct CloudTreeOneMachineManyWorkspacesTests {
     /// Regression for #12226: a pane holding several tabs must expose every tab as a
     /// sibling leaf row. The pane hierarchy is an implementation detail and must not
     /// become a terminal-under-terminal presentation.
+    @Test("A Cloud browser placement exports an exact draggable tab")
+    func browserPlacementIsDragSource() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let side = workspace("ws_side", "side", index: 1)
+        let resource = browser("docs", in: main)
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main, side])], resources: [resource], projections: []
+        )
+        let row = try #require(rows(snapshot).first { $0.id == "machine:brave-otter/ws/ws_main" })
+        let browserNode = try #require(row.children.first)
+        guard case .browser(let browserRow) = browserNode.kind else {
+            Issue.record("expected a browser placement row")
+            return
+        }
+        let view = try #require(browserRow.remoteView)
+        #expect(browserNode.isDragSource)
+        #expect(browserNode.dragGroup?.resources == [resource.id])
+        #expect(browserNode.dragGroup?.remoteWorkspaceID == main.id)
+        #expect(browserNode.dragGroup?.placements == [
+            SurfaceResourcePlacement(resource: resource.id, remoteView: view)
+        ])
+        let localResource = SurfaceResource(
+            id: SurfaceResourceID(machine: .local, kind: .browser, key: "local-browser"),
+            title: "Private", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: nil, port: nil, url: "https://private.example"
+        )
+        let localNode = CloudTreeNode(
+            id: "local-browser",
+            kind: .browser(CloudTreeBrowserRow(resource: localResource, isOpen: true, workspaceTitle: "Local"))
+        )
+        #expect(!localNode.isDragSource, "local browser sessions stay out of Cloud sidebar projection drags")
+    }
+
     @Test("A pane with several tabs exposes flat sibling terminal rows")
     func tabsAreFlatSiblingRows() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)

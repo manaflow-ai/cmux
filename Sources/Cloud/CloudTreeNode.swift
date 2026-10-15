@@ -306,10 +306,16 @@ final class CloudTreeNode: NSObject {
                 remoteWorkspaceID: view.workspace.id
             )
         }
-        // No `.browser` branch: `isDragSource` admits only terminals and
-        // displays, and `CloudTreeDragRegistration` is the only reader of a leaf
-        // row's group, so a browser row never gets here. Granting browsers a
-        // projection capability is a separate decision, not a naming fix.
+        if case .browser(let row) = kind,
+           let view = row.remoteView {
+            // Keep the exact daemon tab identity so moving a Cloud browser
+            // between workspaces preserves its authenticated session and URL.
+            return SurfaceResourceGroup(
+                title: CloudTreeResourceName(resource: row.resource, remoteView: view).browserName,
+                placements: [SurfaceResourcePlacement(resource: row.resource.id, remoteView: view)],
+                remoteWorkspaceID: view.workspace.id
+            )
+        }
         if case .display(let resource, _, let view) = kind,
            let view {
             // The group's title names the local workspace the drag produces, so
@@ -334,6 +340,7 @@ final class CloudTreeNode: NSObject {
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true
+        case .browser(let row): return !row.resource.machine.isLocal
         case .workspace(let machine, _, _, _, _) where !machine.isLocal:
             guard let group = dragGroup, !group.isEmpty else { return false }
             return group.resources.allSatisfy { !$0.machine.isLocal }
