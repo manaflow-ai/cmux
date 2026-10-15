@@ -4,13 +4,13 @@ import AppKit
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
 /// window, and a Home tab shares the cmux-next window. The same controls sit
 /// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
-/// at HeaderBar's measured places: the 40 pt avatar 8 pt from the top, and
-/// the glass capsule name pill centered 58 pt from the top
-/// (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron). The disc overlaps
-/// the pill's top (disc 8-48 pt, pill 44-72 pt) and draws over it, whole, as
-/// in Messages (baseline ref/real-bubble-stills-2x.png: the white disc covers
-/// the pill's top edge). No band, no edge line, no video button (Home has no
-/// calls).
+/// at Messages' places: the 40 pt avatar 8 pt from the top, and the glass
+/// capsule name pill (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron)
+/// whose drawn capsule spans 44-71 pt (baseline ref/real-bubble-stills-2x.png:
+/// the pill's rim rows at 88 and 142 px). The disc overlaps the pill's top
+/// (disc 8-48 pt) and draws over it, whole, as in Messages (the white disc
+/// covers the pill's top edge); the pill takes the clicks where they overlap.
+/// No band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
     let pill = NSButton()
@@ -33,8 +33,13 @@ final class PaneHeaderView: NSView {
     static let avatarSize: CGFloat = 40
     static let avatarTop: CGFloat = 8
     /// HeaderBar: Messages' pill center, 58 pt from the window top.
-    static let pillCenterY: CGFloat = 58
-    static let pillHeight: CGFloat = 28
+    /// The drawn capsule's centre and height (Messages: 44-71 pt).
+    static let pillCenterY: CGFloat = 57.5
+    static let pillHeight: CGFloat = 27
+    /// AppKit's glass button draws its capsule this far inside its frame, top and bottom
+    /// (round 4 and 5 captures: a 28 pt frame at 44-72 pt drew its rim at 47-69 pt), so
+    /// the frame is the drawn capsule outset by it.
+    static let glassInset: CGFloat = 3
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -73,9 +78,8 @@ final class PaneHeaderView: NSView {
     /// below the header).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        // The avatar draws over the pill's top edge: a click on the disc is the avatar's (mouseDown).
-        if !avatar.isHidden, avatar.frame.contains(p) { return self }
-        if pill.frame.contains(p) && !pill.isHidden { return pill }
+        // The drawn capsule takes its clicks, also where the avatar draws over its top edge (as Messages).
+        if pill.frame.insetBy(dx: 0, dy: PaneHeaderView.glassInset).contains(p) && !pill.isHidden { return pill }
         return bounds.contains(p) ? self : nil
     }
 
@@ -112,8 +116,9 @@ final class PaneHeaderView: NSView {
         avatar.frame = CGRect(x: (bounds.width - s) / 2, y: PaneHeaderView.avatarTop, width: s, height: s)
         let w = HeaderBar.pillWidth(title)
         let h = PaneHeaderView.pillHeight
-        pill.frame = CGRect(x: (bounds.width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)
-        pillBacking.frame = pill.frame
+        let capsule = CGRect(x: (bounds.width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)
+        pill.frame = capsule.insetBy(dx: 0, dy: -PaneHeaderView.glassInset)
+        pillBacking.frame = capsule
         pillBacking.layer?.cornerRadius = h / 2
         pillBacking.isHidden = pill.isHidden
     }
