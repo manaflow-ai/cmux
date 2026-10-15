@@ -16,6 +16,11 @@ const TERMINATE: &str = "thread/backgroundTerminals/terminate";
 /// A Codex hub: the in-process bridge over the fake app-server, run as a
 /// program named `codex` under a fresh folder.
 async fn codex_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+    codex_hub_env(&[]).await
+}
+
+/// `codex_hub` with the fake's `env` (FAKE_CODEX_* switches).
+async fn codex_hub_env(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("acpmux-cxproc-{}", uuid::Uuid::now_v7()));
     let bin = root.join("bin");
     let home = root.join("codex-home");
@@ -28,7 +33,11 @@ async fn codex_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let profile = HarnessProfile {
         kind: Default::default(),
         argv: vec![codex.to_string_lossy().into_owned(), "app-server".into()],
-        env: BTreeMap::from([("CODEX_HOME".to_owned(), home.to_string_lossy().into_owned())]),
+        env: env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .chain([("CODEX_HOME".to_owned(), home.to_string_lossy().into_owned())])
+            .collect(),
         description: None,
         fallback: None,
         family: None,
@@ -222,4 +231,79 @@ async fn codex_kill_on_a_chat_that_is_neither_claude_nor_codex_is_refused() {
     let refused = c.request(KILL, json!({"processId": format!("{id}/t1")})).await.unwrap_err();
     assert!(refused.contains("Claude Code") && refused.contains("Codex"), "{refused}");
     hub.shutdown_all().await;
+}
+
+/// A subagent's background terminal is listed under the chat, naming the
+/// subagent; its kill terminates it on the subagent's own thread.
+#[tokio::test]
+async fn codex_a_subagents_background_terminal_is_killed_on_its_thread() {
+    let (hub, mut c, root) = codex_hub().await;
+    let id = chat(&mut c, "bg-codex-sub").await;
+    let pid = format!("{id}/2001");
+    let p = process(&mut c, &id, &pid).await;
+    assert_eq!(p["state"], "running", "{p}");
+    assert_eq!(p["harness"], "codex", "{p}");
+    assert_eq!(p["toolCallId"], "call_sub", "{p}");
+    assert_eq!(p["subagentSessionId"], "fake-sub-1", "{p}");
+    assert_eq!(c.request(KILL, json!({"processId": pid})).await.unwrap(), json!({}));
+    let sent = terminates(&hub, &id);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["params"], json!({"threadId": "fake-sub-1", "processId": "2001"}));
+    let ended = until_state(&mut c, &id, &pid, "killed").await;
+    assert_eq!(ended["reason"], "person");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Codex no longer has the process (terminated: false): the kill is refused
+/// with that, and the process is no longer listed running.
+#[tokio::test]
+async fn codex_a_kill_of_a_terminal_codex_no_longer_has_is_refused_and_ends_it() {
+    let (hub, mut c, root) = codex_hub().await;
+    let id = chat(&mut c, "bg-codex-gone").await;
+    let pid = format!("{id}/1001");
+    let refused = c.request(KILL, json!({"processId": pid})).await.unwrap_err();
+    assert!(refused.contains("no longer"), "{refused}");
+    let ended = until_state(&mut c, &id, &pid, "exited").await;
+    assert_eq!(ended["reason"], Value::Null, "{ended}");
+    assert!(ended["detail"].as_str().is_some_and(|d| d.contains("no longer")), "{ended}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Codex may complete a terminated item before it answers the terminate:
+/// the end is still the kill's, by the person.
+#[tokio::test]
+async fn codex_an_item_end_before_the_terminate_answer_is_the_persons_kill() {
+    let (hub, mut c, root) = codex_hub_env(&[("FAKE_CODEX_END_FIRST", "1")]).await;
+    let id = chat(&mut c, "bg-codex").await;
+    let pid = format!("{id}/1001");
+    assert_eq!(c.request(KILL, json!({"processId": pid})).await.unwrap(), json!({}));
+    let ended = until_state(&mut c, &id, &pid, "killed").await;
+    assert_eq!(ended["reason"], "person", "{ended}");
+    let ends: Vec<_> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "process_update" && e.msg["process"]["id"] == pid.as_str())
+        .filter(|e| e.msg["process"]["state"] != "running")
+        .collect();
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A command still open when its turn is interrupted was not handed to the
+/// background: nothing is listed.
+#[tokio::test]
+async fn codex_an_interrupted_turn_lists_no_background_terminal() {
+    let (hub, mut c, root) = codex_hub().await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt =
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "bg-codex-interrupt"}]});
+    let _ = c.request(method::SESSION_PROMPT, prompt).await;
+    assert_eq!(listed(&mut c, &id).await, Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }
