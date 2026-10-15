@@ -81,7 +81,7 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - `spawn` in a turn takes that turn's view and its new messages at once
   (no wait for the compactor to summarize the turn's own tool calls:
   parity timing 2026-10-09, the settle took 7.2 s of an 8.7 s spawn);
-  outside a turn it waits for settle (at most 10 s, as a turn does; then
+  outside a turn it waits for settle (at most 1 s, as a turn does; then
   the lines still building read as the placeholder), renders the view, and starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
   `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
@@ -94,7 +94,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   hard its subagents think; by default the calling turn's effort.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
-  renamed Chief), VIEW_DOC, a short cmux section, then the user's AGENTS.md
+  renamed Chief), VIEW_DOC, a short cmux section, then the person profile
+  and the user's AGENTS.md
   (the preset's `systemPrompt` on Claude; CLAUDE.md when acpmux takes none;
   AGENTS.md on other harnesses).
 - `zoom("a<N>")` (`chief zoom a<N> [AT]`) gives a subagent's whole chat from
@@ -213,7 +214,11 @@ writes the same file.
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
-(`request`: Claude Code's per-message usage; codex-acp's last request), every
+(`request`: Claude Code's per-message usage; codex-acp's last request; with
+`message_id` and `harness_session`, Claude Code's session id, which the
+subrouter pins an account to: its responses name no account, so these two
+ids are what joins a cache miss to the subrouter's session assignment
+`GET /_subrouter/sessions` (admin) and its proxy log), every
 tool call (`tool`: name, argument bytes, result bytes, ok/error, ms from
 acpmux's event times), every compactor node (`node`: ms, prompts, usage, cost,
 ok, context hash and piece hashes), every subagent step (`spawn`,
@@ -381,6 +386,7 @@ $MUX_HOME/optchat/memory-jsonl-backup-<stamp>/  the old JSONL files of a migrate
 $MUX_HOME/optchat/backup.json     the last backup outcome (ok, held with its text, retrying, off)
 $MUX_HOME/optchat/backup-allow.txt  message ids or summary names whose possible secret the user allowed
 $MUX_HOME/optchat/settings.json   per-Chief settings: {"backup": {"remote": true|false}}
+$MUX_HOME/optchat/person.md       the person profile: who the user is and how they want work done; written once with a default, then the user's (read at host start)
 $MUX_HOME/optchat/AGENTS.md       the user's own instructions, the end of the system prompt (read at host start)
 $MUX_HOME/optchat/memory.html     `optchat-chief browse` output
 $MUX_HOME/optchat/host.json.imported  the old host state, moved into memory.sqlite3 at the first start
@@ -410,8 +416,16 @@ $TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working dir
 user pasted.
 
 The system prompt (and the acpmux session's `CLAUDE.md`) is the spec's MASTER
-and VIEW_DOC (agent renamed "Chief"), a short cmux section, then
-`$MUX_HOME/optchat/AGENTS.md` when it exists. The files
+and VIEW_DOC (agent renamed "Chief"), a short cmux section, then the person
+profile (`$MUX_HOME/optchat/person.md`) and `$MUX_HOME/optchat/AGENTS.md` when
+it exists. The Chief runs with no user CLAUDE.md, settings or hooks, so the
+profile is the one place that says how the user wants work done. A host start
+writes the default once when the file is missing (act without asking for safe
+operations; ask only for money, legal, physical or destructive actions; never
+build or test on this Mac, use the fleet or remote routes through a subagent);
+the user edits it, or empties it to drop it. Both files are read once per host
+start, so the cached prefix changes only when a file changed and the host
+restarted (`profile.json` is the app's avatar, a different file). The files
 this host writes (CLAUDE.md, the MCP tool list, the settings) are
 byte-identical across turns. The request the model gets is not fully ours:
 
@@ -727,7 +741,10 @@ steps with tiny outputs; Claude Code's own rolling marks win only past
 about 400 output tokens per step at 12 steps (32% cheaper at about 1k).
 Claude Code reads the setting at process start, so a turn cannot switch
 after its first step, and 11 of 13 real turns made 1-2 requests: every
-turn keeps our mark, and tool-heavy work goes to subagents. Subagents never carry our mark: their
+turn keeps our mark, and tool-heavy work goes to subagents (the prompt's
+"Turns" section says so: builds, tests, many tool calls and long work go to a
+subagent, one per ask, and a turn hands the rest on after about 8 tool calls).
+Subagents never carry our mark: their
 sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
@@ -819,7 +836,7 @@ The team subrouter serves Claude Code clients: a raw Messages API call for a
 Claude model gets `429 rate_limit_error` every time (checked live on
 2026-10-04), so a compactor that calls the API there builds no node that
 needs a model, and every turn then reads those lines unsummarized (a turn
-waits at most 10 s on compaction, see Deviations from the spec). The route is
+waits at most 1 s on compaction, see Deviations from the spec). The route is
 acpmux unless `OPTCHAT_COMPACTOR=api`:
 
 - `acpmux` (default):
@@ -1138,18 +1155,32 @@ the Too long retry, the 4-line cache blocks and single-flight. The replay
 test `optchat-core/tests/cache_replay.rs` pins the cache rate: turns 99.3%,
 compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 
-- Section 6, settle (chief 2026-10-10: a user turn never waits more than 10 s
-  on compaction). The spec starts no turn before every view line is a
-  summary. Here a turn waits at most `SETTLE_BOUND` (10 s) for lines that are
+- Section 6, settle (chief 2026-10-10: at most 10 s; hq-6d 2026-10-14, after
+  "the chief responds too slow": at most 1 s). The spec starts no turn before
+  every view line is a summary. Here a turn waits at most `SETTLE_BOUND` (1 s)
+  for lines that are
   still building, then starts and reads them as the placeholder (`zoom` opens
   them); the next turn reads their summaries. A node the compactor cannot
   build at all (a setup error such as a missing acpmux preset or a refused
   harness, or a request error on every try) is stuck at once and holds no
   turn; the Chief status says why. The class rule: a user message never
-  waits more than 10 s on the compactor (a turn's start and `spawn` alike).
+  waits more than 1 s on the compactor (a turn's start and `spawn` alike).
   Cost: a deferred turn's cache mark covers a view with placeholders, so the
   next turn, which reads the summaries there, misses the cache from that
-  line on once.
+  line on once. At 1 s, more turns defer: a quick follow-up may read the
+  previous turn's long messages as the placeholder and spend a `zoom` on
+  them. `PROGRESS_TICK` (2 s) is longer than the bound, so `settle.json`
+  (the app's "Organizing Chief history") never shows. Measured 2026-10-14
+  (chiefux on cmux-lawrence-2, 7 turns with a 3-message burst): settle
+  13-22 ms, no deferred turn, no zoom call; a busy compactor (an import) is
+  not measured.
+- **Turns paragraph.** The spec says "do the user's tasks yourself ... use
+  subagents only when the user asks". The Chief's base prompt replaces that
+  paragraph with `prompt.rs` `CHIEF_TURNS`: keep turns short, give builds,
+  tests, many tool calls and long work to one subagent per ask, hand the
+  rest on after about 8 tool calls. `optchat_core::TAELIN_PROMPT` stays the
+  spec text for its other users (optchat-host's Taelin/Cmux prompts, wasm,
+  cache replays).
 - **Claude Code compactor tools.** Compactions send the turns' system text,
   but a compactor session keeps `--tools ""` and deny-all (isolation), so
   on the Claude Code route its tool prefix differs from the turns' and it

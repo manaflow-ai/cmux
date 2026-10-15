@@ -19,7 +19,7 @@ use std::io::{IsTerminal, Read};
 /// picks between them (`resolve`).
 fn native_events(agent: &str, subcommand: &str) -> &'static [&'static str] {
     match (agent, subcommand) {
-        ("codex" | "grok" | "kimi", "prompt-submit") => &["UserPromptSubmit"],
+        ("codex" | "grok" | "kimi" | "muse", "prompt-submit") => &["UserPromptSubmit"],
         ("gemini", "prompt-submit") => &["BeforeAgent"],
         ("antigravity", "prompt-submit") => &["PreInvocation"],
         ("kiro", "prompt-submit") => &["userPromptSubmit"],
@@ -27,18 +27,18 @@ fn native_events(agent: &str, subcommand: &str) -> &'static [&'static str] {
         ("kiro", "session-start") => &["agentSpawn"],
         (
             "codex" | "grok" | "gemini" | "antigravity" | "copilot" | "codebuddy" | "factory"
-            | "qoder" | "kimi",
+            | "qoder" | "kimi" | "muse",
             "session-start",
         ) => &["SessionStart"],
         ("gemini", "stop") => &["AfterAgent"],
         ("kiro" | "cursor", "stop") => &["stop"],
         ("copilot" | "codebuddy" | "factory", "stop") => &["Stop", "Notification"],
-        ("codex" | "grok" | "antigravity" | "qoder" | "kimi", "stop") => &["Stop"],
-        ("kimi", "notification") => &["Notification", "StopFailure"],
+        ("codex" | "grok" | "antigravity" | "qoder" | "kimi" | "muse", "stop") => &["Stop"],
+        ("kimi" | "muse", "notification") => &["Notification", "StopFailure"],
         ("grok" | "antigravity", "notification") => &["Notification"],
         (
             "grok" | "gemini" | "antigravity" | "copilot" | "codebuddy" | "factory" | "qoder"
-            | "kimi",
+            | "kimi" | "muse",
             "session-end",
         ) => &["SessionEnd"],
         ("cursor", "agent-response") => &["afterAgentResponse"],

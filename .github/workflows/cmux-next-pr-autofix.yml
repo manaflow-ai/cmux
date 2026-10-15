@@ -1,7 +1,7 @@
 name: cmux-next PR autofix
 
 # Runs the base autofix's mechanical repairs (scripts/cmux-next/base-autofix.sh)
-# on a feat-cmux-next pull request's head, so a pull request lands with its
+# on the immutable merge tree for a feat-cmux-next pull request, so a pull request lands with its
 # generated files, formatting and pins already right instead of leaving them
 # to the base bot after the merge (cmux-next-base-autofix.yml stays the
 # backstop for merges that cross). Repairs that need a person stay with the
@@ -33,6 +33,9 @@ name: cmux-next PR autofix
 #     one commit to the pull request's branch.
 # No loop: a head that is already an autofix commit (its Autofix-Run trailer)
 # is not repaired again, and a repaired head has nothing left to repair.
+# Each job checks out github.sha, the merge commit created for this event. The
+# base SHA in the event payload is the matching immutable first parent; neither
+# is replaced by a moving branch tip during the run.
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -58,17 +61,27 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
+          # The freshness guard needs the true merge base, not a depth-1 head.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Autofix scripts from the base
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive FETCH_HEAD scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+          git archive "$BASE_SHA" scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+
+      - name: Refuse stale generator inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh"
+          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
+          "$checker" --base-ref "$BASE_SHA" --merge-ref HEAD
 
       # The same paths as repair's Changed areas step (the files API, an
       # autofix head repairs nothing); only the actions key is used.
@@ -83,7 +96,7 @@ jobs:
           # The base's copy, or the pull request's while the base has no actions area yet.
           areas="$RUNNER_TEMP/autofix/scripts/cmux-next/autofix-areas.sh"
           grep -q '^area actions ' "$areas" || areas=scripts/cmux-next/autofix-areas.sh
-          if git log -1 --format=%B | grep -q '^Autofix-Run: ' || ! grep -q '^area actions ' "$areas"; then
+          if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: ' || ! grep -q '^area actions ' "$areas"; then
             echo "actions=false" | tee -a "$GITHUB_OUTPUT"
           elif [ "$CHANGED_FILES" -ge 3000 ]; then
             "$areas" --all | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
@@ -100,7 +113,7 @@ jobs:
     name: action exports (Mac)
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -118,7 +131,8 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
           submodules: false
 
@@ -127,12 +141,20 @@ jobs:
 
       - name: Autofix scripts from the base
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive FETCH_HEAD scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+          git archive "$BASE_SHA" scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+
+      - name: Refuse stale generator inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh"
+          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
+          "$checker" --base-ref "$BASE_SHA" --merge-ref HEAD
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -213,23 +235,29 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
-      # The autofix's own scripts come from the base branch's tip, so a branch
-      # cut before they existed is repaired too; the generators they run are
-      # the pull request's own. Not pull_request.base.sha: GitHub leaves it at
-      # the base the PR last moved onto, which for #19029 was a day old and
-      # had no autofix-areas.sh.
+      # The autofix's own scripts come from the immutable base snapshot, and
+      # all generators run on the immutable merge tree for this event.
       - name: Autofix scripts from the base
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive FETCH_HEAD scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
+          git archive "$BASE_SHA" scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
           echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
+
+      - name: Refuse stale generator inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          checker="$AUTOFIX/check-generator-inputs.sh"
+          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
+          "$checker" --base-ref "$BASE_SHA" --merge-ref HEAD
 
       - name: Changed areas
         id: areas
@@ -239,7 +267,7 @@ jobs:
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
-          if git log -1 --format=%B | grep -q '^Autofix-Run: '; then
+          if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: '; then
             echo "The head is an autofix commit; nothing to repair." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -371,10 +399,29 @@ jobs:
         if: steps.areas.outputs.skip == 'false'
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          # Repairs ran on the merged tree. Replace the index with the PR head
+          # tree before staging so the artifact is a patch against the exact
+          # branch head; this avoids applying base-only context at push time.
           git add -A
-          git diff --cached --binary > "$RUNNER_TEMP/pr-autofix.patch"
+          mapfile -t changed < <(git diff --cached --name-only)
+          git read-tree "$HEAD_SHA"
+          tracked=() untracked=()
+          for path in "${changed[@]}"; do
+            if git cat-file -e "$HEAD_SHA:$path" 2>/dev/null; then
+              tracked+=("$path")
+            else
+              untracked+=("$path")
+            fi
+          done
+          : > "$RUNNER_TEMP/pr-autofix.patch"
+          if (( ${#tracked[@]} )); then git diff --binary -- "${tracked[@]}" >> "$RUNNER_TEMP/pr-autofix.patch"; fi
+          if (( ${#untracked[@]} )); then
+            git add -A -- "${untracked[@]}"
+            git diff --cached --binary -- "${untracked[@]}" >> "$RUNNER_TEMP/pr-autofix.patch"
+          fi
           cp "$RUNNER_TEMP/autofix.txt" "$RUNNER_TEMP/pr-autofix.txt"
           if [[ ! -s "$RUNNER_TEMP/pr-autofix.patch" ]]; then
             echo "Nothing to repair." | tee -a "$GITHUB_STEP_SUMMARY"

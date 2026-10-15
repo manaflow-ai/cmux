@@ -4,7 +4,7 @@
 //! terminal (its workspace), else the current workspace.
 //!
 //! ```text
-//! cmux status set [KEY] --label T [--target ws_…|current] [--state S] [--progress 0.4|40%]
+//! cmux status set [KEY] (TEXT | --label T) [--target ws_…|current] [--state S] [--progress 0.4|40%]
 //!                 [--style arc|native|dot|none] [--ttl 30s] [--pid N] [--keep | --owner none]
 //! cmux status clear [KEY] [--target …] [--all]
 //! cmux status list [--target …]
@@ -179,9 +179,20 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
     };
     let positional: Vec<&str> = positional.iter().map(String::as_str).collect();
     match (positional.as_slice(), argv) {
-        (["set"], None) | (["set", _], None) => {
+        (["set"], None) | (["set", _], None) | (["set", _, _], None) => {
             let key = positional.get(1).map_or_else(default_key, |key| (*key).to_owned());
-            let label = label.ok_or_else(|| UsageError::new("status set needs --label"))?;
+            // `status set KEY TEXT`, the `workspace status set` form, names the text
+            // positionally; --label is the same text.
+            let label = match (label, positional.get(2)) {
+                (Some(_), Some(_)) => {
+                    return Err(UsageError::new("status set takes TEXT or --label, not both"));
+                }
+                (Some(label), None) => label,
+                (None, Some(text)) => (*text).to_owned(),
+                (None, None) => {
+                    return Err(UsageError::new("status set needs TEXT or --label"));
+                }
+            };
             let mut extra = vec![key, label];
             extra.extend(passthrough);
             Ok(Status::Send(words(&["set"], extra)))

@@ -11,19 +11,25 @@ public struct AgentStatus: Sendable, Hashable, Decodable {
     public var session: String?
     public var agent: String?
     public var updatedAtMs: UInt64
+    /// When the agent entered `state` (Unix ms, `since_ms`); nil from an older daemon, whose
+    /// `updatedAtMs` moves with every report and says nothing about how long a state held.
+    public var sinceMs: UInt64?
 
-    public init(surface: SurfaceID, state: AgentState, source: String? = nil, session: String? = nil, agent: String? = nil, updatedAtMs: UInt64 = 0) {
+    public init(surface: SurfaceID, state: AgentState, source: String? = nil, session: String? = nil, agent: String? = nil,
+                updatedAtMs: UInt64 = 0, sinceMs: UInt64? = nil) {
         self.surface = surface
         self.state = state
         self.source = source
         self.session = session
         self.agent = agent
         self.updatedAtMs = updatedAtMs
+        self.sinceMs = sinceMs
     }
 
     enum CodingKeys: String, CodingKey {
         case surface, state, source, session, agent
         case updatedAtMs = "updated_at_ms"
+        case sinceMs = "since_ms"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -34,6 +40,7 @@ public struct AgentStatus: Sendable, Hashable, Decodable {
         session = try c.decodeIfPresent(String.self, forKey: .session)
         agent = try c.decodeIfPresent(String.self, forKey: .agent)
         updatedAtMs = try c.decodeIfPresent(UInt64.self, forKey: .updatedAtMs) ?? 0
+        sinceMs = try? c.decodeIfPresent(UInt64.self, forKey: .sinceMs)
     }
 }
 

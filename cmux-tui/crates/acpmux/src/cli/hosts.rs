@@ -350,13 +350,11 @@ fn ssh_host(url: &str) -> Option<String> {
     crate::peer::ssh_target(url).ok().map(|t| t.destination)
 }
 
-/// Fill `buf` from /dev/urandom; a failure aborts setup rather than writing
-/// a weak token.
+/// Fill `buf` from the OS random generator; a failure aborts setup rather
+/// than writing a weak token.
 fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
-    use std::io::Read;
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(buf))
-        .context("read /dev/urandom for the WebSocket token")
+    getrandom::fill(buf)
+        .map_err(|e| anyhow!("the OS random generator for the WebSocket token: {e}"))
 }
 
 #[cfg(test)]

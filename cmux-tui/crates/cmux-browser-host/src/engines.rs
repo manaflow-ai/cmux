@@ -212,6 +212,7 @@ impl HostEngines {
                 options
                     .extra_args
                     .extend(isolated.chromium_args().map_err(|e| unavailable("headless", &e))?);
+                options.egress_listener = isolated.listener_addr();
             }
             HeadlessSource::launch(&options, self.agent_source.clone(), &session.profile)
         })?;

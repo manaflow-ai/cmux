@@ -29,15 +29,20 @@ public struct SessionStateMirror: Sendable, Hashable {
         public var forward: [String] = []
         /// The user's icon for the tab (the shared icon wire string, `IconValue`), or nil.
         public var icon: String?
+        /// A browser tab's device emulation as the daemon resolved it
+        /// (`extra.emulation`, browser-devices-v1), or nil.
+        public var emulation: JSONValue?
 
-        public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil) {
+        public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil,
+                    emulation: JSONValue? = nil) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
             self.icon = icon
+            self.emulation = emulation
         }
 
-        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil }
+        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil }
     }
 
     /// Newest first, at most `closedLimit`.

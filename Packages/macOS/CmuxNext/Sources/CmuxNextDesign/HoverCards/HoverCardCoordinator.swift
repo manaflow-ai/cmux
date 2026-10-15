@@ -321,6 +321,7 @@ public final class HoverCardCoordinator {
             "monitor": "\(monitor != nil)",
             "sources": "\(sources.values.filter { $0.source != nil }.count)",
             "events": "\(eventCount)",
+            "card_text": panel.map { $0.isShowingCard ? $0.bodyLines.joined(separator: "\n") : "" } ?? "",
         ]
     }
 }

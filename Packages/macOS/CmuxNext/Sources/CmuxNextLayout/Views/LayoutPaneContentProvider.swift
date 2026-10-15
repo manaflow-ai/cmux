@@ -42,6 +42,8 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
+    var stripClipsDidChange: () -> Void = {}
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot

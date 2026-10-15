@@ -133,6 +133,17 @@
    ]
   },
   {
+   "name": "action.more.vertical",
+   "meaning": "More options (menu), vertical: the browser toolbar's More button",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='5.5' r='1.6'/><circle cx='12' cy='12' r='1.6'/><circle cx='12' cy='18.5' r='1.6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='5.5' r='2'/><circle cx='12' cy='12' r='2'/><circle cx='12' cy='18.5' r='2'/></svg>",
+   "alts": [],
+   "note": "action.more turned upright: the same dots, radius and spacing, on the vertical axis.",
+   "replaces": [
+    "ellipsis.vertical"
+   ]
+  },
+  {
    "name": "action.pause",
    "meaning": "Pause",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='6.288' y='5.25' width='3.635' height='13.5' rx='1.038'/><rect x='14.077' y='5.25' width='3.635' height='13.5' rx='1.038'/></svg>",

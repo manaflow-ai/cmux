@@ -33,7 +33,7 @@ export default agentPaneEntry({
         "The mock daemon's first session, the hero's removal and the first transcript mount share one frame on the CPU-only gallery VM (89-105 ms before and after the fix); this entry gates layout shift, the composer entries gate frame time.",
     },
   },
-  covers: ["agent-session/acpmux/conversation/Thinking.tsx", "agent-session/acpmux/conversation/turns.ts"],
+  covers: ["agent-session/acpmux/conversation/Thinking.tsx"],
   variants: {
     "send-to-streaming": {
       note: "Play: type a prompt in a new chat, send it, wait for Thinking, then for the streamed reply. Nothing in the composer moves.",

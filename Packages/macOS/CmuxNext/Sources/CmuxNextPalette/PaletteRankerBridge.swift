@@ -1,23 +1,19 @@
 public import Foundation
-import JavaScriptCore
+import CCmuxPaletteRankerFFI
 
-/// Errors raised while loading or invoking the shared TypeScript palette ranker.
+/// Errors raised while loading or invoking the shared palette ranker.
 public enum PaletteRankerBridgeError: Error, LocalizedError, Sendable {
-    /// The checked-in bridge bundle was not included in the palette resource bundle.
-    case resourceMissing
-    /// JavaScriptCore could not allocate a context for the bridge.
+    /// The Rust ranker could not allocate its handle.
     case runtimeUnavailable
-    /// The shared ranker threw while loading or processing a request.
+    /// The shared ranker refused a request.
     case runtimeFailed(String)
-    /// The bridge returned a value that is not a ranked-section payload.
+    /// The ranker returned a value that is not a ranked-section payload.
     case invalidResult
 
     public var errorDescription: String? {
         switch self {
-        case .resourceMissing:
-            "the shared palette ranker resource is missing"
         case .runtimeUnavailable:
-            "JavaScriptCore could not create a palette ranker context"
+            "the shared palette ranker could not be created"
         case .runtimeFailed(let message):
             "the shared palette ranker failed: \(message)"
         case .invalidResult:
@@ -26,46 +22,30 @@ public enum PaletteRankerBridgeError: Error, LocalizedError, Sendable {
     }
 }
 
-/// Thin native bridge to the shared TypeScript ranker.
+/// Thin native caller of the shared Rust ranker (cmux-tui/crates/cmux-palette-ranker, linked
+/// through CCmuxAppFFI).
 ///
-/// A bridge owns one JavaScriptCore context and is safe to use from the actor
-/// that owns it. The palette keeps ranking inputs and rendering in Swift, while
-/// the scoring, frecency and tie-breaking rules live in `webviews/src/palette`.
+/// A bridge owns one ranker handle and is safe to use from the actor that owns it. The palette
+/// keeps ranking inputs and rendering in Swift; scoring, frecency and tie-breaking live in Rust.
 public final class PaletteRankerBridge {
-    // crash-allow: JavaScriptCore is serialized by each owning actor or Mutex-protected ranker.
-    nonisolated(unsafe) private let context: JSContext
-    /// The index version whose entries the context holds (`__cmuxPaletteInstall`): a keystroke on
-    /// the same index sends only the query, not 2,000 entries to encode and parse again.
-    // crash-allow: serialized with `context` by the owning actor.
+    // crash-allow: the handle is serialized by each owning actor or Mutex-protected ranker.
+    nonisolated(unsafe) private let handle: OpaquePointer
+    /// The index version whose entries the ranker holds: a keystroke on the same index sends only
+    /// the query, not 2,000 entries to encode and parse again.
+    // crash-allow: serialized with `handle` by the owning actor.
     nonisolated(unsafe) private var installedVersion: Int?
-    /// How many times entries were sent to the context (tests).
-    // crash-allow: serialized with `context` by the owning actor.
-    nonisolated(unsafe) private(set) var entryInstalls = 0
 
-    /// Creates a bridge from the checked-in JavaScriptCore-compatible bundle.
+    /// Creates a bridge with its own ranker handle.
     nonisolated public init() throws {
-        guard let context = JSContext() else { throw PaletteRankerBridgeError.runtimeUnavailable }
-        guard let url = Bundle.module.url(forResource: "palette-ranker", withExtension: "js") else {
-            throw PaletteRankerBridgeError.resourceMissing
-        }
-        let source: String
-        do {
-            // concurrency-allow: the small checked-in bundle is read once while constructing a persistent bridge.
-            source = try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            throw PaletteRankerBridgeError.runtimeFailed("cannot read \(url.lastPathComponent): \(error)")
-        }
-        self.context = context
-        context.evaluateScript(source, withSourceURL: url)
-        if let exception = context.exception?.toString() {
-            throw PaletteRankerBridgeError.runtimeFailed(exception)
-        }
-        guard let function = context.objectForKeyedSubscript("__cmuxPaletteRank"), !function.isUndefined else {
-            throw PaletteRankerBridgeError.runtimeFailed("bridge entry point is missing")
-        }
+        guard let handle = cmux_palette_ranker_new() else { throw PaletteRankerBridgeError.runtimeUnavailable }
+        self.handle = handle
     }
 
-    /// Ranks a palette index through the shared TypeScript implementation.
+    nonisolated deinit {
+        cmux_palette_ranker_free(handle)
+    }
+
+    /// Ranks a palette index through the shared ranker.
     nonisolated public func rank(
         index: PaletteSearchIndex,
         version: Int? = nil,
@@ -102,10 +82,10 @@ public final class PaletteRankerBridge {
         ))
     }
 
-    /// Ranks an empty palette query through the shared TypeScript implementation.
+    /// Ranks an empty palette query through the shared ranker.
     ///
     /// - Parameter version: The snapshot identifier of `entries`. With one, the entries go to the
-    ///   context once per version (`__cmuxPaletteInstall`), shared with the typed queries of the
+    ///   ranker once per version (`cmux_palette_ranker_install`), shared with the typed queries of the
     ///   same snapshot; without one, every call sends them all.
     nonisolated public func rankEmpty(
         entries: [PaletteSearchEntry],
@@ -139,39 +119,34 @@ public final class PaletteRankerBridge {
         ))
     }
 
-    /// Sends `entries` to the context once for `version`.
+    /// Sends `entries` to the ranker once for `version`.
     nonisolated private func install(_ entries: [PaletteSearchEntry], version: Int) throws {
         let data = try JSONEncoder().encode(entries.map(PaletteRankerBridgeEntry.init))
-        guard let json = String(data: data, encoding: .utf8),
-              let function = context.objectForKeyedSubscript("__cmuxPaletteInstall"), !function.isUndefined else {
-            throw PaletteRankerBridgeError.runtimeFailed("bridge install entry point is missing")
+        let code = data.withUnsafeBytes { bytes in
+            cmux_palette_ranker_install(handle, Int64(version), bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
         }
-        context.exception = nil
-        function.call(withArguments: [version, json])
-        if let exception = context.exception?.toString() {
+        guard code == CMUX_PALETTE_RANKER_OK else {
             installedVersion = nil
-            throw PaletteRankerBridgeError.runtimeFailed(exception)
+            throw PaletteRankerBridgeError.runtimeFailed("entries were refused (\(code))")
         }
         installedVersion = version
-        entryInstalls += 1
     }
 
     nonisolated private func invoke(_ request: PaletteRankerBridgeRequest) throws -> [PaletteRankedSection] {
         let data = try JSONEncoder().encode(request)
-        guard let requestJSON = String(data: data, encoding: .utf8),
-              let function = context.objectForKeyedSubscript("__cmuxPaletteRank") else {
-            throw PaletteRankerBridgeError.invalidResult
+        var response: UnsafePointer<UInt8>?
+        var responseLength = 0
+        let code = data.withUnsafeBytes { bytes in
+            cmux_palette_ranker_rank(handle, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &response, &responseLength)
         }
-        context.exception = nil
-        let value = function.call(withArguments: [requestJSON])
-        if let exception = context.exception?.toString() {
-            throw PaletteRankerBridgeError.runtimeFailed(exception)
-        }
-        guard let resultJSON = value?.toString(), let resultData = resultJSON.data(using: .utf8) else {
-            throw PaletteRankerBridgeError.invalidResult
+        guard let response else { throw PaletteRankerBridgeError.invalidResult }
+        // The bytes stay valid until the next call on this handle: copy them now.
+        let body = Data(bytes: response, count: responseLength)
+        guard code == CMUX_PALETTE_RANKER_OK else {
+            throw PaletteRankerBridgeError.runtimeFailed(String(decoding: body, as: UTF8.self))
         }
         do {
-            let sections = try JSONDecoder().decode([PaletteRankerBridgeSection].self, from: resultData)
+            let sections = try JSONDecoder().decode([PaletteRankerBridgeSection].self, from: body)
             return sections.map { section in
                 PaletteRankedSection(
                     sectionIndex: section.sectionIndex,

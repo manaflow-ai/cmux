@@ -28,6 +28,7 @@ use open::{is_web_url, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
+mod agent_open;
 mod call;
 mod events;
 mod keybinding;
@@ -147,6 +148,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         && (target == "page" || target.starts_with("tab_"))
     {
         return parse_page(target, &args[2..]).map(Some);
+    }
+    if let Some(command) = agent_open::parse(args)? {
+        return Ok(Some(command));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -363,6 +367,11 @@ pub(super) fn run_action(
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
+        // `--` only separates the action's arguments from the CLI's options.
+        if flag == "--" {
+            index += 1;
+            continue;
+        }
         let Some(name) = flag.strip_prefix("--") else {
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
         };

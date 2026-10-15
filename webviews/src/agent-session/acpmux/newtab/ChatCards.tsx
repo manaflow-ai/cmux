@@ -89,9 +89,15 @@ export function ChatCards({
                   <span className="nt-card-age">{card.age}</span>
                 </span>
                 <span className="nt-card-title">{card.title}</span>
-                <span className="nt-card-message">
-                  {card.state === "idle" ? (card.message ?? "") : nt(`card.${card.state}`)}
-                </span>
+                {(card.state !== "idle" || card.message) && (
+                  <span className="nt-card-message">
+                    {card.state === "idle"
+                      ? card.message
+                      : card.state === "failed"
+                        ? t("header.failed")
+                        : nt(`card.${card.state}`)}
+                  </span>
+                )}
               </button>
             </ContextMenu>
           ))}

@@ -20,6 +20,9 @@ struct PaneSelectionPresenter {
             pane.surfaceWasDisplaced(key)
         }
         if pane.view.stripView.window != nil { pane.view.stripView.sync(fromModel: true) }
+        if pane.isFocusedInWorkspace, pane.showsLiveTerminal {  // keys typed meanwhile wait for its surface
+            pane.services.keyRouter.creationInputCoordinator.holdUntilShown(in: pane.view.window)
+        }
         pane.services.presentation.setNeedsShowSelected(pane)
     }
 }

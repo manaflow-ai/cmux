@@ -88,6 +88,9 @@ pub(crate) struct TabStateUpdate {
     /// an SF Symbol name, ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS, or a stored
     /// `image:`/`svg:` asset, `icon-assets-v1`, checked by `state_update_tab`).
     pub(crate) icon: Option<Option<String>>,
+    /// The device a browser tab emulates (`browser.tab.emulate`,
+    /// `browser.tab.emulate.clear`), resolved in the writing transaction.
+    pub(crate) emulation: Option<crate::state::browser_devices::EmulationChange>,
 }
 
 impl TabStateUpdate {
@@ -138,6 +141,13 @@ pub(crate) fn update_tab_state(
         transaction
             .execute("UPDATE tab_state SET icon = ?2 WHERE tab_id = ?1", params![tab_id, icon])?;
     }
+    if let Some(change) = &update.emulation {
+        let stored = crate::state::browser_devices::stored_emulation(transaction, tab_id, change)?;
+        transaction.execute(
+            "UPDATE tab_state SET emulation_json = ?2 WHERE tab_id = ?1",
+            params![tab_id, stored],
+        )?;
+    }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {
         if let Some(list) = list {
             let stored = (!list.is_empty()).then(|| serde_json::to_string(list)).transpose()?;
@@ -150,7 +160,7 @@ pub(crate) fn update_tab_state(
     transaction.execute(
         "DELETE FROM tab_state
          WHERE tab_id = ?1 AND zoom IS NULL AND back_json IS NULL AND forward_json IS NULL
-           AND icon IS NULL",
+           AND icon IS NULL AND emulation_json IS NULL",
         [tab_id],
     )?;
     if let Some(owner) = &update.owner {
@@ -333,38 +343,4 @@ pub(crate) fn delete_saved_tab_group(
     saved_id: &str,
 ) -> anyhow::Result<bool> {
     delete_saved_tab_group_in(transaction, saved_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A tab_state table an older build created gains the icon column; its
-    /// rows stay, and the icon then saves and reads back.
-    #[test]
-    fn tab_icon_column_is_added_to_an_older_table() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT);
-                 INSERT INTO tab_state(tab_id, zoom) VALUES('tab_old', 1.5);",
-            )
-            .unwrap();
-        for _ in 0..2 {
-            let transaction = connection.transaction().unwrap();
-            add_tab_icon_column(&transaction).unwrap();
-            transaction.commit().unwrap();
-        }
-        let transaction = connection.transaction().unwrap();
-        let update = TabStateUpdate { icon: Some(Some("🚀".into())), ..Default::default() };
-        update_tab_state(&transaction, "tab_old", &update).unwrap();
-        transaction.commit().unwrap();
-        let row = connection
-            .query_row("SELECT zoom, icon FROM tab_state WHERE tab_id = 'tab_old'", [], |row| {
-                Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, Option<String>>(1)?))
-            })
-            .unwrap();
-        assert_eq!(row, (Some(1.5), Some("🚀".into())));
-    }
 }

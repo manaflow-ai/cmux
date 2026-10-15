@@ -7,6 +7,8 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
     case unreachable
     /// This Mac's Chief (owner daemon or brain host) is not running.
     case localUnreachable
+    /// This Mac's brain was not running and has just been started.
+    case localStarting
     case forbidden
     case notConfigured
     case unsupported
@@ -28,6 +30,7 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
         switch self {
         case .unreachable: HomeEngineStrings.errorUnreachable
         case .localUnreachable: HomeEngineStrings.errorLocalUnreachable
+        case .localStarting: HomeEngineStrings.errorLocalStarting
         case .forbidden: HomeEngineStrings.errorForbidden
         case .notConfigured: HomeEngineStrings.errorNotConfigured
         case .unsupported: HomeEngineStrings.errorUnsupported

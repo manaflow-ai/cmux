@@ -85,7 +85,7 @@ fn zero_view_terminal_projections_restore_by_stable_content_identity() {
 }
 
 #[test]
-fn unread_projection_without_terminal_identity_is_rejected() {
+fn unread_projection_without_terminal_identity_restores_history_without_badge() {
     let projections = RegistryPublicProjections {
         notifications: vec![RegistryNotificationProjection {
             id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
@@ -107,8 +107,10 @@ fn unread_projection_without_terminal_identity_is_rejected() {
         frontend_projections: Vec::new(),
     };
 
-    let error = restore_public_projections(&empty_state(), projections).unwrap_err();
-    assert!(error.to_string().contains("omitted its terminal identity"));
+    let restored = restore_public_projections(&empty_state(), projections).unwrap();
+    assert_eq!(restored.notification_ledger.len(), 1);
+    assert_eq!(restored.notification_ledger[0].terminal_id, None);
+    assert!(restored.terminal_notifications.is_empty());
 }
 
 #[test]

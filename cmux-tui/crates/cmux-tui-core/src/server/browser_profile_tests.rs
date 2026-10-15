@@ -12,7 +12,11 @@ fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
         control: None,
     });
     let command: Command = serde_json::from_value(request)?;
-    handle_command(mux, mux.local_test_client(0), command, &writer)
+    // The cmux app's own connection: only it may delete a browser profile.
+    let client = mux.local_test_client(0);
+    origin_gate::set_role_for_test(mux, client, "main");
+    origin_gate::set_verified_app_for_test(mux, client, true);
+    handle_command(mux, client, command, &writer)
 }
 
 fn profiles_mux() -> Arc<Mux> {
@@ -165,4 +169,41 @@ fn deleting_a_browser_profile_clears_the_defaults_that_name_it() {
     assert!(workspace("w1")["browser_profile_id"].is_null());
     assert_eq!(workspace("w2")["browser_profile_id"], CLIENT);
     assert!(personal["profiles"][0]["browser_profile_id"].is_null());
+}
+
+/// cx-d0d.89: deleting a profile (only the person can, through the app) moves
+/// the browser tabs that named it to the default profile in the same commit,
+/// and each says so (`tab-changed`): no tab record names a deleted profile,
+/// whichever app (macOS, Linux, Windows) deleted it.
+#[test]
+fn deleting_a_browser_profile_moves_its_tabs_to_the_default_profile() {
+    let mux = profiles_mux();
+    let terminal = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+    run(&mux, json!({"cmd":"create-browser-profile","browser_profile":WORK,"name":"Work"}))
+        .unwrap();
+    let opened = run(
+        &mux,
+        json!({"cmd":"new-frontend-browser-tab","url":"https://example.com/work",
+               "engine":"webkit","pane":pane,"profile_id":WORK}),
+    )
+    .unwrap();
+    let surface = opened["surface"].as_u64().unwrap();
+    let profile_of = |mux: &Arc<Mux>| {
+        let tab = mux.surface(surface).unwrap();
+        mux.frontend_browser(&tab).unwrap().profile_id
+    };
+    assert_eq!(profile_of(&mux).as_deref(), Some(WORK));
+
+    let events = mux.subscribe();
+    let deleted =
+        run(&mux, json!({"cmd":"delete-browser-profile","browser_profile":WORK})).unwrap();
+    assert_eq!(profile_of(&mux), None, "the tab still names the deleted profile: {deleted}");
+    let announced = std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
+        matches!(event, MuxEvent::TreeDelta(delta)
+            if delta.kind == TreeDeltaKind::TabChanged
+                && delta.surface == Some(surface)
+                && delta.entity["browser_profile_id"].is_null())
+    });
+    assert!(announced, "no tab-changed for the tab that moved to the default profile");
 }

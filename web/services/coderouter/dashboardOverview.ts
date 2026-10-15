@@ -115,7 +115,7 @@ async function resolveCoderouterAuthorization(
       });
       if (!user) return null;
       const [authorized, authJson] = await Promise.all([
-        authorizedCoderouterTeams(user),
+        authorizedCoderouterTeams(user, signal),
         withStackAuthSpan(
           "get_auth_json",
           () => getStackServerApp().getAuthJson({

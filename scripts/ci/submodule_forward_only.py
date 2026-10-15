@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 MARKER_PREFIX = "submodule-forward-only: allow "
 FETCH_TIMEOUT_SECONDS = 15
+INIT_TIMEOUT_SECONDS = 60
 DEEPEN_CHUNK = 256
 MAX_DEEPEN_ROUNDS = 8
 
@@ -70,6 +71,26 @@ def submodule_paths() -> list[tuple[str, str]]:
     parser.read(".gitmodules")
     return [(parser[section]["path"], parser[section]["url"])
             for section in parser.sections() if parser.has_option(section, "path")]
+
+
+def initialize_changed_submodule(path: str) -> bool:
+    """Materialize one changed gitlink for the local ancestry check.
+
+    CI intentionally checks out the parent repository without submodules. A
+    changed gitlink is the only case that needs a local repository, and a
+    shallow recursive update keeps this fallback bounded. The caller treats
+    an update failure as a guard failure instead of silently falling back to a
+    less authoritative result.
+    """
+    result = run(
+        "git", "submodule", "update", "--init", "--depth", "1", "--recursive", "--", path,
+        timeout=INIT_TIMEOUT_SECONDS,
+    )
+    if result.returncode == 0:
+        return True
+    detail = result.stderr.strip() or result.stdout.strip() or "git submodule update failed"
+    print(f"FAIL {path}: could not initialize changed submodule: {detail}", file=sys.stderr)
+    return False
 
 
 def merge_base(base: str, head: str) -> str:
@@ -233,6 +254,9 @@ def main() -> int:
             continue
         if base_sha == new_sha:
             print(f"PASS {path}: unchanged at {new_sha}")
+            continue
+        if not initialize_changed_submodule(path):
+            failures += 1
             continue
         relation = (
             local_relation(path, base_sha, new_sha)

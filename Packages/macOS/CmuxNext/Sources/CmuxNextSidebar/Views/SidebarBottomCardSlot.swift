@@ -20,6 +20,7 @@ struct SidebarBottomCardSlot {
         update.onInstall = { [weak sidebar] in sidebar?.model.send(.installUpdate) }
         update.onAutomaticUpdates = { [weak sidebar] on in sidebar?.model.send(.setAutomaticUpdates(on)) }
         update.onOpenChanges = { [weak sidebar] in sidebar?.model.send(.openUpdateChanges) }
+        update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
         sidebar.addSubview(update)

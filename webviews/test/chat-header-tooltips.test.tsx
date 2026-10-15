@@ -37,6 +37,9 @@ test("every header button has a tooltip, with its shortcut when it has one; New 
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { ShortcutsContext } = await import("../src/agent-session/acpmux/shortcuts");
+  const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
+  // [+] New tab folds into "..." by default; shown here to check its button.
+  configureQuickActions({ quickActions: ["terminal", "browser", "newTab"] });
   const keycaps = { [HEADER_ACTIONS.terminal]: "⌘D", [HEADER_ACTIONS.browser]: "⇧⌘L" };
   root = createRoot(host);
   const render = (sideTabs: boolean) =>
@@ -74,4 +77,5 @@ test("every header button has a tooltip, with its shortcut when it has one; New 
   expect(host.querySelectorAll(".acpmux-header-tools button")[2]).toBe(newTab);
   expect(named()[2]).toEqual(["Hide tabs", "Hide tabs", null]);
   expect(newTab.getAttribute("aria-pressed")).toBe("true");
+  act(() => configureQuickActions({}));
 });

@@ -38,6 +38,15 @@ pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
 /// `conversation-snapshot` and `conversation-history`, and with
 /// `cloud-conversations-v1` also `cloud-conversation-thread` (cx-59n8.6).
 pub const CONVERSATION_THREAD_READ_CAPABILITY: &str = "conversation-thread-v1";
+/// Threads nest without a limit (`reply_to` is the parent, `thread_root` the
+/// top root; a reply to a thread reply joins its thread) and
+/// `conversation-link-resolve` opens a message permalink.
+pub const CONVERSATION_TREE_CAPABILITY: &str = "conversation-tree-v1";
+/// The local conversation owner on an authenticated WebSocket connection
+/// (static credential or approved pairing) as `user_local`, the same as on
+/// the Unix socket: `conversation-*` commands, `conversation.*` operations
+/// and the conversation events of `subscribe` (cmux#13742).
+pub const WS_CONVERSATIONS_CAPABILITY: &str = "ws-conversations-v1";
 /// `link_preview` message parts on the local conversation owner.
 pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
 
@@ -77,6 +86,13 @@ pub(super) struct ThreadParams {
     after_seq: u64,
     #[serde(default)]
     limit: Option<u32>,
+}
+
+/// `conversation-link-resolve`: the conversation and message a permalink
+/// names (`<scheme>://conversation/<id>[/message/<id>]`).
+#[derive(Deserialize)]
+pub(super) struct LinkResolveParams {
+    url: String,
 }
 
 /// Default page of `conversation-thread`.
@@ -184,9 +200,20 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
-fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+/// The agent-identity commands (`conversation-bind`, `conversation-agent-token`)
+/// and `conversation-import` stay on the Unix socket: a WebSocket client is
+/// the person, never an agent, and never rewrites history.
+fn require_unix(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
         mux.control_clients.is_unix(client),
+        "this conversation command requires a local Unix socket connection"
+    );
+    Ok(())
+}
+
+fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        mux.control_clients.is_owner_client(client),
         "local conversations require a trusted local connection"
     );
     Ok(())
@@ -242,7 +269,7 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
 
 pub(super) fn import(mux: &Mux, client: u64, params: ImportParams) -> anyhow::Result<Value> {
     anyhow::ensure!(!mux.is_remote_client(client), "conversation-import is local only");
-    require_local(mux, client)?;
+    require_unix(mux, client)?;
     anyhow::ensure!(
         mux.conversation_principal(client) == LOCAL_USER,
         "only the local user imports conversation history"
@@ -306,6 +333,19 @@ pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Re
     let page =
         mux.with_conversations(|store| store.thread(&conversation, &root, after_seq, limit))?;
     Ok(serde_json::to_value(page)?)
+}
+
+pub(super) fn link_resolve(
+    mux: &Mux,
+    client: u64,
+    params: LinkResolveParams,
+) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let link = cmux_conversation::parse_link(&params.url).ok_or_else(|| {
+        anyhow::anyhow!("bad request: url is not a cmux conversation or message link")
+    })?;
+    let resolved = mux.with_conversations(|store| store.resolve_link(&link))?;
+    Ok(serde_json::to_value(resolved)?)
 }
 
 pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Result<Value> {
@@ -440,7 +480,7 @@ pub(super) fn publish_typing(
 }
 
 pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result<Value> {
-    require_local(mux, client)?;
+    require_unix(mux, client)?;
     let BindParams { participant, token } = params;
     anyhow::ensure!(participant.starts_with("agent_"), "only agent participants bind with a token");
     let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
@@ -454,7 +494,7 @@ pub(super) fn agent_token(
     client: u64,
     params: AgentTokenParams,
 ) -> anyhow::Result<Value> {
-    require_local(mux, client)?;
+    require_unix(mux, client)?;
     anyhow::ensure!(
         mux.conversation_principal(client) == LOCAL_USER,
         "only the local user mints agent tokens"

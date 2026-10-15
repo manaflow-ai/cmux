@@ -3,18 +3,18 @@ public import Foundation
 /// The staged update card above the footer (UPDATE-CARD): the App fills it
 /// from the updater only while an update is staged or installing. The
 /// button sends `SidebarIntent.installUpdate`, the checkbox
-/// `setAutomaticUpdates`, "See all changes" `openUpdateChanges`, a link in
-/// the hover popover `openUpdateLink`.
-/// All text arrives localized.
+/// `setAutomaticUpdates`, its accessibility action "See all changes"
+/// `openUpdateChanges`, its x's menu items (UPDATE-CARD-CLOSE: hide until a
+/// newer version, remind me later) `noticeAction(card: id, action:)`. The full build, the highlights and "See all
+/// changes" are the hover popover's (Leo 2026-10-13: the card and the
+/// popover never repeat a fact). All text arrives localized.
 public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     /// "Update Ready".
     public var title: String
-    /// The short version and build date, nil when unknown.
+    /// The short version and build date ("nightly 3845050 · Oct 13"), nil when unknown.
     public var detail: String?
-    /// The first changelog lines.
-    public var lines: [String]
-    /// "See all changes" (`openUpdateChanges`): the What's New page for the
-    /// staged update; nil hides it.
+    /// "See all changes" (`openUpdateChanges`): an accessibility action of the card's button
+    /// only (the popup, which shows it, opens on hover); nil leaves it out.
     public var seeAllTitle: String?
     /// "Restart to Update", or "Installing…" while disabled.
     public var buttonTitle: String
@@ -25,13 +25,24 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     public var automaticUpdates: Bool
     /// The hover popover.
     public var notes: Notes
+    /// The card id its x's menu items are sent with (`noticeAction(card:action:)`).
+    public var id: String
+    /// The default ``id`` (UPDATE-CARD-CLOSE).
+    public static let cardID = "update-ready"
+    /// The x's tooltip and VoiceOver label; nil shows no x (while installing).
+    public var closeLabel: String?
+    /// The x's menu (and the card's right-click menu): each item sends
+    /// `noticeAction(card: id, action: item.id)`.
+    public var closeMenu: [SidebarNoticeCard.Action]
 
-    public init(title: String, detail: String? = nil, lines: [String] = [], seeAllTitle: String? = nil,
-                buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
-                automaticUpdates: Bool, notes: Notes) {
+    public init(title: String, detail: String? = nil, seeAllTitle: String? = nil, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
+                automaticUpdates: Bool, notes: Notes, id: String = SidebarUpdateCard.cardID, closeLabel: String? = nil,
+                closeMenu: [SidebarNoticeCard.Action] = []) {
+        self.id = id
+        self.closeLabel = closeLabel
+        self.closeMenu = closeMenu
         self.title = title
         self.detail = detail
-        self.lines = lines
         self.seeAllTitle = seeAllTitle
         self.buttonTitle = buttonTitle
         self.isEnabled = isEnabled

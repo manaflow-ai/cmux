@@ -14,7 +14,7 @@ public struct SettingsAnchor: Hashable, Sendable {
         self.id = id
     }
 
-    /// A schema row; its id is the cmux.json key (`tabs.newTabKind`).
+    /// A schema row; its id is the cmux.json key (`tabs.newTabPosition`).
     public static func setting(_ descriptor: SettingDescriptor) -> SettingsAnchor {
         SettingsAnchor(section: descriptor.section, id: descriptor.id)
     }
@@ -36,7 +36,7 @@ public struct SettingsAnchor: Hashable, Sendable {
     public var isHeader: Bool { id == Self.header(section).id }
 
     /// The anchor `key` names (the deep link `openSettings setting:`): a
-    /// cmux.json key path (`tabs.newTabKind`), a card (`theme` or
+    /// cmux.json key path (`tabs.newTabPosition`), a card (`theme` or
     /// `card.theme`), a section header (`section.keyboard`), or an action
     /// button (`importFromBrowser`, or its anchor id). Nil when Settings
     /// shows no such thing.

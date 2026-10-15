@@ -74,7 +74,7 @@ enum DebugNewTab {
             spares.append(.object(entry))
         }
         return .object([
-            "likely": .bool(pool.isLikely), "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
+            "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,

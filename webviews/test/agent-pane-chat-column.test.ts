@@ -1,0 +1,415 @@
+// l10n-allow-file: test fixture prompts, replies and commands, not shipped UI.
+// The agent chat reads in one column (Leo 2026-10-13, cmux NEXT): the transcript and the composer
+// share one column, inset from the pane by the page edge (--page-edge, #20121) and wider in wide
+// panes, as Codex and Claude desktop do. While a reply streams the view stays at its latest line
+// unless the reader scrolls up, and nothing it shows moves when a queue appears or a row opens.
+//
+// A prompt is a solid bubble on the composer's surface, its text inset evenly, with one Copy on
+// hover; a tool row shows none (a turn's answer has its own in the footer).
+//
+// Before: the transcript's rows used a 720px column inside 26.5px gutters and the composer a 760px
+// column inside 16px ones, so their edges never met and the narrow-pane inset was neither. The
+// bubble was a 5% tint the wallpaper showed through, 16px from its sides and 10.5px from its top,
+// on a 16px radius, and a hover showed a second Copy over it.
+//
+// Each frame is read after it paints (a task queued from requestAnimationFrame), so a layout fixed
+// by a ResizeObserver before paint is not a jump, and one fixed a frame late is. Growth glides in
+// (the thread slides up from below), so a followed view is judged by its text: it only moves up,
+// and comes to rest at the end.
+//
+// The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("agent-pane-chat-column: skipping (run `bunx playwright install chromium`)");
+    describe.skip("chat column", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+
+  const START = Date.UTC(2026, 9, 13, 9, 0, 0);
+  const paragraph = (index: number) =>
+    `Paragraph ${index}. A client that fails waits a little longer before each retry, and adds a ` +
+    "random jitter so a crowd of clients does not retry in step.\n\n";
+  const update = (update: Record<string, unknown>) => ({
+    method: "session/update",
+    params: { sessionId: "agent-1", update },
+  });
+  const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+  const OUTPUT = Array.from({ length: 14 }, (_, index) => `build/step-${index}.o`).join("\n");
+
+  type Socket = { send(data: string): void };
+  type Chat = { id: string; seq: number; events: Record<string, unknown>[]; ws?: Socket };
+  const chats = new Map<string, Chat>();
+  const summary = (chat: Chat) => ({
+    sessionId: chat.id,
+    cwd: "/home/dev/sun",
+    title: "Backoff",
+    harness: "codex",
+    family: "codex",
+    status: "running",
+    steering: true,
+    turnCount: 1,
+    updatedAt: START,
+  });
+  const record = (chat: Chat, dir: string, kind: string, msg: Record<string, unknown>) => {
+    const event = { sessionId: chat.id, seq: ++chat.seq, at: START + chat.seq * 1000, dir, kind, msg };
+    chat.events.push(event);
+    return event;
+  };
+  /// A chat a turn is running in: a prompt, a command with output to open, and a long reply so far.
+  function newChat(): Chat {
+    const chat: Chat = {
+      id: `0190a000-0000-7000-8000-${String(chats.size + 1).padStart(12, "0")}`,
+      seq: 0,
+      events: [],
+    };
+    chats.set(chat.id, chat);
+    record(chat, "mux", "user_message", { text: "Why does the build retry?", promptId: "p-1" });
+    record(chat, "mux", "turn_started", {});
+    record(
+      chat,
+      "in",
+      "tool_call",
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: "c1",
+        title: "ls build",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "ls build" },
+      }),
+    );
+    record(
+      chat,
+      "in",
+      "tool_call_update",
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "c1",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: OUTPUT } }],
+      }),
+    );
+    for (let index = 1; index <= 24; index++) record(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
+    return chat;
+  }
+  /// One more record, live to the page.
+  const push = (chat: Chat, dir: string, kind: string, msg: Record<string, unknown>) =>
+    chat.ws!.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(chat, dir, kind, msg) }));
+
+  let daemon: ReturnType<typeof Bun.serve> | undefined;
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  beforeAll(async () => {
+    daemon = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request, server) {
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+      },
+      websocket: {
+        message(ws, raw) {
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          const chat = chats.get(String(message.params?.sessionId ?? "")) ?? [...chats.values()].at(-1)!;
+          let result: unknown = null;
+          if (message.method === "initialize")
+            result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+          else if (message.method === "_acpmux/watch") result = { sessions: [summary(chat)] };
+          else if (message.method === "_acpmux/attach") {
+            chat.ws = ws;
+            result = { session: summary(chat), lastSeq: chat.seq, events: chat.events };
+          } else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: chat.seq };
+          if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+        },
+      },
+    });
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+    // A cold dev server's first load can stall in CI: load it here, again if it stalls.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const page = await open(newChat(), 900);
+        await page.close();
+        break;
+      } catch (error) {
+        if (attempt === 3) throw error;
+      }
+    }
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+    await daemon?.stop(true);
+  });
+
+  async function open(chat: Chat, width: number, height = 700): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width, height } });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}`);
+    await page.getByText("Paragraph 24.", { exact: false }).waitFor({ timeout: 25_000 });
+    // Rows place by their drawn heights a frame after they mount.
+    await page.waitForTimeout(300);
+    return page;
+  }
+
+  /// What a painted frame shows: how far the view sits above the transcript's end, where it is
+  /// scrolled to, and how far the last line of text sits above the view's bottom; or, given
+  /// `text`, the top of the row that holds it.
+  type Frame = { fromEnd: number; scrollTop: number; lastLine: number; top: number | null };
+  /// Reads every painted frame until `stop`.
+  const watch = (page: Page, text?: string) =>
+    page.evaluate((text) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const sample = () => {
+        const view = scroller.getBoundingClientRect();
+        const lines = [...scroller.querySelectorAll("p")];
+        const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
+        const row = text
+          ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
+            [...scroller.querySelectorAll(".acpmux-row")].find(holds))
+          : undefined;
+        return {
+          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+          scrollTop: Math.round(scroller.scrollTop),
+          lastLine: Math.round(view.bottom - (lines.at(-1)?.getBoundingClientRect().bottom ?? view.bottom)),
+          top: row ? Math.round(row.getBoundingClientRect().top) : null,
+        };
+      };
+      const frames: unknown[] = [];
+      (window as any).__frames = frames;
+      const tick = () => {
+        if ((window as any).__frames !== frames) return;
+        setTimeout(() => frames.push(sample()), 0);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, text);
+  const stop = async (page: Page): Promise<Frame[]> => {
+    await page.waitForTimeout(250);
+    return page.evaluate(() => {
+      const frames = (window as any).__frames as unknown[];
+      (window as any).__frames = undefined;
+      return frames as never;
+    });
+  };
+  /// The frames whose text moved down on screen from the frame before: a jump back.
+  const movedDown = (frames: Frame[]) =>
+    frames.flatMap((frame, index) =>
+      index > 0 && frame.top !== null && frames[index - 1]!.top !== null && frame.top > frames[index - 1]!.top! + 1
+        ? [[frames[index - 1]!, frame]]
+        : [],
+    );
+  /// How far the newest line may rest from where the last one did: lines are 22.75px and rows are
+  /// placed by their drawn heights, so the end can settle a few pixels off; a jump is a line.
+  const REST_SLACK = 4;
+  /// The first frame read, before anything streams: the view at rest at the end.
+  const restingFrame = async (page: Page): Promise<Frame> => {
+    await page.waitForTimeout(100);
+    return page.evaluate(() => ((window as any).__frames as Frame[])[0]!);
+  };
+  /// The frames whose view moved back up from the frame before.
+  const backwards = (frames: Frame[]) =>
+    frames.flatMap((frame, index) =>
+      index > 0 && frame.scrollTop < frames[index - 1]!.scrollTop - 1 ? [[frames[index - 1]!, frame]] : [],
+    );
+
+  /// Scrolls to the transcript's start as a reader does, so its first rows mount.
+  async function toStart(page: Page) {
+    await page.locator(".acpmux-scroll").hover();
+    for (let step = 0; step < 6; step++) await page.mouse.wheel(0, -4000);
+    await page.waitForTimeout(300);
+  }
+  /// The command's toggle, at the start of the turn.
+  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
+
+  test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
+    const chat = newChat();
+    const columns: Record<number, { main: number; row: number[]; composer: number[] }> = {};
+    for (const width of [480, 900, 1400, 1900]) {
+      const page = await open(chat, width);
+      columns[width] = await page.evaluate(() => {
+        const main = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+        const edges = (selector: string) => {
+          const box = document.querySelector(selector)!.getBoundingClientRect();
+          return [Math.round(box.left - main.left), Math.round(main.right - box.right)];
+        };
+        return {
+          main: Math.round(main.width),
+          row: edges(".acpmux-row.acpmux-assistant"),
+          composer: edges(".acpmux-composer-box"),
+        };
+      });
+      await page.close();
+    }
+    const pageEdge = 18;
+    const column = (viewport: number) => {
+      const { main, row } = columns[viewport]!;
+      return main - row[0]! - row[1]!;
+    };
+    // The composer's card spans the same column as the transcript's rows, at every width.
+    for (const [viewport, { row, composer }] of Object.entries(columns))
+      expect({ viewport, composer }).toEqual({ viewport, composer: row });
+    // A narrow pane leaves the page edge on each side.
+    expect(columns[480]!.row).toEqual([pageEdge, pageEdge]);
+    // A wide pane gives the column more room, to a readable cap; it stays centered.
+    expect(column(1900)).toBeGreaterThan(column(900));
+    expect(column(1900)).toBeLessThanOrEqual(800);
+    expect(Math.abs(columns[1900]!.row[0]! - columns[1900]!.row[1]!)).toBeLessThanOrEqual(1);
+  });
+
+  test("a streaming reply keeps the view at its end, through a growing command and a queue", async () => {
+    const chat = newChat();
+    const page = await open(chat, 900);
+    await watch(page, "Paragraph 20.");
+    const atRest = await restingFrame(page);
+    for (let index = 25; index <= 34; index++) {
+      push(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
+      if (index === 28) push(chat, "mux", "queued", { promptId: "q-1", text: "Then add a test for the jitter" });
+      if (index === 30) push(chat, "mux", "queued", { promptId: "q-2", text: "And document the cap" });
+      await page.waitForTimeout(60);
+    }
+    await page.locator(".acpmux-queued", { hasText: "document the cap" }).waitFor();
+    const frames = await stop(page);
+    // The text only ever moves up while it follows the reply, and the view rests at the end.
+    expect(movedDown(frames)).toEqual([]);
+    expect(backwards(frames)).toEqual([]);
+    expect(Math.abs(frames.at(-1)!.lastLine - atRest.lastLine)).toBeLessThanOrEqual(REST_SLACK);
+    await page.close();
+  });
+
+  test("scrolled up, the view stays where the reader left it while the reply streams and a queue appears", async () => {
+    const chat = newChat();
+    const page = await open(chat, 900);
+    await page.locator(".acpmux-scroll").hover();
+    await page.mouse.wheel(0, -900);
+    await page.waitForTimeout(300);
+    const anchor = "Paragraph 12.";
+    await watch(page, anchor);
+    for (let index = 25; index <= 30; index++) {
+      push(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
+      if (index === 27) push(chat, "mux", "queued", { promptId: "q-1", text: "Then add a test for the jitter" });
+      await page.waitForTimeout(60);
+    }
+    await page.locator(".acpmux-queued").waitFor();
+    const tops = (await stop(page)).map((frame) => frame.top);
+    expect(tops.length).toBeGreaterThan(5);
+    expect(new Set(tops)).toEqual(new Set([tops[0]!]));
+    await page.close();
+  });
+
+  test("opening a command's output keeps the command under the pointer", async () => {
+    const chat = newChat();
+    const page = await open(chat, 900);
+    await toStart(page);
+    const command = commandToggle(page);
+    await command.waitFor();
+    await watch(page, "ls build");
+    await command.click();
+    await page.getByText("build/step-13.o").waitFor();
+    const tops = (await stop(page)).map((frame) => frame.top);
+    expect(new Set(tops)).toEqual(new Set([tops[0]!]));
+    await page.close();
+  });
+
+  test("a reply streamed a few words at a time scrolls smoothly: its last line holds still at the bottom", async () => {
+    const chat = newChat();
+    const page = await open(chat, 900);
+    await watch(page, "Paragraph 20.");
+    const atRest = await restingFrame(page);
+    const words = (paragraph(25) + paragraph(26) + paragraph(27)).split(/(?<= )/);
+    for (let index = 0; index < words.length; index += 3) {
+      push(chat, "in", "agent_message_chunk", chunk(words.slice(index, index + 3).join("")));
+      await page.waitForTimeout(16);
+    }
+    await page.getByText("Paragraph 27.", { exact: false }).waitFor();
+    const frames = await stop(page);
+    // Each new line glides the text up (acp-streaming.md "Scroll"): never down and back, never more
+    // than a line in one frame, and the newest line comes to rest where the last one did.
+    expect(movedDown(frames)).toEqual([]);
+    expect(backwards(frames)).toEqual([]);
+    const steps = frames.slice(1).map((frame, index) => (frames[index]!.top ?? 0) - (frame.top ?? 0));
+    expect(Math.max(...steps)).toBeLessThanOrEqual(23);
+    expect(Math.abs(frames.at(-1)!.lastLine - atRest.lastLine)).toBeLessThanOrEqual(REST_SLACK);
+    await page.close();
+  });
+
+  test("a prompt is a solid bubble with its text inset evenly, at the column's right edge", async () => {
+    const page = await open(newChat(), 900);
+    const bubble = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".cv-user__bubble")!;
+      const box = node.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const lines = [...range.getClientRects()];
+      const text = {
+        left: Math.min(...lines.map((line) => line.left)),
+        top: Math.min(...lines.map((line) => line.top)),
+        bottom: Math.max(...lines.map((line) => line.bottom)),
+      };
+      // How opaque the fill is, as the page paints it.
+      const canvas = document.createElement("canvas").getContext("2d")!;
+      canvas.fillStyle = getComputedStyle(node).backgroundColor;
+      canvas.fillRect(0, 0, 1, 1);
+      const row = node.closest(".acpmux-row")!.getBoundingClientRect();
+      return {
+        alpha: canvas.getImageData(0, 0, 1, 1).data[3],
+        radius: parseFloat(getComputedStyle(node).borderTopLeftRadius),
+        left: Math.round(text.left - box.left),
+        top: Math.round(text.top - box.top),
+        bottom: Math.round(box.bottom - text.bottom),
+        right: Math.round(row.right - box.right),
+      };
+    });
+    expect(bubble.alpha).toBe(255);
+    expect(bubble.radius).toBeLessThanOrEqual(12);
+    expect(bubble.left).toBeGreaterThanOrEqual(10);
+    expect(bubble.left).toBeLessThanOrEqual(12);
+    expect(Math.abs(bubble.top - bubble.left)).toBeLessThanOrEqual(2);
+    expect(Math.abs(bubble.bottom - bubble.left)).toBeLessThanOrEqual(2);
+    expect(bubble.right).toBe(0);
+    await page.close();
+  });
+
+  test("a hover shows one Copy on a prompt and none on a tool row", async () => {
+    const page = await open(newChat(), 900);
+    /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
+    const shown = (text: string) =>
+      page.evaluate((text) => {
+        const row = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((node) =>
+          node.textContent?.includes(text),
+        )!;
+        return [...row.querySelectorAll<HTMLElement>("button")].filter((button) => {
+          if (!/^Cop(y|ied)$/.test(button.getAttribute("aria-label") ?? "")) return false;
+          for (let node: HTMLElement | null = button; node && node !== row.parentElement; node = node.parentElement)
+            if (Number(getComputedStyle(node).opacity) === 0 || getComputedStyle(node).visibility === "hidden")
+              return false;
+          return true;
+        }).length;
+      }, text);
+    await toStart(page);
+    const prompt = page.locator(".acpmux-row.acpmux-user").first();
+    await prompt.hover();
+    await page.waitForTimeout(250);
+    const onPrompt = await shown("Why does the build retry?");
+    await commandToggle(page).hover();
+    await page.waitForTimeout(250);
+    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
+    await page.close();
+  });
+});

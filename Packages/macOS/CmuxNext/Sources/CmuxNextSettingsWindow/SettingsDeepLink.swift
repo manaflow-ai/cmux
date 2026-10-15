@@ -4,7 +4,7 @@ import Foundation
 
 /// The arguments of Settings… (`openSettings`): an optional page, and an
 /// optional setting to scroll to and highlight, from the palette, the menu,
-/// or `cmux action run openSettings --arg setting=tabs.newTabKind`.
+/// or `cmux action run openSettings --arg setting=tabs.newTabPosition`.
 public struct SettingsDeepLink: Equatable, Sendable {
     public var section: SettingsSection?
     /// A cmux.json key path, or another name `SettingsAnchor(key:)`

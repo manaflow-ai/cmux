@@ -79,10 +79,12 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
-        blocks: Vec<Value>,
+        mut blocks: Vec<Value>,
         control: Control,
         trust_gate: bool,
     ) -> bool {
+        // Only `session/prompt` adds a hidden context (prompt_context.rs).
+        crate::prompt_context::strip_marks(&mut blocks);
         let text = prompt_text(&blocks);
         let (turn_id, run) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

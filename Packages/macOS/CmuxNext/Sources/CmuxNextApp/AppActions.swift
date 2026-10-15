@@ -52,6 +52,7 @@ enum AppActions {
         TabIconHandlers.bind(into: registry, context: context)
         TabGroupHandlers.bind(into: registry, context: context)
         GroupIconHandlers.bind(into: registry, context: context)
+        MachineIconHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
         ColumnHandlers.bind(into: registry, context: context)
         ColumnDocking.bind(into: registry, context: context)
@@ -129,7 +130,7 @@ enum AppActions {
         registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
         registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
-        registry.bind("newWindow") { services.windows.newWindow() }
+        registry.bind("newWindow") { services.windows.newWindow(holdingKeysFrom: services.windows.active?.window) }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.performClose(nil)

@@ -1,6 +1,6 @@
 /// `mobile.*` in cmux.json: phones reaching this Mac. `allowIPhoneConnections`
-/// (off by default) lets the app run its cmux cnx iPhone host while an
-/// account is signed in, so the cmux cnx app on the same account's iPhone
+/// (off by default) lets the app run its cmux iPhone host while an
+/// account is signed in, so the cmux app on the same account's iPhone
 /// can open this Mac's workspaces, terminals and agent chats. Only the
 /// person turns it on (agent policy `userOnly`).
 public nonisolated struct MobileSettings: Sendable, Equatable {
@@ -27,10 +27,10 @@ nonisolated enum MobileSettingsSchema {
                 MobileSettings.allowIPhoneConnectionsPath, section: .accounts, group: group,
                 title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
                 help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help",
-                                         "Lets the cmux cnx app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."),
+                                         "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."),
                 summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
                 kind: .toggle, default: .bool(MobileSettings().allowIPhoneConnections),
-                keywords: ["iphone", "phone", "mobile", "cnx", "remote", "connect"]
+                keywords: ["iphone", "phone", "mobile", "remote", "connect"]
             ),
         ]
     }

@@ -219,12 +219,21 @@ pub mod method {
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
+    /// The person's phones that may sign an allow (`hub/approvers.rs`).
+    pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
+    pub const MUX_APPROVERS: &str = "_acpmux/approvers";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
     pub const MUX_SET_POLICY: &str = "_acpmux/set_policy";
     pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
     pub const MUX_TAG: &str = "_acpmux/tag";
+    /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
+    /// the `archived` tag, valued with when (milliseconds), set or removed.
+    pub const MUX_ARCHIVE: &str = "_acpmux/archive";
+    /// New side chat: tags the fork `sessionId` as a side chat of `chat` (the
+    /// `side` tag, valued with that session), which keeps it off the lists.
+    pub const MUX_SIDE: &str = "_acpmux/side";
     pub const MUX_WAIT: &str = "_acpmux/wait";
     /// Start the agent children for the most recent project sessions.
     pub const MUX_WARM: &str = "_acpmux/warm";

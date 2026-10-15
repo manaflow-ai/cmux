@@ -46,6 +46,9 @@ pub(crate) struct BatchCloseRequest<'a> {
     /// The request's own result, stored for its replay (`layout.bulk`);
     /// None: the closed surfaces and the ended terminals.
     pub result: Option<Value>,
+    /// `close-workspace` `if_empty`: refuse (`workspace_not_empty`) when the
+    /// target workspace has a tab at commit time.
+    pub if_empty: bool,
 }
 
 /// The space delete a batch close is part of (SPACE-DELETE-CLOSES-ITS-
@@ -173,6 +176,10 @@ impl Mux {
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
+        if let BatchCloseTarget::Workspace(workspace) = &request.target {
+            let index = state.workspace_index(*workspace).context("close target disappeared")?;
+            Self::require_empty_workspace_for_close(&state, index, request.if_empty)?;
+        }
 
         let mut tab_groups = None;
         let mut plan = match &request.target {
@@ -467,6 +474,7 @@ impl Mux {
             record_closed: reason.is_none(),
             room: None,
             result: None,
+            if_empty: false,
         })
     }
 
@@ -494,6 +502,7 @@ impl Mux {
             record_closed: true,
             room: Some(room),
             result: None,
+            if_empty: false,
         })
     }
 
@@ -524,6 +533,7 @@ impl Mux {
             record_closed: true,
             room: None,
             result: Some(result),
+            if_empty: false,
         })
     }
 
@@ -560,6 +570,7 @@ impl Mux {
             record_closed: true,
             room: None,
             result: None,
+            if_empty: false,
         })
     }
 
@@ -581,12 +592,14 @@ impl Mux {
             expected_revision,
             mutation,
             None,
+            false,
         )
     }
 
     /// Same, with an optional `reason` (`close-reason-v1`): a `session_end` close commits the
     /// same way but is not recorded in the closed history. The reason is part of the request a
     /// key names.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_workspace_ending_terminals_for(
         &self,
         target: Option<WorkspaceId>,
@@ -595,6 +608,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         reason: Option<CloseReason>,
+        if_empty: bool,
     ) -> anyhow::Result<(WorkspaceMutationResult, BatchCloseOutcome)> {
         let mut fingerprint = json!({
             "op": "close-workspace",
@@ -642,6 +656,7 @@ impl Mux {
             record_closed: reason.is_none(),
             room: None,
             result: None,
+            if_empty,
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,

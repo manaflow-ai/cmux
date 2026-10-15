@@ -17,6 +17,9 @@ mod todo_plan;
 // Claude's background shells ending, which share these helpers too.
 #[path = "background_task.rs"]
 mod background_task;
+// Claude's Agent tool as a subagent session, which shares these helpers too.
+#[path = "claude_subagents.rs"]
+mod claude_subagents;
 
 const FORK_OP: &str = "acp.session.fork";
 

@@ -244,6 +244,8 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
         let install = flags
             .get("--install")
             .ok_or_else(|| anyhow!("this state directory has no link yet: give --install ID"))?;
+        // An install that comes back gets its own archived key and peers.
+        state.restore_install(install)?;
         state.init(&LinkConfig { install: install.clone(), port: port.unwrap_or(DEFAULT_PORT) })?;
         return Ok(false);
     }
@@ -435,6 +437,25 @@ fn stop_live(state: &LinkState) -> anyhow::Result<bool> {
         bail!("stop_timeout: link {} did not exit within {STOP_BUDGET:?}", live.pid);
     }
     Ok(true)
+}
+
+/// `link archive --state-dir D`: after a sign-out, the install's key and
+/// peers go into its archive and the config goes. Refused while the link
+/// of D runs (stop it first).
+pub(super) fn run_archive(flags: &Flags) -> anyhow::Result<()> {
+    let state = super::state(flags)?;
+    let _lock = ensure_lock(&state)?;
+    if live(&state).is_some() {
+        bail!("link_running: stop the link before archiving its install");
+    }
+    if !state.has_config() {
+        print_json(&json!({"ok": true, "archived": false}));
+        return Ok(());
+    }
+    let install = state.config()?.install;
+    state.archive_install(&install)?;
+    print_json(&json!({"ok": true, "archived": true, "install": install}));
+    Ok(())
 }
 
 pub(super) fn run_stop(flags: &Flags) -> anyhow::Result<()> {

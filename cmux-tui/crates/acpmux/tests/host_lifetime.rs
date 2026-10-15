@@ -38,8 +38,11 @@ fn start_daemon(home: &Path) -> Child {
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
+        // No catalog fetch: a test never reaches the network, and the fetch's
+        // warning (a catalog server 404) came on stdout before the ready line.
+        .env("ACPMUX_CATALOG_FETCH", "0")
         .env_remove("ACPMUX_AGENT_HOSTS")
-        .env_remove("ACPMUX_LOGIN_ENV")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .env_remove("ACPMUX_LOCAL_ROUTER")
         .env_remove("XPC_SERVICE_NAME")
         .env_remove("ACPMUX_IDLE_CHILD_SECS")

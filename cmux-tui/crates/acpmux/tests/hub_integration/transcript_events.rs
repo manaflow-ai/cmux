@@ -183,6 +183,89 @@ async fn a_subagent_ending_mid_message_keeps_the_codex_retry() {
     assert_eq!(sup[0].msg["newMessageId"], "m2");
 }
 
+/// Codex subagents arrive as their own sessions with their own turns
+/// (Lawrence 2026-10-12, native subagents for Claude Code and Codex): acpmux
+/// asks codex-acp for native subagent sessions in the form it reads, so each
+/// child's updates reach the transcript under that child, not only "Start
+/// subagent" tool calls.
+#[tokio::test]
+async fn codex_subagents_arrive_as_sessions_with_their_own_updates() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "codex-subagents").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "codex-subagents", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let mux = |msg: &Value| msg.pointer("/params/_meta/acpmux").cloned();
+    let spawned: Vec<String> = events
+        .iter()
+        .filter_map(|e| mux(&e.msg))
+        .filter_map(|m| m.get("subagents").and_then(|s| s.as_array()).cloned())
+        .flatten()
+        .filter(|s| s["state"] == "running")
+        .map(|s| s["id"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        spawned,
+        ["child-a", "child-b"],
+        "{:?}",
+        events.iter().map(|e| &e.kind).collect::<Vec<_>>()
+    );
+    for child in ["child-a", "child-b"] {
+        let own: Vec<_> = events
+            .iter()
+            .filter(|e| mux(&e.msg).and_then(|m| m.get("subagent").cloned()) == Some(json!(child)))
+            .map(|e| e.kind.as_str())
+            .collect();
+        assert!(
+            own.contains(&"tool_call") && own.contains(&"agent_message_chunk"),
+            "{child}: {own:?}"
+        );
+    }
+}
+
+/// A subagent that outlives its parent's turn and asks for permission after
+/// that turn ended reaches the person, and its answer reaches the subagent
+/// (cx-jo8yo): Codex children run on their own and may ask between turns.
+#[tokio::test]
+async fn a_codex_subagent_asking_after_the_turn_ended_reaches_the_person() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "late-ask").await;
+    let done =
+        c.request(method::SESSION_PROMPT, prompt(&id, "codex-late-subagent-ask", None)).await;
+    assert_eq!(done.unwrap()["stopReason"], "end_turn");
+    let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
+    assert_eq!(pending["request"]["toolCall"]["title"], "touch late.txt");
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": id, "permissionId": pid, "optionId": "yes"}),
+    )
+    .await
+    .unwrap();
+    // The subagent's reply after the answer, from the session's log (a client gets no event
+    // notifications between turns).
+    let said = late_chunk(&hub, &id, |m| {
+        m.pointer("/params/_meta/acpmux/subagent") == Some(&json!("late-child"))
+    })
+    .await;
+    assert_eq!(said["params"]["update"]["content"]["text"], "late yes", "{said}");
+}
+
+/// The first agent_message_chunk in `id`'s log that `pick` accepts, waiting up to 5 s for it.
+pub(super) async fn late_chunk(hub: &Arc<Hub>, id: &str, pick: impl Fn(&Value) -> bool) -> Value {
+    for _ in 0..100 {
+        let found = hub
+            .events(id, 0, 10_000)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.kind == "agent_message_chunk" && pick(&e.msg));
+        if let Some(e) = found {
+            return e.msg;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("no matching agent_message_chunk in {id}");
+}
+
 #[tokio::test]
 async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;

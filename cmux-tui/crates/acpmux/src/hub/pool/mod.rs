@@ -63,6 +63,10 @@ const RSS_TICK: Duration = Duration::from_secs(60);
 const CLAIM_WAIT: Duration = Duration::from_secs(15);
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
+/// Most a claimed entry's host may take to answer before the entry counts
+/// as wedged: the hello budget of `agent_host::link::connect`. A healthy
+/// host answers in milliseconds; a loaded machine may take seconds.
+const CLAIM_PROBE: Duration = Duration::from_secs(5);
 
 /// Measures a pooled host's process tree RSS in bytes.
 pub type RssProbe = Arc<dyn Fn(u32) -> u64 + Send + Sync>;
@@ -168,14 +172,26 @@ fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
 
-/// The `initialize` request acpmux sends every harness it runs.
-fn initialize_params() -> Value {
+/// The `initialize` request acpmux sends every harness it runs (a pooled spawn and a
+/// session's own, `lifecycle.rs`).
+pub(in crate::hub) fn initialize_params() -> Value {
     json!({
         "protocolVersion": 1,
         "clientCapabilities": {
+            // File reads and writes come through acpmux, so the permission
+            // policy and rules gate every harness's edits, not only the ones
+            // it chooses to ask about.
             "fs": {"readTextFile": true, "writeTextFile": true},
+            // Subagents arrive as their own sessions (ACP draft #1992),
+            // attributed by `crate::subagents`.
             "subagents": {},
-            "terminal": false
+            "terminal": false,
+            // Compatibility path, not a second protocol: codex-acp 1.10.0 also
+            // reads this JetBrains AIR capability, and its ACP schema strips
+            // the draft `subagents` field above at initialize. Without it, Codex
+            // reports subagents only as "Start subagent" tool calls and their
+            // own turns never arrive. Remove once codex-acp keeps `subagents`.
+            "_meta": {"jetbrains": {"air": {"version": 1, "capabilities": ["nativeSubagentSessions"]}}}
         },
         "clientInfo": {"name": "acpmux", "version": VERSION}
     })
@@ -270,7 +286,7 @@ impl Hub {
         if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
             return Err(RpcError::invalid_params(reason));
         }
-        let cwd = super::adoption::session_cwd(Some(cwd), None, &family)?;
+        let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
         let draft = super::resolve::draft_meta(super::resolve::Draft {
@@ -494,7 +510,21 @@ impl Hub {
             let took = lock(&self.pool.pool).take(&spec.key);
             match took {
                 Take::Ready(mut p) => {
-                    if !p.child.is_alive().await {
+                    // A dead or wedged host is ended; the session starts on
+                    // a fresh host (`spawn_hosted_child`).
+                    let asked = std::time::Instant::now();
+                    if !p.child.is_alive().await || !p.child.answers_within(CLAIM_PROBE).await {
+                        tracing::warn!(
+                            harness = %spec.key.harness,
+                            waited_ms = asked.elapsed().as_millis() as u64,
+                            "a pooled agent host did not answer; it ends and the session starts on a fresh host"
+                        );
+                        self.pool_discard(vec![p]);
+                        return None;
+                    }
+                    // `stop_pool` may have drained the pool and the claims
+                    // while the entry was out of both.
+                    if self.pool.stopping.load(Ordering::SeqCst) {
                         self.pool_discard(vec![p]);
                         return None;
                     }

@@ -21,6 +21,15 @@ Glaeda consumes that profile identity and the canonical `cmux-workload-result/v1
 
 Role enrollment is routing-candidate evidence only. Glaeda still performs fresh local admission before execution, and higher-level routing policy still decides whether an eligible node should receive work.
 
+## Current preferred path
+
+Maintainers onboarding current CMUX fleet hardware should use Glaeda's maintained
+[CMUX fleet enrollment guide](https://github.com/teamleaderleo/glaeda/blob/main/docs/CMUX_FLEET_ENROLLMENT.md)
+and its `glaeda-mini-setup` and `glaeda-mini-enroll` commands. That guide owns
+host setup, receipts, preflight, and recovery. The manual bootstrap below is a
+contract and development fallback for reproducing the lower-level enrollment
+steps; it is not a second fleet installer.
+
 ## 1. Prepare the machine
 
 Have exact CMUX and Glaeda checkouts locally. Package installation, accounts, SSH/Tailscale, MDM, power policy, and machine naming stay with the existing operator path.

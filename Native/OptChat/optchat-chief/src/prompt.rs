@@ -14,10 +14,39 @@ pub const MIDRUN: &str = "A message the user sends while you work reaches you be
 calls; take it into account and go on.";
 
 /// The spec's one system prompt for turns and compactions (gist 3c190e0,
-/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief.
+/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief, with
+/// one Chief-only change: its "Turns" paragraph says to delegate
+/// (`CHIEF_TURNS`). The spec text itself stays as written in optchat-core.
 pub fn base_prompt() -> String {
-    optchat_core::system_prompt(AGENT, MIDRUN)
+    let spec = optchat_core::system_prompt(AGENT, MIDRUN);
+    if spec.contains(SPEC_TURNS) {
+        spec.replacen(SPEC_TURNS, CHIEF_TURNS, 1)
+    } else {
+        // The spec text moved: keep it, and add the rule after it.
+        format!("{spec}\n\n{CHIEF_TURNS}")
+    }
 }
+
+/// The spec's "Turns" paragraph (optchat-core TAELIN_PROMPT), replaced for
+/// the Chief by `CHIEF_TURNS`.
+const SPEC_TURNS: &str =
+    "Do the user's tasks yourself, with your tools, following the user's instructions
+at the end of this prompt: who they are, how their files are organized and how
+they want work done. Use subagents only when the user asks for them.";
+
+/// The Chief's "Turns" paragraph (Chief review cause 3, 2026-10-14): a turn's
+/// tool steps are sent uncached (session_dir.rs), so tool-heavy work goes to
+/// subagents. Constant text, in the same place in every turn.
+pub const CHIEF_TURNS: &str =
+    "Follow the user's instructions at the end of this prompt: who they are, how
+their files are organized and how they want work done.
+
+Keep your own turns short. Do quick work yourself: an answer from the view, a
+few lookups, a small edit. Give any task that needs builds, tests, many tool
+calls or long work to a subagent, one subagent per independent ask, then end
+your turn and tell the user what runs, naming each subagent by its id (the
+cmux app shows each subagent id as a link to its chat). When a turn has made
+about 8 tool calls and the work is not done, hand the rest to a subagent.";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.
@@ -67,6 +96,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Links: when you name a page, PR, build, dashboard, job, bead or file, give
+  its real clickable URL (a file: its absolute path), never a bare id or a
+  vague name. A subagent id is the exception: the app links it.
 - Files: never list, glob or search the whole home folder, or Desktop,
   Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
   user names a path there; macOS asks the user for access to each. Search
@@ -131,6 +163,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Links: when you name a page, PR, build, dashboard, job, bead or file, give
+  its real clickable URL (a file: its absolute path), never a bare id or a
+  vague name.
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell."
     )
@@ -170,6 +205,9 @@ message from the user is the user's word; still end each turn with your
 report.
 
 - {memory}
+- Links: when you name a page, PR, build, dashboard, job, bead or file, give
+  its real clickable URL (a file: its absolute path), never a bare id or a
+  vague name.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about."
@@ -442,6 +480,64 @@ pub fn user_instructions(path: &std::path::Path) -> Option<String> {
     std::fs::read_to_string(path)
         .ok()
         .filter(|t| !t.trim().is_empty())
+}
+
+/// The person profile a Chief home starts with (`optchat/person.md`,
+/// written once when missing; the user edits or empties it). The Chief
+/// runs with no user CLAUDE.md or settings, so without it the Chief knows
+/// nothing of how the user wants work done.
+pub const DEFAULT_PERSON: &str = "# The user
+
+This is the user's profile (optchat/person.md); they may edit it.
+
+- Act without asking for safe operations: reading, searching, read-only
+  commands, edits in a worktree or scratch folder. When the user asked for
+  the work, do not ask \"Should I...?\"; do it and report.
+- Ask first only for money, legal matters, physical actions and destructive
+  actions (deleting data, force pushes, production changes).
+- Do not run heavy builds or tests on this Mac when a remote build route
+  (fleet, remote builder) is set up; use that route. The Chief gives such
+  work to a subagent.
+- When you name a page, PR, build, dashboard, job, bead or file, give its
+  real URL or path.
+";
+
+/// The person profile at `path`: the default, written once when the file is
+/// missing (never over an existing file); None when the user emptied it or
+/// it cannot be read.
+pub fn person_profile(path: &std::path::Path) -> Option<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Some(text).filter(|t| !t.trim().is_empty()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Written whole or not at all: a temp file, then a link that
+            // never replaces a file the user made meanwhile.
+            let tmp = path.with_extension(format!("md.tmp.{}", std::process::id()));
+            if std::fs::write(&tmp, DEFAULT_PERSON).is_ok() {
+                let _ = std::fs::hard_link(&tmp, path);
+            }
+            let _ = std::fs::remove_file(&tmp);
+            Some(DEFAULT_PERSON.to_owned())
+        }
+        Err(e) => {
+            crate::log::log(format!(
+                "reading {}: {e}; no person profile this start",
+                path.display()
+            ));
+            None
+        }
+    }
+}
+
+/// The user's part of the system prompt: the person profile, then the
+/// user's instructions file. Read once per host start, so every turn's
+/// prompt stays byte-identical until the host restarts.
+pub fn chief_instructions(person: &std::path::Path, user: &std::path::Path) -> Option<String> {
+    let parts: Vec<String> = [person_profile(person), user_instructions(user)]
+        .into_iter()
+        .flatten()
+        .map(|t| t.trim().to_owned())
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
 /// Tool descriptions, verbatim from section 7.1.

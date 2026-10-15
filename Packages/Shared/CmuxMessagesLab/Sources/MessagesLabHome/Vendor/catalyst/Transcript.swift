@@ -626,6 +626,8 @@ final class RowCell: UICollectionViewCell {
         applied = []
         motionChecked = -1
         key = ""
+        // A bitmap kept in a live resize is not the row's own: the next configure draws it, even for the same row.
+        if liveKept { liveKept = false; spec = nil }
         tiled?.detach(self)
         markdownOverlay?.detach()
         CustomRows.host?.detach(self)
@@ -664,6 +666,42 @@ final class RowCell: UICollectionViewCell {
     override func preferredLayoutAttributesFitting(_ attrs: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes { attrs }
 
     private var palette = Fixture.paletteGeneration
+    /// The row and image now in `bitmap.contents` when that image was drawn for that row (a live resize keeps it
+    /// for a later width with the same pixels: `RowDraw.samePixels`).
+    private var drawn: (spec: RowSpec, image: AnyObject)?
+    private func shown(_ spec: RowSpec, _ img: CGImage?) { drawn = img.map { (spec, $0 as AnyObject) } }
+    /// A live window resize is on (MessagesWindowView.liveResizing; one at a time per process): a visible row whose
+    /// new width draws the same pixels keeps its bitmap (moved, not drawn again), until `redrawKept` at the end.
+    static var liveResizing = false
+    /// This cell shows a bitmap kept from another width in the live resize.
+    private(set) var liveKept = false
+    /// Rows that kept their bitmap in a live resize, and the cells drawn again at its end (bench evidence).
+    static var liveKeptBitmaps = 0, liveKeptRedrawn = 0
+    /// After a live resize: a cell that kept its bitmap gets the bitmap of its row at this width, drawn with the
+    /// other kept rows in the caller's reflow pass (RowCell.beginReflow ... flushReflow), in the same commit.
+    /// The kept bitmap stays, unstretched, until the pass installs the new one (a row whose images are not decoded
+    /// yet is drawn in the pass too: no stretched or empty frame at rest).
+    func redrawKept() {
+        guard liveKept, let s = spec else { return }
+        liveKept = false
+        RowCell.liveKeptRedrawn += 1
+        let span = RowDraw.drawSpan(s)
+        let frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: s.height + 2 * RowDraw.margin)
+        if let img = RowBitmaps.shared.image(for: s) {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            Reclaimer.release(bitmap.contents)
+            bitmap.frame = frame
+            bitmap.contents = img
+            shown(s, img)
+            unstretch(frame.size)
+            CATransaction.commit()
+        } else if RowCell.reflow != nil {
+            RowCell.reflow?.append((self, s, frame))
+        } else {
+            spec = nil
+            configure(s)
+        }
+    }
     func configure(_ spec: RowSpec) {
         // Whether this cell already shows this row (its bitmap may be stale:
         // new palette or new content) before anything changes.
@@ -691,6 +729,7 @@ final class RowCell: UICollectionViewCell {
         // from the pool before it arrived): configure again.
         guard self.spec != spec || bitmap.contents == nil else { return }
         self.spec = spec
+        liveKept = false
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Long text: no bubble-sized bitmap (TiledBubble.swift, shared/LONG-MESSAGES.md).
@@ -726,8 +765,20 @@ final class RowCell: UICollectionViewCell {
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
+            shown(spec, img)
             unstretch(bitmapFrame.size)
             tintTypingDiscs()
+        } else if RowCell.liveResizing, !repaint, !deferred, showingThisRow, !stretched, let d = drawn,
+                  let current = bitmap.contents, d.image === current as AnyObject,
+                  drawnSize.height == bitmapFrame.height, RowDraw.samePixels(d.spec, spec) {
+            // Live resize (cx-3cb resize-drops2): the row at this width draws the pixels of the bitmap on screen,
+            // from its span's start (RowDraw.samePixels); the bitmap moves with the span and keeps its own size
+            // (only transparent columns at its right end differ). No drawing, no new contents per width; the
+            // exact bitmap comes back when the resize ends (redrawKept).
+            bitmap.frame = CGRect(origin: bitmapFrame.origin, size: drawnSize)
+            dropWant()
+            liveKept = true
+            RowCell.liveKeptBitmaps += 1
         } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
@@ -741,6 +792,7 @@ final class RowCell: UICollectionViewCell {
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
+            shown(spec, img)
             unstretch(bitmapFrame.size)
             tintTypingDiscs()
         } else {
@@ -794,6 +846,7 @@ final class RowCell: UICollectionViewCell {
                 MediaPlaceholder.clear(self.bitmap)
                 self.bitmap.frame = bitmapFrame
                 self.bitmap.contents = img
+                self.shown(want, img)
                 self.unstretch(bitmapFrame.size)
                 self.tintTypingDiscs()
                 CATransaction.commit()
@@ -824,6 +877,8 @@ final class RowCell: UICollectionViewCell {
         MediaPlaceholder.clear(bitmap)
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
+        shown(spec, img)
+        liveKept = false
         unstretch(bitmap.frame.size)
         tintTypingDiscs()
         CustomRows.host?.configure(self, spec)
@@ -862,6 +917,7 @@ final class RowCell: UICollectionViewCell {
             MediaPlaceholder.clear(cell.bitmap)
             cell.bitmap.frame = frame
             cell.bitmap.contents = img
+            cell.shown(spec, img)
             cell.unstretch(frame.size)
         }
         CATransaction.commit()
@@ -1098,7 +1154,8 @@ final class RowCell: UICollectionViewCell {
             if fillContainer.mask !== fillMaskImage { fillContainer.mask = fillMaskImage }
         } else {
             fillMask.frame = body
-            fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size)
+            fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size,
+                                              circularEnds: RowDraw.circularEnds(p))
             if fillContainer.mask !== fillMask { fillContainer.mask = fillMask }
         }
         placeFillGradient(width: spec.width)

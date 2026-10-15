@@ -166,15 +166,15 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("offers yearly billing on Pro only", async () => {
+  test("offers yearly billing on Pro and Max", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));
     expect(html).toContain("$50");
     expect(html).toContain("$200");
-    expect(html).toContain("$480 billed yearly, save 20%");
+    expect(html).not.toMatch(/billed yearly, save/);
     expect(html).toContain("$40");
     expect(html).toMatch(/interval(=|%3D|%253D)year/);
-    expect(html).not.toMatch(/plan=(go|max|team)[^"]*interval=year/);
+    expect(html).not.toMatch(/plan=(go|team)[^"]*interval=year/);
   });
 
   test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
@@ -280,13 +280,13 @@ describe("localized pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Max/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Max/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -296,25 +296,24 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("cmux Vault");
   });
 
-  test("sells Max at $200/mo on a monthly-only checkout link, between Pro and Team", async () => {
+  test("sells Max monthly or yearly with the annual discount, between Pro and Team", async () => {
     const element = await PricingPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ interval: "year" }),
     });
     const html = (await renderSettled(element));
 
-    // The annual selector must not touch Max: no interval on its checkout
-    // link and no "billed yearly" label on its card or table column.
+    // The annual selector applies to Max as well as Pro.
     expect(html).toContain(
       "plan%253Dmax%2526cmux_external_browser",
     );
     expect(html).toContain(
       "plan%253Dmax%2526cmux_external_browser",
     );
-    expect(html).not.toMatch(/plan%253Dmax[^\"]*interval%253D/);
+    expect(html).toMatch(/plan%253Dmax[^\"]*interval%253Dyear/);
     expect(html).toContain("$200");
-    expect(html).toContain("$200 /mo");
-    expect(html).not.toContain("$200/mo, billed yearly");
+    expect(html).toContain("$160");
+    expect(html).toContain("Yearly");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");

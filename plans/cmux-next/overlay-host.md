@@ -16,7 +16,7 @@ host panel, a page window or a presenter still listed for migration.
 
 | Presenter | Where | Today | Target |
 | --- | --- | --- | --- |
-| Which-key | CmuxNextApp/Focus/WhichKey/WhichKeyOverlay.swift | on the host (`.window`, toast at the bottom center) | done |
+| Which-key | CmuxNextFocusUI/WhichKey/WhichKeyOverlay.swift | on the host (`.window`, toast at the bottom center) | done |
 | Focus ring, inactive dim, drop zones | CmuxNextApp/Windows/WindowOverlayLayer.swift | planes on the host panel | done |
 | Sidebar | CmuxNextApp/WindowRootView.swift | occluder of the host (`setOccluder`) | done |
 | Hover cards (tabs, workspaces) | CmuxNextDesign/HoverCards/HoverCardPanel.swift | own child panel, reordered above pages by the host | `.window` presentation |

@@ -193,11 +193,11 @@ impl Screen {
         }
         let _ = queue!(out, Clear(ClearType::FromCursorDown));
         for line in done {
-            self.line(&mut out, line, &chat.links);
+            self.line(&mut out, line);
             let _ = queue!(out, Print("\r\n"));
         }
         for (index, line) in footer.iter().enumerate() {
-            self.line(&mut out, line, &chat.links);
+            self.line(&mut out, line);
             if index + 1 < footer.len() {
                 let _ = queue!(out, Print("\r\n"));
             }
@@ -211,11 +211,15 @@ impl Screen {
         self.cursor_row = row;
     }
 
-    fn line(&self, out: &mut impl Write, (style, text): &Line, links: &[(String, String)]) {
-        // Clipped by display width first: the hyperlink escapes take no columns.
-        let text = super::hyperlink::mark(&clip(text, self.width.saturating_sub(1)), links);
+    fn line(&self, out: &mut impl Write, (style, text): &Line) {
+        if *style == Style::Linked {
+            // Wrapped to the width when the message came; its escapes take no columns.
+            let _ = queue!(out, Print(text));
+            return;
+        }
+        let text = clip(text, self.width.saturating_sub(1));
         let _ = match style {
-            Style::Plain => queue!(out, Print(text)),
+            Style::Plain | Style::Linked => queue!(out, Print(text)),
             Style::Header => queue!(
                 out,
                 SetAttribute(Attribute::Bold),

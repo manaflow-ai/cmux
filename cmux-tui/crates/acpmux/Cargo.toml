@@ -33,6 +33,9 @@ ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
+# P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
+# already in the graph through rustls.
+ring.workspace = true
 toml.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
@@ -43,6 +46,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
 notify.workspace = true
+# Session tokens and secrets (the OS generator on every platform).
+getrandom.workspace = true
 base64 = "0.22"
 unicode-width = "0.2"
 wait-timeout.workspace = true
@@ -54,6 +59,24 @@ reqwest.workspace = true
 rustls.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+# Codex over `codex app-server` as an ACP agent, in process
+# (src/codex_app_server.rs). Pinned to an exact commit.
+cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "c30e6489d483265dae15360901fafa75bad24a65", default-features = false }
+
+# Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
+# same-user checks); the detached start (CreateProcess with a handle list),
+# owner-only ACLs and agent job objects use windows-sys.
+[target.'cfg(windows)'.dependencies]
+cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 cmux-unix-socket = { workspace = true, features = ["test-support"] }

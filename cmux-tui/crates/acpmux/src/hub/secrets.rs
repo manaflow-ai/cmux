@@ -203,8 +203,7 @@ impl Hub {
             && session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
             && !self.secrets.waiting_in(&session.id)
         {
-            let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
-            self.set_status(session, next);
+            self.set_status(session, super::permissions::status_after_ask(session, prev));
         }
         let Some(Some(value)) = answer else {
             return Ok(json!({"declined": true, "name": name, "outcome": outcome}));

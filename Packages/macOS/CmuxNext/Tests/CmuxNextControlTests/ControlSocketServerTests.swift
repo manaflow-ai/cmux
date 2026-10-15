@@ -2,7 +2,7 @@
 import CmuxNextSettings
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 @Suite(.serialized) struct ControlSocketServerTests {

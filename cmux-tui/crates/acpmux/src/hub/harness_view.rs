@@ -25,6 +25,10 @@ impl Hub {
                 if !d.is_empty() {
                     o.insert("defaults".into(), json!(d));
                 }
+                // What a new chat here starts on (start_defaults.rs), for the composer's chip.
+                if let Some(start) = self.start_view(&cfg, name, p) {
+                    o.insert("start".into(), start);
+                }
                 // A profile file's display, capability, auth and sessions data.
                 if let Some(Value::Object(meta)) =
                     cfg.profile_meta.get(name).and_then(|m| serde_json::to_value(m).ok())

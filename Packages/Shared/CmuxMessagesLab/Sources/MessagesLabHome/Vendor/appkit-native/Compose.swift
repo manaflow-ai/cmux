@@ -306,8 +306,12 @@ final class FieldTextView: NSTextView {
     }
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        // The field's width that waited for the end of the resize (ComposeTextView.place) first.
+        onEndLiveResize()
         keepCaretInView()
     }
+    /// The end of a live window resize (ComposeTextView: the deferred width).
+    var onEndLiveResize: () -> Void = {}
     /// Scrolls the caret's line into the field (the clip of `ComposeTextView`), when the field scrolls.
     func keepCaretInView() {
         guard let sv = enclosingScrollView, frame.height > sv.contentSize.height + 0.5 else { return }
@@ -471,14 +475,56 @@ final class ComposeTextView {
         scrolled = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: nil) { [weak view] _ in
             view?.updateCaret(reset: false)
         }
+        view.onEndLiveResize = { [weak self] in
+            self?.placeWaitingWidth()
+            // A layout of the last drag event can still come while the window ends the resize (it
+            // still reports one) and keep the width again: the next turn of the run loop places it.
+            DispatchQueue.main.async { self?.placeWaitingWidth() }
+        }
     }
     deinit { scrolled.map(NotificationCenter.default.removeObserver) }
+
+    /// The field's frame whose width waits for the end of a live resize (nil: none waits).
+    private(set) var widthWaiting: CGRect?
+    /// Whether `place(frame)` may keep the field's width now (see `place`): it then moves the clip
+    /// to the frame's origin and records the frame.
+    private func deferWidth(to frame: CGRect) -> Bool {
+        guard !placingWaitingWidth, clip.window?.inLiveResize == true, clip.frame.height == frame.height, view.string.isEmpty, !view.hasMarkedText(),
+              view.userInterfaceLayoutDirection == .leftToRight else { return false }
+        let style = view.typingAttributes[.paragraphStyle] as? NSParagraphStyle ?? view.defaultParagraphStyle
+        if let style, style.baseWritingDirection == .rightToLeft || ![.left, .natural, .justified].contains(style.alignment) { return false }
+        widthWaiting = frame
+        if clip.frame.origin != frame.origin {
+            clip.setFrameOrigin(frame.origin)
+            view.updateCaret(reset: false)
+        }
+        return true
+    }
+    /// The end of the live resize: the waiting width now (the full `place`).
+    func placeWaitingWidth() {
+        guard let f = widthWaiting else { return }
+        widthWaiting = nil
+        // The window can still report a live resize while it ends.
+        placingWaitingWidth = true
+        place(f)
+        placingWaitingWidth = false
+    }
+    private var placingWaitingWidth = false
     func insertText(_ s: String) { view.insertText(s, replacementRange: view.selectedRange()) }
 
     /// The clip at FRAME (host coordinates): the document is at least the clip's height, as wide
     /// as it; a size change keeps the caret line in view (a live resize rewraps the lines).
     func place(_ frame: CGRect) {
         guard clip.frame != frame else { return }
+        // A live resize that changes only the field's width while the draft is empty: no pixel of
+        // the empty field depends on its width (the caret stands at the left inset of an empty
+        // left-to-right line; the placeholder is the compose bar's own layer), so the clip keeps its
+        // width and the text view is not resized, rewrapped and redrawn at every width. The
+        // width follows at the end of the resize, or at once when the draft or the field's
+        // height changes. Text view resizes in a live resize were about a third of the app's
+        // display-link misses above the empty-window floor (cx-3cb resize-drops, rig A/B).
+        if deferWidth(to: frame) { return }
+        widthWaiting = nil
         let rewrap = clip.frame.width != frame.width
         if FieldTextView.caretLog { FieldTextView.log("place \(frame) from \(clip.frame) view \(view.frame.size) container \(view.textContainer?.size.width ?? -1)") }
         defer { if FieldTextView.caretLog { FieldTextView.log("placed view \(view.frame.size) content \(scrollView.contentSize) container \(view.textContainer?.size.width ?? -1) clip \(scrollView.contentView.bounds)") } }
@@ -608,7 +654,9 @@ final class ComposeView: UIView {
         let w = ComposeView.fieldWidth(windowWidth) - 24
         // The empty field (every send and every commit after it) has its own entry: the one-entry
         // memo held the last typed draft, so each send typeset " " again.
-        if text.isEmpty, let e = emptyLinesMemo, e.0 == w { return e.1 }
+        // Its one line (a space) does not depend on the width: a live resize's every width
+        // typeset it again (cx-3cb resize-drops).
+        if text.isEmpty, let e = emptyLinesMemo, e.0 == w || (e.1 == 1 && w >= ComposeView.emptyLineMinWidth) { return e.1 }
         if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
         let n = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count
         if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
@@ -626,6 +674,8 @@ final class ComposeView: UIView {
         return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
     }
     private var linesMemo: (String, CGFloat, Int)?
+    /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
+    static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?
     /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
     /// commit asked for one).

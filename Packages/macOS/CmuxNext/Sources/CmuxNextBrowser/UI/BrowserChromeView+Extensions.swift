@@ -35,6 +35,12 @@ extension BrowserChromeView {
     /// menu's tracking loop then runs in a run-loop callout, not inside a
     /// main-queue job, so main-actor work (control calls) keeps running
     /// while it is open.
+    /// The tab has extensions but none is pinned, so the Extensions button
+    /// is hidden and More offers the Extensions menu (cx-d0d.81).
+    public var offersExtensionsMenuInMore: Bool {
+        extensionToolbar.host != nil && !extensionToolbar.isShowingExtensions
+    }
+
     public func presentExtensionsMenu(for id: String? = nil) {
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
             MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread

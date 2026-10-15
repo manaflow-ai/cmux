@@ -194,7 +194,8 @@ final class TranscriptSelection {
             // cmux: MessagesLab 2281879's selection outline (this file stays at bd65bbf): the drawn balloon.
             let frame = RowDraw.bodyRect(spec)
             let body = cell.convert(RowDraw.balloon(frame, row: p), to: demo)
-            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size).cgPath
+            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size,
+                                   circularEnds: RowDraw.circularEnds(p)).cgPath  // cmux: MessagesLab 267d218's ends
         }
         return nil
     }

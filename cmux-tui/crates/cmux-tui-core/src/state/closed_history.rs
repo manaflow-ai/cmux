@@ -317,7 +317,7 @@ impl Mux {
     }
 
     /// Form an ungrouped tab group again (`archive`, from
-    /// `record_ungrouped_tab_group`) with its id, name and color around
+    /// `record_ungrouped_group`) with its id, name and color around
     /// those of its tabs still open, unpinned and in no other group, in one
     /// pane, in their order: its own pane when it holds any, else the pane
     /// of the first. A group formed since keeps its tabs.

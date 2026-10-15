@@ -57,14 +57,6 @@ export function ComposerQueue({
   // height is the chat's --acpmux-queue-space, which the permission panel keeps clear (hq #1893).
   const reserve = useCallback((node: HTMLOListElement | null) => {
     list.current = node;
-    const chat = node?.closest<HTMLElement>(".acpmux-main");
-    if (!node || !chat) return;
-    const observer = new ResizeObserver(() => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`));
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-      chat.style.removeProperty("--acpmux-queue-space");
-    };
   }, []);
   useEffect(() => {
     setLeaving((current) => {
@@ -78,6 +70,19 @@ export function ComposerQueue({
       setEditing(undefined);
     }
   }, [queue, editing, onLost]);
+  useLayoutEffect(() => {
+    const node = list.current;
+    const chat = node?.closest<HTMLElement>(".acpmux-main");
+    if (!node || !chat) return;
+    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`);
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    update();
+    return () => {
+      observer.disconnect();
+      chat.style.removeProperty("--acpmux-queue-space");
+    };
+  }, [queue, leaving]);
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;

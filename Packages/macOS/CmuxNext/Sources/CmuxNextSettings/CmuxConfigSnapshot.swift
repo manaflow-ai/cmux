@@ -37,7 +37,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `home.attachments.keepLocation`; off (strip location) when unset.
     public var homeKeepLocation = false
     /// `labs.previewFeatures`; off when unset.
-    public var previewFeatures = false
+    public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -128,8 +128,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
-    /// `tabs.newTabKind`; "same-kind" when unset or invalid.
-    public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
@@ -172,7 +170,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var updates = UpdatesSettings()
     /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
     public var computerUse = ComputerUseSettings()
-    /// `mobile.*`: whether the app runs its cmux cnx iPhone host.
+    /// `mobile.*`: whether the app runs its iPhone host.
     public var mobile = MobileSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
@@ -282,9 +280,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root)
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
-        let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
-        snapshot.newTabKind = newTabKind
-        if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
         snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace

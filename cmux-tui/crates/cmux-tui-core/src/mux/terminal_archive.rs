@@ -69,6 +69,37 @@ impl Mux {
         reopenable.iter().filter_map(|runtime| self.capture_terminal_archive(runtime)).collect()
     }
 
+    /// Archive each terminal that `closed_views` left with no placement. The
+    /// reaper archives such a terminal again when it ends it after the reap
+    /// grace; a crash or power loss inside the grace would otherwise lose its
+    /// screen, so a Reopen Closed after the restart had only its directory
+    /// (cx-jc9vh).
+    pub(crate) fn archive_unplaced_terminals(&self, closed_views: &[Arc<Surface>]) {
+        if !cfg!(unix) || closed_views.is_empty() {
+            return;
+        }
+        let runtimes = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let placed: HashSet<SurfaceId> =
+                state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
+            let mut seen = HashSet::new();
+            closed_views
+                .iter()
+                .filter_map(|view| view.terminal_public_id().cloned())
+                .filter(|public_id| seen.insert(public_id.clone()))
+                .filter_map(|public_id| {
+                    let runtime = state.terminal_catalog.get(&public_id)?;
+                    let content = ContentPublicId::Terminal(public_id);
+                    let viewed =
+                        runtime.terminal_runtime_id().is_some_and(|id| placed.contains(&id));
+                    (!viewed && state.placements_of_content(&content).is_empty())
+                        .then(|| runtime.clone())
+                })
+                .collect::<Vec<_>>()
+        };
+        self.store_terminal_archives(self.capture_terminal_archives(&runtimes));
+    }
+
     /// Store `archives` in one registry transaction. Best effort: a failure
     /// costs the reopened tab its screen, never the close.
     pub(crate) fn store_terminal_archives(&self, archives: Vec<TerminalArchive>) {

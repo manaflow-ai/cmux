@@ -92,8 +92,14 @@ extension DaemonEvent {
         case .connected, .disconnected, .daemonShutdown, .sessionState: true
         // Transient questions to this connection; a snapshot never holds them.
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
+        // Agent state and presence are not in the tree snapshot (only `list-agents` at connect
+        // and these events carry them). A blocked hook also posts a notification, whose tree
+        // change resyncs; dropping its `agent-changed` behind that snapshot left the row on
+        // "working" (cx-ag5.6.8). Each event carries the whole state of one surface.
+        case .agentChanged, .agentPresenceChanged: true
         // The app supervisor's events (apps-v1): scene batches, changes and provider calls.
-        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name)
+        // And browser pairings (cx-hnmbt.2): a dropped request would never show its Approve dialog.
+        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name) || name.hasPrefix("pairing-")
         default: false
         }
     }

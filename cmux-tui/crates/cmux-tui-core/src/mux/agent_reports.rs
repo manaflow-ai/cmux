@@ -278,6 +278,16 @@ impl Mux {
         };
         let agent_session_id = hook_session_id
             .and_then(|session_id| published_agent_session_id(&terminal_id, &session_id));
+        // A report that keeps the state of the same agent session keeps when it began; a new
+        // session or source starts over.
+        let kept_since = records
+            .get(&terminal_id)
+            .filter(|existing| {
+                existing.state == agent_state
+                    && existing.source == source
+                    && existing.agent_session_id == agent_session_id
+            })
+            .map(|existing| existing.since_ms);
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             None if socket_report_ignored => match durable_stronger {
@@ -294,6 +304,7 @@ impl Mux {
                     agent: existing.agent,
                     agent_session_id: existing.agent_session_id,
                     updated_at_ms: existing.updated_at_ms,
+                    since_ms: existing.updated_at_ms,
                 },
                 None => TerminalAgentRecord {
                     state: agent_state,
@@ -302,6 +313,7 @@ impl Mux {
                     agent: agent_adapter,
                     agent_session_id,
                     updated_at_ms: now,
+                    since_ms: now,
                 },
             },
             _ => TerminalAgentRecord {
@@ -311,6 +323,7 @@ impl Mux {
                 agent: agent_adapter,
                 agent_session_id,
                 updated_at_ms: now,
+                since_ms: kept_since.unwrap_or(now),
             },
         };
         // A socket report that is intentionally ignored by the hook-owned
@@ -393,6 +406,7 @@ impl Mux {
             session: record.session,
             agent: record.agent,
             updated_at_ms: record.updated_at_ms,
+            since_ms: record.since_ms,
         };
         if !commit.replayed {
             self.publish_resource_event();
@@ -403,6 +417,7 @@ impl Mux {
                 session: agent.session.as_deref().map(Arc::from),
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
+                since_ms: agent.since_ms,
             });
             if matches!(agent.state, AgentState::Idle | AgentState::Done) {
                 self.clear_agent_presence(&agent.terminal_id, agent.surface);
@@ -451,6 +466,8 @@ impl Mux {
                     .or_else(|| {
                         state_snapshot.terminal_catalog.get(&terminal_id).map(|surface| surface.id)
                     })?;
+                // The roster's own clock, so `since_ms <= updated_at_ms` holds.
+                let since_ms = entry.since_ms();
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
@@ -459,6 +476,7 @@ impl Mux {
                     session: entry.session,
                     agent: entry.agent,
                     updated_at_ms: entry.updated_at_ms,
+                    since_ms,
                 })
             })
             .collect::<Vec<_>>();

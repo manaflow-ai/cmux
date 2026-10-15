@@ -38,6 +38,16 @@ extension WindowController {
         content ?? parked.last { $0.workspace.id == state.workspaceID }
     }
 
+    /// Whether a page tab that a focused show opens here would be seen: the
+    /// window shows (or can leave its top page for) a workspace with a pane,
+    /// and Home does not stand for that workspace. A tab opened while Home
+    /// stands for the home workspace lands in that hidden workspace and
+    /// shows nothing (cx-cmge7), so such a show uses a top page instead.
+    var holdsVisiblePageTab: Bool {
+        guard let workspace = workspaceContent, !workspace.panes.isEmpty else { return false }
+        return !(workspace.workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document))
+    }
+
     /// Leaves the top page for the window's workspace at once
     /// (SIDEBAR-SELECTION-ONE-MODEL: one selection, so showing something in
     /// the workspace selects it). True when a page was left.

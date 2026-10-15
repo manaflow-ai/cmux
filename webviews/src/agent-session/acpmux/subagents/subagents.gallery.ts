@@ -105,6 +105,46 @@ const NESTED_MIXED: typeof MIXED = {
   },
 };
 
+/** Codex subagents as codex-acp sends them once acpmux asks for native subagent sessions
+ * (cx-07ezn, recorded on cmux-lawrence 2026-10-12): named from their agent path ("Read a"), each
+ * with its own read and reply; Codex's `wait` calls between them draw no row. */
+const CODEX_A = agent("Read a", 1.6, "completed", { ran: 0.4 });
+const CODEX_B = agent("Read b", 1.6, "running", { action: "Read file 'b.txt'" });
+const CODEX = {
+  ...chat(
+    [
+      user("Spawn two subagents: one reads a.txt, one reads b.txt. Combine their answers.", 1.7),
+      group([CODEX_A, CODEX_B], 1.6),
+    ],
+    { isWorking: true, harness: "codex", model: "gpt-6-astra", title: "Read a.txt and b.txt" },
+  ),
+  subagentViews: {
+    [CODEX_A.id]: [
+      activity([tool("Read file 'a.txt'", "read", "completed")], 1.5, { id: `${CODEX_A.id}:activity-1` }),
+      assistant("a.txt says alpha.", 1.3, { id: `${CODEX_A.id}:assistant-2` }),
+    ],
+    [CODEX_B.id]: [
+      activity([tool("Read file 'b.txt'", "read", "in_progress")], 1.5, { id: `${CODEX_B.id}:activity-1` }),
+    ],
+  },
+};
+
+/** Claude subagents name the kind of agent each one is (its Agent call's subagent_type). */
+const CLAUDE_KINDS = chat(
+  [
+    user("Find where retries are configured and check the docs agree", 2),
+    group(
+      [
+        agent("Find retry config", 1.9, "completed", { kind: "Explore", ran: 0.7 }),
+        agent("Check the docs", 1.9, "running", { kind: "general-purpose", action: "Read docs/net.md" }),
+        agent("Review naming", 1.9, "running", { kind: "code-reviewer", action: "Search for retryCount" }),
+      ],
+      1.9,
+    ),
+  ],
+  { isWorking: true },
+);
+
 /** Opens the header summary, where Lineage takes the Subagents place. */
 const openSummary = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".acpmux-summary-button" });
@@ -162,6 +202,25 @@ export default agentPaneEntry({
       ),
     },
     mixed: { note: "Some done, one failed, one still working.", snapshot: MIXED },
+    codex: {
+      note: "Codex subagents (native sessions through codex-acp, cx-07ezn): Codex marks, names from the agent path.",
+      snapshot: CODEX,
+      play: openGroup(2),
+    },
+    "codex-child": {
+      note: "A Codex subagent's own view: its read, as Codex streams it under the child's session.",
+      snapshot: CODEX,
+      play: async (ctx) => {
+        await openGroup(2)(ctx);
+        await ctx.click({ role: "button", name: "Open Read a" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+      },
+    },
+    "claude-kinds": {
+      note: "Claude subagents with their kind (Explore, general-purpose, a user agent) beside the name.",
+      snapshot: CLAUDE_KINDS,
+      play: openGroup(3),
+    },
     single: {
       note: "One subagent: no avatar stack overflow, singular count.",
       snapshot: chat([user("Find every caller of request()", 1), group([agent("Find callers", 0.9)], 0.9)], {

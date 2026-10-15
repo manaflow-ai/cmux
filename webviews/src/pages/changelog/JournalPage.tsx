@@ -30,7 +30,14 @@ export function JournalPage({ store, strings, s }: { store: ChangelogStore; stri
         {!s.span && s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
         {s.span && earlier.length > 0 && <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>}
         {groupByDay(earlier).map((day) => (
-          <DaySection key={day.day + day.builds[0]!.build} day={day.day} builds={day.builds} s={s} store={store} ctx={ctx} />
+          <DaySection
+            key={day.day + day.builds[0]!.build}
+            day={day.day}
+            builds={day.builds}
+            s={s}
+            store={store}
+            ctx={ctx}
+          />
         ))}
       </main>
     </KeyboardScope>
@@ -101,7 +108,9 @@ function DaySection({
         <h2 className="clj-day">
           <time dateTime={day}>{dayLabel(day, ctx.strings.language)}</time>
         </h2>
-        {builds.some((b) => b.build === s.current) && <span className="cl-installed">{ctx.strings.t("changelog.page.current")}</span>}
+        {builds.some((b) => b.build === s.current) && (
+          <span className="cl-installed">{ctx.strings.t("changelog.page.current")}</span>
+        )}
       </div>
       <BuildNumbers builds={builds} />
       <SectionBody view={view} pending={pending} ctx={ctx} />
@@ -120,7 +129,8 @@ function SectionBody({
   ctx: PartsContext;
   unpublished?: boolean;
 }) {
-  if (pending && view.count === 0 && view.changes.length === 0) return <div className="clj-placeholder" aria-busy="true" />;
+  if (pending && view.count === 0 && view.changes.length === 0)
+    return <div className="clj-placeholder" aria-busy="true" />;
   return (
     <>
       {view.hero && <Hero item={view.hero} ctx={ctx} />}

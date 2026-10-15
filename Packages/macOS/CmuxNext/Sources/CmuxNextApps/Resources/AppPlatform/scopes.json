@@ -85,6 +85,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.devices.add_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.devices.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.devices.remove_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.forward": {
       "scope": "browser:write",
       "class": "mutation"
@@ -118,6 +130,18 @@
       "class": "mutation"
     },
     "browser.reload": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate.clear": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.set_profile": {
       "scope": "browser:write",
       "class": "mutation"
     },
@@ -561,6 +585,10 @@
       "scope": "finder:write",
       "class": "mutation"
     },
+    "git.branches": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.checkpoint.create": {
       "scope": "git:write",
       "class": "mutation"
@@ -954,6 +982,10 @@
       "class": "mutation"
     },
     "project.remove": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.source.update": {
       "scope": "project:write",
       "class": "mutation"
     },
@@ -1409,6 +1441,10 @@
       "scope": "team_vm:read",
       "class": "read"
     },
+    "team.ai_limit.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"
@@ -1718,6 +1754,7 @@
     "history.entries.remove",
     "history.restore",
     "history.site.remove",
+    "history.trail.record",
     "history.visit.import",
     "history.visit.record",
     "history.visit.remove",
@@ -1770,6 +1807,8 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.ai_limit.member.set",
+    "team.ai_limit.set",
     "team.audit.list",
     "team.enrollment_token.create",
     "team.enrollment_token.list",

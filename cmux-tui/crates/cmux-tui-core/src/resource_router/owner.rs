@@ -14,6 +14,8 @@ pub(super) enum OperationOwner {
     Git,
     /// The daemon history module (history_ops.rs).
     History,
+    /// `browser.tab.set_profile` (browser_profile_ops.rs).
+    BrowserProfile,
     Credential,
     Connection,
     /// Settings (the settings file): the config owner (resource_router/config.rs).
@@ -127,6 +129,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCheckpointList
         | ResourceOperation::GitCheckpointPin
         | ResourceOperation::GitCheckpointUnpin
+        | ResourceOperation::GitBranches
         | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
         | ResourceOperation::GitFilesList
@@ -146,13 +149,20 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitTitle
         | ResourceOperation::HistoryVisitRemove
         | ResourceOperation::HistoryVisitSummaries
-        | ResourceOperation::HistoryVisitImport => OperationOwner::History,
+        | ResourceOperation::HistoryVisitImport
+        | ResourceOperation::HistoryTrailRecord => OperationOwner::History,
+        ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
         | ResourceOperation::TabUpdate
+        | ResourceOperation::BrowserDevicesList
+        | ResourceOperation::BrowserDevicesAddCustom
+        | ResourceOperation::BrowserDevicesRemoveCustom
+        | ResourceOperation::BrowserTabEmulate
+        | ResourceOperation::BrowserTabEmulateClear
         | ResourceOperation::TabGroupList
         | ResourceOperation::TabGroupGet
         | ResourceOperation::TabGroupCreate
@@ -207,6 +217,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ProjectUpdate
         | ResourceOperation::ProjectRemove
         | ResourceOperation::ProjectSync
+        | ResourceOperation::ProjectSourceUpdate
         | ResourceOperation::PaletteUsageGet
         | ResourceOperation::PaletteUsageRecord
         | ResourceOperation::PaletteUsageImport

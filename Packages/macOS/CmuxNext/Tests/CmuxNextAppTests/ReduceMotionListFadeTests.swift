@@ -58,8 +58,8 @@ import Testing
         #expect(!Self.crossfades(strip.tabsClip.layer).isEmpty, "the closed tab vanished in one frame")
     }
 
-    /// Review of #19938: Cmd-T's tab syncs without the strip's springs (`animating: false`, full
-    /// width with its page at once), the commonest new tab; it crossfades in under Reduce Motion too.
+    /// Review of #19938: a tab synced without the strip's springs (`animating: false`, at full
+    /// width at once) crossfades in under Reduce Motion too.
     @Test func aNewTabFromCmdTCrossfadesUnderReduceMotion() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }

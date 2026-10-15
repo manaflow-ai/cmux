@@ -43,6 +43,7 @@ pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 use shutdown::ShutdownPlan;
 mod spawn;
+mod start_defaults;
 mod steer_end;
 mod stream;
 mod tap;
@@ -51,6 +52,7 @@ pub use lifecycle::{
 };
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
+pub mod approvers;
 mod peers;
 mod permission_groups;
 mod permissions;
@@ -437,12 +439,28 @@ impl Hub {
         self.load_live_cache().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
-        if login_env && crate::login_env::import().await {
-            // `CLAUDE_CONFIG_DIR` / `CODEX_HOME` may come from the login shell only.
-            self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-            match self.reload_catalog().await {
-                Ok(_) => reloaded = true,
-                Err(e) => tracing::warn!("catalog reload after login env: {e}"),
+        if login_env {
+            // A cache whose fingerprint matches applies at once; the shell
+            // runs only when needed, and agent spawns wait for it (at most
+            // `login_env::TIMEOUT`) only when nothing else can stand in.
+            let plan = tokio::task::spawn_blocking(crate::login_env::begin)
+                .await
+                .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
+            let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
+            if cached {
+                reloaded = self.after_login_env().await;
+            }
+            if plan.run_shell && plan.wait {
+                if crate::login_env::import().await {
+                    reloaded = self.after_login_env().await || reloaded;
+                }
+            } else if plan.run_shell {
+                let hub = self.clone();
+                tokio::spawn(async move {
+                    if crate::login_env::import().await {
+                        hub.after_login_env().await;
+                    }
+                });
             }
         }
         self.verify_launchers().await;
@@ -458,6 +476,19 @@ impl Hub {
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;
+        }
+    }
+
+    /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
+    /// and harnesses on the login PATH may come from it only.
+    async fn after_login_env(self: &Arc<Self>) -> bool {
+        self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
+        match self.reload_catalog().await {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::warn!("catalog reload after login env: {e}");
+                false
+            }
         }
     }
 
@@ -569,6 +600,7 @@ impl Hub {
             steering: AtomicBool::new(false),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
+            applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
@@ -586,9 +618,8 @@ impl Hub {
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
-        let mut v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
-        v.sort_by_key(|s| std::cmp::Reverse(s.meta().updated_at));
-        v
+        let v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
+        newest_first(v)
     }
 
     /// Resolve by id, exact name, or unique prefix of either.
@@ -942,4 +973,21 @@ fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
     if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
         meta.composer_draft = None;
     }
+}
+
+/// `sessions` newest first. Each session's `updated_at` is read once: other
+/// tasks move it at any time (every logged event), and a key that is read
+/// again on each comparison is not a total order, which makes Rust's sort
+/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
+/// the list is the same for the same values.
+fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
+    let mut keyed: Vec<_> = sessions
+        .into_iter()
+        .map(|s| {
+            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
+            (at, s)
+        })
+        .collect();
+    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    keyed.into_iter().map(|(_, s)| s).collect()
 }

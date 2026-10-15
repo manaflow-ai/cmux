@@ -9,10 +9,15 @@ public protocol BrowserHibernationSource: AnyObject {
     @MainActor func hibernationState() -> BrowserRestoreState?
     /// True when this engine and build can restore a saved history.
     @MainActor var supportsHibernation: Bool { get }
+    /// The shown document came from a form submission (a POST; the saved
+    /// session's current entry carries `formPost`): waking would load it
+    /// again, so the page never hibernates (BR-R1).
+    @MainActor var showsFormSubmission: Bool { get }
 }
 
 extension WebKitTab: BrowserHibernationSource {
     public var supportsHibernation: Bool { true }
+    public var showsFormSubmission: Bool { restored.showsFormSubmission }
 
     public func hibernationState() -> BrowserRestoreState? {
         (webView.interactionState as? Data).map(BrowserRestoreState.webKit)
@@ -24,7 +29,10 @@ extension WebKitTab: BrowserHibernationSource {
     public func restore(_ state: BrowserRestoreState) -> Bool {
         guard case .webKit(let data) = state, !data.isEmpty else { return false }
         // WebKit loads the restored current item itself; loading the URL on
-        // top would add a history entry.
+        // top would add a history entry. A form that item came from is not
+        // sent again without the person (WebKitFormResubmission).
+        formResubmission.restoring = true
+        formResubmission.restoreData = data
         webView.interactionState = data
         return true
     }
@@ -42,10 +50,22 @@ extension CEFTab: BrowserHibernationSource {
         return shim.navigationRestoreSupported() == 1 && shim.forkAPIVersion() >= Self.navigationRestoreForkAPI
     }
 
+    public var showsFormSubmission: Bool { restored.showsFormSubmission }
+
     public func hibernationState() -> BrowserRestoreState? {
         guard supportsHibernation, let browserID, let shim = runtime.shim,
               let raw = shim.tabNavigationState(browserID) else { return nil }
         defer { shim.free(raw) }
         return .chromium(String(cString: raw))
+    }
+}
+
+extension BrowserRestoreState {
+    /// The back/forward history `page` can be recreated from (Duplicate Tab,
+    /// Reopen Closed Tab): a hibernated page's saved state, else what a live
+    /// page saves now.
+    @MainActor public static func history(of page: any BrowserTab) -> BrowserRestoreState? {
+        if let hibernated = page as? HibernatedBrowserTab { return hibernated.restoreState }
+        return (page as? any BrowserHibernationSource)?.hibernationState()
     }
 }

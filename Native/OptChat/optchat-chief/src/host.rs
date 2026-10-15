@@ -233,16 +233,9 @@ pub fn turn_preset(
 }
 
 /// The built-in tools a turn is offered (an allowlist: a built-in a later
-/// Claude Code adds is not offered); the Chief's MCP tools come on top.
-pub const TURN_TOOLS: [&str; 7] = [
-    "Bash",
-    "Read",
-    "Edit",
-    "Write",
-    "WebFetch",
-    "WebSearch",
-    "ToolSearch",
-];
+/// Claude Code adds is not offered); the Chief's MCP tools come on top,
+/// loaded with the turn (no ToolSearch, `session_dir::TURN_SETTINGS_ENV`).
+pub const TURN_TOOLS: [&str; 6] = ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"];
 
 /// The Claude Code args of an isolated turn: no user or local setting
 /// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
@@ -500,6 +493,12 @@ fn start(
     let acpmux_socket = crate::acpmux_daemon::socket_path();
     let session_env = session_env(home, daemon_socket, &acpmux_socket, &exe, &env);
     let pinned = crate::cmux_env::pinned_subset(&session_env);
+    // Each turn reads the person's Home workspace with the CLI the turns use (home_view).
+    let home_view = crate::home_view::HomeView {
+        cli: crate::cmux_env::bundled_bin(&exe)
+            .map_or_else(|| std::path::PathBuf::from("cmux"), |bin| bin.join("cmux")),
+        env: pinned.clone(),
+    };
     // One setting picks the harness of turns and compactor alike.
     // engine.json's compactor fields apply at host start (engine.rs).
     let engine_choice_file = crate::engine::load(&crate::engine::path(home));
@@ -528,7 +527,7 @@ fn start(
         ),
     );
     crate::acpmux_daemon::set_child_env(daemon_env);
-    let instructions = crate::prompt::user_instructions(&paths.instructions);
+    let instructions = crate::prompt::chief_instructions(&paths.person, &paths.instructions);
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -1222,6 +1221,7 @@ fn start(
         trace_dir: Some(paths.root.join("traces")),
         cache_ttl: cache_ttl_env,
         shared_ttl,
+        home_view: Some(home_view),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

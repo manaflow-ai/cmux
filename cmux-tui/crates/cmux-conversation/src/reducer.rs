@@ -68,8 +68,9 @@ pub enum Reject {
     /// The answer misses an item, names an unknown option, chooses too many,
     /// or types Other where the item does not allow it.
     InvalidAnswer,
-    /// `thread_root` names no message of this conversation, or a message
-    /// that is itself in a thread (a thread has one level).
+    /// `thread_root` names no message of this conversation, a message that
+    /// is itself in a thread (`thread_root` is always the top root), or a
+    /// root that is not the `reply_to` parent's own root.
     InvalidThreadRoot,
 }
 
@@ -264,6 +265,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             if parts.iter().any(bad_question) {
                 return Err(Reject::InvalidParts);
             }
+            let mut parent = None;
             if let Some(reply_to) = reply_to {
                 let replied = request
                     .reply_target
@@ -274,6 +276,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 if reply_to.part_index as usize >= replied.parts.len() {
                     return Err(Reject::InvalidPartIndex);
                 }
+                parent = Some(replied);
             }
             if let Some(thread_root) = thread_root {
                 request
@@ -285,6 +288,21 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                     })
                     .ok_or(Reject::InvalidThreadRoot)?;
             }
+            // Threads nest without a limit (conversation-tree-v1): `reply_to`
+            // is the parent, `thread_root` the top root of the whole tree. A
+            // parent in a thread passes its root on, so a reply to any reply
+            // stays in that thread; a named root must be the parent's own.
+            let thread_root = match (thread_root.as_ref(), parent) {
+                (Some(root), Some(parent)) => {
+                    if parent.id != *root && parent.thread_root.as_deref() != Some(root.as_str()) {
+                        return Err(Reject::InvalidThreadRoot);
+                    }
+                    Some(root.clone())
+                }
+                (Some(root), None) => Some(root.clone()),
+                (None, Some(parent)) => parent.thread_root.clone(),
+                (None, None) => None,
+            };
             next.last_seq = head.last_seq + 1;
             next.updated_at = now.to_string();
             // The loop guard counts text only; a work card neither counts nor resets it.
@@ -307,7 +325,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 reply_to: reply_to.clone(),
                 answers: answers.clone(),
                 answers_pending: answers_pending.clone(),
-                thread_root: thread_root.clone(),
+                thread_root,
                 created_at: now.to_string(),
                 edited_at: None,
                 retracted_at: None,

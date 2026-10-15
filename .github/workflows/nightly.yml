@@ -12,7 +12,9 @@ name: Nightly macOS build
 # NEXT (bundle id com.cmuxterm.app.nightly.cmux-next, cx-x7hwx), which installs
 # beside cmux NIGHTLY, with its own release `nightly-next`, DMG names, Sparkle
 # key and feed (NIGHTLY_NEXT_FEED_BASE), so its installs never read main's
-# NIGHTLY feed and main's never read its feed.
+# NIGHTLY feed and main's never read its feed. Installs from before cmux NEXT
+# (cmux NIGHTLY identity, NIGHTLY_NEXT_LEGACY_FEED_BASE) get the same builds
+# signed as cmux NIGHTLY from job publish-nightly-identity-legacy (cx-x7hwx).
 # Only main's nightly.yml job promote-nightly-next (release environment, release
 # App) moves `nightly-next`, to a feat-cmux-next head whose Release compile is
 # green; cmux-next.yml requests it after a green push run. Its signing and upload secrets live in the
@@ -152,7 +154,9 @@ env:
   # UpdateFeedResolver classifies the track by it. Release notes sit beside it.
   NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
   # The feed of the cmux NIGHTLY-identity nightly-next builds before cmux NEXT.
-  # It is no longer written; build numbers stay above it.
+  # Only job publish-nightly-identity-legacy writes it: each cmux NEXT build, signed
+  # as cmux NIGHTLY, so those installs keep updating with their data (cx-x7hwx).
+  # Build numbers stay above it.
   NIGHTLY_NEXT_LEGACY_FEED_BASE: https://files-next.cmux.com/nightly-next
   # cmux-next's own version line (CFBundleShortVersionString
   # <this>-nightly.<build>); main's nightly and RC keep the project version.
@@ -722,7 +726,7 @@ jobs:
   # which publishes from its own push run) to a feat-cmux-next commit. Runs
   # only here on main, in the `release` environment, with the release App (the
   # only bypass actor of the nightly-next ruleset). cmux-next.yml on
-  # feat-cmux-next requests it after a green push run (debounce=true); a person
+  # feat-cmux-next requests it after a green Release compile without debounce; a person
   # can Run workflow with the SHA (no debounce). The commit counts only through
   # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
   # "cmux-next Release compile (Xcode 26)" job passed.
@@ -768,19 +772,31 @@ jobs:
               return;
             }
 
-            // A pushed feat-cmux-next head whose push run passed the Release compile.
-            const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
-              owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
-            });
+            // The source workflow dispatches this request immediately after
+            // Release compile succeeds. GitHub's head-SHA workflow index can
+            // lag that job by a few seconds, so retry the same exact lookup
+            // before rejecting a valid promotion. Never relax the SHA, branch,
+            // event, job name or conclusion checks while retrying.
+            const admissionAttempts = 6;
+            const admissionDelayMs = 5000;
             let green = false;
-            for (const run of pushRuns) {
-              if (run.head_sha !== sha || run.head_branch !== source || run.event !== 'push') continue;
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-                owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+            for (let attempt = 1; attempt <= admissionAttempts && !green; attempt += 1) {
+              const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
               });
-              if (jobs.some((job) => job.name === requiredJob && job.conclusion === 'success')) {
-                green = true;
-                break;
+              for (const run of pushRuns) {
+                if (run.head_sha !== sha || run.head_branch !== source || run.event !== 'push') continue;
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                  owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+                });
+                if (jobs.some((job) => job.status === 'completed' && job.name === requiredJob && job.conclusion === 'success')) {
+                  green = true;
+                  break;
+                }
+              }
+              if (!green && attempt < admissionAttempts) {
+                core.notice(`The exact ${requiredJob} result is not visible yet; retrying promotion admission (${attempt}/${admissionAttempts - 1}).`);
+                await new Promise((resolve) => setTimeout(resolve, admissionDelayMs));
               }
             }
             if (!green) {
@@ -1554,6 +1570,7 @@ jobs:
           workspaces: |
             cmux-tui -> target/acpmux-app
             Native/OptChat/optchat-chief -> target/app
+            cnx-ios/rust -> target/cnx-hostd-app
           shared-key: nightly-next-rust-helpers
           cache-all-crates: true
 
@@ -1583,6 +1600,21 @@ jobs:
           CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$archs" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
           echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
+
+      # The cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd), which
+      # Settings > Mobile runs: the Release build's "Bundle cnx-hostd" phase
+      # copies it to Resources/bin, and sign-cmux-bundle-helpers.sh signs it
+      # with the app's Developer ID, hardened runtime and the helper
+      # entitlements before notarization, like every Mach-O there.
+      - name: Build the cnx iPhone host (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
+          hostd_bin="$RUNNER_TEMP/cmux-next-cnx-hostd/cnx-hostd"
+          CMUX_NEXT_CNX_HOSTD_ARCHS="$archs" scripts/cmux-next/build-cnx-hostd.sh --output "$hostd_bin"
+          echo "CMUX_NEXT_CNX_HOSTD_BIN=$hostd_bin" >> "$GITHUB_ENV"
+          echo "CMUX_NEXT_REQUIRE_CNX_HOSTD=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -1663,6 +1695,13 @@ jobs:
         run: |
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+          # The remote browser host the Embed remote browser host phase puts in
+          # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
+          # unavailable, the app builds without it (the phase warns). A digest
+          # mismatch fails here. The tailnet store is not reachable from runners.
+          if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+            CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
+          fi
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
@@ -1891,7 +1930,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
 
       - name: Strip unsigned nightly app before transfer
         run: |
@@ -1913,6 +1952,7 @@ jobs:
           fi
 
       - name: Archive unsigned nightly app
+        if: needs.decide.outputs.build_only != 'true'
         run: |
           set -euo pipefail
           products="build-universal/Build/Products/Release"
@@ -1923,10 +1963,13 @@ jobs:
           tar -C "$products" -czf "$RUNNER_TEMP/cmux-nightly-unsigned.tar.gz" cmux.app
 
       - name: Upload unsigned nightly app
+        if: needs.decide.outputs.build_only != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
           path: ${{ runner.temp }}/cmux-nightly-unsigned.tar.gz
+          # The tar.gz is already compressed; avoid wasting runner CPU on outer deflate.
+          compression-level: 0
           if-no-files-found: error
           retention-days: 1
 
@@ -2135,7 +2178,8 @@ jobs:
 
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -2232,11 +2276,6 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Install build deps
         run: |
@@ -2401,15 +2440,17 @@ jobs:
           done
           # The cmux-next nightly carries the OptChat Chief with the app's slices.
           if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            chief="$APP/Contents/Resources/bin/optchat-chief"
-            [ -x "$chief" ] || { echo "nightly-next is missing bin/optchat-chief" >&2; exit 1; }
-            archs="$(lipo -archs "$chief")"
-            echo "$chief: $archs"
-            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
-            else
-              [ "$archs" = "$NIGHTLY_VARIANT" ]
-            fi
+            for helper in optchat-chief cnx-hostd; do
+              binary="$APP/Contents/Resources/bin/$helper"
+              [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
+              archs="$(lipo -archs "$binary")"
+              echo "$binary: $archs"
+              if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+                [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+              else
+                [ "$archs" = "$NIGHTLY_VARIANT" ]
+              fi
+            done
           fi
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           for alias in cmux-tui acpmux; do
@@ -2953,7 +2994,7 @@ jobs:
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          # The new item carries the bundle's macOS floor (26.0 for cmux-next),
+          # The new item carries the bundle's macOS floor (14.0 for cmux-next since 2026-10-13),
           # so older macOS keeps the previous (legacy) items still in the feed.
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
           export SPARKLE_MINIMUM_SYSTEM_VERSION
@@ -3250,6 +3291,8 @@ jobs:
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
       source: ${{ steps.source.outputs.source }}
+      # The published build, for publish-nightly-identity-legacy (cx-x7hwx).
+      build: ${{ steps.source.outputs.build }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -3723,6 +3766,287 @@ jobs:
               echo "Assets, release metadata, and appcasts for \`$HEAD_SHA\` are published, but \`$CHANNEL_RELEASE_TAG\` was not advanced. The next eligible publication will retry the marker without republishing this commit."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # cx-x7hwx: installs of the nightly-next track from before cmux NEXT
+  # (b9ac67887fa7, 2026-10-12) are cmux NIGHTLY (com.cmuxterm.app.nightly) and
+  # read NIGHTLY_NEXT_LEGACY_FEED_BASE/appcast-arm64.xml. Sparkle installs only
+  # an update with their bundle id or file name, and their terminals, agent
+  # sessions, keychain sign-in, browser data, preferences and Chief state live
+  # under that id. So each published cmux NEXT build is also published to them,
+  # as the same build signed as cmux NIGHTLY
+  # (scripts/ci/nightly-next-legacy-identity.sh), on the old feed, with its
+  # signed release notes. Same Sparkle key; no new secret.
+  # After the cmux NEXT publication and its notes; no job needs this one, and
+  # continue-on-error keeps the run's result to cmux NEXT. A failure opens or
+  # updates the "cmux NIGHTLY-identity publication failed" issue; the old feed
+  # then keeps its previous build. Cost: the next nightly-next run waits for this
+  # job's notarization in the workflow concurrency group (hq-a3 accepted, 2026-10-14).
+  # Off switch: repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.
+  publish-nightly-identity-legacy:
+    needs: [decide, publish-nightly, publish-release-notes]
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_probe != 'true' && needs.publish-nightly.result == 'success' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    continue-on-error: true
+    environment: release-next
+    # A nightly_next_continue_only run has its own workflow group: one old-feed
+    # writer at a time across runs.
+    concurrency:
+      group: nightly-next-legacy-identity
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      issues: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 80
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      CHANNEL_RELEASE_TAG: nightly-next
+      CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
+      # Release asset names of the cmux NIGHTLY-identity copies. They start with
+      # the track prefix (nightly-next-guard.py appcast) but match none of the
+      # track's prune patterns (prune_nightly_release_assets.py); this job
+      # prunes them itself.
+      LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
+      LEGACY_APPCAST: appcast-arm64.xml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # A rerun of an older request must never move the old feed back.
+      - name: Skip a build older than the old feed's
+        id: order
+        run: |
+          set -euo pipefail
+          [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
+          current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
+            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
+          echo "old feed build: ${current:-none}; requested: $NIGHTLY_BUILD"
+          if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "### Old feed already at $current; build $NIGHTLY_BUILD skipped" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Select Xcode
+        if: steps.order.outputs.skip != 'true'
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up Node
+        if: steps.order.outputs.skip != 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      # The same create-dmg as nightly.yml's build-sign-notarize-nightly.
+      - name: Install create-dmg
+        if: steps.order.outputs.skip != 'true'
+        run: |
+          CMUX_NODE_BIN="$(command -v node)"
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$CMUX_NODE_BIN" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Download the published cmux NEXT DMG
+        if: steps.order.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p next-in
+          gh release download "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" --dir next-in
+
+      - name: Import signing cert
+        if: steps.order.outputs.skip != 'true'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$APPLE_CERTIFICATE_BASE64" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "Missing signing certificate secrets" >&2; exit 1; }
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import "$RUNNER_TEMP/cert.p12" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: Sign the build as cmux NIGHTLY
+        if: steps.order.outputs.skip != 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          [ -n "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" ] || { echo "Missing APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 (release-next)" >&2; exit 1; }
+          NIGHTLY_PROFILE_PATH="$RUNNER_TEMP/nightly.provisionprofile"
+          echo "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$NIGHTLY_PROFILE_PATH"
+          LEGACY_FEED_URL="${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          NIGHTLY_NEXT_FEED_BASE="$NIGHTLY_NEXT_LEGACY_FEED_BASE" python3 scripts/ci/nightly-next-guard.py feed-url "$LEGACY_FEED_URL"
+          NIGHTLY_PROFILE_PATH="$NIGHTLY_PROFILE_PATH" LEGACY_FEED_URL="$LEGACY_FEED_URL" \
+            EXPECTED_SPARKLE_PUBLIC_KEY="$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" \
+            ./scripts/ci/nightly-next-legacy-identity.sh \
+              "next-in/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" "$NIGHTLY_BUILD" legacy-app
+          rm -f "$NIGHTLY_PROFILE_PATH"
+
+      # Same packaging, notarization, stapling, spctl, smoke launch and
+      # metadata checks as every NIGHTLY DMG. The Computer Use helper keeps
+      # its own stapled ticket (keep-stapled-computer-use-helper.sh).
+      - name: Notarize the cmux NIGHTLY DMG
+        if: steps.order.outputs.skip != 'true'
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          mkdir -p legacy-out
+          : > "$RUNNER_TEMP/unused-helper-state"
+          CMUX_CHANNEL=nightly \
+            CMUX_NOTARY_WAIT_TIMEOUT=45m \
+            CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
+            CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
+            CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/legacy.notarization.state" \
+            CMUX_NOTARY_OUTPUT_FILE="$RUNNER_TEMP/legacy.notarization.log" \
+            ./scripts/ci/notarize-nightly-dmg.sh "legacy-app/cmux NIGHTLY.app" \
+              "legacy-out/release.dmg" "legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
+          codesign --verify --deep --strict --verbose=2 "legacy-app/cmux NIGHTLY.app"
+          spctl -a -vv --type execute "legacy-app/cmux NIGHTLY.app"
+          xcrun stapler validate "legacy-app/cmux NIGHTLY.app"
+
+      - name: Generate the old feed's appcast
+        if: steps.order.outputs.skip != 'true'
+        env:
+          TRACK: nightly-next
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+          SPARKLE_CHANNEL: cmux-next
+        run: |
+          set -euo pipefail
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+          export SPARKLE_PRIVATE_KEY
+          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "legacy-app/cmux NIGHTLY.app")"
+          export SPARKLE_MINIMUM_SYSTEM_VERSION
+          # One full archive, no deltas: the old feed only has to move its
+          # installs to the newest build.
+          ./scripts/sparkle_generate_appcast.sh \
+            "legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg" "$CHANNEL_RELEASE_TAG" "legacy-out/$LEGACY_APPCAST"
+          # Carry the change summary of cmux NEXT's item for this build.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/next-appcast.xml" "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}" || true
+          python3 -I - "legacy-out/$LEGACY_APPCAST" "$RUNNER_TEMP/next-appcast.xml" "$NIGHTLY_BUILD" <<'PY'
+          import re, sys
+          out_path, next_path, build = sys.argv[1:]
+          try:
+              next_xml = open(next_path, encoding="utf-8").read()
+          except OSError:
+              sys.exit(0)
+          for item in re.findall(r"<item>.*?</item>", next_xml, re.S):
+              if f"<sparkle:version>{build}</sparkle:version>" in item:
+                  desc = re.search(r"<description>.*?</description>", item, re.S)
+                  if desc:
+                      xml = open(out_path, encoding="utf-8").read()
+                      xml = re.sub(r"\s*<description>.*?</description>", "", xml, flags=re.S)
+                      xml = xml.replace("</item>", desc.group(0) + "</item>", 1)
+                      open(out_path, "w", encoding="utf-8").write(xml)
+                  break
+          PY
+          python3 scripts/ci/nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"
+          grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "legacy-out/$LEGACY_APPCAST"
+          cat "legacy-out/$LEGACY_APPCAST"
+
+      - name: Publish the cmux NIGHTLY DMG, release notes and the old feed
+        if: steps.order.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          prefix="${NIGHTLY_NEXT_LEGACY_FEED_BASE#https://files-next.cmux.com/}"
+          [ "$prefix" = nightly-next ] || { echo "unexpected old feed base $NIGHTLY_NEXT_LEGACY_FEED_BASE" >&2; exit 1; }
+          upload() {  # <file> <key> <content-type> <cache-control>
+            NIGHTLY_NEXT_R2_PREFIX="$prefix/" python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$2"
+            python3 scripts/ci/upload-r2-object.py --file "$1" --endpoint-url "$R2_ENDPOINT" \
+              --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$2" --content-type "$3" --cache-control "$4"
+          }
+          dmg="legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
+          gh release upload "$CHANNEL_RELEASE_TAG" "$dmg" --repo "$GITHUB_REPOSITORY" --clobber
+          # The appcast goes live only after its DMG is downloadable.
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/$(basename "$dmg")"
+          curl -fsSIL --retry 5 --retry-all-errors --retry-delay 5 -o /dev/null "$url"
+          # Signed release notes sit beside each appcast (ReleaseNotesStore):
+          # copy cmux NEXT's index and this build's notes, already signed, next
+          # to the old feed. Best effort: a notes problem never blocks the feed.
+          copy_notes() {
+            local src="${NIGHTLY_NEXT_FEED_BASE}/notes" name
+            mkdir -p legacy-notes
+            for name in index.json "${NIGHTLY_BUILD}.json"; do
+              curl -fsSL --retry 3 -o "legacy-notes/$name" "$src/$name" || return 1
+              curl -fsSL --retry 3 -o "legacy-notes/$name.sig" "$src/$name.sig" || return 1
+            done
+            # This build's notes first, the index (which names it) last.
+            for name in "${NIGHTLY_BUILD}.json" index.json; do
+              case "$name" in index.json) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=3600" ;; esac
+              upload "legacy-notes/$name" "$prefix/notes/$name" application/json "$cache" || return 1
+              upload "legacy-notes/$name.sig" "$prefix/notes/$name.sig" text/plain "$cache" || return 1
+            done
+          }
+          copy_notes || echo "::warning::release notes of build $NIGHTLY_BUILD were not copied next to the old feed; the feed is still published"
+          upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST" application/xml "no-cache, no-store, must-revalidate"
+          # Keep the three newest cmux NIGHTLY-identity DMGs, never the one the feed names.
+          gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
+            | python3 -I -c 'import re, sys; p = re.compile("^" + re.escape(sys.argv[1]) + r"(\d+)\.dmg$"); keep = int(sys.argv[2]); names = sorted((int(m.group(1)), n) for n in sys.stdin.read().split() if (m := p.match(n))); [print(n) for b, n in names[:-3] if b != keep]' "$LEGACY_DMG_PREFIX" "$NIGHTLY_BUILD" \
+            | while IFS= read -r old; do
+                gh release delete-asset "$CHANNEL_RELEASE_TAG" "$old" --repo "$GITHUB_REPOSITORY" --yes || true
+              done
+          {
+            echo "### cmux NIGHTLY-identity build ${NIGHTLY_BUILD} published (cx-x7hwx)"
+            echo ""
+            echo "- feed: ${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+            echo "- DMG: $url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report a failed publication
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BUILD: ${{ needs.publish-nightly.outputs.build }}
+        with:
+          script: |
+            const title = 'cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)';
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `Build ${process.env.BUILD} was not published to the cmux NIGHTLY-identity installs (cx-x7hwx). cmux NEXT is not affected; the old feed keeps its previous build.\n\nRun: ${run}\n\nStop it with repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.`;
+            const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: 'open', per_page: 100, labels: '' });
+            const existing = open.find((issue) => issue.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body });
+            }
+            core.error(`cmux NIGHTLY-identity publication of build ${process.env.BUILD} failed; see ${run}`);
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow

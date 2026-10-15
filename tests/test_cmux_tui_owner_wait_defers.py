@@ -32,10 +32,22 @@ import json, os, sys
 args = sys.argv[1:]
 url = next(a for a in args if a.startswith("http"))
 out = args[args.index("-o") + 1] if "-o" in args else None
+if "/actions/artifacts?name=cmux-tui-tree-feat-builder-" in url:
+    if os.environ.get("FAKE_BUILDERS", "") == "fail":
+        sys.exit(22)
+    ids = [i for i in os.environ.get("FAKE_BUILDERS", "").split(",") if i]
+    print(json.dumps({"artifacts": [{"expired": False, "workflow_run": {"id": int(i)}} for i in ids]}))
+    sys.exit(0)
 if "/actions/runs/" in url:
+    run_id = url.rsplit("/", 1)[1]
+    if run_id in os.environ.get("FAKE_BUILDERS", "").split(","):
+        print(json.dumps({"status": os.environ.get("FAKE_BUILDER_STATUS", "in_progress")}))
+        sys.exit(0)
     if os.environ["FAKE_OWNER_STATUS"] == "fail":
         sys.exit(22)
-    print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", "")}))
+    print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", ""),
+                      "event": "push", "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next"),
+                      "head_sha": os.environ.get("FAKE_OWNER_SHA", "b" * 40)}))
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
     sys.exit(22)
@@ -118,7 +130,8 @@ def run_wait(owner, **fake):
                    API_URL="https://api.github.invalid", REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x",
                    SERVER_URL="https://github.invalid", GITHUB_OUTPUT=output, GITHUB_RUN_ID="5", RUNNER_TEMP=tmp,
                    FAKE_LOG=log)
-        env = {**env, "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
+        env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
+               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
         result = subprocess.run(["bash", "-e", "-c", wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         return result, open(output).read(), open(log).read()
 
@@ -153,6 +166,36 @@ def main():
     _check(any("cmux-tui-tree-deferred-" in str(s.get("with", {}).get("name", "")) and "deferred" in str(s.get("if", ""))
                for s in uploads), "a deferring run leaves a cmux-tui-tree-deferred-<key> marker")
 
+    # hq-a3 2026-10-14: a feat-cmux-next push never waits for a branch run that
+    # owns its key (that run publishes only after its macOS daemon tests).
+    for status in ("in_progress", "queued"):
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_BRANCH="op-next-idle-caret")
+        _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out and "claim" not in log,
+               f"a feat-cmux-next push builds a key a {status} branch run owns ({out.strip()!r}, {log.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_OWNER_SHA="f" * 40)
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"a branch run building the same commit keeps it: two builds race on its write-once prefix ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret")
+    _check("feat_builder=true" in out, f"the run that takes over says it builds the key ({out.strip()!r})")
+    builder_marks = [s for s in job("tree-owner-wait")["steps"] if "upload-artifact" in str(s.get("uses", ""))]
+    _check(any("cmux-tui-tree-feat-builder-" in str(s.get("with", {}).get("name", "")) and "feat_builder" in str(s.get("if", ""))
+               for s in builder_marks), "a feat-cmux-next builder leaves a cmux-tui-tree-feat-builder-<key> marker")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "feat_builder=false" in out,
+           f"a later feat-cmux-next push defers to the active feat-cmux-next builder ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9", FAKE_BUILDER_STATUS="completed")
+    _check(result.returncode == 0 and "takeover=true" in out,
+           f"a builder that ended does not hold the key ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="fail")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"an unreadable builder list keeps the old deferral ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", REF="refs/heads/op-next-other")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"a branch push still defers to a live branch owner ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_TREE_PUBLISHED="1")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"a key a branch run already published is not built again ({out.strip()!r})")
+
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1")
     _check(result.returncode == 0 and "takeover=false" in out, f"a published tree: no build ({out.strip()!r})")
 
@@ -165,7 +208,7 @@ def main():
 
     promote = job("request-nightly-next")
     condition = promote["if"]
-    _check("refs/heads/feat-cmux-next" in condition and "github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree.result == 'success'" in condition,
+    _check("refs/heads/feat-cmux-next" in condition and "github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success'" in condition,
            "a publishing run on another branch asks for the nightly-next promotion of the feat-cmux-next head that shares its key")
     checkout = next(s for s in promote["steps"] if "checkout" in str(s.get("uses", "")))
     _check("feat-cmux-next" in str(checkout["with"]["ref"]), "that request runs from the feat-cmux-next head's own checkout")

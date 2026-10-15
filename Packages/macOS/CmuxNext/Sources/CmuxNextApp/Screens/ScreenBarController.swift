@@ -235,6 +235,7 @@ final class ScreenPreviewSource: TabPreviewProvider {
         let selected = content.state.selection.selection(in: pane.id)
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : pane.tabs.first?.id)
         guard let key = selected else { return nil }
-        return await content.services.cache.previewImage(for: key, maxPixelSize: maxPixelSize)
+        let cache = content.services.cache
+        return await TabPreviewSource.shown(cache.previewImage(for: key, maxPixelSize: maxPixelSize), key: key, cache: cache)
     }
 }

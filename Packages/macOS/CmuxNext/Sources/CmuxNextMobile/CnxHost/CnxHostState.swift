@@ -15,6 +15,9 @@ public struct CnxHostState: Sendable, Equatable {
         case online
         /// The connection failed; hostd or the supervisor retries.
         case waiting(String)
+        /// The owner removed this Mac from the account's devices: hostd stopped and stays
+        /// stopped until the person allows iPhone connections again.
+        case removed
     }
 
     public var phase: Phase = .off
@@ -41,14 +44,22 @@ public struct CnxHostState: Sendable, Equatable {
             teamID = team
         case .waiting(let reason, _):
             phase = .waiting(reason)
-        case .needToken, .needAcpmux, .needBrowser, .browserStop:
+        case .removed:
+            phase = .removed
+            phones = []
+        case .needToken, .needAcpmux, .pairRequest, .unpaired, .needBrowser, .browserStop:
             break
         case .phoneUp(var link):
             link.since = now
             phones.removeAll { $0.sessionID == link.sessionID }
             phones.append(link)
         case .phonePath(let session, let path):
-            if let index = phones.firstIndex(where: { $0.sessionID == session }) { phones[index].path = path }
+            phones = phones.map { link in
+                guard link.sessionID == session else { return link }
+                var moved = link
+                moved.path = path
+                return moved
+            }
         case .phoneDown(let session, _):
             phones.removeAll { $0.sessionID == session }
         }

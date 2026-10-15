@@ -143,13 +143,13 @@
   border: 0;
   border-radius: var(--ui-popup-radius);
   background-color: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
 }
 .ui-menu-item.acpmux-access-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 16px 16px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: var(--ui-row-height);
@@ -158,13 +158,49 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-access-item .ui-menu-check { order: 3; margin-inline-start: 4px; color: var(--agent-text); }
+.acpmux-access-item .ui-menu-check { grid-column: 1; margin: 0; color: var(--agent-text); }
 .acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
-.acpmux-access-item .acpmux-menu-text { order: 2; min-width: 0; }
+.acpmux-access-item .acpmux-access-item-icon { grid-column: 2; }
+.acpmux-access-item .acpmux-menu-text { grid-column: 3; min-width: 0; }
+.acpmux-access-item .ui-menu-shortcut { grid-column: 4; margin-inline-start: 0; padding-inline-start: 8px; }
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); font-weight: 500; }
 .acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
+.acpmux-permission-status { display: inline-flex; flex: none; align-items: center; }
+.acpmux-permission-status-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.acpmux-permission-status-trigger:hover,
+.acpmux-permission-status-trigger[aria-expanded="true"] { color: var(--agent-text); background: var(--acpmux-menu-hover); }
+.acpmux-permission-status-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-permission-status-trigger .acpmux-icon { width: 14px; height: 14px; }
+.acpmux-permission-status-label { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-detail); }
+.acpmux-permission-status-menu { min-width: 150px; }
+.acpmux-permission-status-undo {
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: pointer;
+}
+.acpmux-permission-status-undo:hover { color: var(--agent-text); background: var(--acpmux-menu-hover); }
+.acpmux-permission-status-undo:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
 
@@ -300,14 +336,7 @@
   display: inline-flex;
   align-items: center;
 }
-.acpmux-composer-bar .acpmux-effort::before,
-.acpmux-composer-bar .acpmux-access::before {
-  content: "";
-  width: 1px;
-  height: 18px;
-  margin: 0 5px;
-  background: var(--acpmux-composer-edge);
-}
+/* Footer controls share one rhythm; separators are reserved for explicit group boundaries. */
 @media (max-width: 480px) {
   /* At compact pane widths the rail keeps every action available but uses the same icon-first
      treatment as the mode picker. The button labels remain in aria-label/title metadata, so
@@ -342,3 +371,59 @@
   border-bottom: 1px solid var(--acpmux-composer-edge);
   border-radius: 18px 18px 0 0;
 }
+
+/* The composer is one material surface. The location scope is quiet metadata at its lower edge,
+   so it cannot read as a second box over wallpaper or add a full-width divider. */
+.acpmux-composer-box {
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
+    inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.acpmux-composer-box:focus-within {
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
+}
+.acpmux-composer-context,
+.acpmux-composer-box[data-context-first] > .acpmux-composer-context {
+  height: 30px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: 0 0 var(--acpmux-composer-radius) var(--acpmux-composer-radius);
+  background: transparent;
+  box-shadow: none;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker {
+  margin-left: 0;
+  padding-left: 0;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker::before {
+  display: none;
+}
+.acpmux-composer-bar .acpmux-chips-spacer {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 8px;
+}
+.acpmux-composer-bar .acpmux-send.acpmux-send-ready {
+  background: var(--agent-accent, var(--agent-text));
+  color: var(--agent-on-accent, var(--acpmux-base));
+}
+
+/* Permission cards use the same quiet material language as the composer. The icon and title form
+   one readable header, while coverage and request count stay secondary metadata. */
+.acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface {
+  border: .5px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--agent-shadow, #000) 10%, transparent);
+}
+.acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); }
+.acpmux-permission-card-leading { display: inline-flex; flex: none; align-items: center; justify-content: center; color: var(--agent-muted); }
+.acpmux-permission-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-permission-card-meta .acpmux-permission-coverage { margin-left: auto; }
+.acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: 7px; }
+.acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
+.acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }

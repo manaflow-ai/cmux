@@ -630,7 +630,7 @@ export default agentPaneEntry({
       },
     },
     "slash-menu-keyboard": {
-      note: "Play: ArrowDown moves the slash-command highlight, Enter picks it, and focus stays in the prompt.",
+      note: "Play: Ctrl-J/Ctrl-K and arrows move the slash-command highlight, Enter picks it, and focus stays in the prompt.",
       snapshot: chat(finished, {
         commands: [
           { name: "compact", description: "Clear conversation history but keep a summary in context" },
@@ -648,12 +648,14 @@ export default agentPaneEntry({
           return Boolean(active && ctx.document.getElementById(active));
         });
         const before = ctx.find(prompt).getAttribute("aria-activedescendant");
-        await ctx.press("ArrowDown");
+        await ctx.press("Control+j");
         await ctx.waitFor(() => {
           const active = ctx.find(prompt).getAttribute("aria-activedescendant");
           const option = active ? ctx.document.getElementById(active) : null;
           return Boolean(active && active !== before && option?.getAttribute("aria-selected") === "true");
         });
+        await ctx.press("Control+k");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") === before);
         const active = ctx.find(prompt).getAttribute("aria-activedescendant");
         const selected = active ? ctx.document.getElementById(active)?.querySelector(".acpmux-slash-name") : null;
         const command = selected?.textContent?.trim();
@@ -678,7 +680,7 @@ export default agentPaneEntry({
       },
     },
     "mention-picker": {
-      note: "Play: type @rea in the prompt; the chat's files that match open under the caret, best first, and Return writes @README.md into the prompt.",
+      note: "Play: type @rea in the prompt; Ctrl-J/Ctrl-K move the file highlight, and Return writes @README.md into the prompt.",
       snapshot: chat(finished),
       native: {
         "file.search": {
@@ -699,6 +701,11 @@ export default agentPaneEntry({
             row.textContent?.includes("README.md"),
           ),
         );
+        const before = ctx.find(prompt).getAttribute("aria-activedescendant");
+        await ctx.press("Control+j");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") !== before);
+        await ctx.press("Control+k");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") === before);
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
         if (!ctx.find(prompt).textContent?.includes("Fix @README.md"))
@@ -1027,6 +1034,17 @@ export default agentPaneEntry({
           throw new Error("shared popup is missing glass material");
         if (!style.backgroundColor || style.backgroundColor === "rgba(0, 0, 0, 0)")
           throw new Error("shared popup is missing its themed surface fill");
+        const box = ctx.find({ selector: ".acpmux-composer-box" });
+        const context = ctx.find({ selector: ".acpmux-composer-context" });
+        const boxStyle = ctx.document.defaultView!.getComputedStyle(box);
+        const contextStyle = ctx.document.defaultView!.getComputedStyle(context);
+        if (!boxStyle.boxShadow || boxStyle.boxShadow === "none") throw new Error("composer surface has no soft edge");
+        if (contextStyle.borderTopWidth !== "0px" || contextStyle.boxShadow !== "none")
+          throw new Error("location scope still draws a divider or inner box");
+        if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
+        const spacer = ctx.find({ selector: ".acpmux-chips-spacer" });
+        if (Number(ctx.document.defaultView!.getComputedStyle(spacer).flexGrow) < 1)
+          throw new Error("composer controls lost the flexible gap between left and right groups");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
         await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));

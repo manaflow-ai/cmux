@@ -5,9 +5,10 @@
 :root {
   --ui-popup-radius: 8px;
   --ui-popup-padding: 4px;
+  /* The native popup shadow (PopupStyle.swift, `0 2px 8px` black at 12%) and a hairline edge: one
+     elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. */
   --ui-popup-shadow:
-    0 8px 24px color-mix(in srgb, black 18%, transparent),
-    0 1px 3px color-mix(in srgb, black 14%, transparent),
+    0 2px 8px color-mix(in srgb, black 12%, transparent),
     inset 0 0 0 0.5px color-mix(in srgb, currentColor 12%, transparent);
   --ui-row-height: 28px;
   --ui-row-radius: 5px;

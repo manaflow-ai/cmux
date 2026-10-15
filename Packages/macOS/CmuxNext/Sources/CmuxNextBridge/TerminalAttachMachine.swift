@@ -8,17 +8,21 @@ public import Foundation
 /// detached ─start─▶ attaching ─opened─▶ attaching(link) ─replay─▶ live
 ///                        ▲                                          │
 ///                        └──────── reattaching ◀── overflow ────────┘
-/// stream ended / attach failed ─▶ disconnected ─event─▶ reattaching
+/// stream ended / attach failed ─▶ disconnected ─event or retry─▶ reattaching
 /// any ─processExited─▶ exited        any ─close─▶ closed
 /// exited ─processRevived─▶ reattaching
 /// ```
 ///
 /// A view is never closed because its stream ended or an attach failed: it
-/// is `disconnected`, keeps its last screen, and re-attaches on the next
-/// event that can make an attach work (shown again, a key press, a click or
-/// focus, the terminal or the connection back). One re-attach at a time. A
-/// re-attach after a failed re-attach waits the capped backoff first
-/// (`openAfterBackoff`); nothing retries on a timer. A terminal whose
+/// is `disconnected`, keeps its last screen, and re-attaches. A visible view
+/// retries by itself (cx-wwtam), each re-attach after the capped backoff
+/// (`openAfterBackoff`), up to `maxAutoReconnects` in a row, so a restored
+/// terminal whose daemon answers late comes back with no user input. After
+/// that, or while hidden, it re-attaches on the next event that can make an
+/// attach work (shown again, a key press, a click or focus, the terminal or
+/// the connection back). One re-attach at a time. Until a view first went
+/// live its status is `restoring` (when it was created as a restore) while it
+/// attaches or retries. A terminal whose
 /// process ended is `exited` and never re-attaches on a view event; only the
 /// daemon reporting the terminal running again (`processRevived`) re-attaches
 /// it, because a dead report can be transient (R41).
@@ -45,6 +49,10 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     public static var maxAttempts: Int { 8 }
     /// Input held while attaching. Beyond it new input is dropped and counted.
     public static var maxQueuedInputBytes: Int { 4 << 20 }
+    /// Failed re-attaches in a row a visible view retries by itself. With the
+    /// App's backoff (500 ms doubling to 30 s) that is about a minute; then
+    /// only an event re-attaches.
+    public static var maxAutoReconnects: Int { 8 }
 
     public private(set) var phase: Phase = .detached
     public private(set) var queuedInput: [Data] = []
@@ -64,12 +72,23 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// The process ended while an attach was pending: its replay (the last
     /// screen) still lands, then the view is exited.
     public private(set) var exitAfterReplay = false
+    /// A replay reached this view at least once.
+    public private(set) var wentLive = false
+    /// Re-attaches the view started by itself since the last event.
+    public private(set) var autoReconnects = 0
+    /// Why the view last disconnected (the status of a re-attach an event cuts short).
+    private var lastDisconnect: DisconnectReason = .attachFailed
     private let initialSize: CellSize
+    private let restoring: Bool
     private var lastAttempt = 0
 
-    public init(initialSize: CellSize, visible: Bool = true) {
+    /// `restoring`: the view attaches to a terminal that already runs (a
+    /// relaunch or a reopened tab), so it says `restoring` until its first
+    /// replay instead of nothing.
+    public init(initialSize: CellSize, visible: Bool = true, restoring: Bool = false) {
         self.initialSize = initialSize
         self.visible = visible
+        self.restoring = restoring
     }
 
     /// The link input goes to right now, if any.
@@ -105,7 +124,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         guard phase == .detached else { return [] }
         let pending = newPending(failures: 1)
         phase = .attaching(pending)
-        return [.open(attempt: pending.attempt, size: pending.size)]
+        return (restoring ? announce(.restoring) : []) + [.open(attempt: pending.attempt, size: pending.size)]
     }
 
     private mutating func opened(_ link: Link, attempt: Int) -> [Effect] {
@@ -134,6 +153,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
             return processExited()
         }
         phase = .live(link)
+        wentLive = true
         // The attach itself reported the size it opened with.
         reportedSize = pending.size
         claimed = false
@@ -190,7 +210,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// Focus or a click: a disconnected view re-attaches; a live one takes
     /// geometry back.
     private mutating func focused() -> [Effect] {
-        if case .disconnected = phase { return reconnect() }
+        if liveLink == nil { return reconnect() }
         return reclaim()
     }
 
@@ -203,7 +223,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private mutating func setVisible(_ visible: Bool) -> [Effect] {
         guard self.visible != visible else { return [] }
         self.visible = visible
-        if visible, case .disconnected = phase { return reconnect() }
+        // Shown again: a disconnected view re-attaches, one waiting out a backoff now.
+        if visible, liveLink == nil { return reconnect() }
         guard let link = liveLink else { return [] }
         if !visible {
             guard claimed || reportedSize != nil else { return [] }
@@ -251,26 +272,55 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
 
     /// Starts one re-attach of a disconnected view. Anything else (an attach
     /// already pending, a live, exited or closed view) ignores it.
-    private mutating func reconnect() -> [Effect] {
-        guard case .disconnected(let disconnected) = phase else { return [] }
+    ///
+    /// An event (a key, focus, shown again, Retry, the terminal or the
+    /// connection back) opens at once and gives the view its retries back;
+    /// it also cuts short a self-started re-attach still waiting out its
+    /// backoff (that attempt's late open is then detached as superseded).
+    /// A self-started one waits the backoff for the larger of the failed
+    /// re-attaches and the self-started ones before it, so a link that goes
+    /// live and drops again and again still slows down and stops.
+    private mutating func reconnect(byEvent: Bool = true) -> [Effect] {
+        let reason: DisconnectReason
+        let failed: Int
+        switch phase {
+        case .disconnected(let disconnected):
+            reason = disconnected.reason
+            failed = disconnected.failedReconnects
+        case .reattaching(let pending) where byEvent && pending.link == nil && pending.waitsBackoff:
+            reason = lastDisconnect
+            failed = 0
+        default:
+            return []
+        }
+        if byEvent { autoReconnects = 0 }
+        let wait = byEvent ? 0 : max(failed, autoReconnects - 1)
         lastAttempt += 1
-        let pending = Pending(attempt: lastAttempt, failures: 1, size: desiredSize ?? initialSize, link: nil,
-                              reconnects: disconnected.failedReconnects)
+        var pending = Pending(attempt: lastAttempt, failures: 1, size: desiredSize ?? initialSize, link: nil,
+                              reconnects: byEvent ? 0 : failed)
+        pending.waitsBackoff = wait > 0
         phase = .reattaching(pending)
-        let open: Effect = disconnected.failedReconnects == 0
+        lastDisconnect = reason
+        let open: Effect = wait == 0
             ? .open(attempt: pending.attempt, size: pending.size)
-            : .openAfterBackoff(attempt: pending.attempt, size: pending.size, failedReconnects: disconnected.failedReconnects)
-        return announce(.disconnected(disconnected.reason, reconnecting: true)) + [open]
+            : .openAfterBackoff(attempt: pending.attempt, size: pending.size, failedReconnects: wait)
+        let status: LinkStatus = restoring && !wentLive ? .restoring : .disconnected(reason, reconnecting: true)
+        return announce(status) + [open]
     }
 
     /// The attach (or the stream) failed: keep the last screen and queued
-    /// input and wait for an event. A failed re-attach counts toward the
-    /// backoff of the next one.
+    /// input. A visible view re-attaches by itself after the backoff while
+    /// it has retries left; otherwise it waits for an event. A failed
+    /// re-attach counts toward the backoff of the next one.
     private mutating func disconnect(_ reason: DisconnectReason, after pending: Pending?) -> [Effect] {
         let failed = pending?.reconnects.map { $0 + 1 } ?? 0
         phase = .disconnected(Disconnected(reason: reason, failedReconnects: failed))
         claimed = false
         reportedSize = nil
+        if visible, reason != .fellBehind, autoReconnects < Self.maxAutoReconnects {
+            autoReconnects += 1
+            return reconnect(byEvent: false)
+        }
         return announce(.disconnected(reason, reconnecting: false))
     }
 

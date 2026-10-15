@@ -76,7 +76,7 @@ public final class HomeChiefSidebar: NSView {
             field.setAccessibilityLabel(label)
             field.placeholderString = label
             field.font = Typography.body
-            let box = ThemedFieldBox(field: field, height: Metrics.tabHeight)
+            let box = ThemedFieldBox(field: field, height: Metrics.controlHeight)
             stack.addArrangedSubview(caption)
             stack.addArrangedSubview(box)
             box.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true

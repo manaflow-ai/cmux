@@ -5,7 +5,7 @@ import CmuxNextActions
 /// point of that action.
 enum StripNewTab {
     static let action: ActionID = "newTab.default"
-    /// Option-click on the +: New <Kind> Tab, the selected tab's kind whatever `tabs.newTabKind` says.
+    /// Option-click on the +: New <Kind> Tab, the selected tab's kind, picked on purpose.
     static let sameKindAction: ActionID = "newTab.ofKind"
 
     static func request(pane: String, opensWorkspace: Bool = false, sameKind: Bool = false,
@@ -19,7 +19,7 @@ enum StripNewTab {
     /// tab, `groupTabs` the group's tabs in strip order. The group's
     /// selected tab decides the kind (`newTab.default` on that tab), else
     /// its last tab (cmux keeps no per-tab focus history); a group without
-    /// tabs gets a terminal tab in the pane.
+    /// tabs gets `newTab.default` on the pane, like the strip's + (cx-hvc57).
     static func requestInGroup(selected: String?, groupTabs: [String], pane: String,
                                opensWorkspace: Bool = false,
                                perform: (ActionID, ActionInvocation) -> Void) {
@@ -27,7 +27,7 @@ enum StripNewTab {
         guard let source else {
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane))
             if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }
-            return perform("newSurface", invocation)
+            return perform(action, invocation)
         }
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: source))
         if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }

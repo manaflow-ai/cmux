@@ -3,11 +3,17 @@
 // It handles no Cmd or Ctrl chord: the host owns those (Cmd-A selects only inside the focused field,
 // Cmd-F is the page's find command, the native menu shows only Copy on a selection).
 import "./desktop.css";
+import { parseComputedColor } from "../../backdrop";
 import { installScrollers } from "../../scrollers";
 import { installTooltips } from "../../ui/titleTooltips";
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
 export const DESKTOP_LAYER_ATTRIBUTE = "data-cmux-desktop";
+
+/** On `<html>` while the page background (`--cmux-surface-background`, WebTheme.swift) is not
+ * opaque: the page sits on the window tint over the material and art (pageBase.css lifts the
+ * tertiary text tier there). */
+export const SEE_THROUGH_ATTRIBUTE = "data-cmux-see-through";
 
 /** The host call a drawn title bar's double-click makes (the window's title bar action). */
 export const TITLE_BAR_DOUBLE_CLICK = "cmux.app.window.title_bar_double_click";
@@ -42,6 +48,9 @@ export function installDesktopLayer(doc: Document = document): void {
   installTooltips(doc);
   const view = doc.defaultView;
   if (!view) return;
+  // SEE-THROUGH: follows the host's theme payload (window.cmuxTheme.apply fires `cmux-theme`).
+  updateSeeThrough(doc);
+  view.addEventListener("cmux-theme", () => updateSeeThrough(doc));
   // A drop never navigates the page: a page that takes drops handles them (and calls
   // preventDefault itself); everything else is refused here.
   view.addEventListener("dragover", (event) => {
@@ -52,6 +61,24 @@ export function installDesktopLayer(doc: Document = document): void {
   view.addEventListener("dblclick", (event) => {
     if (caller && isTitleBar(event.target)) void caller.call(TITLE_BAR_DOUBLE_CLICK, {}).catch(() => undefined);
   });
+}
+
+/** Sets or clears ``SEE_THROUGH_ATTRIBUTE`` from the resolved page background. Without a host theme
+ * (the plain-browser dev loop) the page is on the browser's canvas, not art: the attribute stays off. */
+export function updateSeeThrough(doc: Document = document): void {
+  const root = doc.documentElement;
+  const view = doc.defaultView;
+  if (!view || view.getComputedStyle(root).getPropertyValue("--cmux-surface-background").trim() === "") {
+    root.removeAttribute(SEE_THROUGH_ATTRIBUTE);
+    return;
+  }
+  const probe = doc.createElement("span");
+  probe.style.cssText =
+    "position:absolute;width:0;height:0;visibility:hidden;pointer-events:none;background-color:var(--cmux-surface-background)";
+  root.append(probe);
+  const color = parseComputedColor(view.getComputedStyle(probe).backgroundColor);
+  probe.remove();
+  root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, color !== null && color.a < 1);
 }
 
 if (typeof document !== "undefined") installDesktopLayer();

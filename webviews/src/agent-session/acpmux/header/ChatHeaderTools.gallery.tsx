@@ -12,6 +12,8 @@ type HeaderToolsProps = {
   onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
   sideTabs?: boolean;
+  onSideTabs?: () => void;
+  onFiles?: (mode: "toggle" | "open") => void;
   hasChanges?: boolean;
   onChanges?: (mode: "toggle" | "open") => void;
   previewUrl?: string;
@@ -233,6 +235,8 @@ const base: HeaderToolsProps = {
   onTerminal: () => undefined,
   onSplitDown: () => undefined,
   onBrowser: () => undefined,
+  onSideTabs: () => undefined,
+  onFiles: () => undefined,
   summary,
   menu: menuRows,
   onMenuOpen: async () => undefined,
@@ -274,11 +278,11 @@ export default componentEntry<HeaderToolsProps>({
   },
   variants: {
     idle: {
-      note: "The complete tab header: Terminal, Browser, summary, and chat actions.",
+      note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",
       props: base,
     },
     "panels-open": {
-      note: "Terminal, Browser, Changes, Preview and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
+      note: "Changes, Preview, Terminal and Browser are lit while their panels are open beside the chat (cx-00n1); Hide tabs is in the chat menu.",
       props: {
         ...base,
         sideTabs: true,
@@ -380,7 +384,7 @@ export default componentEntry<HeaderToolsProps>({
       play: customizeMenu,
     },
     "menu-open": {
-      note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",
+      note: "The chat menu starts with the quick actions not shown as buttons (New tab, Files, Split Down), then the tab's own rows, ending with Close.",
       props: base,
       play: openMenu,
     },

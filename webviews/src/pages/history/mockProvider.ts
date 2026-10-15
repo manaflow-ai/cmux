@@ -39,7 +39,10 @@ function searchText(entry: HistoryEntry): string {
     .join(" ");
 }
 
-function rangeStart(range: HistoryRange | undefined, now: number): number | undefined {
+/** As the daemon's `history.clear`: every kind clears (the daemon owns the trail, cx-hnmbt.12). */
+export const CLEARABLE_KINDS: readonly HistoryKind[] = ["page", "location", "closed", "command", "agent"];
+
+export function rangeStart(range: HistoryRange | undefined, now: number): number | undefined {
   switch (range ?? "all") {
     case "hour":
       return now - HOUR;
@@ -98,9 +101,7 @@ export class MockHistoryProvider implements PageClient {
       case HistoryOps.clear: {
         const { range, kinds } = params as { range: HistoryRange; kinds?: HistoryKind[] };
         const start = rangeStart(range, this.now());
-        // As the daemon: pages, agents and commands clear; locations and closed items never do.
-        const clearable: HistoryKind[] = ["page", "command", "agent"];
-        const cleared = kinds?.length ? clearable.filter((kind) => kinds.includes(kind)) : clearable;
+        const cleared = CLEARABLE_KINDS.filter((kind) => !kinds?.length || kinds.includes(kind));
         return this.mutate(
           (entry) => !cleared.includes(entry.kind) || (start !== undefined && entry.at_ms < start),
           cleared,
