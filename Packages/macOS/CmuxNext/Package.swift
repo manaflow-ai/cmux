@@ -632,10 +632,12 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Update Everything (cx-1mbnu): the plan, confirmation words, runner and relaunch
-        // note over the App's update paths (kept out of CmuxNextApp's size cap).
+        // Update Everything (cx-1mbnu): the plan, confirmation, runner, relaunch note and the
+        // daemon reads and agent CLI steps over the App's update paths (kept out of CmuxNextApp's
+        // size cap).
         .target(
             name: "CmuxNextUpdateEverything",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextRemote", "CmuxNextUpdater"],
             resources: [.process("Resources/Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
@@ -931,7 +933,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", "CmuxNextUpdateEverything", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.

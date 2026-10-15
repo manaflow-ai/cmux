@@ -32,6 +32,11 @@ nonisolated enum UpdateEverythingStrings {
         String(format: text("updateEverything.failed", "Couldn't update %1$@: %2$@"), machine, reason)
     }
 
+    /// The toast line of a machine whose threads could not restart on the new agent CLIs.
+    static func threadsLeft(_ machine: String, _ reason: String) -> String {
+        String(format: text("updateEverything.threadsLeft", "Threads on %1$@ still run the old agent: %2$@"), machine, reason)
+    }
+
     /// The name of this Mac in the confirmation.
     static var thisMac: String { text("updateEverything.thisMac", "This Mac") }
     /// The refusal for a machine that disconnected during the run.
@@ -68,5 +73,15 @@ nonisolated extension UpdateEverythingOutcome {
     /// The toast line of one machine (or agent CLI) that failed.
     public static func failureLine(_ name: String, _ reason: String) -> String {
         UpdateEverythingStrings.failed(name, reason)
+    }
+
+    /// The run's result toast: a line per machine that failed or left threads on the old agent,
+    /// or nil when everything updated.
+    public static func summary(_ outcomes: [UpdateEverythingOutcome]) -> String? {
+        let lines = outcomes.flatMap { outcome in
+            [outcome.failure.map { failureLine(outcome.name, $0) },
+             outcome.threadsLeft.map { UpdateEverythingStrings.threadsLeft(outcome.name, $0) }].compactMap { $0 }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }

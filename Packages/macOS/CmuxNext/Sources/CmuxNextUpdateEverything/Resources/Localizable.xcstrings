@@ -709,6 +709,65 @@
         }
       }
     },
+    "updateEverything.threadsLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threads on %1$@ still run the old agent: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threads auf %1$@ laufen noch mit dem alten Agenten: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fils sur %1$@ utilisent encore l’ancien agent : %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال السلاسل على %1$@ تعمل بالوكيل القديم: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los hilos de %1$@ siguen usando el agente anterior: %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的執行緒仍在使用舊版代理：%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的会话仍在使用旧版代理：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 스레드가 아직 이전 에이전트로 실행 중입니다: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のスレッドはまだ古いエージェントで動いています: %2$@"
+          }
+        }
+      }
+    },
     "updateEverything.threadsRestart": {
       "extractionState": "manual",
       "localizations": {

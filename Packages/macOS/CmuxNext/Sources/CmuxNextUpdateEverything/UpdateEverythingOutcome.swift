@@ -7,6 +7,8 @@ public nonisolated struct UpdateEverythingOutcome: Sendable, Equatable {
     /// Why its update stopped, or nil when every step succeeded. Later steps on the machine do not
     /// run after a failure; other machines are not affected.
     public var failure: String?
+    /// Why some of its threads still run the old agent after its agent CLIs updated, or nil.
+    public var threadsLeft: String?
 
     /// - Parameters:
     ///   - machineID: The machine id.

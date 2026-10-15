@@ -54,11 +54,17 @@ public struct AgentUpdateApplyRequest: DaemonRequest {
         public var threadsRestarted: Int
         /// Threads that restart when their running turn ends.
         public var threadsAfterTurn: Int
+        /// Threads that could not restart and still run the old agent (nil from an older daemon).
+        public var threadsFailed: Int?
+        /// Why threads could not restart: the restart call's error, or the first thread's.
+        public var threadsError: String?
 
         enum CodingKeys: String, CodingKey {
             case results
             case threadsRestarted = "threads_restarted"
             case threadsAfterTurn = "threads_after_turn"
+            case threadsFailed = "threads_failed"
+            case threadsError = "threads_error"
         }
     }
 

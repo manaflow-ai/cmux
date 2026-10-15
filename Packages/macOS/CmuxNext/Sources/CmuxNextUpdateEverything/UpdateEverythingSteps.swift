@@ -13,8 +13,10 @@ public protocol UpdateEverythingSteps: AnyObject, Sendable {
     /// Runs the machine daemon's own update of each outdated agent CLI and waits for it; with
     /// `continueThreads`, then restarts the machine's live threads on the new CLIs, each resuming
     /// its own conversation (a thread in a turn restarts when that turn ends).
+    /// - Returns: Why some of the machine's threads still run the old agent (they could not
+    ///   restart), or nil.
     /// - Throws: Why an update failed, in words for the person.
-    func updateAgents(on machine: UpdateEverythingMachine, continueThreads: Bool) async throws
+    func updateAgents(on machine: UpdateEverythingMachine, continueThreads: Bool) async throws -> String?
     /// Installs the app's staged or found update and relaunches; the last step of a run.
     /// - Throws: Why the app cannot update now.
     func installApp() throws
