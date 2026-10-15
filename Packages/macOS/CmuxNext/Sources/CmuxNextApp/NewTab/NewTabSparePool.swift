@@ -167,11 +167,11 @@ final class NewTabSparePool {
         return size.width > 0 && size.height > 0 ? size : nil
     }
 
-    /// The size a Cmd-T tab in `pane` shows at: the pane less the tab bar it has with one more tab
-    /// (a lone New Tab page hides it; a spare at that size showed 2-3 frames 4 px low, 2026-10-15).
+    /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
+    /// header band holds the bar now (the band goes with the browser).
     static func newTabContentSize(in pane: PaneController) -> NSSize {
-        let scale = pane.view.window?.backingScaleFactor ?? 2, hidden = pane.hidesTabBar(tabCount: pane.stripModel.tabs.count + 1) || pane.isAppPane
-        let strip = hidden ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
+        let scale = pane.view.window?.backingScaleFactor ?? 2
+        let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
         return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
     }
 
