@@ -96,4 +96,4 @@ export const modelRefusal = (env: Env, owner: string, patch: { readonly model?: 
 export const compactorDefault = (env: Env, turnModel: string, fallback: string): string => compactorModel(env, env.CHIEF_BRAIN_COMPACTOR_MODEL || turnModel, fallback) || "fake"
 
 /** The compactor's model at run time: a metered model becomes the fallback (see modelRefusal). */
-export const compactorModel = (_env: Env, set: string, fallback: string): string => (isMetered(set) ? fallback : set)
+export const compactorModel = (_env: Env, set: string, fallback: string): string => (isMetered(set) ? (isMetered(fallback) ? "fake" : fallback) : set)

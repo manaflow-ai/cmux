@@ -61,15 +61,14 @@ export class LiveBuffer {
     const key = keyOf(author, f.run)
     if (f.conversation !== conversation || this.ended.has(key)) return null
     let r = this.runs.get(key)
-    if (!r) {
-      if (this.runs.size >= MAX_RUNS) this.runs.delete([...this.runs.entries()].sort((a, b) => a[1].touched - b[1].touched)[0]![0])
-      this.runs.set(key, (r = { author, run: f.run, steps: new Map(), done: new Set(), touched: this.now() }))
-    }
+    if (!r) this.runs.set(key, (r = this.open(author, f.run)))
     r.touched = this.now()
     let reset = false
     if (f.type === "run.activity") r.activity = { line: f.line, since: f.since, at: f.at }
     else {
-      if (r.done.has(f.step)) return null
+      // A retried request restarts its thought at seq 0 (the failed attempt's final ended it).
+      if (r.done.has(f.step) && !(f.kind === "thought" && f.seq === 0)) return null
+      r.done.delete(f.step)
       const s = r.steps.get(f.step)
       if (!s || f.seq === 0) {
         if (!s && r.steps.size >= MAX_STEPS) r.steps.delete(r.steps.keys().next().value!)
@@ -86,6 +85,12 @@ export class LiveBuffer {
     return { frame: JSON.stringify({ t: f.type, ...f, author }), reset }
   }
 
+  /** A new run entry, after dropping the least recently touched one at the cap. */
+  private open(author: string, run: string): LiveRun {
+    if (this.runs.size >= MAX_RUNS) this.runs.delete([...this.runs.entries()].sort((a, b) => a[1].touched - b[1].touched)[0]![0])
+    return { author, run, steps: new Map(), done: new Set(), touched: this.now() }
+  }
+
   /** A run summary and the steps that changed (`conversation-run-changed`): rows end live steps; a terminal run ends the run. */
   runChanged(author: string, run: unknown, steps: ReadonlyArray<unknown>): void {
     const r0 = run as { id?: unknown; status?: unknown } | null
@@ -99,7 +104,7 @@ export class LiveBuffer {
     }
     // A row can overtake the first live frame: remember it so a late delta cannot open the step again.
     let r = this.runs.get(key)
-    if (!r && steps.length > 0) this.runs.set(key, (r = { author, run: r0.id, steps: new Map(), done: new Set(), touched: this.now() }))
+    if (!r && steps.length > 0) this.runs.set(key, (r = this.open(author, r0.id)))
     if (!r) return
     for (const s of steps) {
       const id = (s as { id?: unknown; kind?: unknown } | null)?.id
