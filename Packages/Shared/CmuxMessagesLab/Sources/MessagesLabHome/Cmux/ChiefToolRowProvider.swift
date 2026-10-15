@@ -142,9 +142,10 @@ final class ChiefToolRowView: NSView {
         setAccessibilityIdentifier("ChiefToolRow")
         // The full list (and each call's detail) in the tooltip; Copy writes the same lines.
         let allowedLine: [String] = allowed ? [CmuxStrings.approvalAllowed] : []
-        toolTip = allowedLine + tools.calls.map { call -> String in
+        let callLines: [String] = tools.calls.map { call -> String in
             [ChiefRows.displayTitle(call.title), call.detail].compactMap { $0 }.joined(separator: "\n")
-        }.joined(separator: "\n\n")
+        }
+        toolTip = (allowedLine + callLines).joined(separator: "\n\n")
         rebuild()
     }
 
