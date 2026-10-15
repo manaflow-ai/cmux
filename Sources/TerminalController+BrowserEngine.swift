@@ -1,5 +1,6 @@
 import CmuxBrowser
 import Foundation
+import os
 
 /// The `engine` parameter of browser-creating socket methods
 /// (`browser.open_split`, `browser.tab.new`) and the `engine` field their
@@ -79,6 +80,26 @@ extension TerminalController {
     /// agent may drive it, and always for WebKit panels.
     @MainActor
     func v2EngineAgentRefusal(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
+        // A page whose renderer exited cannot run scripts or take input until
+        // it reloads: fail at once with the exit, not after a script timeout.
+        // Navigations (reload, navigate) do not pass through here and recover it.
+        if let exit = panel.automationEnginePage?.state.processExit {
+            var data: [String: Any] = [
+                "surface_id": surfaceId.uuidString,
+                "exit": String(describing: exit.kind),
+            ]
+            if let status = exit.status {
+                data["status"] = Int(status)
+            }
+            return .err(
+                code: "page_crashed",
+                message: String(
+                    localized: "browser.automation.error.pageCrashed",
+                    defaultValue: "The browser page crashed. Reload it with cmux browser reload, then retry."
+                ),
+                data: data
+            )
+        }
         guard !panel.agentMayDriveCurrentPage else { return nil }
         return .err(
             code: "agent_refused",
@@ -96,6 +117,40 @@ extension TerminalController {
     /// `v2EngineAgentRefusal` from the socket worker.
     nonisolated func v2EngineAgentRefusalOnWorker(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
         v2MainSync { v2EngineAgentRefusal(panel, surfaceId: surfaceId) }
+    }
+
+    /// Runs `source` at the start of every document the engine page loads
+    /// from now on (`Page.addScriptToEvaluateOnNewDocument`). Nil on success,
+    /// else the socket error.
+    nonisolated func v2EngineAddScriptOnNewDocument(
+        _ page: any BrowserPage,
+        source: String,
+        surfaceId: UUID
+    ) -> V2CallResult? {
+        let outcome: Result<Void, any Error>? = v2AwaitEnginePage(timeout: 5.0) {
+            do {
+                _ = try await BrowserPageAutomation(page: page).devTools(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    ["source": source]
+                )
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+        switch outcome {
+        case nil: return v2EngineAutomationTimeout(surfaceId: surfaceId)
+        case .failure(let error): return v2EngineAutomationError(error, surfaceId: surfaceId)
+        case .success: return nil
+        }
+    }
+
+    /// Engine surfaces whose telemetry hooks are registered for new documents.
+    private static let v2EngineTelemetrySurfaces = OSAllocatedUnfairLock(initialState: Set<UUID>())
+
+    /// True the first time a surface asks, so the hooks are registered once.
+    nonisolated func v2EngineClaimTelemetryHooks(surfaceId: UUID) -> Bool {
+        Self.v2EngineTelemetrySurfaces.withLock { $0.insert(surfaceId).inserted }
     }
 
     /// Modifier keys automation holds down per engine surface (DevTools key
@@ -188,10 +243,14 @@ extension TerminalController {
     private static let v2EngineUnavailableThreadKey = "cmux.automation.engineUnavailable"
 
     nonisolated func v2RecordEnginePageUnavailable(_ reason: BrowserEngineUnavailableReason?, surfaceId: UUID?) {
-        Thread.current.threadDictionary[Self.v2EngineUnavailableThreadKey] = V2EngineUnavailableRecord(
-            reason: reason,
-            surfaceId: surfaceId
-        )
+        v2RecordEngineCommandError(v2EnginePageUnavailable(reason, surfaceId: surfaceId))
+    }
+
+    /// Records the error a failed command on an engine page answers with
+    /// (engine_unavailable, page_crashed, agent_refused), replacing the
+    /// command's own wrapping of the failure.
+    nonisolated func v2RecordEngineCommandError(_ error: V2CallResult) {
+        Thread.current.threadDictionary[Self.v2EngineUnavailableThreadKey] = V2EngineUnavailableRecord(error: error)
     }
 
     /// Rewrites a failed command's error to `engine_unavailable` when its
@@ -203,7 +262,7 @@ extension TerminalController {
         }
         dictionary.removeObject(forKey: Self.v2EngineUnavailableThreadKey)
         guard case .err = result else { return result }
-        return v2EnginePageUnavailable(record.reason, surfaceId: record.surfaceId)
+        return record.error
     }
 
     /// Clears a stale record before a command runs.
@@ -267,11 +326,9 @@ extension TerminalController {
 
 /// An engine page that could not run during the current socket command.
 private final class V2EngineUnavailableRecord {
-    let reason: BrowserEngineUnavailableReason?
-    let surfaceId: UUID?
+    let error: TerminalController.V2CallResult
 
-    init(reason: BrowserEngineUnavailableReason?, surfaceId: UUID?) {
-        self.reason = reason
-        self.surfaceId = surfaceId
+    init(error: TerminalController.V2CallResult) {
+        self.error = error
     }
 }

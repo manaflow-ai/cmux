@@ -17,6 +17,11 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
     }
 
     private var waiting: [Key: Waiter] = [:]
+    /// Replies that arrived while a `send` was still starting its request:
+    /// the other side answers some requests before the call that made them
+    /// returns their key.
+    private var early: [Key: Result<Value, any Error>] = [:]
+    private var starting = 0
     private let clock: any Clock<Duration>
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
@@ -31,6 +36,28 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
     #endif
 
     var count: Int { waiting.count }
+
+    /// Starts a request with `start` and suspends until its reply, failing
+    /// with `timeoutError` after `timeout`. `start` returns the request's key,
+    /// or nil when the request could not be made (`notStarted` is thrown).
+    /// A reply that arrives inside `start` (a request answered at once, on
+    /// this actor) is returned instead of being dropped as late.
+    func send(
+        timeout: Duration,
+        notStarted: @autoclosure () -> any Error,
+        timeoutError: @escaping @Sendable () -> any Error,
+        _ start: () -> Key?
+    ) async throws -> Value {
+        starting += 1
+        let key = start()
+        starting -= 1
+        let answered = key.flatMap { early.removeValue(forKey: $0) }
+        // Anything else kept answered a request nobody waits for.
+        if starting == 0 { early.removeAll() }
+        guard let key else { throw notStarted() }
+        if let answered { return try answered.get() }
+        return try await reply(for: key, timeout: timeout, timeoutError: timeoutError)
+    }
 
     /// Suspends until `resolve(key, ...)`, failing with `timeoutError` after `timeout`.
     func reply(for key: Key, timeout: Duration, timeoutError: @escaping @Sendable () -> any Error) async throws -> Value {
@@ -47,10 +74,14 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
         }
     }
 
-    /// Resumes the waiter for `key`; false when none waits (late or timed out).
+    /// Resumes the waiter for `key`; false when none waits (late or timed
+    /// out, or early: kept for the `send` still starting it).
     @discardableResult
     func resolve(_ key: Key, with result: Result<Value, any Error>) -> Bool {
-        guard let waiter = waiting.removeValue(forKey: key) else { return false }
+        guard let waiter = waiting.removeValue(forKey: key) else {
+            if starting > 0 { early[key] = result }
+            return false
+        }
         waiter.finish(result)
         return true
     }

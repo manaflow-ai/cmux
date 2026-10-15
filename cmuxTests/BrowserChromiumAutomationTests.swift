@@ -35,11 +35,17 @@ private final class ScriptedChromiumPage: BrowserPage {
     var isDevToolsVisible: Bool { false }
     var isMuted = false
 
-    func load(_ request: URLRequest) { state.url = request.url }
+    /// Runs after every load, so a test can answer it as the engine would.
+    var onLoad: ((URL?) -> Void)?
+
+    func load(_ request: URLRequest) {
+        state.url = request.url
+        onLoad?(request.url)
+    }
     func loadHTMLString(_ html: String, baseURL: URL?) {}
     func goBack() {}
     func goForward() {}
-    func reload() {}
+    func reload() { onLoad?(state.url) }
     func reloadFromOrigin() {}
     func stop() {}
 
@@ -200,6 +206,60 @@ struct BrowserChromiumAutomationTests {
             let data = failed["data"] as? [String: Any]
             #expect(data?["reason"] as? String == "startFailed", "\(method): \(failed)")
         }
+    }
+
+    @Test func navigationsAndCrashesOnAChromiumPanelReportWhatHappened() async throws {
+        let provider = ScriptedChromiumProvider()
+        let registry = BrowserEngineRuntime.shared.registry
+        let previousProvider = registry.provider(for: .chromium)
+        registry.register(provider)
+        let manager = TabManager()
+        defer {
+            if let previousProvider {
+                registry.register(previousProvider)
+            } else {
+                provider.availability = .unavailable(.notBundled)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let sourceID = try #require(workspace.focusedPanelId)
+        TerminalController.shared.setActiveTabManager(manager)
+        let opened = try successfulResult(await call(method: "browser.open_split", params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": sourceID.uuidString,
+            "url": "https://example.com/",
+            "engine": "chromium",
+            "focus": false,
+        ]))
+        let surfaceID = try #require(opened["surface_id"] as? String)
+        let panelID = try #require(UUID(uuidString: surfaceID))
+        let panel = try #require(workspace.panels[panelID] as? BrowserPanel)
+        let page = try #require(provider.pages.last)
+        // The engine finishes each load the way Chromium reports it.
+        page.onLoad = { [weak panel] url in
+            Task { @MainActor in panel?.handleEnginePageEvent(.navigationFinished(url)) }
+        }
+
+        // navigate and reload succeed once the engine finishes the load,
+        // instead of reporting navigation_failed for a load without a WKNavigation.
+        _ = try successfulResult(await call(method: "browser.navigate", params: [
+            "surface_id": surfaceID, "url": "https://example.com/next",
+        ]))
+        _ = try successfulResult(await call(method: "browser.reload", params: ["surface_id": surfaceID]))
+
+        // A crashed renderer fails scripts at once with page_crashed.
+        page.state.processExit = BrowserPageProcessExit(kind: .crashed, status: 9)
+        let crashed = try errorPayload(await call(method: "browser.eval", params: [
+            "surface_id": surfaceID, "script": "1",
+        ]))
+        #expect(crashed["code"] as? String == "page_crashed", "\(crashed)")
+        #expect(page.evaluations.isEmpty)
+
+        // Reloading recovers it, and reports success.
+        page.state.processExit = nil
+        _ = try successfulResult(await call(method: "browser.reload", params: ["surface_id": surfaceID]))
     }
 
     /// Sends one request through the full socket dispatcher off the main

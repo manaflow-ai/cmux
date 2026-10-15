@@ -140,6 +140,31 @@ public struct ChromiumDevToolsCodec: Sendable {
         ["format": "png", "fromSurface": true, "captureBeyondViewport": false]
     }
 
+    /// The script whose value describes the visible viewport:
+    /// `[scrollX, scrollY, innerWidth, innerHeight, devicePixelRatio]`.
+    public var viewportMetricsScript: String {
+        "[window.scrollX, window.scrollY, window.innerWidth, window.innerHeight, window.devicePixelRatio]"
+    }
+
+    /// `Page.captureScreenshot` parameters for a PNG of the visible viewport
+    /// at exactly its CSS pixel size (the WebKit screenshot contract), from
+    /// the value of ``viewportMetricsScript``. Nil when the value is not
+    /// usable, so the caller takes a plain device-pixel screenshot.
+    public func cssScreenshotParams(viewportMetrics value: Any?) -> [String: any Sendable]? {
+        guard let numbers = value as? [Any], numbers.count == 5 else { return nil }
+        let metrics = numbers.compactMap { ($0 as? NSNumber)?.doubleValue }
+        guard metrics.count == 5, metrics[2] > 0, metrics[3] > 0, metrics[4] > 0 else { return nil }
+        var params = screenshotParams
+        params["clip"] = [
+            "x": metrics[0],
+            "y": metrics[1],
+            "width": metrics[2],
+            "height": metrics[3],
+            "scale": 1 / metrics[4],
+        ] as [String: any Sendable]
+        return params
+    }
+
     /// PNG bytes of a `Page.captureScreenshot` result.
     public func screenshotPNG(fromJSON json: String) throws(BrowserAutomationPageError) -> Data {
         let object = try parseObject(json)
