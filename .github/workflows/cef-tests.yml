@@ -60,6 +60,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Run every scripts/cef/tests/*.test.sh
         run: |
           set -euo pipefail
