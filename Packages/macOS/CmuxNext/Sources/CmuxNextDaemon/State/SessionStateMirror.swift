@@ -59,6 +59,8 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var terminalProgramStatus: [ResourceID: [ProgramStatusRecord]] = [:]
     /// When each terminal's running shell command started; a terminal at a prompt is absent.
     public var terminalBusySinceMs: [ResourceID: UInt64] = [:]
+    /// Counts stash changes (`stash-v1`) since the snapshot: the Stashed page lists again on each.
+    public var stashChanges = 0
 
     /// The daemon keeps the newest 50 closed items.
     public static let closedLimit = 50
@@ -102,6 +104,8 @@ public struct SessionStateMirror: Sendable, Hashable {
             screenGroups[group.id] = group
         case .screenGroupRemoved(let id):
             screenGroups[id] = nil
+        case .stash:
+            stashChanges &+= 1
         }
     }
 
