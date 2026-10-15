@@ -237,11 +237,17 @@ def leg_gpu(h: Harness, sid: str) -> None:
 
 def leg_hang(h: Harness, sid: str) -> None:
     h.c._call("browser.eval", {"surface_id": sid, "script": "setTimeout(() => { for (;;) {} }, 0); 'spinning'"})
-    # Chromium reports a hang when input goes unanswered (its hang monitor).
-    try:
-        h.c._call("browser.click", {"surface_id": sid, "selector": "#alive"}, timeout_s=5)
-    except cmuxError:
-        pass
+    # Chromium reports a hang when input goes unanswered (its hang monitor). The input goes
+    # through its own connection on a thread: it never answers while the page spins, and a
+    # late reply must not land on the connection the checks below use.
+    def send_input() -> None:
+        try:
+            with cmux(SOCKET_PATH) as side:
+                side._call("browser.press", {"surface_id": sid, "key": "a"}, timeout_s=60)
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=send_input, daemon=True).start()
     _wait_for(lambda: h.status(sid).get("prompt") == "unresponsive", 45, "hang: Page unresponsive prompt")
     h.app_still_runs("hang")
     pressed = h.status(sid, press="exit").get("pressed")
