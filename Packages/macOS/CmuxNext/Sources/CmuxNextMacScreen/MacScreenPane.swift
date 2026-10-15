@@ -135,7 +135,7 @@ public final class MacScreenPane {
             view.syncInputGate()
             handlers.confirm()
             // A person pressed Connect, so the tab is on screen even if no reveal reached it.
-            if visible { session.connect() } else { resume() }
+            if visible { connectSession(session) } else { resume() }
         }
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
         actions.openHome = { [weak self] in self?.handlers.openHome() }
@@ -180,6 +180,11 @@ public final class MacScreenPane {
     }
 
     public var session: ScreenSession? { model.session }
+    /// How the pane starts a connection (showing the tab, Connect, Try
+    /// Again): the session's reconnect policy, which retries with backoff
+    /// before the failed card shows (a relay often needs a few tries). A
+    /// single `connect()` failed at once. Tests count the starts.
+    var connectSession: @MainActor (ScreenSession) -> Void = { $0.reconnect() }
     public var focusTarget: NSView { view.input.view }
 
     /// The tab is shown: connect (unless a person stopped it or it waits for Connect).
@@ -190,9 +195,9 @@ public final class MacScreenPane {
         guard let session, model.gate == .open, !stoppedByPerson else { return }
         switch session.phase {
         case .connected, .connecting:
-            if session.stream == nil && !session.isReconnecting { session.connect() }
+            if session.stream == nil && !session.isReconnecting { connectSession(session) }
         case .failed, .ended:
-            session.connect()
+            connectSession(session)
         }
     }
 
@@ -264,8 +269,9 @@ public final class MacScreenPane {
 
     private func reconnect() {
         stoppedByPerson = false
-        session?.reconnectLimit = 5
-        session?.connect()
+        guard let session else { return }
+        session.reconnectLimit = 5
+        connectSession(session)
     }
 
     private func disconnectByPerson() {
