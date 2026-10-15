@@ -61,6 +61,9 @@ extension ControlDebugContext {
     func controlDebugBrowserFind(params: [String: JSONValue]) -> ControlCallResult {
         .err(code: "unavailable", message: "not implemented", data: nil)
     }
+    func controlDebugBrowserDevTools(params: [String: JSONValue]) -> ControlCallResult {
+        .err(code: "unavailable", message: "not implemented", data: nil)
+    }
     func controlDebugRightSidebarFocus(
         modeName: String?,
         windowID: UUID?,

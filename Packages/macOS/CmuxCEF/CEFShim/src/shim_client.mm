@@ -489,7 +489,10 @@ class Client : public CefClient,
 
   void OnFindResult(CefRefPtr<CefBrowser> browser, int identifier, int count, const CefRect&, int active,
                     bool final_update) override {
-    int64_t b = static_cast<int64_t>(active) | (static_cast<int64_t>(final_update ? 1 : 0) << 32);
+    // The ordinal fills the low 32 bits only: Chromium reports -1 (unchanged) while it
+    // counts, and a sign-extended -1 would also set the final bit.
+    int64_t b = static_cast<int64_t>(static_cast<uint32_t>(active)) |
+                (static_cast<int64_t>(final_update ? 1 : 0) << 32);
     Emit(CMUX_SHIM_FIND_RESULT, browser->GetIdentifier(), identifier, count, b);
   }
 

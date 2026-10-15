@@ -67,6 +67,8 @@ extension ControlCommandCoordinator {
                 ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
         case "debug.browser.find":
             return debugBrowserFind(request.params)
+        case "debug.browser.devtools":
+            return debugBrowserDevTools(request.params)
         case "debug.right_sidebar.focus":
             return debugRightSidebarFocus(request.params)
         case "debug.sidebar.visible":
