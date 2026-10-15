@@ -124,14 +124,64 @@ def stage_fixtures():
     subprocess.run(["rsync", "-a", src + "/", dest], check=True)
 
 
-def start_agent(j, agent, args):
-    """Typed on the phone (composer paste + Send)."""
+CODEX_PROMPT = "Print the numbers 1 to 400, one per line, each followed by a short sentence. No tools."
+CODEX_DIR = os.environ.get("TQ_CODEX_DIR", "~/cnx-ios-e2e/tq10/proj")
+
+
+def wait_mac(pred, timeout, every=1.5):
+    """Polls the Mac's screen of the tab (read for timing only; every input is typed on the phone)."""
+    t_end = time.time() + timeout
+    while time.time() < t_end:
+        try:
+            text = tq.mac_screen()
+        except Exception:
+            text = ""
+        if pred(text):
+            return text
+        time.sleep(every)
+    return None
+
+
+def codex_working(text):
+    return "esc to interrupt" in text or "Working" in text
+
+
+def leave_codex(j):
+    """A Codex left running in the tab by an earlier run: stop it from the phone's key
+    bar (Control C twice) so the next command reaches the shell."""
+    try:
+        text = tq.mac_screen()
+    except Exception:
+        return
+    if "OpenAI Codex" not in text and "Ask Codex" not in text and not codex_working(text):
+        return
+    for _ in range(3):
+        j.keybar("Control C"); time.sleep(0.4)
+        j.keybar("Control C"); time.sleep(2)
+        if wait_mac(lambda t: "Ask Codex" not in t.splitlines()[-1] if t.strip() else True, 6) and \
+                "esc to interrupt" not in tq.mac_screen():
+            break
+
+
+def start_agent(j, agent, args, phase="streaming"):
+    """Typed on the phone (composer paste + Send). Real Codex: phase "streaming"
+    returns once its answer rows are arriving, "idle" once it is back at its prompt
+    with the answer on screen (the Mac's screen is read for timing only)."""
+    leave_codex(j)
     if agent == "codexlike":
         tq.paste_composer("clear; python3 ~/tqf/codexlike.py " + " ".join(str(a) for a in args))
     else:
-        tq.paste_composer("clear; codex --yolo")
-        time.sleep(8)
-        tq.paste_composer("Print the numbers 1 to 400, one per line, each followed by a short sentence. No tools.")
+        tq.paste_composer(f"clear; mkdir -p {CODEX_DIR} && cd {CODEX_DIR} && codex --yolo")
+        if not wait_mac(lambda t: "Ask Codex" in t or "›" in t, 60):
+            raise RuntimeError("codex prompt never showed")
+        time.sleep(1)
+        tq.paste_composer(CODEX_PROMPT)
+        if phase == "streaming":
+            if not wait_mac(lambda t: codex_working(t) and sum(l.strip()[:3].rstrip(".").isdigit() for l in t.splitlines()) >= 8, 300):
+                raise RuntimeError("codex never streamed its answer")
+        else:
+            if not wait_mac(lambda t: not codex_working(t) and "400" in t, 600, every=3):
+                raise RuntimeError("codex never finished its answer")
     time.sleep(1)
     touch("key")
 
@@ -181,7 +231,7 @@ def window(m, t0, a, b):
 # ------------------------------------------------------------------ scenarios
 def s1337(sim, mac, j, agent, name):
     """Codex idle at its prompt, page at and near the bottom, keyboard down, no touch."""
-    start_agent(j, agent, [6, 20, 45, 3])
+    start_agent(j, agent, [6, 20, 45, 3], phase="idle")
     j.hide_keyboard()
     touch("key")
     time.sleep(8)  # the working part ends; the agent idles and redraws its live area
@@ -261,7 +311,7 @@ def s1259(sim, mac, j, agent, name):
 def s1350(sim, mac, j, agent, name):
     """The grid card of a working agent shows its live bottom; a refused + -> New Claude
     Chat adds no card and changes no label."""
-    start_agent(j, agent, [40, 10, 30, 2])
+    start_agent(j, agent, [40, 10, 30, 2], phase="idle")
     j.hide_keyboard()
     touch("key")
     time.sleep(10)
