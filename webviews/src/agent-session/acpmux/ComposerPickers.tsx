@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { SignIn } from "./signIn";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -16,6 +17,7 @@ import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelP
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
+import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
@@ -122,6 +124,8 @@ type Props = {
   /// Add harness… (see ModelPickerProps.onAddAgent): the picker's last row, and the whole chip
   /// once acpmux has listed no harness at all.
   onAddAgent?(): void;
+  /// The harnesses this Mac's acpmux found signed out, and their Log In (see ModelPickerProps.signedOut).
+  signIn?: SignIn;
   /// acpmux has answered with its harnesses: only then does an empty catalog mean none is installed.
   harnessesListed?: boolean;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
@@ -148,6 +152,7 @@ export function ComposerPickers({
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
+  signIn,
   harnessesListed = false,
   folder,
   settleMs = RECENT_SETTLE_MS,
@@ -212,11 +217,35 @@ export function ComposerPickers({
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
   // The running model's catalog row (live list_models / model/list when known): which levels it
-  // supports and which one is its own default.
-  const catalogModel = pickerCatalog?.harnesses
-    .find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
-    ?.models.find((entry) => entry.id === summary?.model);
+  // supports and which one is its own default. A chat on the agent's default model is described
+  // by the model that default resolved to.
+  const runningModel =
+    summary?.model && isDefaultChoice({ id: summary.model })
+      ? (resolvedModel(summary) ?? (summary.harness ? loadResolvedDefaults()[summary.harness] : undefined))
+      : summary?.model;
+  const catalogModel = catalogRow(
+    pickerCatalog?.harnesses.find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
+      ?.models,
+    runningModel,
+  );
   const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
+  // Claude Code's Ultracode: a switch beside the levels, offered where the model runs Extra High.
+  // It rides the free effort option (ultracode on, Extra High off): acpmux's own `ultracode` id is a
+  // mode switch the app would confirm with a sheet.
+  const ultracodeOption = summary?.configOptions?.find((option) => option.id === "ultracode");
+  const ultracode: SpeedSection | undefined =
+    ultracodeOption && efforts.some((choice) => choice.id === "xhigh")
+      ? {
+          title: t("effort.level.ultracode"),
+          choices: [
+            { id: "on", name: t("picker.on"), description: t("effort.ultracodeDetail") },
+            { id: "off", name: t("picker.off") },
+          ],
+          current: ultracodeOption.currentValue,
+          on: "on",
+          onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
+        }
+      : undefined;
   const fastOption = snapshot.summary?.configOptions?.find(
     (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
   );
@@ -418,18 +447,20 @@ export function ComposerPickers({
   // bars; the session's values then replace them in place (cx-ncc.58, Leo 2026-10-13).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
-  const effortValue =
-    effort &&
-    (effort.currentValue === "default" && catalogModel?.defaultEffort
-      ? catalogModel.defaultEffort
-      : effort.currentValue);
-  const effortChoice = efforts.find((choice) => choice.id === effortValue) ?? efforts[0];
+  // The agent's own level ("default") names the level it resolves to: the running model's default
+  // effort. Unresolved, the chip says Reasoning; it never guesses the first level.
+  const effortDefaulted = effort?.currentValue === "default";
+  const effortValue = effort && (effortDefaulted ? catalogModel?.defaultEffort : effort.currentValue);
+  const effortChoice = efforts.find((choice) => choice.id === effortValue);
+  const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
   const effortLabel =
     effort && efforts.length > 1
-      ? !effortChoice || isDefaultChoice(effortChoice)
-        ? t("picker.reasoning")
-        : effortChoice.name
+      ? ultracodeOn
+        ? t("effort.level.ultracode")
+        : (effortChoice?.name ?? t("picker.reasoning"))
       : undefined;
+  // An unresolved level is not remembered: the next chat would paint it as a pick.
+  const effortShown = effortChoice || ultracodeOn ? effortLabel : undefined;
   const shownMode = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0]) : undefined;
   const modeLabel = shownMode?.name;
   const modeId = shownMode?.id;
@@ -440,9 +471,9 @@ export function ComposerPickers({
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
   const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   useEffect(() => {
-    if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel, modeId });
-  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel, modeId]);
+    if (!awaiting && chipHarness && summary?.sessionId && (effortShown || modeLabel))
+      rememberLastChips(chipHarness, { effort: effortShown, mode: modeLabel, modeId });
+  }, [awaiting, chipHarness, summary?.sessionId, effortShown, modeLabel, modeId]);
   // The model chip in the controls row (composerRowFit.ts, the compact-composer verdict): the name
   // without its vendor ("Opus 5.5": the catalog's short name, else the name less its harness's
   // vendor word), its family for a narrow row ("Opus"), and effort as a dim suffix ("Fast Med").
@@ -457,13 +488,15 @@ export function ComposerPickers({
   const offersLevels = effort !== undefined && efforts.length > 1;
   const levelShown = offersLevels && effortChoice && !isDefaultChoice(effortChoice) ? effortChoice : undefined;
   const shortLevelKey = levelShown ? SHORT_LEVEL_KEYS[levelShown.id] : undefined;
-  const effortSuffix = levelShown
-    ? shortLevelKey
-      ? t(shortLevelKey)
-      : levelShown.name
-    : !offersLevels && pendingEffort
-      ? shortLevelName(pendingEffort, t)
-      : undefined;
+  const effortSuffix = ultracodeOn
+    ? effortLabel
+    : levelShown
+      ? shortLevelKey
+        ? t(shortLevelKey)
+        : levelShown.name
+      : !offersLevels && pendingEffort
+        ? shortLevelName(pendingEffort, t)
+        : undefined;
   const fastOnNow = fastMode !== undefined && fastMode.currentValue === fastMode.onValue;
   const fastWord = fastOnNow ? t("picker.chipFast") : undefined;
   const modelShown = modelShort ?? modelName;
@@ -509,6 +542,7 @@ export function ComposerPickers({
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
+          {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
@@ -538,8 +572,14 @@ export function ComposerPickers({
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effortValue}
+          defaulted={effortDefaulted}
+          ultracode={ultracode}
           speed={
-            fastMode && fastOn && fastOff
+            // Fast mode only where the running model honors it (Claude Code offers it on every model).
+            fastMode &&
+            fastOn &&
+            fastOff &&
+            (catalogModel?.fast !== false || fastMode.currentValue === fastMode.onValue)
               ? speedSection(/codex/i.test(summary?.harness ?? ""), fastMode, fastOn, t)
               : undefined
           }
@@ -1195,6 +1235,18 @@ export const SlashIcon = () => (
 );
 
 /// Level names the pane writes itself, whatever the agent calls them ("Xhigh" reads Extra High).
+/// The signed-out harnesses the picker blocks: never the one a started chat runs on, whose session
+/// already signed in (a stale or wrong health row must not lock the person out of their chat).
+function pickableSignedOut(
+  signedOut: Readonly<Record<string, string>>,
+  summary: AcpmuxSnapshot["summary"],
+): Readonly<Record<string, string>> {
+  const running = summary?.sessionId ? summary.harness : undefined;
+  if (!running || !(running in signedOut)) return signedOut;
+  const { [running]: _running, ...rest } = signedOut;
+  return rest;
+}
+
 const LEVEL_KEYS: Record<string, StringKey> = {
   low: "effort.level.low",
   medium: "effort.level.medium",
@@ -1202,8 +1254,8 @@ const LEVEL_KEYS: Record<string, StringKey> = {
   xhigh: "effort.level.xhigh",
   max: "effort.level.max",
   ultra: "effort.level.ultra",
+  // A new chat that starts on Ultracode (its saved pick); never a level row (reasoningChoices).
   ultracode: "effort.level.ultracode",
-  ultrathink: "effort.level.ultrathink",
 };
 /// A level's short name in the model chip's suffix: "Med" for Medium.
 const SHORT_LEVEL_KEYS: Record<string, StringKey> = {
@@ -1245,8 +1297,9 @@ export function modelFamily(name: string): string | undefined {
 const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 
 /// The Reasoning section's rows: the agent's levels, named by the pane, narrowed to what the
-/// running model supports when its catalog row says (Ultracode needs Extra High; Ultrathink needs
-/// any level). The agent-owned default sentinel is intentionally omitted.
+/// running model supports when its catalog row says. The agent-owned default sentinel is omitted,
+/// and so are an older acpmux's Ultracode (now its own switch) and Ultrathink (a prompt keyword,
+/// not a level).
 export function reasoningChoices(
   options: { value: string; name?: string; description?: string }[],
   model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
@@ -1254,16 +1307,13 @@ export function reasoningChoices(
 ): Choice[] {
   const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
   const offered = options.filter((option) => {
-    if (option.value === "default") return false;
+    if (["default", "ultracode", "ultrathink"].includes(option.value)) return false;
     if (!levels) return true;
-    if (option.value === "ultracode") return levels.has("xhigh");
-    if (option.value === "ultrathink") return true;
     return !PLAIN_LEVELS.has(option.value) || levels.has(option.value);
   });
   return offered.map((option) => {
     const key = LEVEL_KEYS[option.value];
     const base: Choice = { id: option.value, name: key ? t(key) : option.name || option.value };
-    if (option.value === "ultracode") base.description = t("effort.ultracodeDetail");
     if (option.value === model?.defaultEffort) base.recommended = true;
     return base;
   });

@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { TURN_CYCLE } from "../src/agent-session/acpmux/composerTurnCycle.gallery";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -39,6 +40,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 720, height: 520 } });

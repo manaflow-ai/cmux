@@ -62,6 +62,12 @@ export type ModelPickerProps = {
   onAddAgent?(): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
+  /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login
+  /// command (cx-ae9eb). Their rail tab dims and lists Log In in place of models; none of their
+  /// models can be picked, so a pick never starts a chat that fails on its first turn.
+  signedOut?: Readonly<Record<string, string>>;
+  /// Runs a signed-out harness's login (its Log In row).
+  onLogIn?(harness: string, login: string): void;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
