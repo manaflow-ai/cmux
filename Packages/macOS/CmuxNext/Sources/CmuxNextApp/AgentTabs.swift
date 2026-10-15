@@ -377,7 +377,7 @@ final class AgentTabStore {
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
-        model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
+        model.onNewTabSetting = { [weak self] change in self?.pageHandler(provisional)?.setSetting(change) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onRunAction = { [weak self] id in

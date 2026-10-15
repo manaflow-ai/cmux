@@ -12,6 +12,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   a value has one definition. SECTIONS below maps each file to its Swift type names (the only
   Swift-specific data; the JSON stays language-neutral). schemas/settings/settings-schema.json is
   still exported from Swift (SettingsSchemaExportTests); moving a section must not change it.
+- schemas/settings/source/labs.json: the Labs flags (hq#1980). Each row also carries owner, created,
+  expires and cohort; Swift gets the `LabsFlag` registry, webviews/src/experiments/labs.generated.ts
+  the same table, and a flag past its expiry prints a warning (it never fails the run).
 - schemas/settings/source/sections.json: the Settings sections in sidebar order (Swift: the
   SettingsSection enum, SettingsSection.generated.swift). Every row's section must be listed there.
 
@@ -21,7 +24,7 @@ lost its choice rows) counts as drift under --check and is deleted when writing.
     python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
     python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
 """
-import json, os, sys
+import datetime, json, os, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 RETIRED_SOURCE = "schemas/settings/retired-keys.json"
@@ -100,6 +103,7 @@ SECTIONS = [
         "type": "LabsSettingsSchema",
         "lists": {"labs": ("descriptors", "CmuxConfigSnapshot")},
         "enums": {},
+        "flags": {"enum": "LabsFlag", "ts": "webviews/src/experiments/labs.generated.ts"},
     },
     {
         "source": "schemas/settings/source/picker.json",
@@ -141,6 +145,10 @@ SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "seconds", "minutes", "days", "count", "fraction"}
 ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "range", "default",
               "default_label", "aliases", "keywords"}
+# The extra fields of a Labs flag row (a section with "flags"), and its cohorts: who gets it on
+# with nothing in cmux.json. `default` is a promoted flag; that one-line change is the design call.
+FLAG_FIELDS = {"owner", "created", "expires", "cohort"}
+COHORTS = {"off": "off", "nightly-next": "nightlyNext", "default": "default"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
 
 
@@ -260,8 +268,11 @@ def load_section(section, seen_keys, section_ids):
         idents = set()
         for row in entry["rows"]:
             key = row.get("key", "")
-            if set(row) - ROW_FIELDS:
-                fail(src, "%s: unknown fields %s" % (key, sorted(set(row) - ROW_FIELDS)))
+            allowed = ROW_FIELDS | (FLAG_FIELDS if "flags" in section else set())
+            if set(row) - allowed:
+                fail(src, "%s: unknown fields %s" % (key, sorted(set(row) - allowed)))
+            if "flags" in section:
+                check_flag(src, key, row)
             if not key or any(not part for part in key.split(".")) or key in seen_keys:
                 fail(src, "bad or duplicate key %r" % key)
             seen_keys.add(key)
@@ -309,6 +320,108 @@ def load_section(section, seen_keys, section_ids):
             if not isinstance(row.get("keywords", []), list):
                 fail(src, "%s: keywords is a list" % key)
     return data
+
+
+def check_flag(src, key, row):
+    """A Labs flag: a `labs.` toggle with an owner, created < expires (YYYY-MM-DD), a cohort whose
+    default is the row's default, and its one-line intent in `help`."""
+    # The flag's name is its key's one segment after `labs.`: LabsFlag.path is ["labs", name].
+    if len(key.split(".")) != 2 or not key.startswith("labs.") or "name" in row or row.get("kind") != "toggle":
+        fail(src, "%s: a Labs flag is a labs.<name> toggle (no name override)" % key)
+    if set(FLAG_FIELDS) - set(row) or not isinstance(row["owner"], str) or not row["owner"].strip():
+        fail(src, "%s: a Labs flag needs %s" % (key, ", ".join(sorted(FLAG_FIELDS))))
+    try:
+        created, expires = (datetime.date.fromisoformat(row[f]) for f in ("created", "expires"))
+    except (TypeError, ValueError):
+        fail(src, "%s: created and expires are YYYY-MM-DD dates" % key)
+    if not created < expires:
+        fail(src, "%s: expires must come after created" % key)
+    if not isinstance(row["cohort"], str) or row["cohort"] not in COHORTS:
+        fail(src, "%s: cohort is one of %s" % (key, ", ".join(sorted(COHORTS))))
+    if row.get("default") != (row["cohort"] == "default"):
+        fail(src, "%s: default is true exactly when the cohort is default" % key)
+    if not row.get("help"):
+        fail(src, "%s: help is the flag's one-line intent" % key)
+
+
+def expired_flags(data, today):
+    """The Labs rows past their expiry: warnings, never failures (promote, extend or delete)."""
+    return ["%s (owner %s) expired %s: promote it (cohort default), extend expires, or delete it"
+            % (row["key"], row["owner"], row["expires"])
+            for entry in data["lists"] for row in entry["rows"]
+            if "expires" in row and datetime.date.fromisoformat(row["expires"]) < today]
+
+
+def flags_swift(section, data):
+    rows = [row for entry in data["lists"] for row in entry["rows"]]
+    enum = section["flags"]["enum"]
+    def cases(value):
+        return "\n".join("        case .%s: %s" % (row["_name"], value(row)) for row in rows)
+    return """
+/// The Labs flags (schemas/settings/source/labs.json): read one with
+/// `CmuxConfigSnapshot.lab(_:)`, never its key path.
+public nonisolated enum {enum}: String, CaseIterable, Sendable {{
+{cases}
+
+    /// The cmux.json key: `labs.<name>`.
+    public var key: String {{ "labs." + rawValue }}
+
+    /// Who answers for the flag (a lane or a person).
+    public var owner: String {{
+        switch self {{
+{owners}
+        }}
+    }}
+
+    /// The one line Settings shows: what turning it on changes.
+    public var intent: String {{
+        switch self {{
+{intents}
+        }}
+    }}
+
+    /// YYYY-MM-DD.
+    public var created: String {{
+        switch self {{
+{created}
+        }}
+    }}
+
+    /// YYYY-MM-DD: past it, gen-settings-sources.py warns until the flag is promoted, extended or deleted.
+    public var expires: String {{
+        switch self {{
+{expires}
+        }}
+    }}
+
+    /// Who has it on with nothing in cmux.json.
+    public var cohort: LabsCohort {{
+        switch self {{
+{cohorts}
+        }}
+    }}
+}}
+""".format(enum=enum, cases="\n".join("    case %s" % row["_name"] for row in rows),
+           owners=cases(lambda r: swift_string(r["owner"])), intents=cases(lambda r: swift_string(r["help"]["text"])),
+           created=cases(lambda r: swift_string(r["created"])), expires=cases(lambda r: swift_string(r["expires"])),
+           cohorts=cases(lambda r: "." + COHORTS[r["cohort"]]))
+
+
+def flags_ts(section, data):
+    rows = [row for entry in data["lists"] for row in entry["rows"]]
+    # One field per line: the webviews formatter's shape, so `bun run check` passes the copy as written.
+    body = "\n".join("  %s: {\n%s\n  }," % (row["_name"], "\n".join("    %s: %s," % (field, json.dumps(value, ensure_ascii=False)) for field, value in (
+        ("owner", row["owner"]), ("created", row["created"]), ("expires", row["expires"]),
+        ("cohort", row["cohort"]), ("title", row["title"]["text"]), ("intent", row["help"]["text"])))) for row in rows)
+    return """// {header}
+// Read a flag with labsFlag / useLabsFlag (./labs.ts), never this table's cohort.
+
+export const LABS_FLAGS = {{
+{body}
+}} as const;
+
+export type LabsFlagName = keyof typeof LABS_FLAGS;
+""".format(header=HEADER.format(c="//", src=section["source"]), body=body)
 
 
 def keyed(text):
@@ -435,6 +548,11 @@ def main():
     for section in SECTIONS:
         data = load_section(section, seen_keys, section_ids)
         outputs[section["swift"]] = section_swift(section, data)
+        if "flags" in section:
+            outputs[section["swift"]] += flags_swift(section, data)
+            outputs[section["flags"]["ts"]] = flags_ts(section, data)
+            for line in expired_flags(data, datetime.date.today()):
+                print("warning: " + line, file=sys.stderr)
         outputs.update(choices_swift(section, data))
     drifted = []
     for path, text in outputs.items():
