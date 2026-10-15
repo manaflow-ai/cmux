@@ -237,7 +237,8 @@ pub(super) fn create(
 }
 
 /// `bind-conversation-tab-session`: set an agent tab's session to `session`
-/// when its current session is `expected_session` (null: unbound).
+/// when its current session is `expected_session` (null: unbound), and its
+/// harness to `harness` when given.
 #[derive(Deserialize)]
 pub(super) struct BindSessionParams {
     surface: SurfaceId,
@@ -245,6 +246,11 @@ pub(super) struct BindSessionParams {
     /// Required; JSON null names an unbound tab.
     #[serde(deserialize_with = "required_nullable")]
     expected_session: Option<String>,
+    /// The agent the session runs, as its machine's acpmux reports it; set
+    /// in the same commit (a bind of the tab's own session with another
+    /// harness updates the harness alone).
+    #[serde(default)]
+    harness: Option<String>,
 }
 
 /// A field that must be present and may be null (serde treats a missing
@@ -260,7 +266,7 @@ pub(super) fn bind(
     actor: &Actor,
     params: BindSessionParams,
 ) -> anyhow::Result<Value> {
-    let BindSessionParams { surface, session, expected_session } = params;
+    let BindSessionParams { surface, session, expected_session, harness } = params;
     // A machine's own tab binds only through agent-session-start (which
     // binds in the store directly, never through this command).
     let machine_tab = mux.surface(surface).and_then(|runtime| mux.conversation_tab_of(&runtime));
@@ -270,8 +276,13 @@ pub(super) fn bind(
         return Err(MachineMismatch.into());
     }
     let expected = expected_session.as_deref();
-    let (record, replayed) =
-        mux.bind_conversation_tab_session_as(actor, surface, &session, expected)?;
+    let (record, replayed) = mux.bind_conversation_tab_session_as(
+        actor,
+        surface,
+        &session,
+        expected,
+        harness.as_deref(),
+    )?;
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 

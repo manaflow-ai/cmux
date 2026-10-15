@@ -126,15 +126,19 @@ public struct BindConversationTabSessionRequest: DaemonRequest {
     public var surface: SurfaceID
     public var session: String
     public var expectedSession: String?
+    /// The agent the session runs, as acpmux reports it: written with the session, and a bind of
+    /// the tab's own session with another harness changes the harness alone (cx-w4bbw).
+    public var harness: String?
 
-    public init(surface: SurfaceID, session: String, expectedSession: String? = nil) {
+    public init(surface: SurfaceID, session: String, expectedSession: String? = nil, harness: String? = nil) {
         self.surface = surface
         self.session = session
         self.expectedSession = expectedSession
+        self.harness = harness
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, session
+        case surface, session, harness
         case expectedSession = "expected_session"
     }
 
@@ -144,6 +148,7 @@ public struct BindConversationTabSessionRequest: DaemonRequest {
         try c.encode(surface, forKey: .surface)
         try c.encode(session, forKey: .session)
         try c.encode(expectedSession, forKey: .expectedSession)
+        try c.encodeIfPresent(harness, forKey: .harness)
     }
 
     /// The refusal prefix of a compare-and-swap that found another session.

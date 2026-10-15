@@ -57,7 +57,13 @@ WINDOWS_NAMES = ("cmux-tui-x86_64-pc-windows-gnu.exe",)
 # published when the Windows commit manifest attests it, skipped when that
 # manifest predates it, so republishing an older tree writes the same
 # completion-windows.json bytes. --list-windows-optional-companions lists it.
-WINDOWS_OPTIONAL_NAMES = ("cmux-tui-host-x86_64-pc-windows-gnu.exe",)
+# acpmux for GPUI on Windows (cx-ephhf; scripts/fetch-acpmux.sh in cmux-gpui)
+# is optional the same way: its own build job may fail, and Windows builds
+# from before it have none.
+WINDOWS_OPTIONAL_NAMES = (
+    "cmux-tui-host-x86_64-pc-windows-gnu.exe",
+    "cmux-tui-acpmux-x86_64-pc-windows-gnu.exe",
+)
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
 

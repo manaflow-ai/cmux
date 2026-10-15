@@ -37,6 +37,11 @@ on:
         required: false
         default: false
         type: boolean
+      windows_acpmux:
+        description: "With include_windows: also build acpmux for Windows (artifact cmux-tui-acpmux-x86_64-pc-windows-gnu, its own optional job)"
+        required: false
+        default: false
+        type: boolean
       target_set:
         description: "Binary targets to build: all, macos (both macOS targets), macos-arm64 or macos-x86_64"
         required: false
@@ -806,6 +811,72 @@ jobs:
             dist/cmux-tui-host-x86_64-pc-windows-gnu.exe
             dist/cmux-relay-x86_64-pc-windows-gnu.exe
             dist/chatmux-relay-x86_64-pc-windows-gnu.exe
+          if-no-files-found: error
+
+  # acpmux for GPUI on Windows (cx-ephhf), published by cmux-tui-artifacts.yml
+  # in cmux-tui-windows/<sha>/ and as an optional Windows tree companion. Its
+  # own job, in parallel with build-windows, not a step in it: acpmux shares
+  # few crates with cmux-tui (codex, no libghostty-vt), and its fat-LTO build
+  # added to build-windows would lengthen the Windows leg, which ends every
+  # tree publication. Optional (continue-on-error): a failure leaves only this
+  # artifact out, never the Windows daemon; the package job does not need it.
+  build-windows-acpmux:
+    name: build acpmux x86_64-pc-windows-gnu
+    if: inputs.include_windows && inputs.windows_acpmux
+    continue-on-error: true
+    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
+    timeout-minutes: 60
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller or requested ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust target
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+
+      - name: Verify LLVM GNU linker
+        shell: bash
+        run: ld.lld --version
+
+      # The same reviewed MinGW toolchain as cmux-tui.exe (build-windows).
+      - name: Verify the reviewed Windows runtime toolchain
+        shell: bash
+        run: python cmux-tui/dist/scripts/package_notices.py check-windows-toolchain
+
+      - name: Build acpmux (Windows GNU)
+        working-directory: cmux-tui
+        shell: bash
+        run: cargo build -p acpmux --bin acpmux --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Verify acpmux starts
+        shell: bash
+        run: cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe --version
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe" "dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe"
+          ls -la dist
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          retention-days: ${{ inputs.retention_days }}
+          name: cmux-tui-acpmux-x86_64-pc-windows-gnu
+          path: dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:

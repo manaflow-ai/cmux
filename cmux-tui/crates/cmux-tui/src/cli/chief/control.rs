@@ -75,6 +75,8 @@ pub(super) fn refusal(error: &LinkError) -> String {
         LinkError::Rejected { code, .. } if code.ends_with(cmux_tui_core::agent_launch::REASON) => {
             messages().agents_disabled.to_owned()
         }
+        // The code with its reason, then the daemon's own words (cx-8mla8).
+        LinkError::Rejected { code, message } => format!("{code}: {message}"),
         other => other.to_string(),
     }
 }
