@@ -208,7 +208,7 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
     let pinned = page.request("home-inbox", json!({}));
     assert_eq!(
         &order(&pinned)[..4],
-        &[direct.clone(), room.clone(), release.clone(), chief.clone()],
+        &[direct.clone(), room, release.clone(), chief.clone()],
         "{pinned}"
     );
     assert_eq!(row(&pinned, &direct)["pinned"], true, "{pinned}");
