@@ -379,6 +379,9 @@ struct BackgroundShell {
     launched: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
+    /// The file Claude Code writes its output to (`output_file`), once a
+    /// task event named it.
+    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]

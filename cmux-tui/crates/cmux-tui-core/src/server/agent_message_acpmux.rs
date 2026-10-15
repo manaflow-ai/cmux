@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use super::{AcpmuxLink, Inbound, LinkError};
 use crate::agent_message_prompt::{provenance, render};
 use crate::mux::agent_message_pump::Handover;
-use crate::state::agent_message_unsend::{WithdrawError, Withdrawn};
+use crate::state::agent_message_unsend::{WithdrawError, Withdrawn, clip};
 
 /// How long a hand-over waits for acpmux to name the session.
 const INFO_TIMEOUT: Duration = Duration::from_secs(2);
@@ -21,6 +21,8 @@ const ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a withdraw waits; acpmux waits up to 5 s for its notice.
 const WITHDRAW_TIMEOUT: Duration = Duration::from_secs(10);
 const PROMPT_THREAD_STACK_BYTES: usize = 256 * 1024;
+/// The spec's limit on an unsend's `error.acpmux_reason`, in UTF-8 bytes.
+const ACPMUX_REASON_MAX: usize = 128;
 
 /// What the hand-over hears first.
 enum Heard {
@@ -140,8 +142,11 @@ impl crate::mux::Mux {
                 );
                 if reason == "withdraw.not_found" || message.starts_with("no session matches") {
                     Ok(Withdrawn::NotFound)
+                } else if reason.is_empty() {
+                    Err(WithdrawError::Refused("withdraw.refused".to_owned()))
                 } else {
-                    Err(WithdrawError::Refused(reason))
+                    // The spec's limit on `error.acpmux_reason`.
+                    Err(WithdrawError::Refused(clip(&reason, ACPMUX_REASON_MAX)))
                 }
             }
             Err(LinkError::Closed | LinkError::Timeout | LinkError::Busy) => {
