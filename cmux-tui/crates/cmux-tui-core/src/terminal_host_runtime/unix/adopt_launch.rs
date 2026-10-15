@@ -284,7 +284,11 @@ fn spawn_adopting_host(
     binary: Option<PathBuf>,
     master: RawFd,
 ) -> anyhow::Result<(SpawnedHostProcess, ChildStdinPair)> {
+    let orphan_env = host_orphan_env();
     let configure = |command: &mut Command| {
+        if let Some((name, value)) = &orphan_env {
+            command.env(name, value);
+        }
         command
             .args(["__terminal-host", "--bootstrap-stdio", ADOPT_PTY_FD_FLAG])
             .arg(ADOPTED_PTY_FD.to_string())

@@ -2594,10 +2594,11 @@ export interface CloudOps {
       }>
     }
   }
-  /** A participant's avatar with its bytes, or null. Any signed-in caller may read it (like a display name). */
+  /** A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant. */
   readonly "participant.avatar.get": {
     readonly params: {
       readonly participant_id: ParticipantId
+      readonly conversation?: ConversationId
     }
     readonly result: {
       readonly participant_id: ParticipantId

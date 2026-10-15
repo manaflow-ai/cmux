@@ -1671,7 +1671,18 @@ if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 
-XCODEBUILD_LOCK_DIR="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).locks"
+# One lock dir per user whatever the caller's environment: an ssh session has no
+# TMPDIR and would fall back to /tmp, beside a separate set of slots under the
+# GUI session's TMPDIR. macOS's per-user temp dir is that GUI TMPDIR; the
+# local build guards (cmuxterm-hq) root their two-build gate there too.
+xcodebuild_lock_dir() {
+  local user_temp
+  user_temp="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"
+  user_temp="${user_temp:-/tmp/}"
+  printf '%s/cmux-xcodebuild-%s.locks\n' "${user_temp%/}" "$(id -u)"
+}
+
+XCODEBUILD_LOCK_DIR="$(xcodebuild_lock_dir)"
 XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-5}"
 if ! is_positive_integer "$XCODEBUILD_LOCK_CONCURRENCY"; then
   echo "error: xcodebuild lock concurrency must be a positive integer" >&2
