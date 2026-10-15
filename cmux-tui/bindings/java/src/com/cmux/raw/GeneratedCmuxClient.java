@@ -573,8 +573,8 @@ public abstract class GeneratedCmuxClient {
         return HistorySearchResult.fromWire(result);
     }
 
-    public final HomeInboxResult homeInbox() throws CmuxException {
-        Object result = execute(Commands.HOME_INBOX, Map.of());
+    public final HomeInboxResult homeInbox(HomeInboxRequest request) throws CmuxException {
+        Object result = execute(Commands.HOME_INBOX, request.toWire());
         return HomeInboxResult.fromWire(result);
     }
 
