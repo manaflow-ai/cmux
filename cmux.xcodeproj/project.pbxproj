@@ -627,6 +627,7 @@
 		D78129DCAE6C4D919AE20FF9 /* ChecklistPopoverPointerTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9890AFCF5E5F4F3DA9F00CCC /* ChecklistPopoverPointerTracking.swift */; };
 		ED226C59A21547BB962DB2A5 /* ChecklistSummaryPopoverModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 319C469164C74F2F8E41D2C3 /* ChecklistSummaryPopoverModifier.swift */; };
 		DFA22CFDEA096E4B98111796 /* ChromiumDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */; };
+		BFBEC1CD17A72ED91930A4E3 /* ChromiumEmbedLifecycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CA964E8CF2DD471358B6F9 /* ChromiumEmbedLifecycleUITests.swift */; };
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
@@ -5356,6 +5357,7 @@
 		9890AFCF5E5F4F3DA9F00CCC /* ChecklistPopoverPointerTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecklistPopoverPointerTracking.swift"; sourceTree = "<group>"; };
 		319C469164C74F2F8E41D2C3 /* ChecklistSummaryPopoverModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecklistSummaryPopoverModifier.swift"; sourceTree = "<group>"; };
 		D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumDebugWindowController.swift; sourceTree = "<group>"; };
+		D3CA964E8CF2DD471358B6F9 /* ChromiumEmbedLifecycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumEmbedLifecycleUITests.swift; sourceTree = "<group>"; };
 		F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
@@ -9612,6 +9614,7 @@
 				94600B483EE4B6BC3F7506DA /* SidebarCompactAgentStatusUITests.swift */,
 				A45FD277385970AA8FA5508D /* DeviceDiscoverabilityUITests.swift */,
 				5A074689235BE614781DC6FA /* BrowserReturnSubmissionUITests.swift */,
+				D3CA964E8CF2DD471358B6F9 /* ChromiumEmbedLifecycleUITests.swift */,
 			);
 			path = cmuxUITests;
 			sourceTree = "<group>";
@@ -17784,6 +17787,7 @@
 				8478A0000000000000000002 /* BrowserRecoveryHTTPServer.swift in Sources */,
 				7B5F1A2E9C0D4B6A8E217304 /* BrowserReliabilityRegressionUITests.swift in Sources */,
 				D5F4120F22CDD7AFA015F7BB /* BrowserReturnSubmissionUITests.swift in Sources */,
+				BFBEC1CD17A72ED91930A4E3 /* ChromiumEmbedLifecycleUITests.swift in Sources */,
 				B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */,
 				B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */,
 				B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */,

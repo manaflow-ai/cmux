@@ -5,7 +5,10 @@ import CmuxCEF
 /// Debug-only Chromium probe (Debug → Debug Windows → Chromium Page…): one
 /// window hosting a `CEFBrowser`, so a tagged build can prove the embedded
 /// engine starts, renders and quits cleanly before any browser panel uses it.
-/// `CMUX_CEF_DEBUG_URL=<url>` opens it at launch. Strings are English-only by
+/// `CMUX_CEF_DEBUG_URL=<url>` opens it at launch; with `CMUX_CEF_DEBUG_RELAYOUT=1`
+/// the window resizes and the page hides and shows a few times after the first
+/// load (the UI regression test's forced relayout). The status line
+/// (`cmux.chromiumDebug.status`) reports what happened. Strings are English-only by
 /// design: the file is `#if DEBUG`, matching the other debug windows.
 @MainActor
 final class ChromiumDebugWindowController: NSObject, NSWindowDelegate {
@@ -14,10 +17,13 @@ final class ChromiumDebugWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var browser: CEFBrowser?
     private let status = NSTextField(labelWithString: "")
+    private var relayoutAfterLoad = false
+    private var relayoutSuffix = ""
 
     /// Opens the window at launch when `CMUX_CEF_DEBUG_URL` is set.
     func openFromEnvironmentIfRequested(_ environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard let value = environment["CMUX_CEF_DEBUG_URL"], !value.isEmpty, let url = URL(string: value) else { return }
+        relayoutAfterLoad = environment["CMUX_CEF_DEBUG_RELAYOUT"] == "1"
         show(url: url, activate: false)
     }
 
@@ -43,6 +49,7 @@ final class ChromiumDebugWindowController: NSObject, NSWindowDelegate {
         status.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         status.lineBreakMode = .byTruncatingTail
         status.translatesAutoresizingMaskIntoConstraints = false
+        status.setAccessibilityIdentifier("cmux.chromiumDebug.status")
         content.addSubview(status)
 
         if let reason = CEFRuntime.shared.unavailableReason {
@@ -77,7 +84,12 @@ final class ChromiumDebugWindowController: NSObject, NSWindowDelegate {
         case .stateChanged(let state):
             let engine = "fork API \(CEFRuntime.shared.forkAPIVersion)"
             let loading = state.isLoading ? "loading" : "idle"
-            status.stringValue = "\(engine) · \(loading) · \(state.url?.absoluteString ?? "") · \(state.title)"
+            status.stringValue = "\(engine) · \(loading) · \(state.url?.absoluteString ?? "") · \(state.title)\(relayoutSuffix)"
+        case .loadFinished:
+            if relayoutAfterLoad {
+                relayoutAfterLoad = false
+                forceRelayout()
+            }
         case .loadFailed(let code, let message, let url, _):
             status.stringValue = "load failed \(code): \(message) \(url?.absoluteString ?? "")"
         case .newBrowser(let popup, _, _, _):
@@ -87,6 +99,24 @@ final class ChromiumDebugWindowController: NSObject, NSWindowDelegate {
         default:
             break
         }
+    }
+
+    /// Resizes the window through several sizes and hides and shows the page,
+    /// laying out after each step, so the page window follows real geometry
+    /// changes the way pane splits and workspace switches cause them.
+    private func forceRelayout() {
+        guard let window, let host = browser?.hostView else { return }
+        let original = window.frame
+        for (width, height) in [(640.0, 480.0), (1280.0, 860.0), (420.0, 360.0)] {
+            window.setFrame(NSRect(x: original.minX, y: original.minY, width: width, height: height), display: true)
+            window.contentView?.layoutSubtreeIfNeeded()
+            host.isHidden = true
+            host.isHidden = false
+        }
+        window.setFrame(original, display: true)
+        window.contentView?.layoutSubtreeIfNeeded()
+        relayoutSuffix = " · relayout done"
+        status.stringValue += relayoutSuffix
     }
 
     func windowWillClose(_ notification: Notification) {
