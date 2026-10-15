@@ -15,17 +15,16 @@ extension BrowserLinkClickMapping {
             case .download: .download
             }
         }
-        self.init(cmdClick: action(setting.cmdClick), cmdShiftClick: action(setting.cmdShiftClick),
-                  shiftClick: action(setting.shiftClick), optionClick: action(setting.optionClick),
-                  middleClick: action(setting.middleClick))
+        self.init(cmdClick: action(setting.cmdClick), cmdShiftClick: action(setting.cmdShiftClick), shiftClick: action(setting.shiftClick),
+                  optionClick: action(setting.optionClick), middleClick: action(setting.middleClick))
     }
 }
 
-/// Both engines follow every loaded snapshot's `browser.links.*`; Chromium
-/// also follows `browser.builtInAdBlocker`.
+/// Both engines follow every loaded snapshot's `browser.links.*`.
 @MainActor
 enum BrowserLinkClickPreference {
     static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
+        cef.builtInAdBlocker = { [weak settings] in settings?.snapshot.browserBuiltInAdBlocker ?? true }  // browser.builtInAdBlocker, read at Chromium start
         Task { [weak settings, weak webKit, weak cef] in
             guard let settings else { return }
             for await setting in ObservationStream({ settings.snapshot.browserLinkClicks }) {
@@ -33,13 +32,6 @@ enum BrowserLinkClickPreference {
                 webKit?.linkClicks = mapping
                 cef?.linkClicks = mapping
             }
-        }
-        // `browser.builtInAdBlocker`: read by Chromium at its start, so the
-        // loaded value is set now, before any Chromium tab can start it.
-        cef.builtInAdBlocker = settings.snapshot.browserBuiltInAdBlocker
-        Task { [weak settings, weak cef] in
-            guard let settings else { return }
-            for await enabled in ObservationStream({ settings.snapshot.browserBuiltInAdBlocker }) { cef?.builtInAdBlocker = enabled }
         }
     }
 }

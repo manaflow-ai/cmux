@@ -91,8 +91,8 @@ final class CEFRuntime {
     }
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
-    /// Bundled extensions to load at start (`browser.builtInAdBlocker`).
-    var builtInExtensions = CEFBuiltInExtensions(adBlockerEnabled: true)
+    /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
+    var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -311,7 +311,8 @@ final class CEFRuntime {
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
-            builtInExtensions: builtInExtensions.folders(resources: Bundle.main.resourceURL)
+            builtInExtensions: CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
+                .folders(resources: Bundle.main.resourceURL)
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
