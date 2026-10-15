@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36";
+inline constexpr std::string_view kProtocolIrSha256 = "6a4ba878d29c643390f0367714f8f8ba922296f984a8e3a5e763773a3aa7ef0c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -105,6 +105,7 @@ struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+enum class NameSource;
 struct NewRowResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
@@ -3625,6 +3626,11 @@ struct MoveWorkspaceToGroupRequest {
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct NewBrowserTabRequest {
     Field<std::uint16_t> cols{};
     Field<Id> pane{};
@@ -4163,11 +4169,14 @@ struct RenameSurfaceRequest {
 
 struct RenameWorkspaceRequest {
     Field<std::string> expected_generation{};
+    Field<std::string> expected_name_revision{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     std::string name{};
     Field<std::string> origin{};
+    std::optional<bool> release{};
+    Field<NameSource> source{};
     Field<Id> workspace{};
     friend bool operator==(const RenameWorkspaceRequest&, const RenameWorkspaceRequest&) = default;
 };
@@ -5323,6 +5332,8 @@ struct Workspace {
     Id id{};
     std::optional<std::string> key{};
     std::string name{};
+    std::optional<std::string> name_revision{};
+    std::optional<NameSource> name_source{};
     std::vector<Screen> screens{};
     std::optional<std::string> short_id{};
     friend bool operator==(const Workspace&, const Workspace&) = default;
@@ -6183,6 +6194,12 @@ template <>
 struct Codec<MoveTerminalResult> {
     static Result<Json> encode(const MoveTerminalResult& value);
     static Result<MoveTerminalResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<NameSource> {
+    static Result<Json> encode(const NameSource& value);
+    static Result<NameSource> decode(const Json& value);
 };
 
 template <>

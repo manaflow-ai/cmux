@@ -430,6 +430,7 @@ pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
 /// it in the same commit (else the default `workspace-N`).
 pub const TAB_WORKSPACE_NAME_CAPABILITY: &str = "tab-workspace-name-v1";
+pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -1996,11 +1997,8 @@ enum Command {
         name: String,
     },
     RenameWorkspace {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        key: Option<String>,
-        name: String,
+        #[serde(flatten)]
+        request: cmd_workspaces::WorkspaceRenameRequest,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3771,8 +3769,8 @@ fn handle_command_with_cancellation(
         Command::RenameScreen { screen, name } => {
             cmd_screens::rename_screen(mux, actor, screen, name)
         }
-        Command::RenameWorkspace { workspace, key, name, mutation } => {
-            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
+        Command::RenameWorkspace { request, mutation } => {
+            cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
