@@ -146,4 +146,70 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     }
     expect({ missing, offenders }).toEqual({ missing: [], offenders: [] });
   });
+
+  /** Runs in the page: how the strip meets the card under it, and the queue the strip. */
+  function joins({ edge }: { edge: string }) {
+    const strip = document.querySelector(".acpmux-composer-strip");
+    const card = document.querySelector(edge);
+    if (!strip || !card) return null;
+    const s = strip.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    const radius = (el: Element, corner: string) => parseFloat(getComputedStyle(el).getPropertyValue(corner)) || 0;
+    const queue = document.querySelector(".acpmux-composer-queue");
+    const rows = queue ? [...queue.querySelectorAll(".acpmux-queued")] : [];
+    const last = rows.at(-1)?.getBoundingClientRect();
+    return {
+      // The strip stands right on the card, side by side to the half pixel.
+      left: c.left - s.left,
+      right: c.right - s.right,
+      gap: c.top - s.bottom,
+      // Where they meet nothing rounds: a rounded corner pulls the side rim in and breaks it.
+      stripBottom: radius(strip, "border-bottom-left-radius") + radius(strip, "border-bottom-right-radius"),
+      cardTop: radius(card, "border-top-left-radius") + radius(card, "border-top-right-radius"),
+      // One rim goes round both: the card's rim layer reaches up to the strip's top, and the strip
+      // draws none of its own. Two rims broke at the join at 1x and took two tones on focus.
+      rimTop: c.top + (parseFloat(getComputedStyle(card, "::before").top) || 0) - s.top,
+      stripRim: getComputedStyle(strip).boxShadow,
+      // The queue's last row keeps room above the strip: its descenders never touch the strip.
+      queueRoom: queue && last ? Math.round(queue.getBoundingClientRect().bottom - last.bottom) : null,
+    };
+  }
+
+  test("the strip and the card meet square in one rim, and the queue keeps room above the strip", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const JOINS = [
+      { entry: "agent-pane.composer", variant: "idle", edge: ".acpmux-composer-box" },
+      { entry: "agent-pane.composer", variant: "queued-paused", edge: ".acpmux-composer-box" },
+      { entry: "agent-pane.composer", variant: "queued-steering", edge: ".acpmux-composer-box" },
+      { entry: "agent-pane.new-tab", variant: "empty", edge: ".nt-box" },
+    ];
+    const offenders: string[] = [];
+    for (const width of WIDTHS) {
+      for (const frame of JOINS) {
+        const page = await browser!.newPage({ viewport: { width, height: 760 } });
+        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=${frame.entry}&variant=${frame.variant}`);
+        await page.locator(frame.edge).first().waitFor({ timeout: 90_000 });
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+          timeout: 30_000,
+        });
+        const join = await page.evaluate(joins, frame);
+        await page.close();
+        const label = `${frame.entry}:${frame.variant} @${width}`;
+        if (!join) {
+          offenders.push(`${label} no strip or card`);
+          continue;
+        }
+        if (Math.abs(join.left) > 0.5 || Math.abs(join.right) > 0.5)
+          offenders.push(`${label} strip sides ${join.left}/${join.right}px off the card's`);
+        if (Math.abs(join.gap) > 0.5) offenders.push(`${label} strip ${join.gap}px from the card`);
+        if (join.stripBottom || join.cardTop)
+          offenders.push(`${label} rounded join (strip bottom ${join.stripBottom}, card top ${join.cardTop})`);
+        if (Math.abs(join.rimTop) > 0.5)
+          offenders.push(`${label} card rim starts ${join.rimTop}px below the strip's top`);
+        if (join.stripRim !== "none") offenders.push(`${label} strip draws its own rim (${join.stripRim})`);
+        if (join.queueRoom !== null && join.queueRoom < 4) offenders.push(`${label} queue room ${join.queueRoom}px`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
