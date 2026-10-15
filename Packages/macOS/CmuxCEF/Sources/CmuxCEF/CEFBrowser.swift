@@ -160,7 +160,6 @@ public final class CEFBrowser {
     // MARK: Lifetime
 
     private func presentationChanged() {
-        runtime.logger.debug("CEF page presentation presented=\(self.hostView.isPresented) browser=\(self.browserID ?? 0) pending=\(self.isCreationPending)")
         guard !isClosed, hostView.isPresented else { return }
         if awaitsWindowMove {
             ensureOwnWindow()
@@ -177,7 +176,6 @@ public final class CEFBrowser {
     public func createNow() {
         guard !isClosed, browserID == nil, !isCreationPending, !awaitsWindowMove, !runtime.isShuttingDown else { return }
         guard runtime.isRunning else {
-            runtime.logger.notice("CEF page waits for the runtime to start")
             isCreationPending = true
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -218,7 +216,6 @@ public final class CEFBrowser {
         isCreationPending = true
         runtime.pendingWindows[request] = self
         runtime.contextOpened(key)
-        runtime.logger.notice("CEF page create request=\(request) url=\(url.isEmpty ? "<none>" : "set", privacy: .public) restore=\(self.pendingRestore != nil) inWindow=\(view.window != nil)")
         let started = shim.createWindow(
             request, Unmanaged.passUnretained(view).toOpaque(),
             Int32(clamping: Int(size.width.rounded())), Int32(clamping: Int(size.height.rounded())),
@@ -240,7 +237,6 @@ public final class CEFBrowser {
     }
 
     func attach(id: Int32) {
-        runtime.logger.notice("CEF page attached browser=\(id) pendingURL=\(self.pendingURL != nil)")
         browserID = id
         isCreationPending = false
     }
@@ -346,7 +342,6 @@ public final class CEFBrowser {
     // MARK: Navigation
 
     public func load(_ url: URL) {
-        runtime.logger.notice("CEF page load browser=\(self.browserID ?? 0) pending=\(self.isCreationPending) closed=\(self.isClosed)")
         state.rendererExit = nil
         if let id = browserID, !isClosed {
             runtime.shim?.loadURL(id, url.absoluteString)
