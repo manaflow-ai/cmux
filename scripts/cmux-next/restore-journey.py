@@ -979,6 +979,20 @@ class visiting:
             wait(lambda: ((topology() or {}).get("focus") or {}).get("workspace") == self.back, 10, 0.3)
 
 
+def grid_fits_view(label, pp, view):
+    """A row: the terminal renders the grid its view fits (`fit_grid`), so the shell has no rows
+    past the pane's edge. Read after the settle wait, so a grid that never follows its view fails
+    here even when it is equally wrong before and after the relaunch (cx-yt7rt)."""
+    surface = view.get("surface") or {}
+    grid, fit = surface.get("grid"), surface.get("fit_grid")
+    row = f"{label}: {pp}.view.grid_fits_view"
+    if not grid:
+        return (row, False, "no terminal grid drawn", "layout")
+    if "fit_grid" not in surface:
+        return (row, True, f"grid {grid}; this build reports no fit_grid", "layout")
+    return (row, fit is not None and fit == grid, f"grid {grid}, view fits {fit}", "layout")
+
+
 def snapshot(label):
     """Raw dumps plus the canonical items: {item: value}."""
     say(f"snapshot {label}")
@@ -1167,16 +1181,32 @@ def snapshot(label):
         if not pane_ids.get(name):
             continue
         with visiting(name):
+            # A workspace shown again claims the grids its views fit a few frames later (the resize
+            # settle, then the daemon's echo): a window that got shorter while it was hidden leaves
+            # the old grids for about 50 ms. Read once every terminal renders what its view fits
+            # (`fit_grid`; a build without it: the same grids on two reads in a row).
+            last = {}
+
             def drawn():
                 _, now = view_panes()
                 shown = [now.get(pid_) for _, pid_ in pane_ids[name]]
                 ok = all(v and v.get("presence") == "visible" and v.get("attach") == "live" and v.get("surface", {}).get("grid") for v in shown)
-                return now if ok else None
+                if not ok:
+                    return None
+                surfaces = [v["surface"] for v in shown]
+                grids = [s["grid"] for s in surfaces]
+                if all("fit_grid" in s for s in surfaces):
+                    settled = all(s["fit_grid"] in (None, s["grid"]) for s in surfaces)
+                else:
+                    settled = last.get("grids") == grids
+                last["grids"] = grids
+                return now if settled else None
             now = wait(drawn, 20, 0.5) or view_panes()[1]
             for pp, pid_ in pane_ids[name]:
                 v = now.get(pid_) or {}
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
+                RESULTS.append(grid_fits_view(label, pp, v))
     if "cloud" not in SKIP:
         items.update(cloud_items())
     dump(f"{label}-raw.json", raw)

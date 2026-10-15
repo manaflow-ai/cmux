@@ -14,6 +14,7 @@ public import CoreGraphics
 /// - `bare`: No card, one color, no pane or sidebar lines (tab and palette separators stay).
 /// - `panes`: No card, one color; every pane its own outlined rounded card with small gaps.
 /// - `two-tone`: The curved main pane with a soft separate sidebar shade.
+/// - `floating`: Darker window and sidebar; every pane a lighter rounded card, no borders, one even gap on all sides.
 public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
     case `default`
     case card
@@ -23,6 +24,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
     case bare
     case panes
     case twoTone = "two-tone"
+    case floating
 
     /// The camel-case name in action ids (`appearance.chromeStyle.<name>`).
     public var actionName: String {
@@ -35,6 +37,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: "bare"
         case .panes: "panes"
         case .twoTone: "twoTone"
+        case .floating: "floating"
         }
     }
 
@@ -49,6 +52,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: false
         case .panes: false
         case .twoTone: true
+        case .floating: true
         }
     }
 
@@ -63,6 +67,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: PaneSeparation.none
         case .panes: PaneSeparation.borders
         case .twoTone: PaneSeparation.dividers
+        case .floating: PaneSeparation.cards
         }
     }
 
@@ -77,6 +82,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: false
         case .panes: false
         case .twoTone: false
+        case .floating: false
         }
     }
 
@@ -91,6 +97,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: SidebarSurface.same
         case .panes: SidebarSurface.same
         case .twoTone: SidebarSurface.separate
+        case .floating: SidebarSurface.separate
         }
     }
 
@@ -105,6 +112,22 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: 0.0
         case .panes: 0.0
         case .twoTone: nil
+        case .floating: nil
+        }
+    }
+
+    /// Every pane is its own unshaded card on the shaded chrome, with one even gap (`Metrics.floatingPanes`).
+    public var floatingPanes: Bool {
+        switch self {
+        case .`default`: false
+        case .card: false
+        case .cardOutlined: false
+        case .flat: false
+        case .flatSidebarLine: false
+        case .bare: false
+        case .panes: false
+        case .twoTone: false
+        case .floating: true
         }
     }
 
@@ -119,6 +142,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: nil
         case .panes: nil
         case .twoTone: isDark ? 0.12 : 0.02
+        case .floating: isDark ? 0.25 : 0.05
         }
     }
 }
