@@ -43,7 +43,8 @@ nonisolated extension SidebarLayout {
                     key: .workspace(member.ws.id), y: y, height: h, section: member.section.id,
                     group: nil, siblingIndex: member.index, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: false, childCount: 0, groupColor: nil,
-                    tabDisclosure: o.tabDisclosure(member.ws), content: content
+                    tabDisclosure: o.tabDisclosure(member.ws), content: content,
+                    statusMarks: WorkspaceRowStatusMarks(bucket: bucket, activity: member.ws.activity, machine: member.section.machine?.kind)
                 ))
                 y += h + m.rowSpacing
                 guard o.listsTabs(member.ws) else { continue }

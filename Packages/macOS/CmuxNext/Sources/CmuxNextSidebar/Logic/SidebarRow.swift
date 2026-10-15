@@ -56,6 +56,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var content: WorkspaceRowContent? = nil
     /// A group header drawn as a thin line, its name small beside a hairline (minimal mode).
     public var isThinHeader = false
+    /// Group by Status's marks on a workspace row; nil in every other mode.
+    public var statusMarks: WorkspaceRowStatusMarks? = nil
 
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
     public var tabCount: Int? { content?.tabCount }

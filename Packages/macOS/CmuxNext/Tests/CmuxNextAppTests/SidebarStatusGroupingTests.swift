@@ -13,11 +13,12 @@ import Testing
         let view: SidebarView
         var rows: [SidebarWorkspace]
 
-        init(_ rows: [SidebarWorkspace], active: WorkspaceID? = nil) {
+        init(_ rows: [SidebarWorkspace], active: WorkspaceID? = nil, sections: [SidebarSection]? = nil,
+             groupBy: SidebarGroupBy = .status) {
             self.rows = rows
             let design = DesignSettings()
-            design.sidebarSections.groupBy = .status
-            model = SidebarModel(sections: Self.sections(rows), activeWorkspaceID: active)
+            design.sidebarSections.groupBy = groupBy
+            model = SidebarModel(sections: sections ?? Self.sections(rows), activeWorkspaceID: active)
             model.applyListPreferences(design.sidebarSections)
             view = SidebarView(model: model, design: design)
             view.frame = NSRect(x: 0, y: 0, width: 260, height: 900)
@@ -42,6 +43,15 @@ import Testing
             model.activeWorkspaceID = WorkspaceID(id)
             view.list.reload(animated: false)
             view.layoutSubtreeIfNeeded()
+        }
+
+        /// Group by Status's marks on `id`'s row: the shown mark identifiers, nil without marks.
+        func marks(_ id: String) -> Set<String>? {
+            let row = view.list.rowViews[.workspace(WorkspaceID(id))]
+            guard let marks = row?.subviews.first(where: {
+                $0.identifier?.rawValue == "cmux.sidebar.workspace.statusMarks" && !$0.isHidden
+            }) else { return nil }
+            return Set(marks.subviews.filter { !$0.isHidden }.compactMap { $0.identifier?.rawValue })
         }
 
         /// The list top to bottom: a header's spoken label, or a workspace's id.
@@ -88,5 +98,30 @@ import Testing
         sidebar.activate("shell")
         #expect(!sidebar.drawn.contains("Done, 1 workspaces"), "\(sidebar.drawn)")
         #expect(sidebar.drawn.suffix(4) == ["Working, 1 workspaces", "shipped", "No agent, 1 workspaces", "shell"], "\(sidebar.drawn)")
+    }
+
+    /// Every row shows one status glyph, Needs you rows end with a warning, and each row says
+    /// whether its session runs on this Mac or another computer; Group by none draws none of it.
+    @Test func statusRowsMarkTheirStatusTheirUrgencyAndTheirComputer() {
+        let cloudRows = [Self.agent("remote", .working(progress: nil)), Self.agent("remoteAsk", .waiting(kind: nil))]
+        let cloud = SidebarSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud)),
+                                   nodes: cloudRows.map { .workspace($0) })
+        let sections = Sidebar.sections(Self.rows) + [cloud]
+        let sidebar = Sidebar(Self.rows + cloudRows, sections: sections)
+        for row in Self.rows + cloudRows {
+            let id = row.id.rawValue
+            let marks = sidebar.marks(id) ?? []
+            let glyphs = marks.intersection(["statusGlyph", "statusGlyph.quiet"])
+            #expect(glyphs.count == 1, "\(id): \(marks)")
+            let needsYou = ["ask", "broke", "remoteAsk"].contains(id)
+            #expect(marks.contains("statusWarning") == needsYou, "\(id): \(marks)")
+            let machine = id.hasPrefix("remote") ? "statusMachine.cloud" : "statusMachine.machine.local"
+            #expect(marks.contains(machine), "\(id): \(marks)")
+        }
+
+        let plain = Sidebar(Self.rows + cloudRows, sections: sections, groupBy: .none)
+        for row in Self.rows + cloudRows {
+            #expect(plain.marks(row.id.rawValue) == nil, "\(row.id.rawValue)")
+        }
     }
 }
