@@ -442,7 +442,7 @@ impl RemoteSession {
                     self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
                     let end = value.get("end").filter(|end| !end.is_null()).cloned();
-                    self.emit(MuxEvent::SurfaceExited(id, end.map(std::sync::Arc::new)));
+                    self.emit(MuxEvent::SurfaceExited(id, end.map(Arc::new)));
                 }
             }
             Some("title-changed") => {
