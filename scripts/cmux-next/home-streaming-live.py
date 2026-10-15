@@ -352,11 +352,12 @@ def live_frames(conversation, session):
     session = ((rpc("debug.home") or {}).get("chief_owner") or {}).get("session")
     check("join-snapshot", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text, seconds=60)
     check("join-activity", lambda: (drive("texts").get("statusLine") or "").startswith(line))
+    # The bubble as it stands with the line under it, before the step's final frame.
+    before = chief_bubble()
+    incoming_before = len([r for r in drive("rows").get("rows", []) if r.get("kind") == "text" and not r.get("outgoing")])
     talk(" in place.", final=True)
     text += " in place."
     check("after-join", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
-    before = chief_bubble()
-    incoming_before = len([r for r in drive("rows").get("rows", []) if r.get("kind") == "text" and not r.get("outgoing")])
     # The producer's order (spec: final frame, run end, reply), with the gap a real turn can leave
     # between the final frame and the reply (cx-zz30r: 80-450 ms): nothing may move until the reply
     # takes the bubble's place; only then the line closes.
