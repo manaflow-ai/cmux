@@ -4904,7 +4904,7 @@ final class TextBoxInputTextView: NSTextView {
             return appDelegate.matchConfiguredShortcut(event: event, action: action)
         }
         return KeyboardShortcutSettings.shortcutBindings(for: action).contains {
-            $0.shortcut.matches(event: event) && $0.whenClause == .always
+            $0.shortcut.matches(event: event)
         }
     }
 
