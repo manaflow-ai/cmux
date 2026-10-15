@@ -75,7 +75,11 @@ final class BrowserEngineRuntime {
                     ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.parent == nil && !($0 is NSPanel) }
             },
             present: { content, icon, window in
-                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
+                // Cut the sheet out of every Chromium page in that window (their windows sit above it).
+                let pages = CEFRuntime.shared.liveBrowsers.map(\.hostView).filter { $0.window === window }
+                return await BrowserExtensionDialogPresenter().present(
+                    content, icon: icon, in: window, occluding: pages.first
+                )
             }
         )
         chromiumExtensions = extensions

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxCEF
 import SwiftUI
 
 /// Shows a cmux extension sheet (a Chromium install/permission prompt or an
@@ -16,9 +17,15 @@ struct BrowserExtensionDialogPresenter {
     ///   - content: The sheet content.
     ///   - icon: The extension icon (PNG), when known.
     ///   - window: The browser's window.
+    ///   - pageView: The Chromium page's host view, when the sheet may cover
+    ///     it: its window is a child window above the sheet, so the sheet's
+    ///     frame is cut out of it while the sheet is up.
     /// - Returns: True when the person accepted.
-    func present(_ content: BrowserExtensionPromptContent, icon: Data?, in window: NSWindow) async -> Bool {
+    func present(_ content: BrowserExtensionPromptContent, icon: Data?, in window: NSWindow,
+                 occluding pageView: NSView? = nil) async -> Bool {
         let sheet = PromptSheetWindow()
+        let hostView = pageView as? CEFHostView
+        let previousOcclusion = hostView?.occlusionRects ?? []
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 guard !Task.isCancelled else {
@@ -33,6 +40,7 @@ struct BrowserExtensionDialogPresenter {
                 }
                 sheet.onAnswer = { accepted in
                     NotificationCenter.default.removeObserver(closeObserver)
+                    hostView?.occlusionRects = previousOcclusion
                     if let parent = sheet.sheetParent { parent.endSheet(sheet) }
                     continuation.resume(returning: accepted)
                 }
@@ -46,6 +54,10 @@ struct BrowserExtensionDialogPresenter {
                 sheet.setContentSize(host.view.fittingSize)
                 sheet.identifier = NSUserInterfaceItemIdentifier("browser.extension.prompt")
                 window.beginSheet(sheet)
+                if let hostView, hostView.window === window {
+                    let inWindow = window.convertFromScreen(sheet.frame)
+                    hostView.occlusionRects = previousOcclusion + [hostView.convert(inWindow, from: nil)]
+                }
             }
         } onCancel: {
             Task { @MainActor in sheet.answer(false) }
