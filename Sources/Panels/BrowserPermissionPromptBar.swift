@@ -1,25 +1,30 @@
 import CmuxBrowser
 import SwiftUI
 
-/// The Chromium panel's permission prompt bar (design spec §4): a non-modal
-/// card at the top center of the page asking the first waiting question of
-/// the panel's ``BrowserPermissionPromptQueue``. It never takes focus and no
-/// key answers it, so Escape or Return typed into the page never decides a
-/// permission by accident.
+/// The Chromium panel's permission prompt strip (design spec §4, v1.1): a
+/// non-modal row docked directly under the toolbar, full page width, drawn
+/// over the top of the page without resizing it, so it reads as the toolbar
+/// growing a row. It asks the first waiting question of the panel's
+/// ``BrowserPermissionPromptQueue``, never takes focus, and no key answers
+/// it, so Escape or Return typed into the page never decides a permission by
+/// accident.
 ///
 /// Host-agnostic: overlay it on the page area (it fills it and draws only the
-/// card). `mountCard` wraps just the card, so a Chromium panel passes
+/// strip). `mountCard` wraps just the strip, so a Chromium panel passes
 /// `.browserPageOccluding(panel.pageOverlays, id: "permissionPrompt")` and
-/// Chromium's child window is masked under the card only (chrome-ui's page
-/// overlay host); other hosts keep the default identity.
+/// Chromium's child window is masked under the strip only (§0.9); with no
+/// corners and no shadow nothing else shows through the hole.
 ///
-/// References: Next `PromptBarView.swift` (answers and copy),
-/// cmux-design-references `apps/codex/web/computer-use-app-approval.webp`
-/// (inline approval card, primary action on the right), Chrome
-/// `components/permissions_strings.grdp` (wording).
+/// References: design spec §4; cmux-design-references
+/// `apps/t3-code/live/approval-command-and-thread-details.png` (approval strip
+/// docked to the surface it gates) and
+/// `apps/codex/web/computer-use-app-approval.webp` (copy and button order);
+/// Next `PromptBarView.swift`; Chrome `components/permissions_strings.grdp`.
 struct BrowserPermissionPromptBar: View {
     let queue: BrowserPermissionPromptQueue
     let metrics: BrowserChromeMetrics
+    /// The toolbar's background (`resolvedBrowserChromeBackgroundColor`).
+    let backgroundColor: Color
     var mountCard: (AnyView) -> AnyView = { $0 }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -29,38 +34,71 @@ struct BrowserPermissionPromptBar: View {
             VStack(spacing: 0) {
                 if let prompt = queue.current {
                     mountCard(AnyView(
-                        BrowserPermissionPromptCard(prompt: prompt, metrics: metrics) { answer in
+                        BrowserPermissionPromptStrip(
+                            prompt: prompt,
+                            metrics: metrics,
+                            backgroundColor: backgroundColor,
+                            isNarrow: proxy.size.width < BrowserChromeMetrics.promptStripNarrowPaneWidth
+                        ) { answer in
                             queue.answer(prompt.id, with: answer)
                         }
-                        .frame(width: metrics.promptBarWidth(pageWidth: proxy.size.width))
                     ))
                     .id(prompt.id)
-                    .transition(cardTransition)
+                    .transition(stripTransition)
                 }
                 Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, metrics.promptBarInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: queue.current?.id)
         }
     }
 
-    private var cardTransition: AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        return .asymmetric(
-            insertion: .opacity.combined(with: .offset(y: -4)),
-            removal: .opacity.animation(.easeOut(duration: 0.08))
+    /// Opacity only: a slide over a live page reads as jank (spec §4).
+    private var stripTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity,
+            removal: .opacity.animation(reduceMotion ? nil : .easeOut(duration: 0.08))
         )
     }
 }
 
-private struct BrowserPermissionPromptCard: View {
+private struct BrowserPermissionPromptStrip: View {
     let prompt: BrowserPermissionPrompt
     let metrics: BrowserChromeMetrics
+    let backgroundColor: Color
+    let isNarrow: Bool
     let answer: (BrowserPermissionPromptAnswer) -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: metrics.promptBarPadding) {
+        Group {
+            if isNarrow {
+                // Spec §4: under 420 pt the buttons wrap to a second row, trailing.
+                VStack(alignment: .trailing, spacing: metrics.promptStripSpacing / 2) {
+                    question
+                    buttons
+                }
+            } else {
+                HStack(alignment: .center, spacing: metrics.promptStripSpacing) {
+                    question
+                    buttons
+                }
+            }
+        }
+        .padding(.vertical, metrics.promptStripVerticalPadding)
+        .padding(.horizontal, metrics.promptStripHorizontalPadding)
+        .frame(maxWidth: .infinity, minHeight: metrics.promptStripMinHeight)
+        .background(backgroundColor)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 0.5)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(BrowserPermissionPromptText.accessibilityLabel)
+    }
+
+    private var question: some View {
+        HStack(alignment: .center, spacing: metrics.promptStripSpacing) {
             Image(systemName: BrowserPermissionPromptText.symbolName(for: prompt.kinds))
                 .font(.system(size: metrics.promptBarIconFontSize))
                 .foregroundStyle(.secondary)
@@ -71,24 +109,11 @@ private struct BrowserPermissionPromptCard: View {
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            buttons
         }
-        .padding(metrics.promptBarPadding)
-        .background(
-            RoundedRectangle(cornerRadius: metrics.promptBarCornerRadius, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: metrics.promptBarCornerRadius, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.11), radius: metrics.promptBarShadowRadius, y: metrics.promptBarShadowOffsetY)
-        .accessibilityElement(children: .contain)
     }
 
-    @ViewBuilder
     private var buttons: some View {
-        HStack(spacing: metrics.promptBarPadding / 2) {
+        HStack(spacing: metrics.promptStripSpacing / 2) {
             switch prompt.style {
             case .captureDevices:
                 button(BrowserPermissionPromptText.neverAllow, prominent: false) { answer(.block) }
@@ -141,6 +166,11 @@ enum BrowserPermissionPromptText {
 
     static var allow: String {
         String(localized: "browser.permission.prompt.allow", defaultValue: "Allow")
+    }
+
+    /// Names the strip for VoiceOver (it is not modal).
+    static var accessibilityLabel: String {
+        String(localized: "browser.permission.prompt.accessibilityLabel", defaultValue: "Permission request")
     }
 
     /// The SF Symbol of the capability asked about.
