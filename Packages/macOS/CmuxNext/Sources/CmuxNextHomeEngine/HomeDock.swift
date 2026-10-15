@@ -28,8 +28,12 @@ public final class HomeDock {
     static let legacyPage = "home-channels"
     /// Classic Home for one release (`labs.classicHome`): the top page, with the Chief tab in the
     /// hidden home workspace. `CMUX_NEXT_CLASSIC_HOME=1` at launch selects it too (GUI tests of the
-    /// native Home, until the setting lands).
-    public static var classic: Bool { DesignSettings.shared.classicHome || classicAtLaunch }
+    /// native Home). Both are read once, at the first read after launch (the settings file is applied
+    /// before any window or Home starts): a change takes effect after cmux restarts, so Home is
+    /// never half docked (the dock ensure runs only on connects; a live flip would leave the old
+    /// form's tabs and refuse Home's actions).
+    public static var classic: Bool { latched }
+    private static let latched: Bool = DesignSettings.shared.classicHome || classicAtLaunch
     /// `CMUX_NEXT_CLASSIC_HOME=1` in the app's launch environment, read once.
     static let classicAtLaunch = ProcessInfo.processInfo.environment["CMUX_NEXT_CLASSIC_HOME"] == "1"
     public var isClassic: Bool { Self.classic }

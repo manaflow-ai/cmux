@@ -239,15 +239,12 @@ never infers an agent from a process name, argv, foreground group or tree.
 - The holder checks the peer uid (`getpeereid` / `SO_PEERCRED`) equals its
   own before HELLO, then the owner token (constant time). A wrong token gets
   ERROR BAD_TOKEN and the link is closed.
-- Threat model: any process of the same uid, including an agent running in
-  another terminal, can read a 0600 file and connect to a 0600 socket. A
-  token stored in the readable registry therefore stops only other users.
-  To stop a same-uid process from typing into another terminal, the owner
-  token is NOT stored in the registry: the daemon keeps it in its own store
-  (Keychain on macOS, a 0600 file only the daemon reads on Linux), and the
-  holder also checks the peer's code identity on the connected socket
-  (`LOCAL_PEERTOKEN` audit token + code signature on macOS). That is
-  authentication of one connected peer, not a scan.
+- Threat model (D6, Lawrence 2026-10-14): the holder protects against other
+  users only (socket peer uid + owner token). Any process of the same uid,
+  including an agent in another terminal, is trusted like a shell of that
+  user; there is no code-identity check. The owner token stays out of the
+  registry (the daemon keeps it in its own store) so a stale record never
+  hands it out.
 - Per-install directories keep DEV tags, NIGHTLY and Release apart; an
   install only lists its own directory. Cross-install adoption is an explicit
   user action (cx-14hn5), never automatic.
@@ -283,7 +280,7 @@ never infers an agent from a process name, argv, foreground group or tree.
 - D5 (chief): peer checks that walk parent processes (control socket,
   computer-use helper) become a capability token the app gives its
   children.
-- D6 (pending, security policy): the frozen holder checks the macOS peer's
-  code identity (same Team ID + daemon identifier, audit token) before
-  HELLO; ad hoc DEV builds skip it. A frozen holder cannot add this later.
-  Recommend: freeze it now (holder-protocol-v1.md section 7).
+- D6 (Lawrence): no code-identity check in the holder; it protects only
+  against other users (socket peer uid + owner token).
+- Pipe mode uses one shared offset space; the holder drops the oldest output
+  and never blocks the child (chief, confirmed 2026-10-14).
