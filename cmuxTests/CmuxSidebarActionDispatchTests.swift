@@ -48,8 +48,9 @@ struct CmuxSidebarActionDispatchTests {
 
         makeCmuxSidebarActionDispatch().run(ButtonAction(commands: [.log(message)]))
 
-        for _ in 0..<20 {
-            if workspace.logEntries.last?.message == message { break }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while workspace.logEntries.last?.message != message,
+              ContinuousClock.now < deadline {
             await Task.yield()
         }
 
