@@ -2122,9 +2122,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
-    /// The engine rendering this panel's page: fixed at creation, except
-    /// that a Chromium page whose runtime fails to start falls back to WebKit.
-    var engineKind: BrowserEngineKind { enginePage?.engineKind ?? .webkit }
+    /// The engine the panel was created with. Fixed (and readable off the
+    /// main actor); see ``activeEngineKind`` for what renders now.
+    let engineKind: BrowserEngineKind
+    /// The engine rendering the page now: ``engineKind``, or WebKit after a
+    /// Chromium runtime failed to start (``fallBackToWebKit(reason:)``).
+    var activeEngineKind: BrowserEngineKind { enginePage?.engineKind ?? .webkit }
     /// The engines this panel resolves against (fallback notices, start failures).
     let engineRuntime: BrowserEngineRuntime
     /// The page of a non-WebKit engine; `nil` for WebKit panels, whose page
@@ -3775,6 +3778,7 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: resolvedProfileID,
             runtime: engineRuntime
         )
+        self.engineKind = enginePageSetup.page?.engineKind ?? .webkit
         self.engineRuntime = engineRuntime ?? .shared
         self.enginePage = enginePageSetup.page
         self.engineFallbackNotice = enginePageSetup.notice

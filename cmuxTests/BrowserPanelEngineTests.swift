@@ -201,7 +201,8 @@ import Testing
         provider.availability = .unavailable(.startFailed("NSApp does not conform to CefAppProtocol"))
         panel.handleEnginePageEvent(.navigationFailed(url, code: -1, message: "start failed", showsEngineErrorPage: false))
 
-        #expect(panel.engineKind == .webkit)
+        #expect(panel.activeEngineKind == .webkit)
+        #expect(panel.engineKind == .chromium)
         #expect(panel.enginePage == nil)
         #expect(page.closeCount == 1)
         #expect(panel.engineFallbackNotice == .startFailed("NSApp does not conform to CefAppProtocol"))
