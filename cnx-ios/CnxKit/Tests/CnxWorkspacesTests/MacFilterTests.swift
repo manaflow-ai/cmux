@@ -319,6 +319,31 @@ import Testing
         #expect(failures == ["Couldn't rename cmux.com", "Couldn't close cmux.com"])
     }
 
+    /// Duplicate Workspace (the Mac's row menu): the Mac makes the copy; a refusal is one line.
+    @Test func duplicateWorkspace() async throws {
+        let (store, backend, creator) = make()
+        var failures: [String] = []
+        creator.onManageFailure = { _, what, _ in failures.append(what) }
+        let ws = try #require(store.workspace(id: "ws-web"))
+        #expect(creator.canDuplicate(ws))
+        creator.duplicate(ws)
+        await creator.settle()
+        #expect(backend.duplicated == ["ws-web"])
+        backend.failNext = "no"
+        creator.duplicate(ws)
+        await creator.settle()
+        #expect(failures == ["Couldn't duplicate cmux.com"])
+        // An offline Mac's workspace and Home have no duplicate.
+        let offline = try #require(store.workspace(id: "ws-notes"))
+        #expect(!creator.canDuplicate(offline))
+        var home = ws
+        home.isHome = true
+        #expect(!creator.canDuplicate(home))
+        creator.duplicate(home)
+        await creator.settle()
+        #expect(backend.duplicated == ["ws-web"])
+    }
+
     @Test func offlineMacsAndBlankNamesAreRefused() throws {
         let (store, _, creator) = make()
         let offline = try #require(store.workspace(id: "ws-notes"))

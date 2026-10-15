@@ -18,7 +18,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Mac action (wording) | Mac sends | Phone | State | Notes |
 | --- | --- | --- | --- | --- |
 | New Agent Chat (⌘I) | acpmux `session/new` (harness from the last pick, else acpmux `defaultHarness`), daemon `new-conversation-tab` | + > **New Agent Chat** | works (round 2) | One model-agnostic entry. Round 2: it starts where the Mac's would: the Mac's last pick in the workspace folder, then its last pick anywhere, then the agent it picked last, then acpmux's `defaultHarness` (a pick the phone can't start is skipped). The Mac app hands its `newTab.lastPicks` to acpmux over its person connection (`_acpmux/new_chat_picks_set`, memory only) and `_acpmux/harnesses` shows them (`lastPicks`). Unit-tested on both sides; not driven live (the rig app is hidden, so nobody picks on its New Tab page). |
-| Harness and model picker (chip: "Harness", "Model"; "Unavailable" + reason) | `session/new` then `session/set_model` | + > **New Agent Chat With…** (sheet "New Agent Chat": Harness, Model, Start Chat) | works (round 2) | acpmux now says per agent what a phone may start (`remote: {startable, modes}` or the reason). **Codex** (the `codex app-server` bridge, the Mac's `codex` profile) is startable: a phone-started Codex chat begins in the bridge's **Ask** mode (approval policy `untrusted`: Codex asks before every command that is not a known-safe read and before every file change), with acpmux policy `ask`, so each approval reaches the phone and Allow needs Face ID. The codex-acp adapter and **opencode** stay "Not available from here: this agent has no mode that asks before each change" (opencode starts every agent from allow-all and merges the user's rules last). A Mac without the `remote` row keeps Codex refused. |
+| Harness and model picker (chip: "Harness", "Model"; "Unavailable" + reason) | `session/new` then `session/set_model` | + > **New Agent Chat With…** (sheet "New Agent Chat": Harness, Model, Start Chat) | works (round 2) | acpmux now says per agent what a phone may start (`remote: {startable, modes}` or the reason). **Codex** (the `codex app-server` bridge, the Mac's `codex` profile) is startable: a phone-started Codex chat begins in the bridge's **Ask** mode (approval policy `untrusted`: Codex asks before every command that is not a known-safe read and before every file change), with acpmux policy `ask`, so each approval reaches the phone and Allow needs Face ID. The codex-acp adapter stays "Not available from here: this agent has no mode that asks before each change". **opencode** stays unavailable with "Not available from here: opencode's own settings on this Mac can let it edit and run commands without asking" (round 3: acpmux cannot force its asks; see "Remaining gaps"). A Mac without the `remote` row keeps Codex refused. |
 | Agent chat in a workspace folder | `session/new {cwd}` (the pane's folder) | same | works (this branch) | Needed `feat-cnx-ios-agentcwd` (acpmux `_acpmux/workspace_roots_set`), merged here. A workspace still at home gets "Agent chats start in a project folder…". A folder Claude has never been trusted in waits on the Mac's trust question (see Gaps). |
 | New Terminal Tab (⌃`) | `new-tab {cwd}` | + > **New Terminal** | works | hostd picks the pane's folder (`with_pane_folder`); the phone never sends `cwd`. |
 | New Browser Tab (⇧⌘L) | `new-frontend-browser-tab` | + > **New Browser Tab** | works on a Mac that streams (`browser-stream-v1`) | An older Mac now keeps the entry; a tap says "Update cmux on <Mac> to open browser tabs from your phone." (was: silently missing). |
@@ -43,7 +43,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Restart Shell Here | `restart-tab` | dead terminal: overlay "The shell ended." + **Restart Shell Here**, page menu row | works (round 2) | Allowlisted with the surface only (no command, folder, env or alias), after live verification on the rig Mac that the new shell runs on the Mac under the same tab (SECURITY.md "Restart Shell"). The phone now lists a dead terminal the Mac keeps (it hid every dead tab). |
 | New Tab Group, Add Tab to Group…, Remove Tab from Group | `create-tab-group {surfaces, color}`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group` | page and card menu, the Mac's group rows | works (parity2 tabs; live) | New Tab Group takes the Mac's next color (`GroupColor.automatic`, never blue or grey) and no name. A pinned tab offers no group rows ("Pinned tabs cannot be grouped." on the Mac). A member's card carries the group's chip (name, else "<Color> group"). |
 | The group's chip menu: Rename Tab Group…, Pin Group / Unpin Group, Ungroup Tabs, Close Tab Group | `update-tab-group {name}`, `save-tab-group`, `unsave-tab-group`, `ungroup-tab-group`, `close-tab-group` | a member's menu > **Tab Group: <name>…** (the group's actions) | works (parity2 tabs; live) | The phone has no group chip to hold, so a member's row opens the same actions. Close Tab Group waits for the Mac, then removes every member. Collapse / Expand, color and icon, Move Tab Group … and New Tab in Group: not on the phone (the phone has no strip to collapse or arrange; a new tab in a group starts a terminal by another path). |
-| Reopen Saved Tab Group…, Delete Saved Tab Group… | `reopen-saved-tab-group`, `delete-saved-tab-group` | — | not from a phone (yet) | Reopening recreates terminals from the saved record (a respawn path); the remote rules need live verification of it on the Mac first (orchestrator decision 2026-10-15). Pin Group on the phone saves the group; it is reopened on the Mac. |
+| Reopen Saved Tab Group…, Delete Saved Tab Group… | `reopen-saved-tab-group {saved, pane}`, `delete-saved-tab-group {saved}`, read `list-saved-tab-groups`, `list-tab-groups` | page menu > **Reopen Saved Tab Group…** / **Delete Saved Tab Group…** (a chooser of the Mac's saved groups; an open one shows "Open" and is not reopened) | built, pending live check (round 3) | Params narrowed on both policies to the saved id, the pane and a transaction (no command, folder, env or host). The daemon reopens each terminal as the login shell in its saved folder (or reattaches it while it runs), on this Mac (SECURITY.md "Reopen Saved Tab Group"). Not "works" until the orchestrator's live check. |
 
 ## Workspaces
 
@@ -59,7 +59,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Clear Workspace Name | `set-workspace-metadata {title: null}` | row menu > **Options** > **Clear Workspace Name** (only when a display name is set) | works (parity2, live: same flow) | The workspace's own name shows again. |
 | Edit Workspace Description… | — | — | not on the Mac either | The Mac reports it needs a daemon capability (`workspace-description-v1`) the daemon does not have. |
 | Mark Workspace as Read / Unread | `ack-tab-notifications` on unread tabs + `set-workspace-metadata {marked_unread}` | row menu > **Options** > **Mark Workspace as Read / Unread**; opening marks read | works (parity2) | |
-| Duplicate Workspace | composed app-side (new workspace, then each tab) | — | missing | The Mac composes it in the app (its tabs' programs and folders); a phone would have to start programs in folders it may not choose (`cwd`). Use New Workspace in the same folder. |
+| Duplicate Workspace | composed app-side (`WorkspaceStructureHandlers.duplicate`: new workspace, then `WorkspaceBlueprintBuilder` makes each tab with `new-tab {cwd}` or a browser tab) | workspace row menu > **Duplicate Workspace** (not on Home) | built (round 3), live run pending | No daemon command duplicates a workspace, and `apply-layout` carries `command` per leaf, so it stays off the lane. The phone composes it from lines it already sends: `new-workspace {name}`, then in the new pane `new-tab {pane}` per terminal and `new-browser-tab {url, pane}` per http/https page, and `cd '<folder>' && clear` typed into each new shell (`changeDirectoryLine`, as New Workspace in a folder). No allowlist change and no new spawn path (each shell is the Mac's own New Terminal). Unlike the Mac: every tab goes in one pane (splits and ratios are not copied), agent chats and non-web pages are left out, color and icon are not copied, and the copy is not placed right below the source. |
 | Workspace groups | personal groups as `cmux.protocol/2` state operations: `workspace_group.create {name, color, room}`, `workspace_group.update {name \| color \| collapsed}`, `workspace_group.delete`, `workspace.place {workspace, group}` | the list shows each group's header in the Mac's order (tap: **Collapse / Expand Workspace Group**); hold a header for **Rename Group…**, **Set Workspace Group Color…** (the nine colors), **Collapse / Expand Workspace Group**, **Ungroup Workspaces**, **Delete Group** (asks first); a row's menu > **Group** > **Move Workspace to Group…** (the Mac's groups, then **Move Workspace to New Group**) and **Remove Workspace from Group** | works (round 3, unit-tested; live pending) | Each change shows at once and comes back if the Mac refuses. A new group takes the Mac's next color and "New Group" when unnamed. Move Workspace Up / Down stays inside the workspace's group. The phone shows only groups of this Mac's workspaces (cnx-hostd refuses changes to a group that holds another machine's workspaces) and shows them whatever the Mac window's room. Not on the phone: Move Workspace Group Up / Down, group icon, Pin/Unpin Group, New Workspace in Group, Close All Workspaces in Group (SECURITY.md "Workspace groups"). |
 | Move to Window / New Window, Show in Finder, Copy Path | app-local | Copy Directory (terminal page) | not applicable | Mac windows and Finder. |
 
@@ -287,16 +287,14 @@ Findings fixed in round 2:
 
 ### Remaining gaps after round 2 (and why)
 
-- **opencode** from a phone: refused. opencode starts every agent from allow-all and
-  merges the user's own rules last, so acpmux cannot prove it asks before each change.
+- **opencode** from a phone: refused (re-checked in round 3, below).
 - **`cmux` harness** (cmux model router): the phone path works through the sandbox now;
   the test account's team is not entitled to the hosted router (403), and the
   mini-cmux11s rig's local router did not answer. Needs an entitled account to see a reply.
 - **Folder trust from the phone**: left on the Mac by decision; the phone gives the steps.
-- **Duplicate Workspace**: the Mac composes it from its tabs' programs and folders; a phone
-  may not choose either.
+- **Duplicate Workspace**: built in round 3 from lines the phone already sends (below).
 - **Workspace groups** (personal order): done in round 3 (see the Workspaces table; live pending).
-- **Reopen Saved Tab Group**: recreates terminals; same live check as Restart Shell needed.
+- **Reopen Saved Tab Group**: built in round 3; live check pending (below).
 - **Open Link in New Tab, Checkpoints, Commit, Push, New Chief…, Memory Inspector, Reset
   Terminal, Keep Running After Close**: not on the link (or Mac-only by design).
 - **The Mac's last pick** reaching the phone: unit-tested on both sides; not driven live
@@ -439,3 +437,60 @@ and its acpmux socket (`pq_ws.acp`).
 7. **Devices**: Settings > `settings.devices` > a second phone row > swipe **Remove**:
    the alert says the Macs still allow it until removed in Settings → Mobile on each Mac.
    Mac: the phone is still in its Phones list (expected; the gap above).
+
+### Round 3: saved tab groups, Duplicate Workspace, opencode (`feat-cnx-ios-p3saved`)
+
+- **Reopen / Delete Saved Tab Group…**: page menu rows open a chooser of the Mac's saved
+  groups. Both policies (`policy.rs`, `DaemonLanePolicy.swift`) now take only
+  `reopen-saved-tab-group {saved, pane, transaction?}` and `delete-saved-tab-group {saved}`.
+  The daemon reopens a terminal member as the login shell in its saved folder (no command,
+  no env: the saved record has no command field), or reattaches it while it still runs
+  (SECURITY.md "Reopen Saved Tab Group"). **Live check pending (orchestrator).**
+- **Duplicate Workspace**: workspace row menu; composed from allowed lines (Workspaces table).
+  Needs one live run on a rig: the copy lists the same terminals in the same folders.
+- **opencode** stays refused. Checked against opencode v1.19.0 source
+  (`packages/opencode/src/config/config.ts` `loadInstanceState`, `src/agent/agent.ts`,
+  `src/permission/index.ts`): config sources merge with the later one winning, in this order:
+  global config, `OPENCODE_CONFIG`, project files, each config directory (agent files,
+  plugins, custom tools), `OPENCODE_CONFIG_CONTENT`, the account's org config, the managed
+  directory `/Library/Application Support/opencode`, and the macOS MDM plist ("overrides
+  everything"). `OPENCODE_PERMISSION` is merged last, but only into the top-level list. Each
+  agent's own `permission` is appended after that, and `Permission.evaluate` takes the
+  last matching rule. So a user's agent file, or a later key such as `"b*": "allow"`,
+  beats anything acpmux could set through env. Custom tools, plugins, MCP tools (allowed
+  by default) and `!` command templates also run outside the edit/bash/webfetch asks.
+  `OPENCODE_DISABLE_PROJECT_CONFIG` and `--pure` leave the global, org and managed config
+  and custom tools in place. acpmux therefore cannot prove that a phone-started opencode
+  asks before each change. Its remote row now gives that reason
+  (`web_modes::OPENCODE_REFUSAL`), and the phone shows it.
+
+#### Live check for Reopen Saved Tab Group (orchestrator)
+
+On a rig Mac built from this branch, with the phone paired (the same setup as the Restart
+Shell check):
+
+1. Use the rig's daemon socket (`~/Library/Application Support/cmux/cmuxd-dev-<tag>.sock`,
+   one JSON line per request). Make two terminal tabs in one workspace pane, and `cd` one of
+   them to a project folder (for example `/tmp/p3saved-check`). Then send
+   `{"id":1,"cmd":"list-workspaces"}` to get their `surface` numbers and the pane id.
+2. Send `{"id":2,"cmd":"create-tab-group","surfaces":[S1,S2],"color":"red"}`, which returns
+   the `group`. Then send `{"id":3,"cmd":"save-tab-group","group":"<group>"}`, which returns
+   `saved_<hex>`. Run `{"id":4,"cmd":"list-saved-tab-groups"}` to see both members with
+   their `cwd`.
+3. Send `{"id":5,"cmd":"close-tab-group","group":"<group>","end_terminals":true}`. The
+   terminals must end, so that the reopen spawns new shells instead of reattaching. Write
+   down the old shell pids from `list-terminals` / `process-info` first.
+4. On the phone, open any terminal tab of that workspace. Tap the page menu >
+   **Reopen Saved Tab Group…** > the red group ("2 terminals").
+5. Read back on the Mac. `list-workspaces` should list two new tabs in that pane, grouped,
+   with the group's `saved_id` set. For each new terminal, use `process-info` or `ps -o
+   pid,ppid,command`: the shell is new (not the old pid), its parent is the rig app's own
+   `cmux-tui __terminal-host --owner <rig bundle id>`, and its cwd (`lsof -p <pid> -a -d
+   cwd`) is the saved folder. Type `pwd` from the phone into the reopened tab.
+6. Tap Reopen again on the same group: the phone says "The saved group is already open."
+   and the Mac gets nothing.
+7. Send refused lines through the phone's lane, as `restart-tab` was checked: hostd must
+   answer `forbidden` to `reopen-saved-tab-group` with `command`, `argv`, `cwd` or `env`
+   added. Then tap **Delete Saved Tab Group…** > the group. `list-saved-tab-groups` no
+   longer has it, and the open group stays.
+

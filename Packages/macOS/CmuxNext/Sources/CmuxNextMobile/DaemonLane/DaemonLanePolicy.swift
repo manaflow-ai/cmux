@@ -118,6 +118,11 @@ public struct DaemonLanePolicy: Sendable {
             "create-terminal": mutation.union(size).union(["workspace", "key", "name"]),
             // The tab's recorded launch on this Mac; the phone names only the tab.
             "restart-tab": ["surface"],
+            // A saved group of this daemon, reopened into one of its panes: each terminal
+            // member starts as the login shell in the record's folder (SECURITY.md
+            // "Reopen Saved Tab Group"); the phone names no program, folder or env.
+            "reopen-saved-tab-group": ["saved", "pane", "transaction"],
+            "delete-saved-tab-group": ["saved"],
         ]
     }()
 
@@ -155,6 +160,10 @@ public struct DaemonLanePolicy: Sendable {
                                               message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
             }
         }
+        if command == "reopen-saved-tab-group" || command == "delete-saved-tab-group",
+           let why = Self.savedGroupRefusal(object, reopen: command == "reopen-saved-tab-group") {
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: why))
+        }
         if command == "set-personal-workspace", let why = Self.personalWorkspaceRefusal(object) {
             return .refuse(Self.errorLine(id: id, code: "forbidden", message: why))
         }
@@ -181,6 +190,34 @@ public struct DaemonLanePolicy: Sendable {
         if !write, scope != "personal" { return .forward }
         return .refuse(Self.errorLine(id: id, code: "forbidden",
                                       message: "phones may only use the personal projection \(projectionSubject)"))
+    }
+
+    /// Why a saved tab group line is refused, or nil: `saved` is a short identifier, a
+    /// reopen names its `pane` (a number or a short public id), and `transaction` is
+    /// 1-128 printable ASCII characters (cnx-hostd `saved_group_refusal`).
+    static func savedGroupRefusal(_ object: [String: Any], reopen: Bool) -> String? {
+        guard let saved = object["saved"] as? String, shortIdentifier(saved) else {
+            return "a saved tab group is named by its id"
+        }
+        if reopen {
+            let pane = object["pane"]
+            let ok = (pane as? String).map(shortIdentifier) ?? pane.map(isPlace) ?? false
+            if !ok { return "reopen-saved-tab-group needs the pane to reopen it in" }
+        }
+        if let transaction = object["transaction"] {
+            guard let text = transaction as? String, (1...128).contains(text.utf8.count),
+                  text.utf8.allSatisfy({ $0 > 0x20 && $0 < 0x7F }) else {
+                return "transaction is 1-128 printable characters"
+            }
+        }
+        return nil
+    }
+
+    /// `[A-Za-z0-9._:-]`, 1 to 128 bytes.
+    static func shortIdentifier(_ text: String) -> Bool {
+        (1...128).contains(text.utf8.count) && text.utf8.allSatisfy { b in
+            (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || b == 0x2D || b == 0x5F || b == 0x2E || b == 0x3A
+        }
     }
 
     /// Why a `set-personal-workspace` line is refused, or nil: a short session id,
