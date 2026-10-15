@@ -6,7 +6,7 @@
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
     "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
-    "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit",
+    "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
@@ -21,7 +21,7 @@
   "gesture_ticket_key": "cmuxGesture",
   "session_scoped": [
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-    "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+    "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
     "_acpmux/offer_respond", "_acpmux/subagent_stop"
   ],
@@ -34,7 +34,7 @@
   ],
   "gesture_rules": {
     "session/prompt": "always",
-    "_acpmux/ask": "always",
+    "_acpmux/btw": "always",
     "session/set_mode": "always",
     "session/set_config_option": "always",
     "acp.trust.set": "when_trusting",
@@ -68,7 +68,7 @@
     "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
     "_acpmux/bookmark_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/bookmark_set": {"params": ["sessionId", "seq", "bookmarked"], "acpmux": []},
-    "_acpmux/ask": {"params": ["sessionId", "text"], "acpmux": []},
+    "_acpmux/btw": {"params": ["sessionId", "question", "model"], "acpmux": []},
     "_acpmux/queue_remove": {"params": ["sessionId", "promptId"], "acpmux": []},
     "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "index"], "acpmux": []},
     "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers", "_meta"], "acpmux": []},
