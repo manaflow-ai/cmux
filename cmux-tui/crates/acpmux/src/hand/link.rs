@@ -43,6 +43,9 @@ fn socket_url(cfg: &HandConfig) -> String {
 
 pub async fn run(cfg: HandConfig) -> Result<()> {
     pair::check_api(&cfg.api)?;
+    // One running hand per hand home: a second copy (a service plus a manual
+    // run) would take turns replacing each other's socket.
+    let _lock = single_instance()?;
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cfg = Arc::new(cfg);
     let agents = Agents::default();
@@ -68,6 +71,25 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF).max(Duration::from_secs(1));
     }
+}
+
+/// An exclusive lock on `<hand home>/hand.lock`, held for the process life.
+fn single_instance() -> Result<std::fs::File> {
+    let path = super::config::home().join("hand.lock");
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path)?;
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: flock on a descriptor this function owns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            anyhow::bail!(
+                "another cmux-hand already runs for {} (lock {})",
+                super::config::home().display(),
+                path.display()
+            );
+        }
+    }
+    Ok(file)
 }
 
 enum Ended {

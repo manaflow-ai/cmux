@@ -9,7 +9,9 @@ name), a pinned channel and a plain channel, then checks through the app's contr
 - the Channels page lists the same conversations in the same order;
 - a pin in Messages shows in Channels, an unpin in Channels shows in Messages, Mark as Unread in Messages shows in
   Channels, Mark as Read in Channels shows in Messages (each view through its own menu handler);
-- a Chief's typing shows in the Messages transcript and ends when its reply posts (the owner sends no typing-off).
+- a Chief's typing shows in the Messages transcript and ends when its reply posts (the owner sends no typing-off);
+- the build's daemon (owners ["cloud"]) says the Cloud state; signed out or unavailable, the list keeps the local rows
+  and shows one quiet line (muted Cloud rows need a signed-in Cloud account, which this host has not).
 Screenshots of each step. Runs on cmux-lawrence-2 through
 `nx-remote --needs gui --app-from-fleet cmux --tag <tag> --ref <sha> -- 'python3 scripts/cmux-next/home-inbox-parity.py'`
 with an isolated HOME and Chief home under /tmp; it launches the app itself and ends with quitEndSessions,
@@ -256,6 +258,26 @@ try:
     check("the second Chief is named %s in Messages" % scout_name, native_row(scout).get("title") == scout_name, native_row(scout))
     check("the pinned channel is first in Messages", (native_list() or [{}])[0].get("id") == pinned, native_list())
     shot("1-messages-list")
+
+    # Cloud rows come from the build's own daemon (its Cloud lease), asked by the app with owners ["cloud"]. Signed
+    # out here: the local rows stay and the list says so in one quiet line. The state is the app's own answer.
+    app_path = chief_socket("cmux-app-%s" % TAG)
+    if check("the build's daemon socket answers", bool(app_path), TAG):
+        try:
+            Line(app_path).request("home-inbox", owners=["cloud"])
+            check("the build's daemon serves home-inbox with owners", True)
+        except (OSError, RuntimeError, ValueError) as error:
+            check("the build's daemon serves home-inbox with owners", False, str(error))
+        cloud = poll(lambda: dock().get("messages_cloud"), 30)
+        check("the app has the Cloud state from the build's daemon", cloud in ("included", "signed_out", "unavailable"), dock().get("messages_cloud"))
+        note = poll(lambda: dock().get("messages_note"), 15) if cloud in ("signed_out", "unavailable") else None
+        if cloud == "signed_out":
+            check("Messages shows the quiet signed-out note", note == "Sign in to see your Cloud conversations.", dock().get("messages_note"))
+        elif cloud == "unavailable":
+            check("Messages shows the quiet unavailable note", note == "Cloud conversations are not available right now.", dock().get("messages_note"))
+        else:
+            check("Messages shows no Cloud note while Cloud rows are included", not dock().get("messages_note"), dock().get("messages_note"))
+        check("the local rows stay with the Cloud state %s" % cloud, made <= {r.get("id") for r in native_list()}, native_list())
 
     # The same list in Channels.
     run("home.switchView", {"view": "channels"})
