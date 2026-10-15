@@ -165,7 +165,7 @@ impl Mux {
     }
 
     /// Everyone typing now, by conversation (one lock for the Home rows).
-    pub(crate) fn conversation_typing_all(&self) -> std::collections::HashMap<String, Vec<String>> {
+    pub(crate) fn conversation_typing_all(&self) -> HashMap<String, Vec<String>> {
         let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
         typing
             .iter()
