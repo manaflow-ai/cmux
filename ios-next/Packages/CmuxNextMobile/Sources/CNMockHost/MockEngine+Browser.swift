@@ -9,6 +9,8 @@ struct MockTab {
     var back: [String] = []
     var forward: [String] = []
     var typed = ""
+    /// The search field has focus (a tap on it; a tap elsewhere blurs it).
+    var fieldFocused = false
     var highlightedSection: Int?
     var loadTask: Task<Void, Never>?
     var gestureStart: (x: Double, y: Double)?
@@ -262,15 +264,30 @@ extension MockEngine {
 
     func endGesture(_ id: String, x: Double, y: Double, cancelled: Bool) {
         guard let t = tabs[id], t.gestureStart != nil else { return }
-        let tapped = !cancelled && !t.gestureMoved ? t.page.section(atPageY: y + t.scrollY) : nil
+        let isTap = !cancelled && !t.gestureMoved
+        let tapped = isTap ? t.page.section(atPageY: y + t.scrollY) : nil
+        let focus = isTap ? t.page.searchFieldRange.contains(y + t.scrollY) : t.fieldFocused
         updateTab(id, broadcastTab: false) { t in
             t.gestureStart = nil
             t.highlightedSection = nil
+            t.fieldFocused = focus
         }
+        // Like the host's focus reporter: every tap reports the focus state.
+        if isTap { reportFocus(id, editable: focus) }
         if let tapped {
             let slug = t.page.sections[tapped].title.lowercased()
                 .map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
             startLoading(id, url: t.page.url.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/" + slug, pushHistory: true)
+        }
+    }
+
+    /// `browser.focus` to the owner of each stream of the tab.
+    func reportFocus(_ id: String, editable: Bool) {
+        for (streamId, s) in browserStreams where s.tabId == id {
+            guard let owner = streamOwners[streamId] else { continue }
+            let event = BrowserFocusEvent(tabId: id, streamId: streamId, editable: editable, multiline: editable ? false : nil,
+                                          inputType: editable ? "search" : nil, enterKeyHint: editable ? "search" : nil, userInitiated: true)
+            send(.browserFocus, event, to: owner)
         }
     }
 

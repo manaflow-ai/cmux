@@ -371,7 +371,9 @@ struct BrowserScreen: View {
 
             // Out of the hierarchy on the settled grid (it is invisible there,
             // and accessibility tools list hidden views too).
-            if zoomState.phase != .overview {
+            // Under the page's keyboard it is covered: out of the hierarchy
+            // too (accessibilityHidden alone left it in the tree).
+            if zoomState.phase != .overview && !chrome.pageKeyboard {
             // A (+) start page in flight: a new tab's toolbar, not the old tab's.
             BrowserToolbar(chrome: chrome, tab: creatingTab ? nil : model.activeTab, local: creatingTab ? nil : activeLocalTitle,
                            showsStartPage: showsStartPage, size: size, safeBottom: pageBottom,
@@ -443,6 +445,12 @@ struct BrowserScreen: View {
         }
         #endif
         .onChange(of: geometryKey, initial: true) { _, _ in pushGeometry() }
+        // The page's focus raises or lowers its keyboard (browser.focus), as in Safari.
+        .onChange(of: model.pageKeyboardRequest) { _, _ in
+            let raise = model.pageKeyboardWanted
+            guard !raise || (zoomState.phase == .page && !chrome.editing && !chrome.menuOpen && !overviewVisible) else { return }
+            chrome.pageKeyboard = raise
+        }
 
         // A browser row in the drawer opens that tab (by id).
         .onChange(of: shellRoute?.nonce, initial: true) { _, _ in

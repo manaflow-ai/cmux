@@ -31,4 +31,5 @@ public enum HostTopic: String, Sendable, CaseIterable {
     case browserTab = "browser.tab", browserClosed = "browser.closed", browserDetached = "browser.detached"
     case layoutChanged = "layout.changed"
     case browserMacStatus = "browser.macStatus"
+    case browserFocus = "browser.focus"
 }

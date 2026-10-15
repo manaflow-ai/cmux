@@ -35,6 +35,9 @@ struct MockPage: Sendable {
     var codeTop: Double { sectionsTop + Double(sections.count) * Self.sectionHeight }
     var contentHeight: Double { codeTop + (code == nil ? 0 : Self.codeHeight) + Self.footerHeight }
 
+    /// The hero's search field in page space (the page's one text field).
+    var searchFieldRange: ClosedRange<Double> { (heroTop + 22 + 136)...(heroTop + 22 + 176) }
+
     /// Index of the section at page-space `y`.
     func section(atPageY y: Double) -> Int? {
         guard y >= sectionsTop else { return nil }
@@ -122,7 +125,7 @@ struct MockPageRenderer {
         text(ctx, page.headline, CGRect(x: pad, y: heroY, width: w - pad * 2, height: 72), size: 26, weight: .bold, color: foreground)
         text(ctx, page.subtitle, CGRect(x: pad, y: heroY + 78, width: w - pad * 2, height: 48), size: 15, weight: .regular, color: secondary)
         // Search field with typed text and caret.
-        let field = CGRect(x: pad, y: heroY + 136, width: w - pad * 2, height: 40)
+        let field = CGRect(x: pad, y: page.searchFieldRange.lowerBound, width: w - pad * 2, height: 40)
         roundRect(ctx, field, radius: 10, fill: card, stroke: page.dark ? rgb(0.2, 0.23, 0.27) : rgb(0.85, 0.86, 0.88))
         let caret = tick % 2 == 0 ? "|" : " "
         text(ctx, typed.isEmpty ? "Search \(page.site)…" : typed + caret, field.insetBy(dx: 12, dy: 10), size: 15, weight: .regular,

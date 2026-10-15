@@ -59,6 +59,15 @@ final class BrowserModel {
     /// Tab whose screencast another phone took over (`browser.detached`,
     /// reason `displaced`). Its last frame stays on screen, dimmed.
     private(set) var displacedTabId: String?
+    /// Keyboard decisions from the page's focus (`browser.focus`). The
+    /// browser screen mirrors `pageKeyboardWanted` into its chrome each time
+    /// `pageKeyboardRequest` changes.
+    private(set) var pageKeyboardRequest = 0
+    private(set) var pageKeyboardWanted = false
+    /// The focused page field (Return key, keyboard layout).
+    private(set) var pageField = PageFieldTraits()
+    @ObservationIgnored private var keyboardPolicy = PageKeyboardPolicy()
+    @ObservationIgnored private var focusTask: Task<Void, Never>?
 
     // Viewport inputs (points).
     @ObservationIgnored private var viewSize: CGSize = .zero
@@ -125,6 +134,7 @@ final class BrowserModel {
     /// Loads the tab list and attaches the active tab. Runs on every
     /// connection generation.
     func reload() async {
+        listenForFocus()
         guard let client = connection.client else { return }
         do {
             let list = try await client.listTabs()
@@ -158,6 +168,11 @@ final class BrowserModel {
                 if tabs[i].url != tab.url, !tab.url.isEmpty, tab.url != "about:blank" { startPageTabs.remove(tab.id) }
                 let old = tabs[i]
                 tabs[i] = tab
+                // A new document has no focused field.
+                if tab.id == activeTabId, old.url != tab.url {
+                    keyboardPolicy.reset()
+                    if pageField.focus != nil { pageField = PageFieldTraits() }
+                }
                 // Keep the long-press back/forward menus current.
                 if tab.id == activeTabId, !tab.loading,
                    old.url != tab.url || old.title != tab.title || old.canGoBack != tab.canGoBack
@@ -232,6 +247,8 @@ final class BrowserModel {
     func attach(_ tabId: String) async {
         attachToken += 1
         displacedTabId = nil
+        keyboardPolicy.reset()
+        if pageField.focus != nil { pageField = PageFieldTraits() }
         let token = attachToken
         await detachStream()
         guard let client = connection.client, let vp = viewport(for: tabId) else {
@@ -309,6 +326,8 @@ final class BrowserModel {
         streamClient = nil
         sentViewport = nil
         input.reset()
+        keyboardPolicy.reset()
+        if pageField.focus != nil { pageField = PageFieldTraits() }
         displacedTabId = event.tabId
     }
 
@@ -604,6 +623,45 @@ final class BrowserModel {
         explicitModeChange = true
         // The host applies `mobile` at attach time; attach again.
         Task { await attach(id) }
+    }
+
+    // MARK: Page keyboard
+
+    /// Subscribes once to `browser.focus` (the topic outlives reconnects).
+    private func listenForFocus() {
+        guard focusTask == nil else { return }
+        let events = connection.events(topic: HostTopic.browserFocus.rawValue)
+        focusTask = Task { [weak self] in
+            for await event in events {
+                guard let focus = try? event.decode(BrowserFocusEvent.self) else { continue }
+                self?.handleFocus(focus)
+            }
+        }
+    }
+
+    func handleFocus(_ event: BrowserFocusEvent, now: Date = Date()) {
+        let decision = keyboardPolicy.handle(event, activeTabId: activeTabId, streamId: streamId, now: now)
+        let field = PageFieldTraits(focus: keyboardPolicy.focus)
+        if field != pageField { pageField = field }
+        switch decision {
+        case .raise: requestPageKeyboard(true)
+        case .lower: requestPageKeyboard(false)
+        case .keep: break
+        }
+    }
+
+    private func requestPageKeyboard(_ up: Bool) {
+        pageKeyboardWanted = up
+        pageKeyboardRequest += 1
+    }
+
+    /// A touch sequence started on the page.
+    func pageTouchBegan() { keyboardPolicy.touchBegan() }
+
+    /// A touch sequence on the page ended as a tap.
+    func pageTapped(now: Date = Date()) {
+        guard let id = streamTabId else { return }
+        keyboardPolicy.tapped(tabId: id, at: now)
     }
 
     // MARK: Input (CSS px)

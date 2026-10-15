@@ -1,5 +1,6 @@
 #if os(iOS)
 import CNCore
+import GameController
 import SwiftUI
 import UIKit
 
@@ -13,6 +14,9 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     var onKey: ((DOMKey) -> Void)?
     var onText: ((String) -> Void)?
     var onKeyboardDismissed: (() -> Void)?
+    /// A touch sequence started, and one ended as a tap (keyboard policy).
+    var onTouchSequenceBegan: (() -> Void)?
+    var onTap: (() -> Void)?
 
     private let strip = UIView()
     private let stripFade = CAGradientLayer()
@@ -23,6 +27,13 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     private var touchLocations: [ObjectIdentifier: CGPoint] = [:]
     private var nextTouchId = 1
     private var primaryTouch: ObjectIdentifier?
+    /// Where the current sequence's first touch went down, the farthest any
+    /// touch of it travelled, and how far its primary finger moved down
+    /// while the keyboard was up (tap detection and drag dismissal).
+    private var sequenceStart: CGPoint?
+    private var sequenceTravel: CGFloat = 0
+    private var sequenceMulti = false
+    private var keyboardDragTravel: CGFloat = 0
 
     private(set) var frameCSS: CGSize?
     private var shownImage: CGImage?
@@ -60,6 +71,19 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         proxy.onKey = { [weak self] in self?.onKey?($0) }
         proxy.onEnd = { [weak self] in self?.onKeyboardDismissed?() }
 
+        #if DEBUG && targetEnvironment(simulator)
+        // DEBUG harness (as in the terminal): the headless simulator reports
+        // a hardware keyboard; CMUX_NEXT_SOFTWARE_KEYBOARD=1 switches its
+        // input modes to the software keyboard so page typing can be tested.
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_SOFTWARE_KEYBOARD"] == "1" {
+            Self.softwareKeyboardHarness = true
+            let selector = NSSelectorFromString("setHardwareLayout:")
+            for mode in UITextInputMode.activeInputModes where mode.responds(to: selector) {
+                mode.perform(selector, with: nil)
+            }
+        }
+        #endif
+
         let long = UILongPressGestureRecognizer(target: self, action: #selector(longPress(_:)))
         long.cancelsTouchesInView = false
         long.delaysTouchesBegan = false
@@ -70,6 +94,13 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// DEBUG harness on: the simulator still lists its hardware keyboard,
+    /// but input behaves as if there were none.
+    nonisolated(unsafe) static var softwareKeyboardHarness = false
+
+    /// A hardware keyboard is attached (the surface then takes its keys).
+    static var hardwareKeyboard: Bool { GCKeyboard.coalesced != nil && !softwareKeyboardHarness }
 
     // MARK: Frames
 
@@ -159,6 +190,15 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if touchIds.isEmpty, let first = touches.first {
+            sequenceStart = first.location(in: self)
+            sequenceTravel = 0
+            sequenceMulti = touches.count > 1
+            keyboardDragTravel = 0
+            onTouchSequenceBegan?()
+        } else {
+            sequenceMulti = true
+        }
         for t in touches {
             let key = ObjectIdentifier(t)
             touchIds[key] = nextTouchId
@@ -174,7 +214,11 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if let primary = primaryTouch, let t = touches.first(where: { ObjectIdentifier($0) == primary }) {
             let now = t.location(in: self)
-            if let last = touchLocations[primary] { onDrag?(now.y - last.y) }
+            if let last = touchLocations[primary] {
+                onDrag?(now.y - last.y)
+                dragWhileKeyboard(now.y - last.y)
+            }
+            if let start = sequenceStart { sequenceTravel = max(sequenceTravel, hypot(now.x - start.x, now.y - start.y)) }
         }
         for t in touches { touchLocations[ObjectIdentifier(t)] = t.location(in: self) }
         guard !suppressTouches else { return }
@@ -193,6 +237,11 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         // CDP ends the whole sequence on touchEnd; send the lifted points so
         // hosts that track per-point state (the demo host) see where it ended.
         if !suppressTouches { onTouch?(type, points(touches)) }
+        if let start = sequenceStart, let t = touches.first {
+            let p = t.location(in: self)
+            sequenceTravel = max(sequenceTravel, hypot(p.x - start.x, p.y - start.y))
+        }
+        let sequenceEnds = touches.count >= touchIds.count
         for t in touches {
             let key = ObjectIdentifier(t)
             touchIds[key] = nil
@@ -201,7 +250,21 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         }
         if touchIds.isEmpty {
             primaryTouch = nil
+            if sequenceEnds, type == .end, !sequenceMulti, !suppressTouches,
+               sequenceTravel < PageKeyboardPolicy.tapSlop { onTap?() }
+            sequenceStart = nil
             suppressTouches = false
+        }
+    }
+
+    /// Safari lowers the keyboard when the page is dragged down under it
+    /// (finger moving down, toward the keyboard).
+    private func dragWhileKeyboard(_ dy: CGFloat) {
+        guard proxy.isFirstResponder else { keyboardDragTravel = 0; return }
+        keyboardDragTravel = max(0, keyboardDragTravel + dy)
+        if keyboardDragTravel > PageKeyboardPolicy.dragDismissDistance {
+            keyboardDragTravel = 0
+            proxy.resignFirstResponder()
         }
     }
 
@@ -242,6 +305,64 @@ final class KeyProxyField: UITextField, UITextFieldDelegate {
     var onText: ((String) -> Void)?
     var onKey: ((DOMKey) -> Void)?
     var onEnd: (() -> Void)?
+    private var traits = PageFieldTraits()
+    /// Safari's form bar above the keyboard: previous and next field (Tab
+    /// and Shift-Tab on the page) and Done, which lowers the keyboard.
+    private lazy var formBar: UIToolbar = {
+        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+        let previous = UIBarButtonItem(image: UIImage(systemName: "chevron.up"), primaryAction: UIAction { [weak self] _ in
+            self?.onKey?(DOMKey(key: "Tab", code: "Tab", text: nil, modifiers: DOMKey.shift))
+        })
+        previous.accessibilityLabel = "Previous Field"
+        let next = UIBarButtonItem(image: UIImage(systemName: "chevron.down"), primaryAction: UIAction { [weak self] _ in
+            self?.onKey?(DOMKey(key: "Tab", code: "Tab", text: nil, modifiers: 0))
+        })
+        next.accessibilityLabel = "Next Field"
+        let done = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+            _ = self?.resignFirstResponder()
+        })
+        done.accessibilityLabel = "Done"
+        bar.items = [previous, next, .flexibleSpace(), done]
+        bar.sizeToFit()
+        return bar
+    }()
+
+    override var inputAccessoryView: UIView? {
+        get { formBar }
+        set {}
+    }
+
+    /// Keyboard layout and Return key for the focused page field.
+    func apply(_ traits: PageFieldTraits) {
+        guard traits != self.traits else { return }
+        self.traits = traits
+        let keyboard: UIKeyboardType = switch traits.keyboardKind {
+        case .text: .default
+        case .email: .emailAddress
+        case .url: .URL
+        case .phone: .phonePad
+        case .number: .numberPad
+        case .decimal: .decimalPad
+        }
+        let ret: UIReturnKeyType = switch traits.returnKey {
+        case .default: .default
+        case .go: .go
+        case .search: .search
+        case .send: .send
+        case .next: .next
+        case .done: .done
+        }
+        guard keyboard != keyboardType || ret != returnKeyType else { return }
+        keyboardType = keyboard
+        returnKeyType = ret
+        if isFirstResponder { reloadInputViews() }
+    }
+
+    private func pressReturn() {
+        onKey?(DOMKey(key: "Enter", code: "Enter", text: "\r", modifiers: 0))
+        // Return submits a single-line field: Safari lowers the keyboard.
+        if traits.returnLowersKeyboard { _ = resignFirstResponder() }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -262,7 +383,7 @@ final class KeyProxyField: UITextField, UITextFieldDelegate {
 
     override func insertText(_ text: String) {
         if text == "\n" {
-            onKey?(DOMKey(key: "Enter", code: "Enter", text: "\r", modifiers: 0))
+            pressReturn()
         } else {
             onText?(text)
         }
@@ -273,7 +394,7 @@ final class KeyProxyField: UITextField, UITextFieldDelegate {
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        onKey?(DOMKey(key: "Enter", code: "Enter", text: "\r", modifiers: 0))
+        pressReturn()
         return false
     }
 
@@ -314,6 +435,8 @@ struct PageSurface: UIViewRepresentable {
         view.onTouch = { [model] type, points in model.sendTouch(type, points: points) }
         view.onKey = { [model] in model.sendKey($0) }
         view.onText = { [model] in model.sendText($0) }
+        view.onTouchSequenceBegan = { [model] in model.pageTouchBegan() }
+        view.onTap = { [model] in model.pageTapped() }
         return view
     }
 
@@ -324,6 +447,7 @@ struct PageSurface: UIViewRepresentable {
         view.onKeyboardDismissed = onKeyboardDismissed
         if zoomPinchActive { view.zoomPinchTookOver() }
         view.show(frame)
+        view.proxy.apply(model.pageField)
         if keyboardActive {
             if !view.proxy.isFirstResponder { view.proxy.becomeFirstResponder() }
         } else if view.proxy.isFirstResponder {
@@ -332,6 +456,10 @@ struct PageSurface: UIViewRepresentable {
         // Off the page (the grid, address editing) the surface lets go of
         // the keys: a menu presented over the grid while it was still first
         // responder brought up the software keyboard (re-audit blocker).
+        // Only with a hardware keyboard attached: a first-responder surface
+        // brought up the software keyboard whenever a menu (the Back
+        // history menu, the grid's menus) was presented over it.
+        let wantsHardwareKeys = wantsHardwareKeys && PageSurfaceView.hardwareKeyboard
         if !wantsHardwareKeys, view.isFirstResponder { view.resignFirstResponder() }
         if wantsHardwareKeys, !keyboardActive, view.window != nil, !view.isFirstResponder {
             DispatchQueue.main.async {

@@ -43,6 +43,8 @@ public enum HostPush: Sendable, Hashable {
         case .layoutChanged: self = .other(topic: event.topic)
         // Subscribe to the topic and decode `BrowserMacStatus`.
         case .browserMacStatus: self = .other(topic: event.topic)
+        // Subscribe to the topic and decode `BrowserFocusEvent`.
+        case .browserFocus: self = .other(topic: event.topic)
         case nil: self = .other(topic: event.topic)
         }
     }

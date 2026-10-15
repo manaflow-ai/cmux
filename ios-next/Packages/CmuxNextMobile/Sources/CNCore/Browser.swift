@@ -137,6 +137,27 @@ public struct BrowserDetachedEvent: Codable, Sendable, Hashable {
     }
 }
 
+/// `browser.focus` event: focus in the streamed page moved onto or off an
+/// editable element (sent only to the stream's owner, also after every tap).
+public struct BrowserFocusEvent: Codable, Sendable, Hashable {
+    public var tabId: String
+    public var streamId: UInt32
+    public var editable: Bool
+    /// False only for a single-line `<input>`.
+    public var multiline: Bool?
+    /// The `<input>`'s `type` (text, search, url, email, ...).
+    public var inputType: String?
+    public var inputMode: String?
+    public var enterKeyHint: String?
+    /// Touch, pointer or key input reached the page within the last second.
+    public var userInitiated: Bool?
+    public init(tabId: String, streamId: UInt32, editable: Bool, multiline: Bool? = nil, inputType: String? = nil,
+                inputMode: String? = nil, enterKeyHint: String? = nil, userInitiated: Bool? = nil) {
+        self.tabId = tabId; self.streamId = streamId; self.editable = editable; self.multiline = multiline
+        self.inputType = inputType; self.inputMode = inputMode; self.enterKeyHint = enterKeyHint; self.userInitiated = userInitiated
+    }
+}
+
 /// `browser.closed` event.
 public struct BrowserClosedEvent: Codable, Sendable, Hashable { public var tabId: String; public init(tabId: String) { self.tabId = tabId } }
 
