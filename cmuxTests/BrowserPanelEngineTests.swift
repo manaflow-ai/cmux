@@ -333,7 +333,7 @@ import WebKit
     @Test func webKitPopupStaysWebKitWhenChromiumIsConfigured() {
         let provider = FakeChromiumProvider()
         let url = URL(string: "https://example.com/popup")!
-        let popupWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let popupWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         BrowserPanel.pendingPopupWebView = (url: url, webView: popupWebView)
         defer { BrowserPanel.pendingPopupWebView = nil }
         let panel = BrowserPanel(
