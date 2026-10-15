@@ -821,7 +821,8 @@ impl Mux {
         Ok(commit)
     }
 
-    /// Add a new view of a running terminal to `pane` (its last tab).
+    /// Add a new view of a running terminal to `pane`: its last tab, or at
+    /// the strip index of a [`super::tab_strip::tab_slot::scoped`] creation in `pane`.
     pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
         actor: &Actor,
@@ -840,8 +841,15 @@ impl Mux {
             terminal: Some(public.as_str().to_string()),
             ..Self::ordinary_resource_selectors()
         };
-        let index =
-            self.with_state(|state| state.panes.get(&pane).map_or(0, |record| record.tabs.len()));
+        // Peeked, and taken only once the view exists: a failed reattach
+        // leaves it to the new terminal `reopen_tab_record` falls back to.
+        let requested = tab_strip::tab_slot::peek_for(pane);
+        let index = self.with_state(|state| {
+            tab_strip::tab_slot::slot(
+                requested,
+                state.panes.get(&pane).map_or(0, |record| record.tabs.len()),
+            )
+        });
         self.resource_project_terminal_selected(
             selectors,
             destination,
@@ -850,6 +858,7 @@ impl Mux {
             None,
             &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
         )?;
+        tab_strip::tab_slot::take_for(pane);
         self.with_state(|state| {
             state.panes.get(&pane).and_then(|record| record.tabs.get(index).copied())
         })
