@@ -12,6 +12,10 @@
       feeds and main's NIGHTLY feeds. Both tracks install as cmux NIGHTLY
       (one bundle id), so a cmux-next build is always above every nightly
       build that existed when it was published, on either feed.
+      With --already-published-ok, a build no feed is above and some feed
+      already offers (another run published it) prints
+      `already_published=true` and exits 0; otherwise the last line is
+      `already_published=false`.
 
 CFBundleVersion is the run-derived number (`<run id><attempt, 2 digits>`),
 which only grows; Sparkle compares it, never the marketing version.
@@ -86,9 +90,11 @@ def feed_builds(root):
     return numeric
 
 
-def check_build(build, feeds, optional_feeds=()):
+def check_build(build, feeds, optional_feeds=(), already_published_ok=False):
     """`optional_feeds` may not exist yet (a track's new feed before its first
-    publication); any other read failure still refuses."""
+    publication); any other read failure still refuses. Returns whether a feed
+    already offers exactly `build` (only allowed with `already_published_ok`)."""
+    published_in = None
     if not BUILD.match(build):
         raise Refused(f"build {build!r} is not a number")
     for source in [*feeds, *optional_feeds]:
@@ -101,9 +107,14 @@ def check_build(build, feeds, optional_feeds=()):
             continue
         builds = feed_builds(root)
         highest = max(builds, default=None)
+        if highest is not None and int(build) == highest and already_published_ok:
+            published_in = published_in or source
+            print(f"build {build} is already the highest in {source}")
+            continue
         if highest is not None and int(build) <= highest:
             raise Refused(f"build {build} is not above {highest} in {source}")
         print(f"build {build} is above {source} (highest {highest})")
+    return published_in is not None
 
 
 def main(argv):
@@ -118,12 +129,15 @@ def main(argv):
     c.add_argument("--build", required=True)
     c.add_argument("--feed", action="append", required=True)
     c.add_argument("--feed-if-present", action="append", default=[], help="a feed that may not exist yet")
+    c.add_argument("--already-published-ok", action="store_true", help="a feed already offering this build is not a refusal")
     args = parser.parse_args(argv)
     try:
         if args.command == "marketing":
             print(marketing(args.track, args.project_version, args.build, args.next_base))
         else:
-            check_build(args.build, args.feed, args.feed_if_present)
+            published = check_build(args.build, args.feed, args.feed_if_present, args.already_published_ok)
+            if args.already_published_ok:
+                print(f"already_published={'true' if published else 'false'}")
     except Refused as error:
         print(f"nightly_version: {error}", file=sys.stderr)
         return 1

@@ -177,14 +177,12 @@ final class WorkspaceRowView: SidebarRowView {
         // only a user's icon or a page's favicon draws; else the title leads.
         let shown = row.content ?? WorkspaceRowContent()
         // A row badge style other than `.trailing` draws the unread count and activity in its
-        // badge and leads with the kind icon (`configureBadges`): set those views once, here, so
-        // a status tick does not flip the icon image and the activity indicator twice per configure.
+        // badge (`configureBadges`): set those views once, here, so a status tick does not flip
+        // the activity indicator twice per configure. The badge never brings a kind glyph or an
+        // agent brand with it: a row without the user's icon or a favicon stays text only, and
+        // its corner badge sits in the trailing slot (`layoutRowBadge`).
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
-        if badgesLead, shown.icon == nil {
-            icon.configure(icon: nil, fallback: ws.kind.iconName, brand: ws.kindBrand ?? ws.agentBrand)
-        } else {
-            icon.configure(icon: shown.icon)
-        }
+        icon.configure(icon: shown.icon)
         iconKind = shown.icon
         title.stringValue = ws.title
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
@@ -304,7 +302,7 @@ final class WorkspaceRowView: SidebarRowView {
         let leading = SidebarStyle.horizontalInset + indent
         let side: CGFloat
         switch iconKind {
-        case nil: side = icon.isHidden ? 0 : SidebarStyle.iconBox // a kind icon or logo (`sidebar.rowBadge`)
+        case nil: side = 0 // text only: no kind glyph or agent brand (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
