@@ -8,10 +8,12 @@
 //! (not its subagents). Its `cost_usd` is Claude Code's running total for
 //! the conversation, subagents included, which it restores on `--resume`
 //! and a fork; so a turn's cost is the rise since the last turn
-//! (`SessionMeta::harness_cost_usd`). A total lower than the last one started
-//! over (a Claude Code that did not restore it, `/clear`): the turn cost all
-//! of it. Other harnesses report no per-turn spend, so their turns carry
-//! only the model.
+//! (`SessionMeta::harness_cost_usd`). When that rise cannot be told from
+//! history (a total that went down, a session with earlier turns and no
+//! baseline), the turn records no cost and the next one is measured from it.
+//! A failed turn records none either; its spend lands on the next answered
+//! turn. Other harnesses report no per-turn spend, so their turns carry only
+//! the model.
 
 use super::{Session, current_model};
 use crate::store::TurnUsage;
@@ -37,9 +39,20 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
     };
     let running = claude.get("cost_usd").and_then(Value::as_f64);
     if let Some(running) = running.filter(|c| c.is_finite() && *c >= 0.0) {
-        let before = meta.harness_cost_usd.unwrap_or(0.0);
-        turn.cost_usd = Some(if running >= before { running - before } else { running });
-        meta.harness_cost_usd = Some(running);
+        match meta.harness_cost_usd {
+            // A zeroed total (a crashed process's last result) says nothing: keep the baseline.
+            Some(before) if running == 0.0 && before > 0.0 => {}
+            Some(before) if running >= before => turn.cost_usd = Some(running - before),
+            // A session's first turn: all of the total is its own.
+            None if meta.turn_count <= 1 => turn.cost_usd = Some(running),
+            // Below the baseline (a process that started over or restored less), or no
+            // baseline after earlier turns (an older session, a fork through an earlier
+            // turn): this turn's share cannot be told from history, so it records none.
+            _ => {}
+        }
+        if running > 0.0 || meta.harness_cost_usd.is_none() {
+            meta.harness_cost_usd = Some(running);
+        }
     }
     if turn.is_empty() {
         return fields;
