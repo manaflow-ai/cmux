@@ -36,14 +36,8 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
   if (open.length === 0 && started.length === 0) return null;
 
   const mark = (offerId: string, which: Busy | undefined, error?: string) => {
-    setBusy((current) => {
-      const { [offerId]: _, ...rest } = current;
-      return which ? { ...rest, [offerId]: which } : rest;
-    });
-    setErrors((current) => {
-      const { [offerId]: _, ...rest } = current;
-      return error ? { ...rest, [offerId]: error } : rest;
-    });
+    setBusy((current) => withKey(current, offerId, which));
+    setErrors((current) => withKey(current, offerId, error));
   };
   // Busy until acpmux's decision record answers the task, so its buttons never come back between.
   const run = async (offerId: string, which: Busy, action: () => Promise<unknown>) => {
@@ -107,6 +101,14 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
       )}
     </section>
   );
+}
+
+/// `record` with `key` set to `value`, or without `key` when `value` is undefined.
+function withKey<T>(record: Record<string, T>, key: string, value: T | undefined): Record<string, T> {
+  const next = { ...record };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  return next;
 }
 
 /// "3 suggested tasks", or a lone offer's "Suggested chat".
