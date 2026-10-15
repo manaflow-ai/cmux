@@ -1562,6 +1562,13 @@ struct BrowserPanelView: View {
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
+        .background {
+            // Chromium DevTools open: the button keeps its pressed fill (design spec §3).
+            if panel.enginePage != nil, panel.isEngineDevToolsOpen {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.16))
+            }
+        }
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
         .accessibilityLabel(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools"))

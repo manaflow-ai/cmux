@@ -114,6 +114,8 @@ extension BrowserPanel {
             historyStore.recordVisit(url: url, title: pageTitle)
         case .closeRequested:
             webViewDidRequestClose?()
+        case .devToolsVisibilityChanged(let open):
+            isEngineDevToolsOpen = open
         case .navigationFailed(let url, _, _):
             applyEnginePageNavigationFailure(url: url)
         default:

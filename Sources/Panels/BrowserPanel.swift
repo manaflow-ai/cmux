@@ -2130,6 +2130,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Why this panel opened in WebKit although another engine was wanted,
     /// shown once per run as a notice; `nil` otherwise.
     @Published private(set) var engineFallbackNotice: BrowserEngineUnavailableReason?
+    /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
+    @Published var isEngineDevToolsOpen = false
     var enginePageEventsTask: Task<Void, Never>?
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
