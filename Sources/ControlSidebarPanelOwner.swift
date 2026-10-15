@@ -94,7 +94,12 @@ enum ControlSidebarPanelOwner {
             )
         case .dock(let dock):
             guard let panelId else { return }
-            dock.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            dock.setAgentLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                sessionID: sessionID
+            )
         }
     }
 
