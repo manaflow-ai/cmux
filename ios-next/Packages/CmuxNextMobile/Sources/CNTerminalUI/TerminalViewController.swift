@@ -35,6 +35,9 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     /// The keyboard's frame (with its key bar) in window coordinates, from
     /// the keyboard notifications; nil while it is hidden.
     private var keyboardFrame: CGRect?
+    /// The software keyboard covers the shell's tab bar: out of the
+    /// accessibility tree meanwhile.
+    private let tabBarCover = CNTabBarCover()
     private var keyboardObservers: [any NSObjectProtocol] = []
     private var bottomConstraint: NSLayoutConstraint?
     private var trailingConstraint: NSLayoutConstraint?
@@ -192,6 +195,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         visible = false
+        tabBarCover.release()
         detach()
         onVisibilityChange?(false)
     }
@@ -681,6 +685,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let end = window.convert(change.endFrame, from: window.screen.coordinateSpace)
         let previous = keyboardFrame
         keyboardFrame = change.hiding || end.minY >= window.bounds.maxY - 1 ? nil : end
+        tabBarCover.setCovered((keyboardFrame?.height ?? 0) > 100, from: view)
         // A software keyboard that was up went down (swipe, Hide key,
         // anything): drop focus so a tap on the composer field or the terminal
         // brings it back. Never when no software keyboard was showing: with a
