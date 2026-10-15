@@ -904,26 +904,28 @@ fn a_closed_screen_reopens() {
 }
 
 #[test]
-fn a_closed_pane_reopens_its_tabs() {
+fn a_closed_pane_reopens_in_its_split() {
     let _exclusive = exclusive_process_test();
     let (harness, mut app, pane) = start("reopen-path-pane");
-    app.send(serde_json::json!({"cmd":"split","pane":pane,"dir":"right","cols":80,"rows":24}));
+    app.send(serde_json::json!({"cmd":"split","pane":pane,"dir":"down","cols":80,"rows":24}));
+    let screen = &kinds_workspace(&mut app)["screens"][0];
+    let split = screen["layout"]["split"].as_u64().expect("the split is the screen's root");
+    app.send(serde_json::json!({"cmd":"set-split-ratio","split":split,"ratio":0.3}));
     let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
-    let split = panes
-        .iter()
-        .find(|candidate| candidate["id"].as_u64() != Some(pane))
-        .expect("the split made a pane");
-    let split_id = split["resource_id"].as_str().expect("the pane has an id").to_string();
-    let tab = split["tabs"][0]["tab_resource_id"].clone();
-    let stayed = panes
+    let closing = panes
         .iter()
         .find(|candidate| candidate["id"].as_u64() == Some(pane))
-        .map(|home| home["tabs"][0]["tab_resource_id"].clone())
-        .expect("the pane that stays has a tab");
+        .expect("the first pane is listed");
+    let closing_id = closing["resource_id"].as_str().expect("the pane has an id").to_string();
+    let neighbor = panes
+        .iter()
+        .find(|candidate| candidate["id"].as_u64() != Some(pane))
+        .and_then(|candidate| candidate["id"].as_u64())
+        .expect("the split made a pane");
     let (item, reopened) = close_records_and_reopens(
         &harness,
         "pane.close",
-        serde_json::json!({"pane":split_id}),
+        serde_json::json!({"pane":closing_id}),
         "path-pane",
     );
     assert_eq!(item["kind"], "tab", "{item}");
@@ -931,17 +933,29 @@ fn a_closed_pane_reopens_its_tabs() {
     let tabs = reopened["tab_ids"].as_array().cloned().unwrap_or_default();
     assert_eq!(tabs.len(), 1, "{reopened}");
     let back = app.tab_by_id(tabs[0].as_str().unwrap());
-    assert!(back["terminal_id"].is_string(), "{back} (closed tab {tab})");
-    // The split does not come back (an audit gap): the tab reopens beside
-    // the tab of the pane that stayed, which keeps its own.
-    let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
-    let ids = panes
-        .iter()
-        .flat_map(|pane| pane["tabs"].as_array().cloned().unwrap_or_default())
+    assert!(back["terminal_id"].is_string(), "{back}");
+    // The pane comes back in its own split: above the pane it left, at the
+    // height it had, with its tab and no other.
+    let screen = kinds_workspace(&mut app)["screens"][0].clone();
+    let layout = &screen["layout"];
+    assert_eq!((layout["type"].as_str(), layout["dir"].as_str()), (Some("split"), Some("down")));
+    let ratio = layout["ratio"].as_f64().expect("the split has a ratio");
+    assert!((ratio - 0.3).abs() < 1e-3, "{layout}");
+    assert_eq!(layout["b"]["pane"].as_u64(), Some(neighbor), "{layout}");
+    let home = layout["a"]["pane"].as_u64().expect("the reopened pane is a leaf");
+    let home = screen["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate["id"].as_u64() == Some(home))
+        .unwrap_or_else(|| panic!("the reopened pane is not listed: {screen}"));
+    let ids = home["tabs"]
+        .as_array()
+        .into_iter()
+        .flatten()
         .map(|tab| tab["tab_resource_id"].clone())
         .collect::<Vec<_>>();
-    assert_eq!(ids.len(), 2, "{panes:?}");
-    assert!(ids.contains(&stayed) && ids.contains(&back["tab_resource_id"]), "{panes:?}");
+    assert_eq!(ids, vec![back["tab_resource_id"].clone()], "{screen}");
 }
 
 #[test]
