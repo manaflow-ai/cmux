@@ -12,5 +12,13 @@ public nonisolated struct AgentPaneTunables {
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor] }
+    /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
+    /// beside it, and the palette offers Ask a Side Question… (``ActionRegistry/publishSideSessions()``).
+    /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
+    public static let sideSessions = Tunable<Bool>.toggle(
+        "agent.sideSessions", PageTunables.section, "Side sessions (/btw)",
+        help: "The composer's /btw opens a read-only side session beside the chat, and the palette offers Ask a Side Question….",
+        default: false, code: "AgentPaneTunables.sideSessions")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, sideSessions.descriptor] }
 }
