@@ -288,8 +288,10 @@ export class SettingsStore {
   }
 
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
-   * lists as not downloaded. */
+   * lists as not downloaded. macOS says nothing when it finishes, so the lists are read again
+   * once the person is back in this window. */
   async openWallpaperSettings(): Promise<void> {
+    window.addEventListener("focus", () => void this.refreshHost(), { once: true });
     await this.request("cmux.settings.backdrop.wallpaper_settings", {});
   }
 
