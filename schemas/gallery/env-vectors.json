@@ -53,6 +53,30 @@
     },
     {
       "query": {
+        "colorScheme": "light"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
         "locale": "xx",
         "colorScheme": "purple"
       },

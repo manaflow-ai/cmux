@@ -241,14 +241,16 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 }
 
 /// The conversation events a page-bound connection of the Channels page
-/// hears; every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 5]> = std::sync::LazyLock::new(|| {
+/// hears (and `chief-changed`, its Chiefs); every other page-bound
+/// connection hears none.
+static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 6]> = std::sync::LazyLock::new(|| {
     [
         "conversation-changed",
         "conversation-typing",
         "conversation-draft",
         "conversation-run-changed",
         "conversation-inbox-changed",
+        "chief-changed",
     ]
     .map(String::from)
 });

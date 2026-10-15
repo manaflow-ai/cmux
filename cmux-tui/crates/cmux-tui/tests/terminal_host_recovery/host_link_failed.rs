@@ -84,3 +84,49 @@ fn a_host_link_the_daemon_gave_up_on_is_pushed_as_failed() {
 
     close_terminal_surface(&harness.socket, surface, request_id + 1);
 }
+
+/// A `failed` host link is not the end: the daemon keeps retrying the live
+/// host on a slow backoff and the tab is `running` again, input included,
+/// without a restart (cx-6so.19).
+#[test]
+fn r41_a_failed_host_link_is_retried_until_the_host_answers() {
+    // The 17th failure is past the reconnect budget (16): the link fails.
+    // The 18th completion succeeds, so only a later retry can bring it back.
+    let harness = RecoveryHarness::start_with_reconnect_completion_failures("host-link-retry", 17);
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let wait_for_state = |state: &str, first_request: u64| {
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(60));
+        let mut request_id = first_request;
+        loop {
+            request_id += 1;
+            let tab = tab_with_surface(&harness.socket, surface, request_id);
+            if tab.as_ref().is_some_and(|tab| tab["terminal_state"] == state) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "the tab never became {state}: {tab:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    wait_for_state("failed", 100);
+    wait_for_state("running", 1_000);
+
+    let marker = format!("host-link-retry-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+
+    close_terminal_surface(&harness.socket, surface, 3);
+}

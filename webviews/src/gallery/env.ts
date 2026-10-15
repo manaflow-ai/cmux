@@ -6,7 +6,7 @@
 // frame, window, zoom, layout.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
-import { DEFAULT_DARK_THEME } from "./theme/ghostty";
+import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
 import { APP_ACCENTS, type AppAccent } from "../theme/appTheme";
 import { PANE_LAYOUTS, WINDOW_PRESETS, type PaneLayout } from "./window";
 
@@ -116,6 +116,21 @@ export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
 const KEYS = [...Object.keys(DEFAULT_ENV), "accent"] as (keyof GalleryEnv)[];
 
+/**
+ * The theme when the query names none: the app's default pair (Apple System Colors), on the side
+ * the window shows, as the app with no `theme` set follows the appearance. `auto` is the dark side.
+ */
+export function defaultTheme(colorScheme: GalleryEnv["colorScheme"]): string {
+  return colorScheme === "light" ? DEFAULT_LIGHT_THEME : DEFAULT_DARK_THEME;
+}
+
+/** `env` under another window appearance; the default pair moves to the matching side. */
+export function withColorScheme(env: GalleryEnv, colorScheme: GalleryEnv["colorScheme"]): GalleryEnv {
+  const theme =
+    colorScheme !== "auto" && env.theme === defaultTheme(env.colorScheme) ? defaultTheme(colorScheme) : env.theme;
+  return { ...env, colorScheme, theme };
+}
+
 export function widthPx(width: GalleryEnv["width"], presets: Partial<Record<WidthName, number>> = WIDTHS): number {
   return typeof width === "number" ? width : (presets[width] ?? WIDTHS[width]);
 }
@@ -132,12 +147,12 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   const env: GalleryEnv = { ...DEFAULT_ENV };
   const locale = params.get("locale");
   if (locale && ([...LOCALES, ...PSEUDO_LOCALES] as readonly string[]).includes(locale)) env.locale = locale;
-  env.theme = params.get("theme") || env.theme;
   const accent = params.get("accent");
   if (accent !== "neutral" && (APP_ACCENTS as readonly string[]).includes(accent ?? ""))
     env.accent = accent as AppAccent;
   const scheme = params.get("colorScheme");
   if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
+  env.theme = params.get("theme") || defaultTheme(env.colorScheme);
   env.fontFamily = (params.get("fontFamily") ?? "").slice(0, 200);
   env.fontSize = finite(params.get("fontSize"), 0, 0, 40);
   if (params.get("density") === "compact") env.density = "compact";
@@ -167,7 +182,8 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   for (const key of KEYS) {
     params.delete(key);
     const value = env[key];
-    if (value === DEFAULT_ENV[key] || value === undefined || (key === "accent" && value === "neutral")) continue;
+    const fallback = key === "theme" ? defaultTheme(env.colorScheme) : DEFAULT_ENV[key];
+    if (value === fallback || value === undefined || (key === "accent" && value === "neutral")) continue;
     params.set(key, typeof value === "boolean" ? "1" : String(value));
   }
   return params;
