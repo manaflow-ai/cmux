@@ -30,7 +30,7 @@ Checks per scenario (CHECKS.json and stdout PASS/FAIL):
   card (the echo changes nothing on screen);
 - work: the main-thread drag update stays under 4 ms (p95).
 """
-import argparse, json, os, shutil, socket, subprocess, sys, tempfile, threading, time, atexit
+import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, threading, time, atexit
 
 from sidebar_v2_motion_checks import analyse
 
@@ -431,6 +431,7 @@ try:
     # --empty: no terminal per stress workspace (hitch11 started ~790 terminal hosts and used every PTY on the host).
     ptys_before = ptys_in_use()
     print("PTYs in use before the stress setup:", ptys_before, flush=True)
+    reply = ""
     ticking = min(opts.ticking, 60, opts.stress)  # about one PTY each: never more than 60
     empties = opts.stress - ticking
     for index in range(empties):
@@ -440,8 +441,10 @@ try:
         if index == 20 and ptys_in_use() - ptys_before > 5:
             fail_harness(f"stress workspaces still start terminals (PTYs {ptys_before} -> {ptys_in_use()} after 20 creates)")
     # The ticking ones last: the list is newest first, so they sit at its top, on screen during the drags.
+    newest = re.findall(r"ws_[0-9a-f]+", reply if empties else "")
     for index in range(ticking):
-        cli("workspace", "create", "--name", f"T{index:02d}-tick")
+        made = cli("workspace", "create", "--name", f"T{index:02d}-tick")
+        newest = re.findall(r"ws_[0-9a-f]+", made) or newest
     if opts.stress:
         last = f"T{ticking - 1:02d}-tick" if ticking else f"S{empties - 1:04d}"
         wait(lambda: last in json.dumps(window().get("rows", [])) or None, 600)
@@ -460,21 +463,29 @@ try:
             return bool(pinned and all(i.get("window_frame") for i in pinned) and y is not None and y >= 0)
         # debug.sidebar_wheel posts through the window's sendEvent like the window server does (hitch11: phased debug.mouse
         # scrolls moved the list once, 2400 pt, then never again). Positive dy moves the list toward its top.
-        before, stuck = pinned_block_y(), 0
+        # The newest workspace sits right under Pinned: focus it (the list reveals the selected row), then wheel the
+        # last rows (hitch13: 12 trackpad gestures over ~17000 pt jumped both ways and never reached the top).
+        if newest:
+            print("focus newest", newest[0], cli("workspace", newest[0], "focus")[:120], "pinned block y", pinned_block_y(), flush=True)
+            time.sleep(0.5)  # test harness: let the reveal scroll apply
+        before, stuck, sign = pinned_block_y(), 0, 1
         for attempt in range(80):
             if at_top():
                 break
             anchor = next((r for r in window().get("rows", []) if r.get("in_list") and r.get("window_frame")
-                           and 0 <= r["window_frame"]["y"] < 760), None)
+                           and 60 <= r["window_frame"]["y"] < 760), None)
             if not anchor:
                 print("no on-screen list row to wheel over", flush=True)
                 break
             x, y = center(anchor["window_frame"])
+            # Short gestures (5 x 60 pt) so momentum stays small; the sign flips when the block moved away from 0.
             trackpad = stuck < 3
-            reply = rpc("debug.sidebar_wheel", {"x": x, "y": y, "dy": 300 if trackpad else 40, "count": 20, "trackpad": trackpad})
+            reply = rpc("debug.sidebar_wheel", {"x": x, "y": y, "dy": (60 if trackpad else 5) * sign, "count": 5, "trackpad": trackpad})
             time.sleep(0.4)  # test harness: let the scroll (and any momentum) apply
             after = pinned_block_y()
             stuck = stuck + 1 if after == before else 0
+            if after is not None and before is not None and after < before:
+                sign = -sign
             if attempt < 3 or attempt % 10 == 0 or stuck == 3:
                 print("scroll", attempt, "trackpad", trackpad, "pinned block y", before, "->", after, "reply", json.dumps(reply)[:160], flush=True)
             if stuck >= 6:
@@ -498,7 +509,7 @@ try:
     if opts.stress:
         # The first workspace row under Pinned (Alpha is ~1000 rows down; see the setup note above).
         alpha = next((r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
-                      and r.get("window_frame") and 0 <= r["window_frame"]["y"] < 760), None)
+                      and r.get("window_frame") and 40 <= r["window_frame"]["y"] < 760), None)
         print("scenario 1 source:", (alpha or {}).get("title"), (alpha or {}).get("window_frame"), flush=True)
     if "1" in WANTED and alpha and alpha.get("window_frame") and len(pinned) >= 2 and pinned[0].get("window_frame"):
         start, first = center(alpha["window_frame"]), pinned[0]["window_frame"]
@@ -523,7 +534,7 @@ try:
                    {str(group.get("key"))})
     # 4. A long drag down into the list's bottom edge: autoscroll, then a drop.
     def on_screen(r):
-        return bool(r.get("window_frame")) and 0 <= r["window_frame"]["y"] < 760
+        return bool(r.get("window_frame")) and 40 <= r["window_frame"]["y"] < 760
     # Only rows on screen (hitch11: the first in_list row sat at y -455, so the drag started above the window).
     listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and on_screen(r)]
     if "4" in WANTED and listed:
