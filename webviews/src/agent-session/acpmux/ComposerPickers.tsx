@@ -487,7 +487,11 @@ export function ComposerPickers({
   const modelShown = modelShort ?? modelName;
   const familyShown = modelFamily(modelShown ?? "");
   const modelChip = modelName
-    ? { ...(modelShort ? { short: modelShort } : {}), ...(familyShown ? { family: familyShown } : {}), title: modelName }
+    ? {
+        ...(modelShort ? { short: modelShort } : {}),
+        ...(familyShown ? { family: familyShown } : {}),
+        title: modelName,
+      }
     : undefined;
   const effortShort = !ultracodeOn && effortChoice ? shortLevel(effortChoice, t) : undefined;
   const usage = summary?.usage;
