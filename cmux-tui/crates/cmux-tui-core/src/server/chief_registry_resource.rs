@@ -21,10 +21,13 @@
 //! agent that is not a Chief) is refused with `origin.forbidden`.
 //! The owner may do everything except delete the default Chief. A Chief
 //! may read every record, and may change only its own fields that its
-//! record lists in `self_edit` (the person's rule): never its tools,
-//! harnesses, engine or `self_edit`, never another Chief, never create or
-//! delete. Such a request is refused with `operation.failed` reason
-//! `chief_self_edit_denied` before anything is written.
+//! record lists in `self_edit` (the person's rule): never its own tools,
+//! harnesses, engine or `self_edit`. Such a request is refused with
+//! `operation.failed` reason `chief_self_edit_denied` before anything is
+//! written. A Chief whose record holds the `chiefs` tool may also create
+//! Chiefs and change other Chiefs within its own grant, never delete one
+//! (chief_manage.rs); without it every write on another
+//! Chief is `chief_manage_denied`.
 //!
 //! `chief.profile.avatar.set` / `.get` are thin aliases of
 //! `participant.avatar.*` for a Chief (participant_avatars.rs): the same
@@ -245,7 +248,7 @@ fn mutate(
             "a mutation needs an idempotency key",
         ));
     }
-    let profile: Map<String, Value> = fields
+    let mut profile: Map<String, Value> = fields
         .iter()
         .filter(|(k, _)| {
             !matches!(
@@ -280,9 +283,22 @@ fn mutate(
             .map(|avatar| avatar.sha256),
         _ => None,
     };
-    if let Caller::Chief(me) = caller {
-        self_edit_allowed(store, operation, me, &chief, &profile)?;
-    }
+    // A Chief on itself keeps the person's self_edit rule; on another Chief
+    // or a create, its `chiefs` grant and ceiling (chief_manage.rs).
+    let manages = match caller {
+        Caller::Chief(me)
+            if matches!(operation, Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet)
+                && chief == *me =>
+        {
+            self_edit_allowed(store, operation, me, &chief, &profile)?;
+            false
+        }
+        Caller::Chief(me) => {
+            super::chief_manage::check(store, operation, me, &chief, &mut profile)?;
+            true
+        }
+        _ => false,
+    };
     if *caller == Caller::Page
         && (matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileDelete)
             || chief_registry::names_gesture_field(&profile))
@@ -292,11 +308,17 @@ fn mutate(
             json!({"derived": "agent", "required": "user", "reason": "gesture_required"}),
         ));
     }
-    let actor = audit_actor(mux, client, caller);
+    let actor = match caller {
+        Caller::Chief(me) if manages => super::chief_manage::actor(me),
+        _ => audit_actor(mux, client, caller),
+    };
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
-            Op::ChiefProfileCreate => chief_registry::create(tx, &profile),
+            Op::ChiefProfileCreate => match caller {
+                Caller::Chief(me) if manages => chief_registry::create_by_chief(tx, &profile, me),
+                _ => chief_registry::create(tx, &profile),
+            },
             Op::ChiefProfileAdopt => match adoptee {
                 Some(Adoptee { id, display_name: Some(name) }) => {
                     chief_registry::adopt(tx, id, name, &profile, || {
@@ -500,6 +522,17 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
         }
         _ => Err(forbidden()),
     }
+}
+
+/// Every Chief's current name by participant id, for the Home rows
+/// (`home-inbox`). Best effort: a registry that cannot open gives none, and
+/// the rows fall back to the conversations' titles.
+pub(super) fn chief_names(mux: &Mux) -> std::collections::BTreeMap<String, String> {
+    with_store(mux, Op::ChiefProfileList, |store| {
+        store.list().map_err(|error| internal(Op::ChiefProfileList, &error))
+    })
+    .map(|records| records.into_iter().map(|record| (record.id, record.display_name)).collect())
+    .unwrap_or_default()
 }
 
 fn with_store<T>(

@@ -8,11 +8,10 @@
 /// saved rows, so they never come back later. A section given placeholders
 /// at launch keeps them past the launch until its machine connects or
 /// fails, so the end of the launch never empties it in between.
-/// (Moved from CmuxNextApp, SW14: the merge is pure sidebar logic.)
 public struct SidebarSeed {
     /// Placeholder rows in a loading section with nothing saved, shown from
     /// the launch only (never on a later Cloud reconnect).
-    public static let placeholderCount = 3
+    static let placeholderCount = 3
 
     public private(set) var sections: [SidebarSection]
     /// Sections that showed placeholders at launch and have not stopped
@@ -64,14 +63,14 @@ public struct SidebarSeed {
 
     /// The local machine (and the pinned area, which holds its rows) loads
     /// until the launch ends; another machine while it connects.
-    public static func isLoading(_ section: SidebarSection, launching: Bool) -> Bool {
+    static func isLoading(_ section: SidebarSection, launching: Bool) -> Bool {
         guard let machine = section.machine else { return launching }
         return machine.kind == .local ? launching : machine.status == .connecting
     }
 
     /// Placeholder rows of machine `machine`; their ids never collide with
     /// a daemon workspace id.
-    public static func placeholders(machine: MachineID) -> [SidebarWorkspace] {
+    static func placeholders(machine: MachineID) -> [SidebarWorkspace] {
         (0..<placeholderCount).map { index in
             SidebarWorkspace(id: WorkspaceID("placeholder:\(machine.rawValue):\(index)"), machineID: machine, title: "",
                              rowState: .placeholder)

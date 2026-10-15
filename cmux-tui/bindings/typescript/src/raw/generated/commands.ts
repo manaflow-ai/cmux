@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442. */
+/* cmux-tui mux protocol 12, IR 09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297. */
 
 
 import type * as T from "./types.js";
@@ -1214,6 +1214,15 @@ export interface HistorySearchRequest extends CmuxRequestBase {
 export type HistorySearchResult = {
   "hits": Array<T.HistorySearchHit>;
   "took_us": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface HomeInboxRequest extends CmuxRequestBase {
+  cmd: "home-inbox";
+}
+export type HomeInboxResult = {
+  "me": string;
+  "rows": Array<T.HomeInboxRow>;
 };
 
 /** Protocol v5; authority: control. */
@@ -2842,6 +2851,7 @@ export type CmuxRequest =
   | GetFrontendProjectionRequest
   | GetSizeStateRequest
   | HistorySearchRequest
+  | HomeInboxRequest
   | IdentifyRequest
   | IdsRequest
   | ImportBookmarksRequest
@@ -3896,6 +3906,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "history-search-v1";
+    stream: null;
+  };
+  "home-inbox": {
+    request: HomeInboxRequest;
+    result: HomeInboxResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "home-inbox-v1";
     stream: null;
   };
   "identify": {
