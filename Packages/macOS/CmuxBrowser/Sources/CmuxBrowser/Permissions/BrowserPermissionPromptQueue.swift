@@ -9,6 +9,20 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
         case captureDevices
         /// Every other kind: Block · Allow.
         case blockOrAllow
+        /// macOS has turned the device off for cmux: Not now · Open System Settings (spec §4 v1.4).
+        case systemBlocked
+        /// The device is managed by the organization: Not now only.
+        case systemManaged
+    }
+
+    /// What the strip says.
+    public enum Variant: Equatable, Sendable {
+        /// The site's question.
+        case ask
+        /// cmux lacks macOS's permission for the devices (the page was already denied).
+        case systemBlocked
+        /// The devices are managed on this Mac (the page was already denied).
+        case systemManaged
     }
 
     public let id: UUID
@@ -19,11 +33,20 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
     /// The top-level page's origin when an embedded frame of another site
     /// asks (the prompt names both sites); `nil` when the page itself asks.
     public let embeddingOrigin: URL?
+    /// What the strip says.
+    public let variant: Variant
 
-    public init(id: UUID = UUID(), kinds: [BrowserPagePermissionRequest.Kind], origin: URL, topLevelURL: URL? = nil) {
+    public init(
+        id: UUID = UUID(),
+        kinds: [BrowserPagePermissionRequest.Kind],
+        origin: URL,
+        topLevelURL: URL? = nil,
+        variant: Variant = .ask
+    ) {
         self.id = id
         self.kinds = kinds
         self.origin = origin
+        self.variant = variant
         let key = BrowserSitePermissionStore.originKey(for: origin)
         if let topLevelURL, let topKey = BrowserSitePermissionStore.originKey(for: topLevelURL), topKey != key {
             embeddingOrigin = topLevelURL
@@ -34,7 +57,11 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
 
     /// The prompt's buttons: capture devices get Chrome's three answers.
     public var style: Style {
-        kinds.allSatisfy { $0 == .camera || $0 == .microphone } ? .captureDevices : .blockOrAllow
+        switch variant {
+        case .systemBlocked: return .systemBlocked
+        case .systemManaged: return .systemManaged
+        case .ask: return kinds.allSatisfy { $0 == .camera || $0 == .microphone } ? .captureDevices : .blockOrAllow
+        }
     }
 
     /// What "Allow" means in the ``Style/blockOrAllow`` bar: remembered for
@@ -46,7 +73,8 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
 
     /// Whether `other` asks the same origin about the same kinds.
     func asksSameQuestion(as other: BrowserPermissionPrompt) -> Bool {
-        Set(kinds) == Set(other.kinds)
+        variant == other.variant
+            && Set(kinds) == Set(other.kinds)
             && Self.key(origin) == Self.key(other.origin)
             && embeddingOrigin.map(Self.key) == other.embeddingOrigin.map(Self.key)
     }
@@ -82,6 +110,10 @@ public enum BrowserPermissionPromptAnswer: Equatable, Sendable {
     case allowOnce
     /// "Never allow" or "Block": denied and remembered.
     case block
+    /// "Open System Settings" (system-blocked strip).
+    case openSystemSettings
+    /// "Not now" (system-blocked or managed strip).
+    case notNow
 }
 
 /// A panel's permission questions, shown one at a time in the prompt bar.
