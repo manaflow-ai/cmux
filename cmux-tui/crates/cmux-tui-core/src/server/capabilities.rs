@@ -94,7 +94,9 @@ fn test_hidden_capabilities() -> &'static [String] {
 /// `daemon_capabilities`). The static set without the ones a host decides
 /// (apps, file ops, browser runtime, image paste, the clear-history fallback,
 /// and every capability `identify` adds at runtime), so the same source gives
-/// the same set on a Mac, a Linux machine and Windows.
+/// the same set on a Mac, a Linux machine and Windows. A capability never
+/// leaves this set once shipped (keep a retired name listed): a build without
+/// it is not comparable with older ones, which stops their automatic updates.
 pub fn build_capabilities() -> Vec<&'static str> {
     let host_dependent = [
         crate::apps::CAPABILITY,
