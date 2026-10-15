@@ -34,8 +34,8 @@ public final class BrowserEngineWarmup {
         case starting
         /// The engine started (by this warmup or by a page meanwhile).
         case started
-        /// The app never went idle within the policy's limit, or the warmup
-        /// was stopped; the first page starts the engine.
+        /// The app never went idle within the policy's limit, the warm start
+        /// failed, or the warmup was stopped; the first page starts the engine.
         case abandoned
     }
 
@@ -47,7 +47,6 @@ public final class BrowserEngineWarmup {
     private let now: @MainActor () -> TimeInterval
     private var lastInput: TimeInterval = 0
     private var waitsForMenuEnd = false
-    private var startTask: Task<Void, Never>?
 
     /// Where the warmup is.
     public private(set) var phase: Phase = .idle
@@ -102,18 +101,32 @@ public final class BrowserEngineWarmup {
         giveUpTimer.schedule(after: policy.maxWait) { [weak self] in self?.abandon() }
     }
 
-    /// Stops waiting; an engine start already under way finishes.
+    /// Ends the warmup for this process: a wait stops, and a later
+    /// ``engineLikely(_:)`` does nothing. An engine start already under way
+    /// finishes. The owner calls this before releasing a waiting warmup, so
+    /// its input monitor is removed.
     public func stop() {
-        guard phase == .waiting else { return }
-        finishWaiting()
-        phase = .abandoned
+        switch phase {
+        case .idle:
+            phase = .abandoned
+        case .waiting:
+            finishWaiting()
+            phase = .abandoned
+        case .starting, .started, .abandoned:
+            break
+        }
     }
 
-    /// Records input while waiting, which pushes the start out by the rest of
-    /// a new quiet period.
-    func noteInput() {
+    /// Input while waiting pushes the start out by the rest of a new quiet
+    /// period. A tracking loop that ended without a menu notification (a held
+    /// button, a dragged scroller) re-arms the wait here.
+    private func noteInput() {
         guard phase == .waiting else { return }
         lastInput = now()
+        if waitsForMenuEnd, !input.isTrackingMenu {
+            waitsForMenuEnd = false
+            armIdle(after: policy.idleInput)
+        }
     }
 
     private func armIdle(after delay: Duration) {
@@ -151,10 +164,11 @@ public final class BrowserEngineWarmup {
         finishWaiting()
         phase = .starting
         let engine = engine
-        startTask = Task { @MainActor [weak self] in
+        // task-owner: one warm start per process; the engine owns its lifetime.
+        Task { @MainActor [weak self] in
             await engine.warmStart(reason: reason)
-            self?.phase = .started
-            self?.startTask = nil
+            // A failed start leaves the engine to report its reason on the first page.
+            self?.phase = engine.isRunning ? .started : .abandoned
         }
     }
 
