@@ -32,17 +32,19 @@ public enum BrowserLocalFileHandoff: Equatable, Sendable {
 /// handling a WebKit pane uses instead of committing Chromium's
 /// ERR_UNKNOWN_URL_SCHEME page. Swift copy of `IsExternalAppURL`
 /// (CEFShim/src/external_url.h). `web+` and `ext+` schemes stay Chromium's.
-public enum ChromiumExternalAppURL {
-    static let loadedSchemes: Set<String> = [
+extension String {
+    /// True for URL text a Chromium pane hands to another app instead of
+    /// loading (see above).
+    public var isChromiumExternalAppURL: Bool {
+        guard let colon = firstIndex(of: ":"), colon != startIndex else { return false }
+        let scheme = self[..<colon].lowercased()
+        if Self.chromiumLoadedSchemes.contains(scheme) { return false }
+        return !scheme.hasPrefix("web+") && !scheme.hasPrefix("ext+")
+    }
+
+    private static let chromiumLoadedSchemes: Set<String> = [
         "http", "https", "ws", "wss", "file", "about", "data", "blob", "filesystem", "javascript",
         "chrome", "chrome-extension", "chrome-untrusted", "chrome-search", "chrome-error", "chrome-native",
         "devtools", "view-source", "isolated-app", "cmux-page",
     ]
-
-    public static func isExternal(_ text: String) -> Bool {
-        guard let colon = text.firstIndex(of: ":"), colon != text.startIndex else { return false }
-        let scheme = text[..<colon].lowercased()
-        if loadedSchemes.contains(scheme) { return false }
-        return !scheme.hasPrefix("web+") && !scheme.hasPrefix("ext+")
-    }
 }

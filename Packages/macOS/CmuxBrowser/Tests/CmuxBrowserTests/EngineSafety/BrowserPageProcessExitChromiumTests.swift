@@ -9,7 +9,7 @@ import Testing
         (1, .killed),
         (2, .crashed),
         (3, .outOfMemory),
-        (4, .other),
+        (4, .launchFailed),
         (5, .other),
         (99, .other),
     ])
