@@ -406,12 +406,7 @@ final class AcpmuxPermissionFeedBridge {
     /// The acpmux option a decision maps to, from what the prompt offers now.
     nonisolated static func option(for decision: FeedAnswerValue.Decision, offered: [[String: Any]]) -> Result<String, Refusal> {
         if decision.outcome == .allow, let scope = decision.scope, scope != .once { return .failure(.scope) }
-        let kinds = decision.outcome == .allow ? ["allow_once"] : ["reject_once", "reject_always"]
-        for kind in kinds {
-            let matches = offered.filter { $0["kind"] as? String == kind }
-            if matches.count == 1, let id = matches[0]["optionId"] as? String { return .success(id) }
-        }
-        return .failure(.notOffered)
+        return AcpmuxPermissionAnswer.option(allow: decision.outcome == .allow, offered: offered).map { .success($0) } ?? .failure(.notOffered)
     }
 
     /// Whether `by` may answer for the person here: an install (not a session)

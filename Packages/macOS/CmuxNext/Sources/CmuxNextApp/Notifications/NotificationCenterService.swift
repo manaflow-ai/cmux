@@ -95,6 +95,7 @@ final class NotificationCenterService {
         desktop.onReply = { [weak self] id, surface, text in
             self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
         }
+        followApprovals(services)
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
@@ -224,7 +225,9 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         timeouts.removeValue(forKey: tab.id)?.cancel()
-        desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
+        let withdrawn = banners.removeValue(forKey: tab.id) ?? []
+        for id in withdrawn { approvalBanners[id] = nil }
+        desktop.withdraw(withdrawn)
         let surface = tab.surface
         let driver = feedDriver
         services?.daemon.send("ack-tab-notifications") { connection in
@@ -344,12 +347,17 @@ final class NotificationCenterService {
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let title = program?.title(localizations: localizations)
             ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
-        desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
-                     workspace: workspace, defaultSound: sound == "default",
-                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
-                     reply: notification.reply && tab?.kind == .pty)
-        if let sound, sound != "default" { NotificationSounds.play(sound) }
-        if let tab { banners[tab.id, default: []].append(id) }
+        // An agent chat's permission prompt: Allow once and Deny, and what it asks as the body.
+        withApproval(of: notification, tab: tab) { [weak self] approval in
+            guard let self else { return }
+            self.desktop.post(id: id, title: title, subtitle: subtitle, body: approval?.summary ?? notification.body,
+                              surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
+                              attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
+                              reply: notification.reply && tab?.kind == .pty, approval: approval != nil)
+            if let sound, sound != "default" { NotificationSounds.play(sound) }
+            if let tab { self.banners[tab.id, default: []].append(id) }
+            if let approval, let tab { self.approvalBanners[id] = (approval, tab.id) }
+        }
     }
 
     /// A terminal program chose its banner's title and text (OSC 9/777/99,
