@@ -820,6 +820,7 @@ python3 scripts/lint-xcstrings.py && python3 scripts/localization_catalog.py che
 Create `Sources/SnippetsSidebarRow.swift`:
 
 ```swift
+import CmuxFoundation
 import CmuxTextActions
 import SwiftUI
 
@@ -872,7 +873,7 @@ struct SnippetsSidebarRow: View {
 }
 ```
 
-If `cmuxFont(size:weight:)` or `cmuxFont(size:design:)` do not exist with those labels, check `grep -rn 'func cmuxFont' Sources | head` and use the available overloads (the Vault rows in `Sources/SessionIndexView.swift` use `.cmuxFont(size: 10, weight: .semibold)` and `.cmuxFont(size:design:)`).
+`cmuxFont` is a `View` extension in `Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/View+CmuxFont.swift` (hence `import CmuxFoundation`); check its parameter labels there if the compiler rejects a call.
 
 - [ ] **Step 3: Write the focus bridge**
 
@@ -985,6 +986,7 @@ Create `Sources/SnippetsSidebarView.swift`:
 
 ```swift
 import AppKit
+import CmuxFoundation
 import CmuxTextActions
 import SwiftUI
 
