@@ -85,6 +85,9 @@ public struct Action: Identifiable {
     /// Whether a toggle is on for this invocation's target (a context menu
     /// checks its row), or nil for a plain row.
     public var targetState: (@MainActor (ActionInvocation) -> Bool?)?
+    /// Whether a toggle is on for the focused object, read without refusing
+    /// anything; the palette row then shows a check. Nil for a plain row.
+    public var paletteState: (@MainActor () -> Bool)?
     /// Whether this invocation's target leaves the row out of a context
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.
