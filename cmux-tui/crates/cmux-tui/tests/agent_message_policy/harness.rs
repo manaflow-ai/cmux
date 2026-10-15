@@ -2,8 +2,8 @@
 //! state folder, a fake acpmux that names sessions' workspaces the way
 //! acpmux's `_acpmux/info` does (`sessionEnv.CMUX_WORKSPACE_ID`, unix socket
 //! only), takes prompts for those sessions (`session/prompt`, answered with
-//! `_acpmux/prompt_accepted`) and answers `_acpmux/prompt_withdraw` as a test
-//! sets it, and a clock file the daemon's debug build adds to its agent
+//! `_acpmux/prompt_accepted`, or held at a gate a test opens) and answers
+//! `_acpmux/prompt_withdraw` as a test sets it, and a clock file the daemon's debug build adds to its agent
 //! message clock, so a test moves time instead of waiting.
 // Shared by several test binaries; each uses a part of it.
 #![allow(dead_code)]
@@ -15,7 +15,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::server::frontend_proof::{NONCE_LEN, hello_proof, unhex};
@@ -46,9 +46,13 @@ struct FakeAcpmux {
     /// The params of every `_acpmux/prompt_withdraw`, in order.
     withdrawals: Mutex<Vec<Value>>,
     /// Session id -> the withdraw outcome it answers (`unsent`,
-    /// `retracted`, `too_late`); a session without one answers
-    /// `withdraw.not_found`.
+    /// `retracted`, `too_late`), `refuse:<reason>` for a refusal, or
+    /// `hang-up` to close the connection unanswered; a session without one
+    /// answers `withdraw.not_found`.
     outcomes: Mutex<HashMap<String, String>>,
+    /// Sessions whose prompts wait, unanswered, until their gate opens.
+    gates: Mutex<std::collections::HashSet<String>>,
+    gate_opened: Condvar,
 }
 
 pub struct Daemon {
@@ -229,6 +233,17 @@ impl Daemon {
         self.fake.outcomes.lock().unwrap().insert(session.to_owned(), outcome.to_owned());
     }
 
+    /// `session`'s prompts wait, unanswered, until [`Self::open_gate`].
+    pub fn gate(&self, session: &str) {
+        self.fake.gates.lock().unwrap().insert(session.to_owned());
+    }
+
+    /// The prompts waiting at `session`'s gate go on.
+    pub fn open_gate(&self, session: &str) {
+        self.fake.gates.lock().unwrap().remove(session);
+        self.fake.gate_opened.notify_all();
+    }
+
     /// The listed message `id` once `done` holds for it (20 s at most).
     pub fn wait_for(&self, id: &str, what: &str, done: impl Fn(&Value) -> bool) -> Value {
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -295,7 +310,18 @@ impl Daemon {
     /// A mutation with a fresh idempotency key, as `credential`'s holder
     /// (the person without one).
     pub fn mutate(&self, operation: &str, params: Value, credential: Option<&str>) -> Value {
-        let mut extra = json!({"idempotency_key": unique("key")});
+        self.mutate_keyed(operation, params, credential, &unique("key"))
+    }
+
+    /// [`Self::mutate`] under the idempotency key `key`.
+    pub fn mutate_keyed(
+        &self,
+        operation: &str,
+        params: Value,
+        credential: Option<&str>,
+        key: &str,
+    ) -> Value {
+        let mut extra = json!({"idempotency_key": key});
         if let Some(credential) = credential {
             extra["credential"] = json!(credential);
         }
@@ -341,6 +367,26 @@ impl Daemon {
             .env_remove("CMUX_LAUNCH_CREDENTIAL")
             .env_remove("ACPMUX_SESSION_ID")
             .output()
+            .unwrap()
+    }
+
+    /// `cmux --json <args>` started against this daemon and its acpmux; the
+    /// caller waits for it.
+    pub fn cli_started(&self, args: &[&str]) -> Child {
+        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--json")
+            .arg("--socket")
+            .arg(&self.socket)
+            .args(args)
+            .env("LC_ALL", "C")
+            .env("ACPMUX_SOCKET", self.dir.join("acpmux.sock"))
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_LAUNCH_CREDENTIAL")
+            .env_remove("ACPMUX_SESSION_ID")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap()
     }
 
@@ -514,6 +560,11 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
             }
             (Some("session/prompt"), Some(_)) => {
                 fake.prompts.lock().unwrap().push(params.clone());
+                let mut gates = fake.gates.lock().unwrap();
+                while gates.contains(session) {
+                    gates = fake.gate_opened.wait(gates).unwrap();
+                }
+                drop(gates);
                 let accepted = json!({"jsonrpc": "2.0", "method": "_acpmux/prompt_accepted",
                     "params": {"sessionId": session,
                         "promptId": params["_meta"]["acpmux"]["promptId"]}});
@@ -525,7 +576,13 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
             (Some("_acpmux/prompt_withdraw"), _) => {
                 fake.withdrawals.lock().unwrap().push(params.clone());
                 let msg_id = params["msgId"].clone();
-                match fake.outcomes.lock().unwrap().get(session) {
+                let outcome = fake.outcomes.lock().unwrap().get(session).cloned();
+                match outcome.as_deref() {
+                    Some("hang-up") => return,
+                    Some(refusal) if refusal.starts_with("refuse:") => {
+                        let reason = refusal.trim_start_matches("refuse:");
+                        error(-32602, &format!("{reason}: refused"), json!(reason))
+                    }
                     Some(outcome) => json!({"jsonrpc": "2.0", "id": id, "result": {
                         "sessionId": session, "outcome": outcome, "promptId": msg_id,
                         "msgId": msg_id}}),
