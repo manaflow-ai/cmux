@@ -41,6 +41,9 @@ public final class CEFRuntime {
     /// Runs once CEF is initialized (Chromium resets signal handlers; the app
     /// re-installs its own here).
     public var onReady: (@MainActor () -> Void)?
+    /// Runs on the main thread right before `CefInitialize` (profile
+    /// directory cleanup that must not race Chromium).
+    public var beforeInitialize: (@MainActor () -> Void)?
     /// Runs when a start fails (`CefInitialize` may already have reset the
     /// signal actions).
     public var onStartFailed: (@MainActor () -> Void)?
@@ -102,6 +105,42 @@ public final class CEFRuntime {
 
     /// The browser with Chromium id `id`, if live.
     public func browser(id: Int32) -> CEFBrowser? { browsers[id] }
+
+    /// Request context keys Chromium opened in this process: their files
+    /// stay open until quit, so a deleted profile's directory waits for the
+    /// next launch.
+    public private(set) var openedContextKeys: Set<String> = []
+
+    func contextOpened(_ key: String) {
+        openedContextKeys.insert(key)
+    }
+
+    // MARK: Answers to page requests
+
+    /// Answers a `.permissionPrompt` (fork token): true allows, false denies.
+    /// Leave a prompt unanswered to keep Chromium waiting; never dismiss it.
+    @discardableResult
+    public func answerPermission(token: Int32, allow: Bool) -> Bool {
+        shim?.permissionContinue(token, allow ? 1 : 2) == 1
+    }
+
+    /// Answers a download start (`.download` kind 34): the full destination
+    /// path, or nil to cancel.
+    @discardableResult
+    public func continueDownload(token: Int32, to path: String?) -> Bool {
+        (path ?? "").withCString { shim?.downloadContinue(token, $0) } == 1
+    }
+
+    /// Cancels (0), pauses (1) or resumes (2) a running download.
+    @discardableResult
+    public func controlDownload(token: Int32, action: Int32) -> Bool {
+        shim?.downloadControl(token, action) == 1
+    }
+
+    /// Ends a `.contextMenu` with the chosen command id (< 0 cancels).
+    public func finishContextMenu(token: Int32, command: Int32, eventFlags: Int32 = 0) {
+        shim?.contextMenuDone(token, command, eventFlags)
+    }
 
     // MARK: Raw events
 
@@ -214,6 +253,7 @@ public final class CEFRuntime {
         pump.start()
 
         storage.prepareForLaunch()
+        beforeInitialize?()
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,

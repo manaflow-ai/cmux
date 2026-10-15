@@ -1,5 +1,5 @@
 import Darwin
-public import Foundation
+import Foundation
 
 /// The C ABI of `libcmux_cef_shim.dylib`, resolved with `dlsym`.
 ///
