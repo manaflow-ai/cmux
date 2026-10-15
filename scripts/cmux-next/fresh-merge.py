@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -150,18 +151,21 @@ def wait_for_head(number: int, sha: str, previous: str) -> dict:
 def waived(check: dict) -> bool:
     name = check.get("name") or check.get("context") or ""
     workflow = check.get("workflowName") or ""
-    if "report-only" in name or "macOS 27" in name or name == "Tour the app":
+    if ("report-only" in name and "macOS 27" in name) or name == "Tour the app":
         return True
     cancelled = check.get("conclusion") == "CANCELLED"
-    return cancelled and any(word in f"{workflow} {name}".lower() for word in ("autofix", "bot"))
+    return cancelled and re.search(r"\b(autofix|bot)\b|\[bot\]", f"{workflow} {name}", re.I) is not None
 
 
 def wait_for_checks(number: int, sha: str) -> None:
     """Waits for every check on sha to finish; refuses on any red that is not waived."""
     say(f"waiting for every check on {sha[:12]} (glaeda-gh, up to {CHECKS_SECONDS // 60} min)")
-    result = subprocess.run(["glaeda-gh", "wait", "pr", f"{REPO}#{number}", "--until", "done",
-                             "--sha", sha, "--timeout", str(CHECKS_SECONDS)],
-                            stdout=subprocess.DEVNULL)
+    try:
+        result = subprocess.run(["glaeda-gh", "wait", "pr", f"{REPO}#{number}", "--until", "done",
+                                 "--sha", sha, "--timeout", str(CHECKS_SECONDS)],
+                                stdout=subprocess.DEVNULL)
+    except FileNotFoundError:
+        raise Refused("--wait-checks needs glaeda-gh on PATH; not merging")
     if result.returncode == 2:
         raise Refused(f"the checks on {sha[:12]} did not finish in {CHECKS_SECONDS // 60} min")
     if result.returncode == 4:
@@ -169,8 +173,11 @@ def wait_for_checks(number: int, sha: str) -> None:
     pr = pull_request(number)
     if pr["headRefOid"] != sha:
         raise Refused(f"#{number} moved to {pr['headRefOid'][:12]} while waiting on its checks")
+    checks = pr.get("statusCheckRollup") or []
+    if not checks:
+        raise Refused(f"GitHub reports no checks on {sha[:12]}; not merging")
     red = []
-    for check in pr.get("statusCheckRollup") or []:
+    for check in checks:
         outcome = check.get("conclusion") or check.get("state") or check.get("status") or "PENDING"
         if outcome not in GREEN and not waived(check):
             red.append(f"{outcome} {check.get('name') or check.get('context')}")
@@ -252,7 +259,7 @@ def land(number: int, check: str | None, rounds: int, dry_run: bool, wait_checks
         raise Refused(f"#{number} conflicts with {BASE}; merge it yourself first", 2)
     wanted = classes(file["path"] for file in pr.get("files") or [])
     head = pr["headRefOid"]
-    for _ in range(rounds):
+    for round_number in range(rounds):
         tip = fetch(BASE)
         if not wanted:
             say(f"#{number} changes no Swift or Rust; merging {head[:12]} as it is")
@@ -261,6 +268,8 @@ def land(number: int, check: str | None, rounds: int, dry_run: bool, wait_checks
             fetch_retrying(f"refs/pull/{number}/head")
         else:
             pushed = fetch(pr["headRefName"])
+            if pushed != head and round_number > 0:
+                raise Refused(f"#{number}'s branch moved to {pushed[:12]} after {head[:12]}; not merging")
             if pushed != head:  # the branch is ahead of what GitHub shows: let it catch up
                 pr = wait_for_head(number, pushed, head)
                 head = pushed
