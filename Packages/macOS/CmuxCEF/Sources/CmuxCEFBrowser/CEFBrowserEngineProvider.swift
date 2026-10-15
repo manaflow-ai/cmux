@@ -17,7 +17,7 @@ import Foundation
 /// ```
 @MainActor
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
-    private let runtime: CEFRuntime
+    let runtime: CEFRuntime
     private let devToolsLayoutStore: BrowserDevToolsLayoutStore
     /// Shared by this provider's pages for Memory Saver's process accounting.
     private let rendererProcesses: CEFRendererProcessResolver
