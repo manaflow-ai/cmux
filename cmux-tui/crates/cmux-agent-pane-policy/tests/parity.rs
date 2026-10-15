@@ -5,7 +5,9 @@
 use cmux_agent_pane_policy::check::{
     Checked, FrameState, PaneScope, check_frame as full_check, closes_connection,
 };
-use cmux_agent_pane_policy::environment::{default_socket_path, resolve, socket_path, tag_slug};
+use cmux_agent_pane_policy::environment::{
+    default_socket_path, resolve, router_socket_path, socket_path, tag_slug,
+};
 use cmux_agent_pane_policy::gesture::{PermissionOptions, needs_gesture};
 use cmux_agent_pane_policy::params::{
     breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
@@ -379,6 +381,11 @@ fn environment_tokens_and_sockets() {
         let got =
             default_socket_path(Path::new(s[0].as_str().unwrap()), s[1].as_u64().unwrap() as u32);
         assert_eq!(got, s[2].as_str().unwrap(), "socket {}", s[0]);
+    }
+    for s in group(&e, "router_sockets") {
+        let got =
+            router_socket_path(Path::new(s[0].as_str().unwrap()), s[1].as_u64().unwrap() as u32);
+        assert_eq!(got, s[2].as_str().unwrap(), "router socket {}", s[0]);
     }
     for s in group(&e, "configured_sockets") {
         let configured = s[0].as_str().unwrap();

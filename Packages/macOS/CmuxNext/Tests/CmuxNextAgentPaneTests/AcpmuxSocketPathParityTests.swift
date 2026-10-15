@@ -27,6 +27,21 @@ struct AcpmuxSocketPathParityTests {
         }
     }
 
+    /// The local model relay's admin socket (cx-qukj2): a long tagged home whose
+    /// `router/router.sock` passes the Unix socket limit reaches the short alias the relay binds,
+    /// never a path `NWEndpoint.unix` traps on.
+    @Test func routerSocketsMatchTheSharedCases() throws {
+        let sockets = try #require(Self.cases["router_sockets"] as? [[Any]])
+        #expect(!sockets.isEmpty)
+        for row in sockets {
+            let home = URL(fileURLWithPath: try #require(row[0] as? String), isDirectory: true)
+            let uid = UInt32(try #require(row[1] as? Int))
+            let got = AcpmuxEnvironment.routerSocketPath(home: home, uid: uid)
+            #expect(got == row[2] as? String)
+            #expect(got.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes)
+        }
+    }
+
     @Test func configuredSocketsMatchTheSharedCases() throws {
         let sockets = try #require(Self.cases["configured_sockets"] as? [[Any]])
         #expect(!sockets.isEmpty)
