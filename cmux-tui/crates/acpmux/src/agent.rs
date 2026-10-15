@@ -267,6 +267,8 @@ pub(crate) fn harness_command(
     // port: a job object there (a later landing).
     #[cfg(unix)]
     cmd.process_group(0);
+    // Only its own session's launch credential, never acpmux's or a preset's.
+    crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
