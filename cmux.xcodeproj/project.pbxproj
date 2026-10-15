@@ -435,6 +435,7 @@
 		D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */; };
 		D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
+		44D50B097A84ADD4C665685D /* BrowserCrashLog+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3D75FF5379E5F3EAAA16F9E /* BrowserCrashLog+App.swift */; };
 		C12791000000000000000001 /* BrowserDataImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791000000000000000002 /* BrowserDataImportCoordinator.swift */; };
 		D35C00000000000000000003 /* BrowserDesignModeArtifactStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000003 /* BrowserDesignModeArtifactStoreTests.swift */; };
 		D35C00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift */; };
@@ -3888,6 +3889,7 @@
 		66B951C8D7A92BABC4A6FFB8 /* TerminalController+ControlWorkspaceTodoContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466DEB47603469A59697D418 /* TerminalController+ControlWorkspaceTodoContext.swift */; };
 		90979E3986A3C0D488E3B616 /* TerminalController+CurrentWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD26BDF22AEF02E4171683F8 /* TerminalController+CurrentWork.swift */; };
 		C57B00040000000000000001 /* TerminalController+CustomSidebarCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */; };
+		5AEBC1351F5EC8ED1E17CB06 /* TerminalController+DebugBrowserSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7251749BF3474EE41612EA9 /* TerminalController+DebugBrowserSafety.swift */; };
 		C0DEBEEF0000000000000002 /* TerminalController+DebugMethodNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBEEF0000000000000001 /* TerminalController+DebugMethodNames.swift */; };
 		A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */; };
 		8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */; };
@@ -5165,6 +5167,7 @@
 		D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialPicker.swift; sourceTree = "<group>"; };
 		D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserClientCertificateCredentialPickerTests.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
+		D3D75FF5379E5F3EAAA16F9E /* BrowserCrashLog+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserCrashLog+App.swift"; sourceTree = "<group>"; };
 		C12791000000000000000002 /* BrowserDataImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDataImportCoordinator.swift; sourceTree = "<group>"; };
 		D35D00000000000000000003 /* BrowserDesignModeArtifactStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeArtifactStoreTests.swift; sourceTree = "<group>"; };
 		D35D00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeComposerHostingViewTests.swift; sourceTree = "<group>"; };
@@ -8439,6 +8442,7 @@
 		466DEB47603469A59697D418 /* TerminalController+ControlWorkspaceTodoContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceTodoContext.swift"; sourceTree = "<group>"; };
 		FD26BDF22AEF02E4171683F8 /* TerminalController+CurrentWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CurrentWork.swift"; sourceTree = "<group>"; };
 		C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CustomSidebarCommands.swift"; sourceTree = "<group>"; };
+		D7251749BF3474EE41612EA9 /* TerminalController+DebugBrowserSafety.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DebugBrowserSafety.swift"; sourceTree = "<group>"; };
 		C0DEBEEF0000000000000001 /* TerminalController+DebugMethodNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DebugMethodNames.swift"; sourceTree = "<group>"; };
 		A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DiffViewerTrust.swift"; sourceTree = "<group>"; };
 		8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DockControlTopology.swift"; sourceTree = "<group>"; };
@@ -12345,6 +12349,8 @@
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
 				7E632ED4AA647EAC6DC0ADC0 /* ChromiumPageFailureOverlay.swift */,
 				31F277022D42E6A4C599825D /* BrowserChromeMetrics+PageFailure.swift */,
+				D3D75FF5379E5F3EAAA16F9E /* BrowserCrashLog+App.swift */,
+				D7251749BF3474EE41612EA9 /* TerminalController+DebugBrowserSafety.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15033,6 +15039,7 @@
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */,
 				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
+				44D50B097A84ADD4C665685D /* BrowserCrashLog+App.swift in Sources */,
 				C12791000000000000000001 /* BrowserDataImportCoordinator.swift in Sources */,
 				D35A0000000000000000001C /* BrowserDesignModeController+Capture.swift in Sources */,
 				D35A00000000000000000020 /* BrowserDesignModeController+Handoff.swift in Sources */,
@@ -16914,6 +16921,7 @@
 				66B951C8D7A92BABC4A6FFB8 /* TerminalController+ControlWorkspaceTodoContext.swift in Sources */,
 				90979E3986A3C0D488E3B616 /* TerminalController+CurrentWork.swift in Sources */,
 				C57B00040000000000000001 /* TerminalController+CustomSidebarCommands.swift in Sources */,
+				5AEBC1351F5EC8ED1E17CB06 /* TerminalController+DebugBrowserSafety.swift in Sources */,
 				C0DEBEEF0000000000000002 /* TerminalController+DebugMethodNames.swift in Sources */,
 				A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */,
 				8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */,
