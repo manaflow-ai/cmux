@@ -219,10 +219,15 @@ struct HiddenOnMacOverlay: View {
                 Button(action: onShow) {
                     Label("Show on Mac", systemImage: "macbook.and.iphone")
                         .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 4)
                 }
                 .buttonStyle(.glassProminent)
+                // The app's tint is the label color (white in dark mode),
+                // which left a light label on a white button: use the
+                // accent fill with a white label in both appearances.
+                .tint(style.colors.accent)
                 .accessibilityHint("Switches the Mac's pane to this tab")
                 Text("You can bring tabs forward automatically in Settings › Browser.")
                     .font(.footnote)
