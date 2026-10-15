@@ -1154,6 +1154,23 @@ for case in \
     exit 1
   fi
 done
+# The build's commit comes from its signed release notes first (the app can be
+# built at an older commit than its run's head); the run head is the fallback.
+notes_sha=2222222222222222222222222222222222222222
+mkdir -p "$legacy_dir/notes"
+printf '{"build": "3850073942601", "head": "%s"}\n' "$notes_sha" > "$legacy_dir/notes/3850073942601.json"
+notes_out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$good_run" FAKE_COMPARE=ahead NOTES_BASE="file://$legacy_dir/notes" \
+  bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$adopt_fix")"
+if [ "$notes_out" != "ok $notes_sha" ]; then
+  echo "FAIL: the build commit must come from the build's release notes when they exist (got '$notes_out')"
+  exit 1
+fi
+# The macOS job's refusal of an app that lacks a required commit is never
+# counted, and a continued submission of that build is retired.
+legacy_resolve "true false false" "a continued submission refused by the requirement must be retired and not counted" \
+  --action continue --pending false --notarize skipped --published false --apple unknown --requirement-refused true
+legacy_resolve "false false false" "a new attempt refused by the requirement must not be counted" \
+  --action new --pending false --notarize skipped --published false --apple unknown --requirement-refused true
 # A refused build is neither continued nor submitted; a newer build is checked next.
 legacy_feed "$legacy_dir/next.xml" 3865928435701 3850073942601
 legacy_feed "$legacy_dir/old.xml" 3821558930001
@@ -1209,7 +1226,9 @@ for expected in \
   "the bundle of run \$bundle_run is gone" \
   "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
   "scripts/ci/nightly-next-legacy-requirement.sh" \
-  "requirement in use: required: "; do
+  "requirement in use: required: " \
+  'grep -q "^Build $build skipped" failures.txt' \
+  'NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes"'; do
   if ! grep -Fq -- "$expected" <<<"$target_job"; then
     echo "FAIL: legacy-identity-target must contain: $expected"
     exit 1

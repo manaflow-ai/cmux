@@ -3902,7 +3902,7 @@ jobs:
             bundle_run="$(sed -n 's/^bundle_run=//p' <<<"$decision")"
             [ "$action" != none ] || break
             # shellcheck disable=SC2086 # REQUIRED is a space-separated SHA list
-            if check="$(./scripts/ci/nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)"; then
+            if check="$(NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes" ./scripts/ci/nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)"; then
               echo "build $build meets the requirement ($check)"
               break
             fi
@@ -3918,7 +3918,8 @@ jobs:
               done
               note="$note Its pending submission (runs $pending_run/$bundle_run) was deleted; it is never published."
             fi
-            notes="$notes$note"$'\n'
+            # Recorded on the issue once per build; every run's summary has it.
+            if ! grep -q "^Build $build skipped" failures.txt; then notes="$notes$note"$'\n'; fi
             echo "- $note" >> "$GITHUB_STEP_SUMMARY"
             action=none build="" pending_run="" bundle_run=""
           done
@@ -4165,7 +4166,8 @@ jobs:
             status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
             case "$status" in
               ahead|identical) ;;
-              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2; exit 1 ;;
+              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
+                 : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
             esac
           done
           git fetch --no-tags --depth=1 origin "$sha"
@@ -4368,8 +4370,10 @@ jobs:
              || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
             apple=accepted
           fi
+          refused=false
+          if [ -e "$RUNNER_TEMP/legacy-requirement-refused" ]; then refused=true; fi
           decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
-            --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple")"
+            --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple" --requirement-refused "$refused")"
           echo "$decision" >> "$GITHUB_OUTPUT"
           echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED apple=$apple -> $(tr '\n' ' ' <<<"$decision")"
           if [ "$LEGACY_ACTION" = continue ] && grep -Fxq retire=true <<<"$decision"; then
