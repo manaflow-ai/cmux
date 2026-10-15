@@ -227,6 +227,14 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .nt-composer:has(.nt-box:focus-within) .acpmux-composer-strip {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
+/* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
+   sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+  box-shadow:
+    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-composer-edge-focus);
+}
 :root[data-borders="none"] .acpmux-composer-box {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) transparent;
 }
@@ -239,6 +247,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-bar .acpmux-picker-button:focus-visible {
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
+}
+/* Its ink steps up as on hover, so focus reads as hover with a ring (unrestricted access keeps its
+   warning color). */
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access:not(.acpmux-unrestricted)) .acpmux-picker-button:focus-visible {
+  color: var(--agent-text);
 }
 @media (prefers-contrast: more) {
   .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }

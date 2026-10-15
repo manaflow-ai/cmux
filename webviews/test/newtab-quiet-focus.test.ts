@@ -215,6 +215,24 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       await page.close();
     });
 
+  // Queued prompts sit on the card's top edge as part of its outline, so their sides take the
+  // focused tone with the card instead of staying at rest over a lifted card.
+  for (const theme of ["dark", "light"] as const)
+    test(`${theme}: queued prompts' edge follows the card's focus`, async () => {
+      const page = await open(2, theme);
+      const tone = (id: string) =>
+        page.evaluate(
+          (id) => getComputedStyle(document.getElementById(id)!).boxShadow.match(/(?:rgba?|color)\([^)]*\)/)![0],
+          id,
+        );
+      const rest = await tone("queue");
+      await page.focus("#queue-composer-field");
+      const focused = await tone("queue");
+      expect(focused, "the queue's edge steps with the card").not.toBe(rest);
+      expect(focused, "the queue and the card draw one tone").toBe(await tone("queue-composer"));
+      await page.close();
+    });
+
   // A footer chip has no bezel: keyboard focus lays the hover wash and puts the shared ring on the
   // wash's edge (offset 0), never an empty box 2 px off bare text. A pointer click draws nothing, and
   // Increase Contrast keeps the shared ring at its offset.
@@ -241,6 +259,8 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           wash,
           outline: style.outlineStyle,
           offset: style.outlineOffset,
+          color: style.color,
+          text: getComputedStyle(element.closest(".acpmux-shell")!).getPropertyValue("--agent-text").trim(),
         };
       });
     const keyboard = await chip();
@@ -249,6 +269,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     expect(keyboard.background, "the chip takes its hover wash").toBe(keyboard.wash);
     expect(keyboard.outline, "the shared ring still draws").toBe("solid");
     expect(keyboard.offset, "the ring sits on the wash's edge").toBe("0px");
+    expect(keyboard.color, "the chip's ink steps up as on hover").toBe(keyboard.text);
     await page.emulateMedia({ contrast: "more" });
     expect((await chip()).offset, "Increase Contrast keeps the shared offset").toBe("2px");
     await page.emulateMedia({ contrast: "no-preference" });
