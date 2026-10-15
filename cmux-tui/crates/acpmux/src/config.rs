@@ -486,6 +486,9 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
+    #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
+    pub btw: BtwConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -947,6 +950,8 @@ mod peer;
 pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+mod btw;
+pub use btw::BtwConfig;
 pub mod folder_profiles;
 pub mod profiles;
 pub use profiles::{
