@@ -133,6 +133,55 @@ import Testing
         #expect(await pairing.value)
     }
 
+    @Test
+    func supersededPersistenceCannotClearNewHiddenMarker() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inner = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let pairedStore = GatedUpsertStore(inner: inner)
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let router = LivenessHostRouter()
+        let clock = TestClock()
+        let shell = makeShell(
+            store: pairedStore,
+            router: router,
+            userID: "user-1",
+            clock: clock,
+            hiddenStore: hiddenStore
+        )
+        let ticket = try makeTicket(clock: clock)
+        let scope = try #require(await shell.currentScopeSnapshot())
+        final class CurrentBox: @unchecked Sendable {
+            var value = true
+        }
+        let current = CurrentBox()
+
+        let persistence = Task { @MainActor in
+            await shell.persistPairedMacFromTicket(
+                ticket,
+                ifStillCurrent: { current.value }
+            )
+        }
+        await pairedStore.waitUntilUpsertEntered()
+
+        // Hiding the pairing while the durable write is suspended supersedes
+        // this attempt. The stale continuation must leave the new marker in
+        // place rather than clearing it after its upsert resumes.
+        current.value = false
+        await shell.rememberHiddenMacDeviceID(ticket.macDeviceID, scope: scope)
+        await pairedStore.release()
+
+        #expect(!(await persistence.value))
+        #expect(await shell.isHiddenMacDeviceID(
+            ticket.macDeviceID,
+            instanceTag: nil,
+            scope: scope
+        ))
+        #expect(!shell.hasKnownPairedMac)
+    }
+
     @Test func explicitRegistryBCommitsOnlyAfterExactStatusAndDropsARouteFallbacks() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -327,7 +376,8 @@ import Testing
         store: any MobilePairedMacStoring,
         router: LivenessHostRouter,
         userID: String,
-        clock: TestClock = TestClock()
+        clock: TestClock = TestClock(),
+        hiddenStore: any PairedMacHiddenStoring = InMemoryPairedMacHiddenStore()
     ) -> MobileShellComposite {
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
@@ -340,6 +390,7 @@ import Testing
             identityProvider: StaticIdentityProvider(userID: userID),
             teamIDProvider: { "team-a" },
             reachability: AlwaysOnlineReachability(),
+            hiddenMacStore: hiddenStore,
             pairingHintDefaults: UserDefaults(
                 suiteName: "instance-authority-\(UUID().uuidString)"
             )!
