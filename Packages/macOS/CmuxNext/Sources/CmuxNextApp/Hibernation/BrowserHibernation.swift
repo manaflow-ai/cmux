@@ -202,9 +202,10 @@ final class BrowserHibernation {
         }
     }
 
+    /// A fresh picture (never one from an earlier sleep), scaled so that several fit the 32 MB
+    /// `previews` cache, which refuses a picture larger than itself (a big pane at 2x).
     private func snapshot(_ tab: any BrowserTab, key: String) async -> CGImage? {
-        if let cached = cache?.previews.image(for: key) { return cached }
-        return await capture(tab)
+        await capture(tab).map { PreviewImageCache.fitted($0, maxBytes: (cache?.previews.capacityBytes ?? 32 << 20) / 4) }
     }
 
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
@@ -294,6 +295,7 @@ final class BrowserHibernation {
         }
         cache.swapPage(key, with: page)
         cache.dormantTabs.set(key, false)
+        cache.previews.remove(key)  // the live page now; a later sleep takes a new picture
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
         // A navigation or history step that woke the page runs once its
@@ -350,8 +352,10 @@ struct PageProbe {
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
-            // The recorder knows which fields the person changed; a page loaded before it compares every field.
-            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
+            // The person's edits, or any changed field once the person used the page (a widget or script may have set
+            // it for them) or when the recorder is missing. A page nobody used whose script fills fields hibernates.
+            let edited = busy.editedForm == true || ((busy.used ?? true) && (object["form"] ?? true))
+            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: edited,
                              capturing: busy.capturing, webAudio: busy.audio)
         } catch {
             return PageProbe(playingMedia: true)

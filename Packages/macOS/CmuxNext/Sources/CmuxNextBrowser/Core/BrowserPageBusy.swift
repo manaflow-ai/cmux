@@ -13,24 +13,33 @@ import Foundation
 /// top document answers for the tab. A page can see and replace the wrappers, which only
 /// changes whether its own tab hibernates.
 ///
-/// A field counts as edited only after a trusted `input` or `change` event, while its value
-/// still differs from its default: a script that fills a field (a docs site's version menu, a
-/// wiki's appearance radios, a `<select>` with no default option) is not the person's input,
-/// and every such page used to stay loaded forever (the 2026-10-14 hibernation audit: 7 of 20
-/// sites, about 85 MB of renderer each).
+/// Form edits: a field the person changed (a trusted `input` or `change` event) whose value still
+/// differs from its default, or trusted typing in a rich editor (`contenteditable`) since the
+/// document loaded. The recorder also says whether the person used the document at all (a
+/// trusted key, pointer or paste, or a user activation it already had when the recorder was
+/// installed late, as Chromium's is on a page that exists before cmux attaches): then the probe
+/// still compares every field, so a value a widget or the page's own script set for the person
+/// (a date picker, a Select2 menu, a re-rendered draft) keeps the page. A document nobody used
+/// whose script fills fields (a docs site's version menu, a wiki's appearance radios, a
+/// `<select>` with no default option) hibernates; those used to stay loaded forever (the
+/// 2026-10-14 hibernation audit: 7 of 20 sites, about 85 MB of renderer each).
 public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// A running Web Audio context in the tab's frames.
     public var audio: Bool
     /// A live camera, microphone or screen capture track in the tab's frames.
     public var capturing: Bool
-    /// A form field the person changed still differs from its default; nil when the page's
-    /// recorder did not answer (the probe then compares every field, as before the recorder).
+    /// A form field the person changed still differs from its default, or the person typed in a
+    /// rich editor; nil when the page's recorder did not answer.
     public var editedForm: Bool?
+    /// The person used a document of the tab (a key, a pointer, a paste); nil when the recorder
+    /// did not answer. The probe compares every field then, as it does without a recorder.
+    public var used: Bool?
 
-    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil) {
+    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil, used: Bool? = nil) {
         self.audio = audio
         self.capturing = capturing
         self.editedForm = editedForm
+        self.used = used
     }
 
     static let recorderScript = #"""
@@ -40,6 +49,8 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       // Contexts weakly: a page that makes one per sound and never closes them keeps none alive.
       const contexts = new Set(), streams = new Set(), children = new Map(), fields = new Set(), seen = new WeakSet();
       const live = (stream) => stream.getTracks().some((t) => t.readyState === 'live');
+      // Installed after the person used the page (Chromium attaches late): that counts as use.
+      let used = navigator.userActivation?.hasBeenActive === true, rich = false;
       const changed = (e) => {
         if (!e.isConnected || e.disabled) return false;
         if (e.tagName === 'SELECT') return Array.from(e.options).some((o) => o.selected !== o.defaultSelected);
@@ -47,7 +58,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         return e.value !== e.defaultValue;
       };
       const busy = () => {
-        const state = { audio: false, capturing: Array.from(streams).some(live), form: false };
+        const state = { audio: false, capturing: Array.from(streams).some(live), form: rich, used };
         for (const ref of fields) {
           const field = ref.deref();
           if (!field) { fields.delete(ref); continue; }
@@ -63,6 +74,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
           state.audio = state.audio || child.audio;
           state.capturing = state.capturing || child.capturing;
           state.form = state.form || child.form;
+          state.used = state.used || child.used;
         }
         return state;
       };
@@ -119,10 +131,15 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       // Only the person's edits (trusted events); fields weakly, like the contexts.
       const edit = (event) => {
         const field = event.isTrusted ? event.composedPath()[0] : null;
-        if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)) return;
-        if (!seen.has(field)) { seen.add(field); fields.add(new WeakRef(field)); }
+        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) {
+          if (!seen.has(field)) { seen.add(field); fields.add(new WeakRef(field)); }
+        } else if (field instanceof HTMLElement && field.isContentEditable) {
+          rich = true;
+        } else return;
         tell();
       };
+      const use = (event) => { if (event.isTrusted && !used) { used = true; tell(); } };
+      for (const type of ['keydown', 'pointerdown', 'mousedown', 'paste']) addEventListener(type, use, true);
       addEventListener('input', edit, true);
       addEventListener('change', edit, true);
       addEventListener('message', (event) => {
@@ -132,20 +149,21 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         for (let i = 0; i < frames.length; i++) { if (frames[i] === from) { child = true; break; } }
         if (!child) return;
         const report = data.cmuxPageBusy;
-        children.set(from, { audio: report.audio === true, capturing: report.capturing === true, form: report.form === true });
+        children.set(from, { audio: report.audio === true, capturing: report.capturing === true, form: report.form === true,
+                             used: report.used === true });
         tell();
       });
       // A frame that navigates keeps its window: its new document reports at once, and the
       // old one clears its report when it goes.
       if (window !== parent) {
         post(busy());
-        addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false }));
+        addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false, used: false }));
       }
       Object.defineProperty(window, key, { value: busy });
     })();
     """#
 
-    /// The probe's question, in the page's world: `{"audio": Bool, "capturing": Bool, "form": Bool}` as JSON,
+    /// The probe's question, in the page's world: `{"audio": Bool, "capturing": Bool, "form": Bool, "used": Bool}` as JSON,
     /// `{}` when the recorder is missing (a page loaded before it was installed).
     static let probeScript = "(() => { const f = window[Symbol.for('cmux.pageBusy')]; return JSON.stringify(f ? f() : {}); })()"
 }
@@ -159,6 +177,6 @@ extension BrowserTab {
             throw CocoaError(.coderReadCorrupt)
         }
         return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false,
-                               editedForm: object["form"] as? Bool)
+                               editedForm: object["form"] as? Bool, used: object["used"] as? Bool)
     }
 }
