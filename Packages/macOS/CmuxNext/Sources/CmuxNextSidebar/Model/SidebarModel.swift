@@ -69,14 +69,9 @@ public final class SidebarModel {
     /// Client-only items above the top band's sections (the What's New item
     /// after an update). Never in `layout`: they cannot be moved, edited or
     /// hidden, and activate like any item (`SidebarIntent.activateItem`).
+    /// An item with an anchor (`SidebarTransientItem.after`) draws right after it instead
+    /// (`placingTransientItems`): the Channels entry after Home.
     public var transientTopItems: [SidebarTransientItem] = []
-
-    /// The section that draws `transientTopItems` first in the top band, or
-    /// nil without any (built-in look, no title, one row per item).
-    var transientTopSection: LayoutSection? {
-        transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
-                                                        region: .top, look: .builtIn, items: transientTopItems.map(\.item))
-    }
     /// The current profile's avatar: the account item draws it as the
     /// profile control (`resolvedItemInfo`; SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
     public var profileAvatar: SidebarAvatar?
@@ -433,17 +428,5 @@ public final class SidebarModel {
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
         presentation = presentation == .hidden ? .shown : .hidden
-    }
-}
-
-/// A client-only top item and its look (`SidebarModel.transientTopItems`).
-public nonisolated struct SidebarTransientItem: Hashable, Sendable {
-    public var item: LayoutItem
-    public var info: SidebarItemInfo
-
-    /// `id` must carry the `client.` prefix (`LayoutItemID.isTransient`).
-    public init(id: LayoutItemID, info: SidebarItemInfo) {
-        item = LayoutItem(id: id, ref: LayoutItemRef(kind: "client", value: id.rawValue))
-        self.info = info
     }
 }

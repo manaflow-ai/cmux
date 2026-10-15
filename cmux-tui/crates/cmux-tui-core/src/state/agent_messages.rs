@@ -16,7 +16,7 @@ use crate::state::agent_message_policy::{self as policy, CrossWorkspace};
 use crate::state::agent_message_store::{
     self as messages, AgentMessageFilter, NewAgentMessage, SendContext,
 };
-use crate::state::agent_message_unsend::{self as unsend, WithdrawError};
+use crate::state::agent_message_unsend::{self as unsend, WithdrawError, Withdrawn};
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit};
@@ -227,8 +227,9 @@ impl Mux {
     /// refuses it). A retry replays, and a reused key or a
     /// stale revision is refused, before acpmux is asked anything; then
     /// acpmux decides each acpmux recipient's outcome, and every answer
-    /// commits (a refusal is that recipient's `failed` outcome). The pump
-    /// hands nothing over meanwhile.
+    /// commits (a refusal is that recipient's `failed` outcome) whatever
+    /// else committed while acpmux answered: acpmux already acted on it.
+    /// The pump hands nothing over meanwhile.
     pub(crate) fn agent_message_unsend(
         &self,
         mutation: &WorkspaceMutation,
@@ -282,12 +283,20 @@ impl Mux {
         for target in targets.iter().filter(|target| target.asks_acpmux()) {
             let session = target.recipient.trim_start_matches("acp:");
             let to = target.recipient.clone();
+            // A hand-over went out (or one whose attempt could not be noted).
+            let tried = !target.never_tried()
+                || self.agent_message_attempt_unnoted(message_id, &target.recipient);
             match self.acp_withdraw_message(session, message_id) {
+                // acpmux holds no such prompt yet, but the hand-over may
+                // still reach it and run: not unsent, try again.
+                Ok(Withdrawn::NotFound) if tried && target.state == "queued" => {
+                    failures.insert(to, unsend::in_flight(&target.recipient));
+                }
                 Ok(answer) => {
                     answers.insert(to, answer);
                 }
                 // Not running, and no hand-over was ever tried: still ours.
-                Err(WithdrawError::Unavailable) if target.never_tried() => {}
+                Err(WithdrawError::Unavailable) if !tried => {}
                 Err(WithdrawError::Unavailable) => {
                     failures.insert(to, unsend::unavailable(&target.recipient));
                 }
@@ -296,11 +305,13 @@ impl Mux {
                 }
             }
         }
+        // The revision was checked above, before acpmux acted; the replay
+        // and key checks run again inside the commit.
         self.commit_state(
             mutation,
             OPERATION,
             &fingerprint,
-            expected_revision,
+            None,
             StateEffects::EVENTS_ONLY,
             |transaction, state| {
                 self.resolve_in_state(state, crate::ResourceTarget::Session, selectors)?;
