@@ -54,6 +54,9 @@ extension BrowserPanel {
                 fallback: resolved.fallback
             )
         }
+        // A restored or background Chromium panel starts Chromium only when shown;
+        // warm it at the next idle moment instead of on that first show.
+        runtime.chromiumLikely(resolved.source == .inherited ? .restoredPage : .browserPage)
         do {
             let page = try runtime.registry.makePage(
                 resolved.engine,
