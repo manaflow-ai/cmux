@@ -383,3 +383,38 @@ def flow_groups():
     finally:
         pq.rec_stop()
         pq_ws.close_on_mac([a, b])
+
+
+def flow_duplicate():
+    """Duplicate Workspace from the phone: the Mac lists a second workspace of the same name with
+    the same terminals in the same folders (each a new login shell of the Mac's own host)."""
+    import pq_ws
+    t = _tabs()
+    name = f"p3d-{time.strftime('%H%M%S')}"
+    pq.rsh("mkdir -p /tmp/p3dup")
+    proj = pq.rsh(f"cd {pq.RBASE}/proj && pwd").stdout.strip()
+    pq.RemoteMac().cmux("workspace", "create", "--name", name, "--cwd", proj, json_out=True)
+    src = t.mac_workspace(name=name)
+    pane = t.ws_tabs(src)[0][0]
+    t.mac_raw({"cmd": "new-tab", "pane": pane})
+    s2 = t.ws_tabs(t.mac_workspace(name=name))[1][1]["surface"]
+    t.mac_raw({"cmd": "send", "surface": s2, "text": "cd /tmp/p3dup\r"})
+    time.sleep(3)
+    s, m, j = pq.ctx()
+    pq.rec_start("duplicate-workspace")
+    try:
+        pq_ws.row_action(j, name, "Duplicate Workspace")
+        def copies():
+            ws = [w for w in t.mac_tree().get("workspaces", []) if (w.get("name") or w.get("title")) == name]
+            return ws if len(ws) == 2 and len(t.ws_tabs(ws[-1])) >= 2 else None
+        both, took = t.until(copies, timeout=40, what="the copy on the Mac")
+        time.sleep(3)
+        copy = next(w for w in both if w.get("key") != src.get("key"))
+        cwds = []
+        for _, tab in t.ws_tabs(copy):
+            pid = (t.mac_raw({"cmd": "process-info", "surface": tab["surface"]}) or {}).get("pid")
+            cwds.append(proc_line(pid) if pid else None)
+        pq.shot("duplicate")
+        return {"copy_s": round(took, 1), "tabs": len(t.ws_tabs(copy)), "shells": cwds}
+    finally:
+        pq.rec_stop()
