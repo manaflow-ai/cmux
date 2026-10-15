@@ -301,8 +301,10 @@ without the old history. A tab of another machine's tree, or a daemon without
 the capability, gets the old move (the URL reopens in a new tab). The app's page swap
 follows the record (`BrowserProfileService.followRecordProfiles`), so any daemon
 client that moves the record moves the page.
-Agents use the daemon: `cmux browser profile list|create|open` (raw
-browser-profile commands) and `browser.tab.set_profile {tab, profile}`
+Agents use the daemon: `browser.profile.list`, `browser.profile.create` and
+`browser.profile.open {url, profile}` (cx-2kl68; CLI `cmux browser profile
+list|create|open`, MCP `browser_profile_*`; the list shows names and ids,
+never a profile's import origin or data) and `browser.tab.set_profile {tab, profile}`
 (`browser-profile-agent-v1`, CLI `cmux browser tab <tab> set-profile`, MCP);
 a profile is named by id or exact name, and a tab's profile is its
 `extra.browser_profile_id`. No agent verb deletes a profile: only a person

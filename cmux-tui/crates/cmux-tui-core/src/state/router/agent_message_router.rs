@@ -9,6 +9,19 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::{ParsedResourceRequest, expected_revision};
 use crate::state::agent_message_store::{AgentMessageFilter, NewAgentMessage};
 
+/// The agent message operations this router owns.
+pub(super) fn handles(operation: ResourceOperation) -> bool {
+    use ResourceOperation as Op;
+    matches!(
+        operation,
+        Op::AgentMessageSend
+            | Op::AgentMessageList
+            | Op::AgentMessageMark
+            | Op::AgentMessageRelease
+            | Op::AgentMessageUnsend
+    )
+}
+
 pub(super) fn dispatch(mux: &Mux, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     use ResourceOperation as Op;
     let fields = &request.fields;
@@ -69,6 +82,18 @@ pub(super) fn dispatch(mux: &Mux, request: &ParsedResourceRequest) -> Result<Val
                     &string(fields, "message_id").unwrap_or_default(),
                     &string(fields, "recipient").unwrap_or_default(),
                     &string(fields, "decision").unwrap_or_default(),
+                )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::AgentMessageUnsend => {
+            let commit = mux
+                .agent_message_unsend(
+                    &mutation(request)?,
+                    expected_revision(fields)?,
+                    selectors,
+                    &string(fields, "message_id").unwrap_or_default(),
+                    string(fields, "recipient").as_deref(),
                 )
                 .map_err(state_error)?;
             state_result(mux, commit)

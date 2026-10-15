@@ -51,6 +51,10 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
+    /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
+    /// next theme payload.
+    public var colorTransition = ColorTransition()
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
