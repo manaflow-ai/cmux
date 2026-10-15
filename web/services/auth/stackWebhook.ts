@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { applyHexclaveWebhookEvent, type HexclaveSyncDependencies } from "./hexclave/sync";
-import { HexclaveApiError } from "./hexclave/serverApi";
+import type { HexclaveInboxStore } from "./hexclave/inbox";
+import { hexclaveEventTarget, type HexclaveSyncDependencies } from "./hexclave/sync";
 import { parseHexclaveWebhook, type HexclaveWebhookEvent } from "./hexclave/webhookEvents";
+import { captureAccountSignedUp } from "../analytics/accountSignup";
 
 /**
  * Hexclave (formerly Stack Auth) webhooks, delivered by Svix. Every event
@@ -71,8 +72,14 @@ export type StackWebhookDependencies = {
   readonly webhookSecret: () => string | undefined;
   /** Null when Hexclave server access or the database is not configured. */
   readonly sync: () => HexclaveSyncDependencies | null;
+  /** Where verified events wait to be applied; null when the database is not configured. */
+  readonly inbox: () => HexclaveInboxStore | null;
+  /** Start a bounded inbox drain after the response (the route uses `after`). */
+  readonly scheduleDrain?: () => void;
   readonly nowSeconds?: () => number;
   readonly log?: StackWebhookLog;
+  /** Product analytics for a new account (`cmux_account_signed_up`). */
+  readonly captureSignup?: (data: unknown) => void;
 };
 
 const defaultLog: StackWebhookLog = (level, message, fields) => {
@@ -91,10 +98,11 @@ const defaultLog: StackWebhookLog = (level, message, fields) => {
  *   and never processed.
  * - 200 ignored: verified, but a type this code does not know. Logged.
  * - 200 duplicate: this svix-id was already processed.
- * - 503 + Retry-After: Hexclave throttled (429), failed (5xx) or timed out on
- *   the reconcile read; Svix retries the same svix-id later.
- * - 500: reconcile or revocation failed for any other reason; Svix retries.
- * - 200 processed: only after the mirror reflects Hexclave and revocations ran.
+ * - 503 + Retry-After: the verified event could not be stored in the inbox;
+ *   Svix retries the same svix-id later.
+ * - 200 queued: the verified event is stored in the inbox. The drain applies
+ *   it (mirror reconcile and revocations) and retries Hexclave failures with
+ *   backoff; `hexclave_webhook_events` records it once applied.
  */
 export async function handleStackWebhook(
   request: Request,
@@ -120,6 +128,8 @@ export async function handleStackWebhook(
 
   const sync = dependencies.sync();
   if (!sync) return json(503, { error: "stack_webhook_sync_not_configured" });
+  const inbox = dependencies.inbox();
+  if (!inbox) return json(503, { error: "stack_webhook_inbox_not_configured" });
 
   try {
     if (await sync.store.isEventProcessed(svixId)) {
@@ -141,54 +151,36 @@ export async function handleStackWebhook(
       await recordBestEffort(sync, log, { svixId, eventType: parsed.eventType, outcome: "ignored" });
       return json(200, { received: true, ignored: parsed.eventType });
     case "event":
-      return processEvent(svixId, parsed.event, sync, log);
+      return enqueueEvent(svixId, parsed.event, inbox, dependencies, log);
   }
 }
 
-async function processEvent(
+/**
+ * Store a verified event and answer at once. Applying it (fresh Hexclave
+ * reads, mirror writes, revocations) happens in the inbox drain, so a
+ * Hexclave throttle no longer fails deliveries and Svix's redelivery burst
+ * no longer multiplies Hexclave reads. A failed store answers 503 so Svix
+ * redelivers; nothing was accepted.
+ */
+async function enqueueEvent(
   svixId: string,
   event: HexclaveWebhookEvent,
-  sync: HexclaveSyncDependencies,
+  inbox: HexclaveInboxStore,
+  dependencies: StackWebhookDependencies,
   log: StackWebhookLog,
 ): Promise<Response> {
   try {
-    const result = await applyHexclaveWebhookEvent(event, sync);
-    await sync.store.recordEvent({ svixId, eventType: event.type, outcome: "processed" });
-    log("info", "stack_webhook_processed", { svixId, eventType: event.type, ...result });
-    return json(200, { received: true, handled: event.type });
+    await inbox.enqueue({ svixId, eventType: event.type, target: hexclaveEventTarget(event) });
   } catch (error) {
-    await recordBestEffort(sync, log, { svixId, eventType: event.type, outcome: "failed" });
-    if (isTransientProviderFailure(error)) {
-      // Hexclave throttled, failed, or timed out on the reconcile read. Nothing
-      // is wrong with this delivery or with us: ask Svix to come back later.
-      log("warn", "stack_webhook_provider_unavailable", { svixId, eventType: event.type, error: errorSummary(error) });
-      return json(503, { error: "provider_unavailable", retryable: true }, {
-        "retry-after": String(PROVIDER_RETRY_AFTER_SECONDS),
-      });
-    }
-    log("error", "stack_webhook_sync_failed", { svixId, eventType: event.type, error: errorSummary(error) });
-    return json(500, { error: "sync_failed" });
+    log("error", "stack_webhook_enqueue_failed", { svixId, eventType: event.type, error: errorSummary(error) });
+    return json(503, { error: "inbox_unavailable", retryable: true }, { "retry-after": "30" });
   }
-}
-
-/** Matches the Retry-After our own auth routes send on a Stack throttle. */
-const PROVIDER_RETRY_AFTER_SECONDS = 60;
-
-/**
- * A Hexclave answer of 429 or 5xx, or a read that timed out or never
- * connected. Schema failures and our own database or revocation failures are
- * not transient provider failures and keep the 500.
- */
-function isTransientProviderFailure(error: unknown): boolean {
-  if (error instanceof HexclaveApiError) {
-    const status = error.details.status;
-    return status === 429 || (status !== undefined && status >= 500);
-  }
-  if (!(error instanceof Error)) return false;
-  // AbortSignal.timeout rejects with a TimeoutError DOMException; undici
-  // rejects a failed connection with `TypeError: fetch failed`.
-  return error.name === "TimeoutError" ||
-    (error.name === "TypeError" && error.message === "fetch failed");
+  log("info", "stack_webhook_queued", { svixId, eventType: event.type });
+  // Accepted exactly when the inbox stored it; a redelivery reuses the
+  // event's natural insert id, so the account is counted once.
+  if (event.type === "user.created") (dependencies.captureSignup ?? captureAccountSignedUp)(event.data);
+  dependencies.scheduleDrain?.();
+  return json(200, { received: true, queued: event.type });
 }
 
 async function recordBestEffort(

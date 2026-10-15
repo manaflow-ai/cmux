@@ -1812,9 +1812,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func projectionsRestored(resources: Set<SurfaceResourceID>) {
         reprojectRestoredPanes(generation: lifecycleGeneration, resourceIDs: resources)
     }
-    /// Reprojects restored panes while preserving lifecycle and ownership guards.
     private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
+        // Browser and port projections have their own reachability state. A
+        // stale terminal graph must not strand those unrelated panes.
         reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)
         let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
         let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter {

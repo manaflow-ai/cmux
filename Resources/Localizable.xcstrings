@@ -212727,55 +212727,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspect PostHog flag state and local overrides for this Mac."
+            "value": "Inspect remote feature flag state and local overrides for this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacのPostHogフラグ状態とローカル上書きを確認します。"
+            "value": "このMacのリモート機能フラグの状態とローカル上書きを確認します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查看此 Mac 的 PostHog 开关状态和本地覆盖项。"
+            "value": "查看此 Mac 的远程功能开关状态和本地覆盖项。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "PostHog-Flag-Status und lokale Überschreibungen für diesen Mac untersuchen."
+            "value": "Remote-Feature-Flag-Status und lokale Überschreibungen für diesen Mac untersuchen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecter l’état des drapeaux PostHog et les surcharges locales pour ce Mac."
+            "value": "Inspecter l’état des drapeaux de fonctionnalités distants et les surcharges locales pour ce Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "افحص حالة ميزات PostHog والتجاوزات المحلية لجهاز Mac هذا."
+            "value": "افحص حالة علامات الميزات البعيدة والتجاوزات المحلية لجهاز Mac هذا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecciona el estado de los flags de PostHog y las anulaciones locales para esta Mac."
+            "value": "Inspecciona el estado de los flags de funciones remotos y las anulaciones locales para esta Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢查此 Mac 的 PostHog 旗標狀態與本機覆蓋。"
+            "value": "檢查此 Mac 的遠端功能旗標狀態與本機覆蓋。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 PostHog 플래그 상태 및 로컬 재정의를 검사합니다."
+            "value": "이 Mac의 원격 기능 플래그 상태 및 로컬 재정의를 검사합니다."
           }
         }
       }
@@ -487399,65 +487399,6 @@
         }
       }
     },
-    "agentRestore.admission.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux could not verify whether this agent session is already running. Retry 'cmux restore --surface'."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このエージェントセッションがすでに実行中かどうかを cmux で確認できませんでした。「cmux restore --surface」を再試行してください。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux konnte nicht überprüfen, ob diese Agenten-Sitzung bereits läuft. Versuche 'cmux restore --surface' erneut."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux n’a pas pu vérifier si cette session d’agent est déjà en cours d’exécution. Réessayez 'cmux restore --surface'."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر على cmux التحقق مما إذا كانت جلسة الوكيل هذه قيد التشغيل بالفعل. أعد محاولة 'cmux restore --surface'."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux no pudo verificar si esta sesión del agente ya se está ejecutando. Reintenta 'cmux restore --surface'."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 無法驗證此代理程式工作階段是否已在執行。請重試 'cmux restore --surface'。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 无法验证此智能体会话是否已在运行。请重试 'cmux restore --surface'。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux에서 이 에이전트 세션이 이미 실행 중인지 확인할 수 없습니다. 'cmux restore --surface'를 다시 시도하십시오."
-          }
-        }
-      }
-    },
     "agentRestore.liveOwner.notice": {
       "extractionState": "manual",
       "localizations": {
@@ -550043,256 +549984,6 @@
         }
       }
     },
-    "agentRestore.recovery.checking": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restoring saved agent session…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تجري استعادة جلسة الوكيل المحفوظة…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gespeicherte Agentensitzung wird wiederhergestellt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurando la sesión guardada del agente…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restauration de la session d’agent enregistrée…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存されたエージェントセッションを復元しています…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장된 에이전트 세션을 복원하는 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在恢复已保存的智能体会话…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在還原已儲存的代理程式工作階段…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vraćanje sačuvane sesije agenta…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gendanner gemt agentsession…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ripristino della sessione salvata dell’agente…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំពុងស្ដារសម័យភ្នាក់ងារដែលបានរក្សាទុក…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gjenoppretter lagret agentøkt…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przywracanie zapisanej sesji agenta…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurando a sessão salva do agente…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Восстановление сохранённого сеанса агента…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังกู้คืนเซสชันเอเจนต์ที่บันทึกไว้…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kaydedilmiş aracı oturumu geri yükleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відновлення збереженого сеансу агента…"
-          }
-        }
-      }
-    },
-    "agentRestore.recovery.liveOwner": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ session is running in process %2$@. Waiting for its writer to become available…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جلسة %1$@ تعمل في العملية %2$@. جارٍ انتظار إتاحة الكتابة…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Sitzung von %1$@ läuft in Prozess %2$@. Warten auf die Schreibfreigabe…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La sesión de %1$@ se ejecuta en el proceso %2$@. Esperando a que se libere la escritura…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La session %1$@ s’exécute dans le processus %2$@. En attente de la libération de l’écriture…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ セッションはプロセス %2$@ で実行中です。書き込みロックの解放を待っています…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 세션이 프로세스 %2$@에서 실행 중입니다. 쓰기 권한이 해제되기를 기다리는 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 会话正在进程 %2$@ 中运行。正在等待写入权限释放…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 工作階段正在程序 %2$@ 中執行。正在等待寫入權限釋出…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesija %1$@ radi u procesu %2$@. Čeka se oslobađanje prava pisanja…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessionen %1$@ kører i proces %2$@. Venter på, at skriveadgangen bliver ledig…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La sessione %1$@ è in esecuzione nel processo %2$@. In attesa che l’accesso in scrittura sia disponibile…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សម័យ %1$@ កំពុងដំណើរការក្នុងដំណើរការ %2$@។ កំពុងរង់ចាំសិទ្ធិសរសេរឱ្យទំនេរ…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Økten %1$@ kjører i prosess %2$@. Venter på at skrivetilgangen blir ledig…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesja %1$@ działa w procesie %2$@. Oczekiwanie na zwolnienie dostępu do zapisu…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A sessão %1$@ está em execução no processo %2$@. Aguardando a liberação do acesso de escrita…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сеанс %1$@ выполняется в процессе %2$@. Ожидание освобождения доступа для записи…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เซสชัน %1$@ กำลังทำงานในโพรเซส %2$@ กำลังรอให้สิทธิ์การเขียนว่าง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ oturumu %2$@ işleminde çalışıyor. Yazma erişiminin serbest kalması bekleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сеанс %1$@ виконується в процесі %2$@. Очікування звільнення доступу для запису…"
-          }
-        }
-      }
-    },
     "cli.ssh.authenticationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -571976,121 +571667,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)"
+            "value": "  (Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically via cmux wrappers)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "  (يتم حقن خطافات Claude Code وPi تلقائيًا عبر أغلفة cmux)"
+            "value": "  (يتم حقن خطافات Antigravity وClaude Code وGrok وMuse وPi تلقائيًا عبر أغلفة cmux)"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Claude Code i Pi kukice se automatski ubacuju putem cmux omotača)"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Claude Code- og Pi-hooks indsættes automatisk via deres cmux-wrappere)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "  (Claude-Code- und Pi-Hooks werden automatisch über ihre cmux-Wrapper eingefügt)"
+            "value": "  (Antigravity-, Claude-Code-, Grok-, Muse- und Pi-Hooks werden automatisch über cmux-Wrapper eingefügt)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "  (Los hooks de Claude Code y Pi se inyectan automáticamente mediante sus wrappers de cmux)"
+            "value": "  (Los hooks de Antigravity, Claude Code, Grok, Muse y Pi se inyectan automáticamente mediante los wrappers de cmux)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "  (Les hooks de Claude Code et Pi sont injectés automatiquement par leurs wrappers cmux)"
+            "value": "  (Les hooks d'Antigravity, Claude Code, Grok, Muse et Pi sont injectés automatiquement par les wrappers cmux)"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Gli hook di Claude Code e Pi vengono iniettati automaticamente tramite i rispettivi wrapper cmux)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "  (Claude Code と Pi のフックは cmux ラッパーによって自動的に注入されます)"
+            "value": "  (Antigravity、Claude Code、Grok、Muse、Pi のフックは cmux ラッパーによって自動的に注入されます)"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (hooks របស់ Claude Code និង Pi ត្រូវបានបញ្ចូលដោយស្វ័យប្រវត្តិតាមរយៈ wrapper របស់ cmux)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "  (Claude Code 및 Pi 훅은 cmux 래퍼를 통해 자동으로 주입됩니다)"
+            "value": "  (Antigravity, Claude Code, Grok, Muse, Pi 훅은 cmux 래퍼를 통해 자동으로 주입됩니다)"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Claude Code- og Pi-hooker settes inn automatisk via cmux-innpakningene)"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Hooki Claude Code i Pi są automatycznie wstrzykiwane przez ich opakowania cmux)"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Os hooks do Claude Code e do Pi são injetados automaticamente pelos respectivos wrappers do cmux)"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Хуки Claude Code и Pi автоматически внедряются их оболочками cmux)"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (hooks ของ Claude Code และ Pi จะถูกฉีดโดยอัตโนมัติผ่าน wrapper ของ cmux)"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Claude Code ve Pi kancaları, cmux sarmalayıcıları aracılığıyla otomatik olarak eklenir)"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "  (Хуки Claude Code і Pi автоматично додаються їхніми обгортками cmux)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "  （Claude Code 和 Pi 的钩子会通过各自的 cmux 包装器自动注入）"
+            "value": "  （Antigravity、Claude Code、Grok、Muse 和 Pi 的钩子会通过 cmux 包装器自动注入）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "  （Claude Code 和 Pi 的掛鉤會透過各自的 cmux 包裝器自動注入）"
+            "value": "  （Antigravity、Claude Code、Grok、Muse 和 Pi 的掛鉤會透過 cmux 包裝器自動注入）"
           }
         }
       }
@@ -611641,183 +611332,6 @@
         }
       }
     },
-    "settings.search.alias.setting.terminal.jump-to-bottom-button": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude الانتقال إلى الأسفل تمرير"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude zum ende springen scrollen verlauf"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude ir al final desplazar historial"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude aller en bas défiler historique"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude 一番下へ移動 スクロール"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude 맨 아래로 이동 스크롤"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude 跳到底部 滚动 回滚"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude 跳至底部 捲動 回溯"
-          }
-        }
-      }
-    },
-    "settings.terminal.showJumpToBottomButton": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "زر الانتقال إلى الأسفل"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schaltfläche „Zum Ende springen“"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jump to Bottom Button"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Botón Ir al final"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bouton Aller en bas"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「一番下へ移動」ボタン"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "맨 아래로 이동 버튼"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“跳到底部”按钮"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「跳至底部」按鈕"
-          }
-        }
-      }
-    },
-    "command.terminalScrollToBottom.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scroll to Bottom"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التمرير إلى الأسفل"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zum Ende scrollen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desplazar al final"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Faire défiler jusqu'en bas"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一番下までスクロール"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "맨 아래로 스크롤"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "滚动到底部"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "捲動至底部"
-          }
-        }
-      }
-    },
     "cli.agentMessages.globalOff": {
       "extractionState": "manual",
       "localizations": {
@@ -642795,131 +642309,6 @@
         }
       }
     },
-    "agentRestore.recovery.attach": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attach"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anhängen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attacher"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إرفاق"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adjuntar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連接"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "连接"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Priključi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tilslut"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collega"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្ជាប់"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koble til"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dołącz"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подключить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เชื่อมต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bağlan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Підключити"
-          }
-        }
-      }
-    },
     "settings.app.warnBeforeClosingAgentSession": {
       "extractionState": "manual",
       "localizations": {
@@ -649718,482 +649107,6 @@
         }
       }
     },
-    "shortcut.nextAgentTurn.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "دور الوكيل التالي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sljedeći potez agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Næste agenttur"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nächster Agent-Durchgang"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Agent Turn"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turno siguiente del agente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tour suivant de l’agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turno successivo dell’agente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のエージェントのターン"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다음 에이전트 턴"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neste agenttur"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Następna tura agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Próximo Turno do Agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Следующий ход агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รอบถัดไปของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sonraki Ajan Turu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Наступний хід агента"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下一个代理轮次"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下一個代理回合"
-          }
-        }
-      }
-    },
-    "shortcut.previousAgentTurn.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "دور الوكيل السابق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prethodni potez agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forrige agenttur"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorheriger Agent-Durchgang"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Agent Turn"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turno anterior del agente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tour précédent de l’agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turno precedente dell’agente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前のエージェントのターン"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이전 에이전트 턴"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forrige agenttur"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Poprzednia tura agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turno Anterior do Agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Предыдущий ход агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รอบก่อนหน้าของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Önceki Ajan Turu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Попередній хід агента"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上一个代理轮次"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上一個代理回合"
-          }
-        }
-      }
-    },
-    "agentTurnRail.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أدوار الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Potezi agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentens ture"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Durchgänge"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent turns"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turnos del agente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tours de l’agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turni dell’agente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントのターン"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 턴"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentens turer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tury agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turnos do agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ходы агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รอบของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan turları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ходи агента"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理轮次"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理回合"
-          }
-        }
-      }
-    },
-    "agentTurnRail.notInScrollback": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يعد في سجل التمرير"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Više nije u historiji pomicanja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke længere i rullehistorikken"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht mehr im Scrollback"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No longer in scrollback"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ya no está en el historial de desplazamiento"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "N’est plus dans l’historique de défilement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non più nello scrollback"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スクロールバックにありません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스크롤백에 더 이상 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke lenger i rullehistorikken"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Już poza historią przewijania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não está mais no histórico de rolagem"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Больше нет в истории прокрутки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่อยู่ในประวัติการเลื่อนแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Artık kaydırma geçmişinde değil"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Більше немає в історії прокручування"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已不在回滚记录中"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已不在捲動記錄中"
-          }
-        }
-      }
-    },
     "agent.muse.displayName": {
       "extractionState": "manual",
       "localizations": {
@@ -652870,6 +651783,3172 @@
           "stringUnit": {
             "state": "translated",
             "value": "請重新登入以重新連線"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.alreadyExists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An item with that name already exists."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد عنصر بهذا الاسم بالفعل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Objekt mit diesem Namen existiert bereits."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya existe un elemento con ese nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un élément portant ce nom existe déjà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その名前の項目はすでに存在します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 이름의 항목이 이미 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已存在同名项目。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有同名的項目。"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You don't have permission to change this folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس لديك إذن بتغيير هذا المجلد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du hast keine Berechtigung, diesen Ordner zu ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tienes permiso para modificar esta carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous n’avez pas l’autorisation de modifier ce dossier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダを変更する権限がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더를 변경할 권한이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你没有更改此文件夹的权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你沒有更改此檔案夾的權限。"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a single file or folder name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسم ملف أو مجلد واحدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen einzelnen Datei- oder Ordnernamen ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un único nombre de archivo o carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un seul nom de fichier ou de dossier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名またはフォルダ名を1つ入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 또는 폴더 이름 하나를 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入单个文件或文件夹名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入單一檔案或資料夾名稱。"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.mutationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to update this file or folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحديث هذا الملف أو المجلد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei oder dieser Ordner konnte nicht geändert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede actualizar este archivo o carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de modifier ce fichier ou ce dossier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルまたはフォルダを更新できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일 또는 폴더를 업데이트할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更新此文件或文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更新此檔案或資料夾。"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.newFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New File"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Datei"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 파일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增檔案"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.newFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Folder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau dossier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規フォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 폴더"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增資料夾"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تسمية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 변경"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This item and its contents will be deleted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتم حذف هذا العنصر ومحتوياته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Element und sein Inhalt werden gelöscht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán este elemento y su contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet élément et son contenu seront supprimés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目とその内容を削除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목과 내용이 삭제됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此项目及其内容将被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此項目及其內容將被刪除。"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.duplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكرار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplizieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dupliquer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建副本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.moveToTrash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Trash"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل إلى سلة المهملات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Papierkorb legen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasladar a la papelera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer dans la corbeille"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に入れる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴지통으로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到废纸篓"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丟到垃圾桶"
+          }
+        }
+      }
+    },
+    "fileExplorer.duplicate.copyName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ copy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ نسخة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Kopie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ copie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 복사본"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 副本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 拷貝"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.multipleTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete the selected items?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف العناصر المحددة؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewählte Objekte löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar los elementos seleccionados?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer les éléments sélectionnés ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した項目を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 항목을 삭제할까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除所选项目？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除所選項目？"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.multipleMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These items and their contents will be deleted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتم حذف هذه العناصر ومحتوياتها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Objekte und ihre Inhalte werden gelöscht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán estos elementos y su contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces éléments et leur contenu seront supprimés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらの項目とその内容が削除されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목들과 그 내용이 삭제됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些项目及其内容将被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些項目及其內容將被刪除。"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete “%@”?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف « %@ »؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar «%@»?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer « %@ » ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”을(를) 삭제할까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除“%@”？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除「%@」？"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.name.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a name for this item."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسمًا لهذا العنصر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen Namen für dieses Element ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un nombre para este elemento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un nom pour cet élément."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目の名前を入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목의 이름을 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入此项目的名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入此項目的名稱。"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.name.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاسم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezeichnung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.rename.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تسمية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 변경"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.mutationTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File operation failed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت عملية الملف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateivorgang fehlgeschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error en la operación de archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l’opération sur le fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル操作に失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 작업 실패"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件操作失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案操作失敗"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.newFile.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New File"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Datei"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 파일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增檔案"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.newFolder.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Folder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau dossier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規フォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 폴더"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增資料夾"
+          }
+        }
+      }
+    },
+    "cli.coderouter.handoff.notAuthenticated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die CodeRouter-Übergabe erfordert ein angemeldetes cmux-Konto. Führen Sie `cmux auth login` aus und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transfert vers CodeRouter nécessite un compte cmux connecté. Exécutez `cmux auth login`, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسليم CodeRouter حساب cmux مسجّل الدخول. شغّل `cmux auth login` ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El traspaso a CodeRouter requiere una cuenta de cmux con la sesión iniciada. Ejecuta `cmux auth login` y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要已登入的 cmux 帳號。請執行 `cmux auth login`，然後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要已登录的 cmux 帐户。请运行 `cmux auth login`，然后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "CodeRouter 인계에는 로그인된 cmux 계정이 필요합니다. `cmux auth login`을 실행한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux アカウントへのサインインが必要です。`cmux auth login` を実行してから再試行してください。" } }
+      }
+    },
+    "cli.coderouter.handoff.teamRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a selected cmux team. Select a team in cmux, then retry." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Für die CodeRouter-Übergabe muss ein cmux-Team ausgewählt sein. Wählen Sie in cmux ein Team aus und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transfert vers CodeRouter nécessite qu’une équipe cmux soit sélectionnée. Sélectionnez une équipe dans cmux, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسليم CodeRouter تحديد فريق cmux. حدّد فريقًا في cmux ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El traspaso a CodeRouter requiere seleccionar un equipo de cmux. Selecciona un equipo en cmux y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要選取 cmux 團隊。請在 cmux 中選取團隊，然後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要选择 cmux 团队。请在 cmux 中选择团队，然后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "CodeRouter 인계에는 cmux 팀을 선택해야 합니다. cmux에서 팀을 선택한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux チームの選択が必要です。cmux でチームを選択してから、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.sessionChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux account or team changed during the handoff. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das cmux-Konto oder -Team wurde während der Übergabe geändert. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le compte ou l’équipe cmux a changé pendant le transfert. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تم تغيير حساب cmux أو فريقه أثناء التسليم. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La cuenta o el equipo de cmux cambió durante el traspaso. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "交接期間 cmux 帳號或團隊已變更。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "交接期间 cmux 帐户或团队已更改。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "인계 중에 cmux 계정 또는 팀이 변경되었습니다. 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "引き継ぎ中に cmux アカウントまたはチームが変更されました。もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux handoff lease expired. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die cmux-Übergabe-Lease ist abgelaufen. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le bail de transfert cmux a expiré. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "انتهت صلاحية عقد تسليم cmux. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La concesión del traspaso de cmux expiró. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 交接租約已過期。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 交接租约已过期。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 인계 임대가 만료되었습니다. 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux の引き継ぎリースの有効期限が切れました。もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux service is not available. Check your connection and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der cmux-Dienst ist nicht verfügbar. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le service cmux n’est pas disponible. Vérifiez votre connexion, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "خدمة cmux غير متاحة. تحقّق من اتصالك ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El servicio de cmux no está disponible. Comprueba tu conexión y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 服務無法使用。請檢查連線後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 服务不可用。请检查连接后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 서비스를 사용할 수 없습니다. 연결을 확인한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスを利用できません。接続を確認して、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The installed CodeRouter CLI does not support secure cmux handoff. Update CodeRouter and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die installierte CodeRouter-CLI unterstützt keine sichere cmux-Übergabe. Aktualisieren Sie CodeRouter und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La CLI CodeRouter installée ne prend pas en charge le transfert cmux sécurisé. Mettez CodeRouter à jour, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يدعم CodeRouter CLI المثبّت تسليم cmux الآمن. حدّث CodeRouter ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La CLI de CodeRouter instalada no admite el traspaso seguro de cmux. Actualiza CodeRouter y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已安裝的 CodeRouter CLI 不支援安全的 cmux 交接。請更新 CodeRouter 後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已安装的 CodeRouter CLI 不支持安全的 cmux 交接。请更新 CodeRouter 后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "설치된 CodeRouter CLI는 보안 cmux 인계를 지원하지 않습니다. CodeRouter를 업데이트한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストールされている CodeRouter CLI は安全な cmux 引き継ぎに対応していません。CodeRouter を更新してから、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux service rejected the CodeRouter handoff. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der cmux-Dienst hat die CodeRouter-Übergabe abgelehnt. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le service cmux a refusé le transfert vers CodeRouter. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "رفضت خدمة cmux تسليم CodeRouter. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El servicio de cmux rechazó el traspaso a CodeRouter. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 服務拒絕了 CodeRouter 交接。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 服务拒绝了 CodeRouter 交接。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 서비스가 CodeRouter 인계를 거부했습니다. 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスが CodeRouter の引き継ぎを拒否しました。もう一度お試しください。" } }
+      }
+    },
+    "account.signIn.copyErrorDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Error Details"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ تفاصيل الخطأ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlerdetails kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar detalles del error"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier les détails de l’erreur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーの詳細をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 세부 정보 복사"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制错误详细信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製錯誤詳細資訊"
+          }
+        }
+      }
+    },
+    "account.signIn.errorDetailsCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error Details Copied"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ تفاصيل الخطأ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlerdetails kopiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalles del error copiados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails de l’erreur copiés"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーの詳細をコピーしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 세부 정보 복사됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制错误详细信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製錯誤詳細資訊"
+          }
+        }
+      }
+    },
+    "auth.error.rate_limited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many sign-in requests from this network. cmux retries automatically."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات تسجيل دخول كثيرة جدًا من هذه الشبكة. يعيد cmux المحاولة تلقائيًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Anmeldeanfragen aus diesem Netzwerk. cmux versucht es automatisch erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas solicitudes de inicio de sesión desde esta red. cmux lo reintenta automáticamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de demandes de connexion depuis ce réseau. cmux réessaie automatiquement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワークからのサインイン要求が多すぎます。cmux が自動的に再試行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 네트워크에서 로그인 요청이 너무 많습니다. cmux가 자동으로 다시 시도합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自此网络的登录请求过多。cmux 会自动重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自此網路的登入要求過多。cmux 會自動重試。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rateLimited.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux retried automatically. Wait a minute, then try again. Your account and existing cmux workspaces are unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد cmux المحاولة تلقائيًا. انتظر دقيقة ثم حاول مرة أخرى. لم يتغير حسابك ولا مساحات عمل cmux الحالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat es automatisch erneut versucht. Warte eine Minute und versuche es dann erneut. Dein Konto und deine bestehenden cmux-Workspaces bleiben unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lo reintentó automáticamente. Espera un minuto y vuelve a intentarlo. Tu cuenta y tus espacios de trabajo de cmux existentes no han cambiado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a réessayé automatiquement. Patientez une minute, puis réessayez. Votre compte et vos espaces de travail cmux existants sont inchangés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が自動的に再試行しました。1 分ほど待ってから、もう一度お試しください。アカウントと既存の cmux ワークスペースは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 자동으로 다시 시도했습니다. 1분 정도 기다린 후 다시 시도하세요. 계정과 기존 cmux 워크스페이스는 변경되지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已自动重试。请等待一分钟后再试。你的账户和现有的 cmux 工作区均未更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已自動重試。請稍候一分鐘後再試一次。你的帳號和現有的 cmux 工作區都沒有變更。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rateLimited.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many sign-in requests from this network"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات تسجيل دخول كثيرة جدًا من هذه الشبكة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Anmeldeanfragen aus diesem Netzwerk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas solicitudes de inicio de sesión desde esta red"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de demandes de connexion depuis ce réseau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワークからのサインイン要求が多すぎます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 네트워크에서 로그인 요청이 너무 많습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自此网络的登录请求过多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自此網路的登入要求過多"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.rateLimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many sign-in requests from this network"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات تسجيل دخول كثيرة جدًا من هذه الشبكة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Anmeldeanfragen aus diesem Netzwerk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas solicitudes de inicio de sesión desde esta red"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de demandes de connexion depuis ce réseau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワークからのサインイン要求が多すぎます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 네트워크에서 로그인 요청이 너무 많습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自此网络的登录请求过多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自此網路的登入要求過多"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.rateLimited.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux retries automatically. Keep this pane open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعيد cmux المحاولة تلقائيًا. أبقِ هذه اللوحة مفتوحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux versucht es automatisch erneut. Lass diesen Bereich geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lo reintenta automáticamente. Mantén este panel abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux réessaie automatiquement. Gardez ce volet ouvert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が自動的に再試行します。このペインを開いたままにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 자동으로 다시 시도합니다. 이 패널을 열어 두세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会自动重试。请保持此面板打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會自動重試。請保持此面板開啟。"
+          }
+        }
+      }
+    },
+    "cloud.link.requestTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Cloud machine did not answer the request before its deadline. The connection will be checked before retrying." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Cloud-Maschine hat vor Ablauf der Frist nicht geantwortet. Die Verbindung wird vor dem erneuten Versuch geprüft." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La machine Cloud n’a pas répondu avant la date limite. La connexion sera vérifiée avant une nouvelle tentative." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لم تستجب آلة Cloud قبل الموعد النهائي للطلب. سيتم التحقق من الاتصال قبل إعادة المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La máquina Cloud no respondió antes del plazo. Se comprobará la conexión antes de volver a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器未在期限前回應要求。重試前會檢查連線。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Cloud 机器未在截止时间前响应请求。重试前将检查连接。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신이 기한 내에 요청에 응답하지 않았습니다. 다시 시도하기 전에 연결을 확인합니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud マシンは期限内に応答しませんでした。再試行する前に接続を確認します。" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Cloud mašina nije odgovorila prije isteka roka. Veza će biti provjerena prije ponovnog pokušaja." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloud-maskinen svarede ikke inden tidsfristen. Forbindelsen kontrolleres, før der prøves igen." } },
+        "it": { "stringUnit": { "state": "translated", "value": "La macchina Cloud non ha risposto entro il termine. La connessione verrà controllata prima di riprovare." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ម៉ាស៊ីន Cloud មិនបានឆ្លើយតបមុនពេលកំណត់ទេ។ ការតភ្ជាប់នឹងត្រូវបានពិនិត្យមុនពេលព្យាយាមម្តងទៀត។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Cloud-maskinen svarte ikke innen tidsfristen. Tilkoblingen blir kontrollert før nytt forsøk." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Maszyna Cloud nie odpowiedziała przed upływem limitu czasu. Połączenie zostanie sprawdzone przed ponowną próbą." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A máquina Cloud não respondeu antes do prazo. A conexão será verificada antes de tentar novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Облачная машина не ответила до истечения срока. Перед повторной попыткой будет проверено подключение." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เครื่อง Cloud ไม่ตอบสนองก่อนถึงกำหนด จะตรวจสอบการเชื่อมต่อก่อนลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Cloud makinesi süre dolmadan isteğe yanıt vermedi. Yeniden denemeden önce bağlantı kontrol edilecek." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хмарна машина не відповіла до завершення терміну. Перед повторною спробою з’єднання буде перевірено." } }
+      }
+    },
+    "cloud.welcome.note.teamAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud can be enabled through your team; machine access follows the team’s plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن تفعيل Cloud عبر فريقك؛ ويعتمد الوصول إلى الأجهزة على خطة الفريق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud kann über Ihr Team aktiviert werden; der Maschinenzugriff richtet sich nach dem Teamplan."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud se puede activar a través de tu equipo; el acceso a las máquinas depende del plan del equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud peut être activé via votre équipe ; l’accès aux machines dépend du forfait de l’équipe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud はチームを通じて有効にできます。マシンへのアクセスはチームのプランに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀을 통해 Cloud를 활성화할 수 있으며 머신 사용 권한은 팀 요금제에 따라 결정됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可通过您的团队启用 Cloud；机器访问权限取决于团队方案。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 可透過您的團隊啟用；機器存取權限取決於團隊方案。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.note.teamIncluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Included through your team’s plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضمّن في خطة فريقك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Teamplan enthalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluido en el plan de tu equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inclus dans le forfait de votre équipe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームのプランに含まれています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 요금제에 포함되어 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含在您团队的方案中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含在您團隊的方案中。"
+          }
+        }
+      }
+    },
+    "cli.restore.error.conversationNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this session has no saved conversation to resume. Start the agent again in this terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: لا تحتوي هذه الجلسة على محادثة محفوظة لاستئنافها. ابدأ الوكيل مرة أخرى في هذه الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Sitzung hat keine gespeicherte Unterhaltung zum Fortsetzen. Starten Sie den Agenten in diesem Terminal neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión no tiene ninguna conversación guardada que reanudar. Vuelva a iniciar el agente en esta terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session n'a aucune conversation enregistrée à reprendre. Redémarrez l'agent dans ce terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このセッションには再開できる保存済みの会話がありません。このターミナルでエージェントをもう一度起動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 세션에는 재개할 저장된 대화가 없습니다. 이 터미널에서 에이전트를 다시 시작하십시오."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 此会话没有可恢复的已保存对话。请在此终端中重新启动代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此工作階段沒有可繼續的已儲存對話。請在此終端機中重新啟動代理程式。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenute mašine vašeg tima koriste sav Cloud kapacitet plana. Pauzirajte ili izbrišite pokrenutu mašinu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit teams kørende maskiner bruger hele planens Cloud-kapacitet. Sæt en kørende maskine på pause eller slet den, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le macchine in esecuzione del tuo team usano tutta la capacità Cloud del piano. Metti in pausa o elimina una macchina in esecuzione, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនដែលកំពុងដំណើរការរបស់ក្រុមអ្នកកំពុងប្រើសមត្ថភាព Cloud ទាំងអស់របស់គម្រោង។ ផ្អាក ឬលុបម៉ាស៊ីនដែលកំពុងដំណើរការមួយ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamets kjørende maskiner bruker hele Cloud-kapasiteten i planen. Sett en kjørende maskin på pause eller slett den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchomione maszyny Twojego zespołu wykorzystują całą pojemność Cloud w planie. Wstrzymaj lub usuń uruchomioną maszynę, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As máquinas em execução da sua equipe estão usando toda a capacidade de Cloud do plano. Pause ou exclua uma máquina em execução e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущенные машины вашей команды используют всю мощность Cloud по тарифу. Приостановите или удалите запущенную машину и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่กำลังทำงานของทีมคุณใช้ความจุ Cloud ของแผนจนหมดแล้ว หยุดเครื่องที่กำลังทำงานชั่วคราวหรือลบออก แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibinizin çalışan makineleri planın tüm Cloud kapasitesini kullanıyor. Çalışan bir makineyi duraklatın veya silin, ardından tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущені машини вашої команди використовують усю потужність Cloud за планом. Призупиніть або видаліть запущену машину й спробуйте ще раз."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team's running machines are using all of the plan's Cloud capacity. Pause or delete a running machine, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم الأجهزة قيد التشغيل لدى فريقك كامل سعة Cloud في الخطة. أوقف جهازًا قيد التشغيل مؤقتًا أو احذفه، ثم حاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die laufenden Maschinen deines Teams nutzen die gesamte Cloud-Kapazität des Plans. Pausiere oder lösche eine laufende Maschine und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas en ejecución de tu equipo están usando toda la capacidad de Cloud del plan. Pausa o elimina una máquina en ejecución y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines en cours d'exécution de votre équipe utilisent toute la capacité Cloud du forfait. Mettez en pause ou supprimez une machine en cours d'exécution, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの実行中のマシンがプランの Cloud 容量をすべて使用しています。実行中のマシンを一時停止または削除してから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀의 실행 중인 머신이 플랜의 Cloud 용량을 모두 사용하고 있습니다. 실행 중인 머신을 일시 정지하거나 삭제한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您团队中正在运行的机器已用尽套餐的全部 Cloud 容量。请暂停或删除一台正在运行的机器，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您團隊中執行中的機器已用盡方案的全部 Cloud 容量。請暫停或刪除一台執行中的機器，然後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.activeLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sve aktivne mašine koje vaš plan dozvoljava su u upotrebi. Pauzirajte ili izbrišite pokrenutu mašinu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle aktive maskiner, som din plan tillader, er i brug. Sæt en kørende maskine på pause eller slet den, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutte le macchine attive consentite dal tuo piano sono in uso. Metti in pausa o elimina una macchina in esecuzione, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនសកម្មទាំងអស់ដែលគម្រោងរបស់អ្នកអនុញ្ញាតកំពុងប្រើប្រាស់។ ផ្អាក ឬលុបម៉ាស៊ីនដែលកំពុងដំណើរការមួយ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle aktive maskiner planen din tillater, er i bruk. Sett en kjørende maskin på pause eller slett den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystkie aktywne maszyny dozwolone w Twoim planie są w użyciu. Wstrzymaj lub usuń uruchomioną maszynę, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as máquinas ativas que seu plano permite estão em uso. Pause ou exclua uma máquina em execução e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все активные машины, разрешённые вашим тарифом, уже используются. Приостановите или удалите запущенную машину и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่ใช้งานอยู่ทั้งหมดที่แผนของคุณอนุญาตกำลังถูกใช้งาน หยุดเครื่องที่กำลังทำงานชั่วคราวหรือลบออก แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planınızın izin verdiği tüm etkin makineler kullanımda. Çalışan bir makineyi duraklatın veya silin, ardından tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі активні машини, дозволені вашим планом, уже використовуються. Призупиніть або видаліть запущену машину й спробуйте ще раз."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every active machine your plan allows is in use. Pause or delete a running machine, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جميع الأجهزة النشطة التي تسمح بها خطتك قيد الاستخدام. أوقف جهازًا قيد التشغيل مؤقتًا أو احذفه، ثم حاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle aktiven Maschinen, die dein Plan erlaubt, sind in Gebrauch. Pausiere oder lösche eine laufende Maschine und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas las máquinas activas que permite tu plan están en uso. Pausa o elimina una máquina en ejecución y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les machines actives autorisées par votre forfait sont utilisées. Mettez en pause ou supprimez une machine en cours d'exécution, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランで利用できるアクティブなマシンはすべて使用中です。実行中のマシンを一時停止または削除してから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랜에서 허용하는 활성 머신을 모두 사용 중입니다. 실행 중인 머신을 일시 정지하거나 삭제한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的套餐允许的所有活跃机器都已在使用。请暂停或删除一台正在运行的机器，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的方案允許的所有使用中機器都已在使用。請暫停或刪除一台執行中的機器，然後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.createCredits": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš tim više nema kredita za kreiranje mašina. Zamolite administratora tima da doda kredite ili nadogradite plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit team har ikke flere kreditter til at oprette maskiner. Bed en teamadministrator om at tilføje kreditter, eller opgrader planen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo team non ha più crediti per creare macchine. Chiedi a un amministratore del team di aggiungere crediti o passa a un piano superiore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបស់អ្នកលែងមានក្រេឌីតសម្រាប់បង្កើតម៉ាស៊ីនទៀតហើយ។ សូមស្នើអ្នកគ្រប់គ្រងក្រុមឱ្យបន្ថែមក្រេឌីត ឬដំឡើងគម្រោង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamet ditt har ikke flere kreditter for å opprette maskiner. Be en teamadministrator om å legge til kreditter, eller oppgrader planen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój zespół nie ma już kredytów na tworzenie maszyn. Poproś administratora zespołu o dodanie kredytów lub zmień plan na wyższy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua equipe não tem mais créditos para criar máquinas. Peça a um administrador da equipe para adicionar créditos ou faça upgrade do plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашей команды закончились кредиты на создание машин. Попросите администратора команды добавить кредиты или повысьте тариф."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีมของคุณไม่มีเครดิตสำหรับสร้างเครื่องเหลือแล้ว ขอให้ผู้ดูแลทีมเพิ่มเครดิต หรืออัปเกรดแผน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibinizin makine oluşturma kredisi kalmadı. Bir ekip yöneticisinden kredi eklemesini isteyin veya planı yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашої команди закінчилися кредити на створення машин. Попросіть адміністратора команди додати кредити або перейдіть на вищий план."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team has no machine create credits left. Ask a team admin to add credits or upgrade the plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد لدى فريقك أي أرصدة لإنشاء الأجهزة. اطلب من مسؤول الفريق إضافة أرصدة أو قم بترقية الخطة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team hat keine Credits zum Erstellen von Maschinen mehr. Bitte einen Team-Admin, Credits hinzuzufügen, oder führe ein Upgrade des Plans durch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu equipo no tiene créditos para crear máquinas. Pide a un administrador del equipo que añada créditos o mejora el plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe n'a plus de crédits de création de machines. Demandez à un administrateur de l'équipe d'ajouter des crédits ou passez à un forfait supérieur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームにマシン作成クレジットが残っていません。チーム管理者にクレジットの追加を依頼するか、プランをアップグレードしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀에 남은 머신 생성 크레딧이 없습니다. 팀 관리자에게 크레딧 추가를 요청하거나 플랜을 업그레이드하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的团队已没有创建机器的额度。请让团队管理员添加额度，或升级套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的團隊已沒有建立機器的點數。請團隊管理員加入點數，或升級方案。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.memoryRequiresPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova veličina je veća od onoga što vaš plan uključuje. Odaberite manju veličinu ili nadogradite plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelse er større, end din plan omfatter. Vælg en mindre størrelse, eller opgrader planen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa dimensione supera quanto incluso nel tuo piano. Scegli una dimensione più piccola o passa a un piano superiore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំនេះធំជាងអ្វីដែលគម្រោងរបស់អ្នករួមបញ្ចូល។ ជ្រើសរើសទំហំតូចជាងនេះ ឬដំឡើងគម្រោង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelsen er større enn det planen din inkluderer. Velg en mindre størrelse, eller oppgrader planen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten rozmiar przekracza to, co obejmuje Twój plan. Wybierz mniejszy rozmiar lub zmień plan na wyższy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamanho é maior do que seu plano inclui. Escolha um tamanho menor ou faça upgrade do plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот размер больше, чем включено в ваш тариф. Выберите размер поменьше или повысьте тариф."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดนี้ใหญ่กว่าที่แผนของคุณรวมไว้ เลือกขนาดที่เล็กกว่า หรืออัปเกรดแผน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu boyut planınızın kapsadığından daha büyük. Daha küçük bir boyut seçin veya planı yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей розмір більший, ніж включено у ваш план. Виберіть менший розмір або перейдіть на вищий план."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size is larger than your plan includes. Choose a smaller size, or upgrade the plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الحجم أكبر مما تتضمنه خطتك. اختر حجمًا أصغر، أو قم بترقية الخطة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe übersteigt, was dein Plan enthält. Wähle eine kleinere Größe oder führe ein Upgrade des Plans durch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño supera lo que incluye tu plan. Elige un tamaño más pequeño o mejora el plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille dépasse ce que comprend votre forfait. Choisissez une taille plus petite ou passez à un forfait supérieur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズはプランに含まれる範囲を超えています。小さいサイズを選ぶか、プランをアップグレードしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기는 플랜에 포함된 범위보다 큽니다. 더 작은 크기를 선택하거나 플랜을 업그레이드하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格超出您的套餐所含范围。请选择较小的规格，或升级套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此大小超出您的方案所包含的範圍。請選擇較小的大小，或升級方案。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.createCredits.account": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your account has no machine create credits left. Add Cloud VM create credits or upgrade your plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد لدى حسابك أي أرصدة لإنشاء الأجهزة. أضف أرصدة Cloud VM أو قم بترقية خطتك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Konto hat keine Credits zum Erstellen von Maschinen mehr. Füge Cloud-VM-Credits hinzu oder führe ein Upgrade deines Plans durch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu cuenta no tiene créditos para crear máquinas. Añade créditos de Cloud VM o mejora tu plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte n'a plus de crédits de création de machines. Ajoutez des crédits de machines Cloud ou passez à un forfait supérieur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントにマシン作成クレジットが残っていません。Cloud VM クレジットを追加するか、プランをアップグレードしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정에 머신 생성 크레딧이 남아 있지 않습니다. Cloud VM 크레딧을 추가하거나 플랜을 업그레이드하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的帐户已没有创建机器的额度。请添加 Cloud VM 额度或升级套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的帳戶已沒有建立機器的點數。請新增 Cloud VM 點數或升級方案。"
+          }
+        }
+      }
+    },
+    "cli.vm.restart.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request recovery when supported. Running processes may be lost."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederherstellung anfordern, wenn unterstützt. Laufende Prozesse können verloren gehen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander la récupération si elle est prise en charge. Les processus en cours peuvent être perdus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اطلب الاسترداد عند دعمه. قد تُفقد العمليات قيد التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicita la recuperación cuando sea compatible. Los procesos en ejecución pueden perderse."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在支援時要求復原。執行中的程序可能會遺失。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在支持时请求恢复。正在运行的进程可能会丢失。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되는 경우 복구를 요청합니다. 실행 중인 프로세스가 손실될 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応している場合は復旧を要求します。実行中のプロセスが失われる可能性があります。"
+          }
+        }
+      }
+    },
+    "cli.vm.restart.result": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ restarted (status=%2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ neu gestartet (Status=%2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ redémarré (état=%2$@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة تشغيل %1$@ (الحالة=%2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ reiniciado (estado=%2$@)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已重新啟動（狀態=%2$@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已重新启动（状态=%2$@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 재시작됨(상태=%2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を再起動しました（ステータス=%2$@）"
+          }
+        }
+      }
+    },
+    "machines.menu.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تشغيل الجهاز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschine neu starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer la machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを再起動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 재시작"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動機器"
+          }
+        }
+      }
+    },
+    "cloud.operation.kind.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تشغيل الجهاز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschine neu starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer la machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを再起動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 재시작"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動機器"
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.changing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex was still updating its session locks, so cmux could not confirm this conversation is free. Retry 'cmux restore --surface'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كان Codex لا يزال يحدّث أقفال الجلسات، لذلك لم يتمكن cmux من التأكد من أن هذه المحادثة غير مستخدمة. أعد تشغيل 'cmux restore --surface'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex hat seine Sitzungssperren noch aktualisiert, daher konnte cmux nicht bestätigen, dass diese Unterhaltung frei ist. Führe 'cmux restore --surface' erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex todavía estaba actualizando sus bloqueos de sesión, así que cmux no pudo confirmar que esta conversación esté libre. Vuelve a ejecutar 'cmux restore --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex mettait encore à jour ses verrous de session, cmux n'a donc pas pu confirmer que cette conversation est libre. Relancez 'cmux restore --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex がまだセッションロックを更新していたため、cmux はこの会話が使用中でないことを確認できませんでした。'cmux restore --surface' を再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex가 아직 세션 잠금을 갱신하고 있어 cmux가 이 대화가 사용 중이 아닌지 확인할 수 없습니다. 'cmux restore --surface'를 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 仍在更新其会话锁，因此 cmux 无法确认此对话未被占用。请重新运行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 仍在更新其工作階段鎖定，因此 cmux 無法確認此對話未被使用。請重新執行 'cmux restore --surface'。"
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not read this conversation's Codex session lock, so it could not confirm the conversation is free. Retry 'cmux restore --surface'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux قراءة قفل جلسة Codex لهذه المحادثة، لذلك لم يتمكن من التأكد من أنها غير مستخدمة. أعد تشغيل 'cmux restore --surface'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Codex-Sitzungssperre dieser Unterhaltung nicht lesen und daher nicht bestätigen, dass die Unterhaltung frei ist. Führe 'cmux restore --surface' erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo leer el bloqueo de sesión de Codex de esta conversación, así que no pudo confirmar que esté libre. Vuelve a ejecutar 'cmux restore --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu lire le verrou de session Codex de cette conversation et n'a donc pas pu confirmer qu'elle est libre. Relancez 'cmux restore --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの会話の Codex セッションロックを読み取れなかったため、会話が使用中でないことを確認できませんでした。'cmux restore --surface' を再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 대화의 Codex 세션 잠금을 읽을 수 없어 대화가 사용 중이 아닌지 확인할 수 없습니다. 'cmux restore --surface'를 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取此对话的 Codex 会话锁，因此无法确认此对话未被占用。请重新运行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取此對話的 Codex 工作階段鎖定，因此無法確認此對話未被使用。請重新執行 'cmux restore --surface'。"
+          }
+        }
+      }
+    },
+    "sidebar.account.teamWithGoPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Go"
+          }
+        }
+      }
+    },
+    "sidebar.account.teamWithMaxPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Max"
+          }
+        }
+      }
+    },
+    "command.pro.upgradeToMax.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to cmux Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى cmux Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade auf cmux Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar a cmux Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à cmux Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Maxにアップグレード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max로 업그레이드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 cmux Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 cmux Max"
+          }
+        }
+      }
+    },
+    "menu.help.upgradeToMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to cmux Max…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى cmux Max…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf cmux Max upgraden…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar a cmux Max…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à cmux Max…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Maxにアップグレード…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max로 업그레이드…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 cmux Max…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 cmux Max…"
+          }
+        }
+      }
+    },
+    "sidebar.cloud.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмара"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端"
           }
         }
       }

@@ -135,6 +135,47 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(request["cwd"] as? String, context.root.path)
     }
 
+    /// #20186: Claude writes a fork's transcript only with its first
+    /// message. Binding the pane to the fork at SessionStart left a quit
+    /// before that message with a resume of a session that has no transcript
+    /// ("No conversation found"). The pane keeps its binding until the fork's
+    /// transcript exists; the first prompt or stop binds the fork.
+    func testClaudeForkSessionStartWithoutTranscriptKeepsPaneBinding() throws {
+        let context = try makeForkOfForkContext(name: "claude-fork-no-transcript")
+        defer { context.cleanup() }
+        let parentSessionId = "fork-parent-session"
+        let childSessionId = "fork-child-without-transcript"
+        try seedForkOfForkHookStore(
+            context: context,
+            sessionId: parentSessionId,
+            surfaceId: context.surfaceId,
+            activeTurnId: "parent-turn"
+        )
+        startForkOfForkSurfaceServer(context: context, surfaceIds: [context.surfaceId])
+        let missingTranscript = context.root.appendingPathComponent("\(childSessionId).jsonl").path
+
+        let start = runForkOfForkHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","transcript_path":"\#(missingTranscript)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: forkOfForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            resumeBindingRequests.isEmpty,
+            "A fork without a transcript must not rebind its pane: \(resumeBindingRequests)"
+        )
+    }
+
     private struct ForkOfForkContext {
         let cliPath: String
         let socketPath: String

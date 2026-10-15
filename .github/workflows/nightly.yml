@@ -1047,7 +1047,10 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
-          submodules: recursive
+
+      - name: Initialize Ghostty source submodule
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Install Zig
         run: ./scripts/install-zig-ci.sh

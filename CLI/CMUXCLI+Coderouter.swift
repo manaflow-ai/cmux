@@ -7,8 +7,8 @@ import Foundation
 // The CLI is presentation only; each verb maps to one `coderouter.*` socket
 // method handled by the app's `CoderouterClient`, which holds the Stack
 // session. Every other `cmux coderouter ...` verb, and all of `cmux cr ...`,
-// is exec'd into the CodeRouter CLI before any socket is opened
-// (CMUXCLI+CoderouterPassthrough.swift, which also installs it when missing).
+// runs the CodeRouter CLI through the shared launch path, including native
+// handoff for routed providers and installation when missing.
 extension CMUXCLI {
     static let coderouterUsage = """
         Usage: cmux coderouter <status|machines|claude|agent> [options]

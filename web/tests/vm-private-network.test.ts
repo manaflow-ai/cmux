@@ -253,7 +253,7 @@ function testRepo(options: {
     listAccessGrantTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     claimAccessGrantMutation: () => Effect.succeed(true),
     releaseAccessGrantMutation: () => Effect.void,
-    revokeAccessGrant: () => Effect.succeed(true),
+    revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: ["session-1"] }),
     findTunnel: () => Effect.sync(() => currentTunnel),
     listUserTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     insertTunnel: (input) =>
@@ -1229,7 +1229,7 @@ describe("Cloud VM access grant revocation", () => {
       }),
       revokeAccessGrant: () => Effect.sync(() => {
         events.push("grant-revoke");
-        return true;
+        return { revoked: true, stackSessionIds: [] };
       }),
     } as VmRepositoryShape;
     const gateway = {
@@ -1297,7 +1297,7 @@ describe("Cloud VM access grant revocation", () => {
         revoked.push(id);
         return true;
       }),
-      revokeAccessGrant: () => Effect.succeed(true),
+      revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: ["session-stable", "session-nightly"] }),
     } as VmRepositoryShape;
     const gateway = {
       ...testGateway(),

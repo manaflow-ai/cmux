@@ -255,6 +255,13 @@ struct CloudWorkspaceTargetingTests {
     /// card (#19876) and still never falls back to a local workspace.
     @Test("Signed-out Cloud access introduces Cloud without creating a workspace")
     func unavailableAction() {
+        let seenKey = CloudWelcomeWindowController.seenVersionDefaultsKey
+        let previousSeen = UserDefaults.standard.object(forKey: seenKey)
+        UserDefaults.standard.removeObject(forKey: seenKey)
+        defer {
+            if let previousSeen { UserDefaults.standard.set(previousSeen, forKey: seenKey) }
+            else { UserDefaults.standard.removeObject(forKey: seenKey) }
+        }
         let fixture = CloudWorkspaceTargetingFixture()
         defer {
             fixture.app.cloudWelcomeWindowController.dismiss()

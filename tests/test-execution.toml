@@ -180,6 +180,10 @@ path = "tests/test_claude_wrapper_hooks.py"
 lane = "macos-claude-wrapper"
 
 [[test]]
+path = "tests/test_agy_wrapper_hooks.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_codex_wrapper_computer_use_mcp.py"
 lane = "macos-cli-no-socket"
 
@@ -1762,6 +1766,11 @@ lane = "linux-guard"
 path = "tests/test_opencode_v2_tui_bridge.py"
 lane = "manual"
 reason = "Focused OpenCode V2 Node bridge harness; it uses a TUI/socket fixture and is run by the OpenCode regression verification command."
+
+[[test]]
+path = "tests/test_opencode_server_entry.py"
+lane = "manual"
+reason = "Focused OpenCode server-entry Node harness; no workflow names it yet, so it is run by the OpenCode regression verification command."
 
 [[test]]
 path = "tests/test_nightly_resume_tracks.py"

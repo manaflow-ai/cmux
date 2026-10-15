@@ -8605,27 +8605,6 @@ extension BrowserPanel {
     }
 }
 
-extension WKWebView {
-    func cmuxInspectorObject() -> NSObject? {
-        let selector = NSSelectorFromString("_inspector")
-        guard responds(to: selector),
-              let inspector = perform(selector)?.takeUnretainedValue() as? NSObject else {
-            return nil
-        }
-        return inspector
-    }
-
-    func cmuxInspectorFrontendWebView() -> WKWebView? {
-        guard let inspector = cmuxInspectorObject() else { return nil }
-        let selector = NSSelectorFromString("inspectorWebView")
-        guard inspector.responds(to: selector),
-              let inspectorWebView = inspector.perform(selector)?.takeUnretainedValue() as? WKWebView else {
-            return nil
-        }
-        return inspectorWebView
-    }
-}
-
 @MainActor
 enum WebViewInspectorTeardown {
     @discardableResult

@@ -790,12 +790,4 @@ struct CheckoutAttributionTests {
         #expect(pro.path == "/api/billing/checkout")
         #expect(max.path == "/api/billing/checkout")
     }
-
-    @Test
-    func intentPropertiesNameSurfaceAndChannel() {
-        let properties = CheckoutAttribution.intentProperties(source: .helpMenu, flavor: .stable)
-        #expect(properties["source"] as? String == "mac_help_menu")
-        #expect(properties["client"] as? String == "mac")
-        #expect(properties["channel"] as? String == "stable")
-    }
 }

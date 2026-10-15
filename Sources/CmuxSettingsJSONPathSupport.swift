@@ -333,11 +333,6 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.showPasswordInputDots.id
         ),
         .init(
-            jsonKey: "showJumpToBottomButton",
-            defaultsKey: terminal.showJumpToBottomButton.userDefaultsKey,
-            invalidPath: terminal.showJumpToBottomButton.id
-        ),
-        .init(
             jsonKey: "predictiveLocalEcho",
             defaultsKey: terminal.predictiveLocalEcho.userDefaultsKey,
             invalidPath: terminal.predictiveLocalEcho.id

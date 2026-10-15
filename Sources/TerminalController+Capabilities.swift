@@ -30,6 +30,9 @@ extension TerminalController {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
+            "coderouter.handoff.begin",
+            "coderouter.handoff.complete",
+            "coderouter.handoff.arm",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
@@ -131,6 +134,7 @@ extension TerminalController {
             "vm.rename",
             "vm.pause",
             "vm.resume",
+            "vm.restart",
             "vm.snapshot",
             "vm.snapshot_list",
             "vm.snapshot_delete",

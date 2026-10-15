@@ -883,12 +883,39 @@ jobs:
             fi
           else
             published_sha="$(sed -n 's/^published_sha=//p' "$RUNNER_TEMP/publication-guard")"
+            # Each RC line is a new rc/vX.Y.Z branch cut from main, so the
+            # previous line's published commit is not its ancestor. RC build
+            # numbers are run-derived and only grow, and the build check above
+            # refuses an older build. An RC must not move the feed to a lower
+            # marketing version, so RC compares versions instead of ancestry.
             if [ -n "$published_sha" ]; then
               git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
-              git merge-base --is-ancestor "$published_sha" "$SOURCE_HEAD_SHA" || {
-                echo "source continuation is older than the published release; refusing stale replacement" >&2
-                exit 1
-              }
+              if [ "$CHANNEL" = rc ]; then
+                marketing_version() {
+                  local project versions
+                  project="$(git show "$1:cmux.xcodeproj/project.pbxproj")"
+                  versions="$(sed -n 's/.*MARKETING_VERSION = \([0-9.]*\);.*/\1/p' <<< "$project")"
+                  printf '%s\n' "${versions%%$'\n'*}"
+                }
+                published_version="$(marketing_version "$published_sha")"
+                source_version="$(marketing_version "$SOURCE_HEAD_SHA")"
+                python3 - "$published_version" "$source_version" <<'PY' || {
+          import sys
+          if not all(sys.argv[1:]):
+              print("could not read MARKETING_VERSION from the published or source commit", file=sys.stderr)
+              raise SystemExit(1)
+          published, source = (tuple(int(p) for p in v.split(".")) for v in sys.argv[1:])
+          raise SystemExit(0 if source >= published else 1)
+          PY
+                  echo "RC $source_version is older than the published RC $published_version; refusing to replace a newer RC line" >&2
+                  exit 1
+                }
+              else
+                git merge-base --is-ancestor "$published_sha" "$SOURCE_HEAD_SHA" || {
+                  echo "source continuation is older than the published release; refusing stale replacement" >&2
+                  exit 1
+                }
+              fi
             fi
           fi
 

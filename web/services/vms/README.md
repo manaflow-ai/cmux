@@ -271,6 +271,11 @@ Set these Vercel environment variables per production/staging environment:
 - Preserve `sslmode=verify-full` on the PlanetScale URL.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
+- `CMUX_VM_RESTRICTED_IMAGE_USER_IDS`, comma- or space-separated Stack user ids that may create a
+  machine on a manifest entry marked `restricted: true` by naming its image id or version. Such an
+  entry is never a default; everyone else, and everyone while this is empty, gets the unknown-image
+  refusal. A restricted image is not confidential (a teammate can fork a machine built on it), only
+  not selectable.
 - `CMUX_VM_ALLOW_FREE_PROVISIONING`, explicit opt-out of the paid-plan Cloud VM gate. Leave unset
   (or set to `0`) in every shared environment; set to `1` only for a deliberate demo/rollback. When
   enabled, `CMUX_VM_FREE_MAX_ACTIVE_VMS` and the plan-specific free limit are honored again.
@@ -544,15 +549,17 @@ TLS rule inline); a size-less image also gets the grow-only resize. Nothing is w
 the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
 daemon with a fresh identity
 within a second of resume (the snapshot is a memory image, so the identity is keyed on
-the platform instance id). Attach heals a daemon that is not listening, reinstalling only
-when the binary is missing or behind the manifest pin. The daemon runs as root with
-`HOME=/root`; the build and its digest come from the artifacts manifest published by
-`.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new pin
-reaches new machines through a rebake. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
-`FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
-at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
-commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
-`latest`.
+the platform instance id). Neither create nor attach installs, heals or upgrades cmux-tui:
+a new machine runs the build its image baked (the manifest entry's `cmuxTuiCommit`), and a
+running machine changes build only through `web/scripts/upgrade-fleet-cmux-tui.ts`
+(docs/cloud-guest-upgrades.md). The build and its digest come from the artifacts manifest
+published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new
+build reaches new machines through a rebake and promotion. Config: `FREESTYLE_API_KEY` (or
+`FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
+at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL` is read only by the bake, verify,
+reachability-check and BusyBox-probe scripts, to pin one commit's
+`https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling `latest`; a
+deployment ignores it.
 
 Cloud-created Freestyle machines explicitly set `idleTimeoutSeconds: -1`, making them
 persistent boxes rather than provider-idle workers. A user-open operation probes the live

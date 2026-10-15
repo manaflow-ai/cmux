@@ -81,6 +81,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // hop to the main actor.
         "session.agent_recovery.list",
         "session.agent_recovery.restore",
+        // Minting a hosted CodeRouter lease performs an authenticated HTTP
+        // request and must never block the main actor.
+        "coderouter.handoff.complete",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { vmHealthRepositoryMethods, type VmHealthRepositoryMethods } from "./health/repository";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import * as Context from "effect/Context";
@@ -23,6 +24,7 @@ import {
   cloudVms,
   cloudVmUsageEvents,
   observedDestroyCleanupValidityPredicate,
+  stackSessionRevocations,
 } from "../../db/schema";
 import {
   accountDeletionAdvisoryLockKey,
@@ -203,7 +205,7 @@ export type BillingGrantClaim =
   | { readonly kind: "inserted"; readonly grantId: string }
   | { readonly kind: "already_claimed" };
 
-export type VmRepositoryShape = {
+export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
@@ -282,7 +284,15 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly leaseId: string;
   }) => Effect.Effect<void, VmDatabaseError>;
-  readonly revokeAccessGrant?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Revoke the grant. With `revokeStackSessions`, the grant's Stack sessions
+   * are queued in `stack_session_revocations` in the same transaction, so a
+   * crash cannot revoke the grant and lose the session revocations.
+   */
+  readonly revokeAccessGrant?: (input: {
+    readonly id: string;
+    readonly revokeStackSessions: { readonly userId: string; readonly firstRetryAt: Date } | null;
+  }) => Effect.Effect<{ readonly revoked: boolean; readonly stackSessionIds: readonly string[] }, VmDatabaseError>;
   /** The live (unrevoked) tunnel row for one of the owner's devices. */
   readonly findTunnel?: (input: {
     readonly userId: string;
@@ -796,7 +806,8 @@ export type VmUsageEventInput = {
   readonly metadata?: Record<string, unknown>;
   /**
    * The machine's `createdAt`, supplied by destroy sites so analytics can
-   * report the machine's lifetime. Not persisted: the ledger row already
+   * report the machine's lifetime, and by create-success sites for
+   * `cloud_vm_ready.time_to_ready_ms`. Not persisted: the ledger row already
    * joins to `cloud_vms` by `vmId`.
    */
   readonly vmCreatedAt?: Date | null;
@@ -1746,15 +1757,34 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ));
     }),
 
-  revokeAccessGrant: (id) =>
+  revokeAccessGrant: (input) =>
     dbEffect("revokeAccessGrant", async () => {
       const db = cloudDb();
-      const rows = await db
-        .update(cloudVmAccessGrants)
-        .set({ revokedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(cloudVmAccessGrants.id, id), isNull(cloudVmAccessGrants.revokedAt)))
-        .returning({ id: cloudVmAccessGrants.id });
-      return rows.length > 0;
+      return await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(cloudVmAccessGrants)
+          .set({ revokedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(cloudVmAccessGrants.id, input.id), isNull(cloudVmAccessGrants.revokedAt)))
+          .returning({ id: cloudVmAccessGrants.id });
+        const sessions = await tx
+          .select({ stackSessionId: cloudVmAccessGrantSessions.stackSessionId })
+          .from(cloudVmAccessGrantSessions)
+          .where(eq(cloudVmAccessGrantSessions.accessGrantId, input.id));
+        const stackSessionIds = sessions.map((row) => row.stackSessionId);
+        const revoked = rows.length > 0;
+        if (revoked && input.revokeStackSessions && stackSessionIds.length > 0) {
+          await tx
+            .insert(stackSessionRevocations)
+            .values(stackSessionIds.map((stackSessionId) => ({
+              stackSessionId,
+              userId: input.revokeStackSessions!.userId,
+              accessGrantId: input.id,
+              nextAttemptAt: input.revokeStackSessions!.firstRetryAt,
+            })))
+            .onConflictDoNothing({ target: stackSessionRevocations.stackSessionId });
+        }
+        return { revoked, stackSessionIds };
+      });
     }),
 
   findTunnel: (input) =>
@@ -4350,6 +4380,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 // functions keep their reviewed complexity fingerprints. The lease methods
 // remain one independently testable cross-instance capability.
 Object.assign(vmRepositoryLiveShape, tunnelEnrollmentRepositoryMethods);
+// The staff health sweep's reads and its own snapshot table.
+Object.assign(vmRepositoryLiveShape, vmHealthRepositoryMethods);
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);
 

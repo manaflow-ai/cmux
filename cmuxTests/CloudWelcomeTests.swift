@@ -32,19 +32,19 @@ struct CloudWelcomeTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
-        let controller = CloudWelcomeWindowController()
+        let controller = CloudWelcomeWindowController(defaults: defaults)
 
-        #expect(controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        #expect(controller.claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
         // The marker exists before the caller creates any window or awaits work.
         #expect(defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == "0.65.1")
-        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        #expect(!controller.claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
         controller.dismiss()
-        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        #expect(!controller.claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
 
         // A fresh controller and defaults handle model another launch/process.
         let relaunchedDefaults = try #require(UserDefaults(suiteName: suiteName))
-        let relaunched = CloudWelcomeWindowController()
-        #expect(!relaunched.claimLaunchPresentation(defaults: relaunchedDefaults, appVersion: "0.65.1", policy: policy))
+        let relaunched = CloudWelcomeWindowController(defaults: relaunchedDefaults)
+        #expect(!relaunched.claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
     }
 
     @Test("users who saw the 0.65.0 welcome still get the 0.65.1 card")
@@ -56,7 +56,7 @@ struct CloudWelcomeTests {
         let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
         // 0.65.0 recorded its welcome under this boolean key.
         defaults.set(true, forKey: "cmux.cloud.welcome.seen")
-        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        #expect(CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
     }
 
     @Test("a blocked first window waits for the next launch, even when policy changes")
@@ -69,11 +69,11 @@ struct CloudWelcomeTests {
             key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
         }
         let allowed = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
-        let controller = CloudWelcomeWindowController()
-        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: blocked))
-        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: allowed))
+        let controller = CloudWelcomeWindowController(defaults: defaults)
+        #expect(!controller.claimLaunchPresentation(appVersion: "0.65.1", policy: blocked))
+        #expect(!controller.claimLaunchPresentation(appVersion: "0.65.1", policy: allowed))
         #expect(defaults.object(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == nil)
-        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: allowed))
+        #expect(CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.1", policy: allowed))
     }
 
     @Test("ineligible release and debug/test launches leave the campaign available", arguments: ["0.65.0", "0.65.3", "0.66.0", "0.65.1-nightly", "0.65.1", "0.65.2"])
@@ -85,14 +85,14 @@ struct CloudWelcomeTests {
         let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
         let modes = ["0.65.1", "0.65.2"].contains(appVersion) ? [(true, false, false), (false, true, false), (false, false, true)] : [(false, false, false)]
         for (debug, xctest, uiTest) in modes {
-            let controller = CloudWelcomeWindowController()
+            let controller = CloudWelcomeWindowController(defaults: defaults)
             #expect(!controller.claimLaunchPresentation(
-                defaults: defaults, appVersion: appVersion, policy: policy,
+                appVersion: appVersion, policy: policy,
                 isDebugBuild: debug, isRunningUnderXCTest: xctest, isUITestMode: uiTest
             ))
         }
         #expect(defaults.object(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == nil)
-        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        #expect(CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
     }
 
     @Test("a fresh user on 0.65.2 sees the campaign once and records the 0.65.1 marker")
@@ -103,11 +103,11 @@ struct CloudWelcomeTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
 
-        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.2", policy: policy))
+        #expect(CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.2", policy: policy))
         // The marker keeps the value 0.65.1 wrote, so both releases share it.
         #expect(defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == "0.65.1")
-        #expect(!CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.2", policy: policy))
-        #expect(!CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        #expect(!CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.2", policy: policy))
+        #expect(!CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
     }
 
     @Test("a user who saw the welcome on 0.65.1 does not see it again on 0.65.2")
@@ -118,11 +118,11 @@ struct CloudWelcomeTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
 
-        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        #expect(CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.1", policy: policy))
         // The literal value 0.65.1 already wrote for users before this change.
         #expect(defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == "0.65.1")
         #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(defaults: defaults, appVersion: "0.65.2", policy: policy))
-        #expect(!CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.2", policy: policy))
+        #expect(!CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.2", policy: policy))
     }
 
     @Test("MDM DisableCloud blocks the campaign on 0.65.2 without consuming it")
@@ -135,7 +135,7 @@ struct CloudWelcomeTests {
             key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
         }
         #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(defaults: defaults, appVersion: "0.65.2", policy: blocked))
-        #expect(!CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.2", policy: blocked))
+        #expect(!CloudWelcomeWindowController(defaults: defaults).claimLaunchPresentation(appVersion: "0.65.2", policy: blocked))
         #expect(defaults.object(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == nil)
     }
 
@@ -237,7 +237,7 @@ struct CloudWelcomeTests {
         ) == ["0.65.1", "0.65.2"].contains(appVersion))
     }
 
-    @Test("an absent or older marker upgrades to 0.65.1 and prevents a repeat", arguments: [nil, "0.64.25", "0.65.0"] as [String?], ["0.65.1", "0.65.2"])
+    @Test("any existing version marker prevents a repeat", arguments: [nil, "0.64.25", "0.65.0"] as [String?], ["0.65.1", "0.65.2"])
     func campaignMarkerUpgradeAndNoRepeat(previousMarker: String?, appVersion: String) throws {
         let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -251,7 +251,7 @@ struct CloudWelcomeTests {
             defaults: defaults,
             appVersion: appVersion,
             policy: policy
-        ))
+        ) == (previousMarker == nil))
 
         CloudWelcomeWindowController.markCampaignSeen(in: defaults)
 
@@ -311,6 +311,36 @@ struct CloudWelcomeTests {
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: false, isPro: false) == .openCloud)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: false) == .upgrade)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: true) == .enable)
+
+        // A free account that has accepted membership in a shared team can use
+        // that team's Cloud scope without buying a personal Pro subscription.
+        #expect(CloudWelcomeNextStep.resolve(
+            isAuthenticated: true,
+            isPlanKnown: true,
+            isPro: false,
+            hasCloudTeamAccess: true
+        ) == .enable)
+    }
+
+    @Test("only an additional accepted team opens Cloud for a free personal account")
+    func sharedTeamAccessRequiresMoreThanPersonalTeam() {
+        #expect(!CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 0))
+        #expect(!CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 1))
+        #expect(CloudWelcomeNextStep.hasSharedTeamAccess(availableTeamCount: 2))
+    }
+
+    @Test("a shared team does not turn a personal free scope into Pro")
+    func sharedTeamAccessOnlyOpensCloud() {
+        #expect(!CloudMachinesEnablementView.shouldRequirePro(
+            isPlanKnown: true,
+            isProActive: false,
+            hasCloudTeamAccess: true
+        ))
+        #expect(CloudMachinesEnablementView.shouldRequirePro(
+            isPlanKnown: true,
+            isProActive: false,
+            hasCloudTeamAccess: false
+        ))
     }
 
     @Test("feature clips keep their stable product order")
@@ -330,6 +360,18 @@ struct CloudWelcomeTests {
     func shortMovieDwell() {
         #expect(!CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 3.99))
         #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
+    }
+
+    @Test("feature clips preserve the full recorded frame")
+    @MainActor
+    func featureClipVideoGravityPreservesRecordedFrame() throws {
+        let url = try #require(
+            CloudWelcomeMediaCarousel.bundledMediaURL(CloudWelcomeSlide.all[0])
+        )
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        let movieView = CloudWelcomeMediaCarousel.Player.MovieView(url: url, playback: playback)
+
+        #expect((movieView.layer as? AVPlayerLayer)?.videoGravity == .resizeAspect)
     }
 
     @Test("Cloud creation actions introduce Cloud while it is off or signed out")
