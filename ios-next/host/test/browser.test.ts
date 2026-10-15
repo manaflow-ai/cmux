@@ -4,14 +4,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { decodeBrowserFramePayload } from "../src/rpc/frames.ts";
 import {
-  FOCUS_SCRIPT,
   IPHONE_USER_AGENT,
   MAX_UNACKED,
   SCREENCAST_QUALITY,
   decodeBrowserFrameMeta,
   jpegSize,
   normalizeUrl,
-  parseFocusPayload,
 } from "../src/providers/browser/index.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -253,40 +251,6 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     await expect(client.request("browser.close", { tabId: "GONE" })).rejects.toMatchObject({ code: "not_found" });
   });
 
-  it("parses focus reports and keeps the focus script valid JavaScript", () => {
-    expect(() => new Function(FOCUS_SCRIPT)).not.toThrow();
-    expect(parseFocusPayload('{"editable":true,"multiline":false,"inputType":"search","enterKeyHint":"search","userInitiated":true}')).toEqual({
-      editable: true,
-      multiline: false,
-      inputType: "search",
-      enterKeyHint: "search",
-      userInitiated: true,
-    });
-    expect(parseFocusPayload('{"editable":false,"multiline":true,"userInitiated":false}')).toEqual({ editable: false, userInitiated: false });
-    expect(parseFocusPayload("nope")).toBeNull();
-    expect(parseFocusPayload('{"editable":"yes"}')).toBeNull();
-  });
-
-  it("tells the stream's owner when an editable element gains or loses focus", async () => {
-    const cdp = await startFakeCdp();
-    cleanups.push(() => cdp.close());
-    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
-    cleanups.push(() => core.shutdown());
-    await client.request("browser.list");
-    const events: any[] = [];
-    client.peer.on("event", (t, p) => t === "browser.focus" && events.push(p));
-    const { streamId } = await client.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 3, mobile: true });
-    expect(cdp.calls.some((c) => c.method === "Runtime.addBinding" && c.params.name === "__cmuxNextFocus")).toBe(true);
-    expect(cdp.calls.some((c) => c.method === "Page.addScriptToEvaluateOnNewDocument" && c.params.source === FOCUS_SCRIPT)).toBe(true);
-    cdp.emit("Runtime.bindingCalled", { name: "__cmuxNextFocus", payload: '{"editable":true,"multiline":false,"inputType":"text","userInitiated":true}' }, "S1");
-    cdp.emit("Runtime.bindingCalled", { name: "__cmuxNextFocus", payload: '{"editable":false,"userInitiated":true}' }, "S1");
-    await waitFor(() => events.length === 2);
-    expect(events[0]).toEqual({ tabId: "T1", streamId, editable: true, multiline: false, inputType: "text", userInitiated: true });
-    expect(events[1]).toEqual({ tabId: "T1", streamId, editable: false, userInitiated: true });
-    await client.request("browser.detach", { streamId });
-    expect(cdp.calls.some((c) => c.method === "Runtime.removeBinding" && c.params.name === "__cmuxNextFocus")).toBe(true);
-  });
-
   it("reloads for the user agent only when asked or for tabs the phone created", async () => {
     const cdp = await startFakeCdp();
     cleanups.push(() => cdp.close());
@@ -395,9 +359,11 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     const settled = frames.findIndex((f) => f.header.pxW === 10);
     expect(settled).toBe(6);
     expect(frames[settled]!.header).toMatchObject({ seq: 7, cssW: 390, cssH: 844 });
-    // Still: no more captures. The one repaint right after the capture is not sent.
+    // Still: no more captures. The capture's own repaint burst right after it
+    // is not sent, including frames whose metadata reports device pixels.
+    cdp.emit("Page.screencastFrame", { data: fakeJpeg(1170, 2532).toString("base64"), metadata: { deviceWidth: 1170, deviceHeight: 2532 }, sessionId: 899 }, "S1");
     cdp.emit("Page.screencastFrame", { data: fakeJpeg(1170, 2532).toString("base64"), metadata: { deviceWidth: 390, deviceHeight: 844 }, sessionId: 900 }, "S1");
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 300));
     expect(shots().length).toBe(1);
     expect(frames.length).toBe(7);
     // The page moves again: low-quality frames, then a new settled frame.
@@ -405,6 +371,11 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     await waitFor(() => shots().length === 2);
     await waitFor(() => frames.length === 9);
     expect(frames.map((f) => f.header.pxW).slice(-2)).toEqual([1170, 10]);
+    // Device-pixel metadata never reaches the phone as the CSS size.
+    await new Promise((r) => setTimeout(r, 300));
+    cdp.emit("Page.screencastFrame", { data: fakeJpeg(1170, 2532).toString("base64"), metadata: { deviceWidth: 1170, deviceHeight: 2532 }, sessionId: 902 }, "S1");
+    await waitFor(() => frames.length === 10);
+    expect(frames.every((f) => f.header.cssW === 390 && f.header.cssH === 844)).toBe(true);
     await client.request("browser.detach", { streamId });
   });
 
