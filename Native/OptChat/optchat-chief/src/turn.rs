@@ -578,8 +578,11 @@ pub fn run_with_drafts(
             }
         }
     }
-    // What the turn's end closed, then the last draft (the brain publishes
-    // it once the reply is posted).
+    // What the turn's end closed (every streaming step's last live frame,
+    // before the run's end and the reply: the reply replaces the streaming
+    // text with no jump), then the last draft (the brain publishes it once
+    // the reply is posted).
+    fold.close_run_steps();
     publish(&mut fold);
     let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.

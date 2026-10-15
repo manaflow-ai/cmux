@@ -38,6 +38,7 @@ final class NotificationCenterService {
     @ObservationIgnored var heldProgramAlerts: [UInt64: Task<Void, Never>] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
+    @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -218,6 +219,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         timeouts.removeValue(forKey: tab.id)?.cancel()
+        finishedBursts.read(tab: tab.id)
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver
@@ -272,7 +274,7 @@ final class NotificationCenterService {
         // history keeps it, read. An agent that asks or fails stays unread even there, and so does
         // an earlier ask or error the tab still holds (acknowledging reads the whole tab).
         let shown = visibility ?? self.visibility(of: located)
-        if Self.isFinishedTurn(notification), shown.isVisible, !Self.holdsUnreadAsk(located.tab, besides: notification) {
+        if notification.isFinishedTurn, shown.isVisible, !located.tab.holdsUnreadAsk(besides: notification) {
             note("finished turn visible: read at once")
             acknowledge(located.tab)
             return
@@ -286,18 +288,6 @@ final class NotificationCenterService {
             return
         }
         deliver(notification, source: source, located: located, decision: decision, program: program, visibility: shown)
-    }
-
-    /// An agent's turn completion (`agent.turn.completed`, "<Agent> finished"): the agent source's
-    /// info level. Its asks (approval, question, plan review) are warnings and its errors errors.
-    nonisolated static func isFinishedTurn(_ notification: DaemonNotification) -> Bool {
-        notification.source == NotificationSource.agent.rawValue && notification.level == .info
-    }
-
-    /// The tab's unread marker is another notification's warning or error, still to be seen.
-    static func holdsUnreadAsk(_ tab: TabModel, besides notification: DaemonNotification) -> Bool {
-        guard let marker = tab.notification, marker.unread, marker.notification != notification.notification else { return false }
-        return marker.level == .warning || marker.level == .error
     }
 
     /// The rest of an arrival once its OSC 7501 record (if any) is known.
@@ -323,8 +313,13 @@ final class NotificationCenterService {
         feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         if decision.desktop {
-            post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
-                 subtitle: Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
+            // Agents finishing together in one workspace share one silent digest banner (FinishedBannerBursts).
+            let digest = program == nil ? finishedBursts.join(notification, workspace: located.workspace.id, tab: located.tab.id, clock: clock) : nil
+            desktop.withdraw(digest?.replacing ?? [])
+            post(notification, tab: located.tab, workspace: located.workspace.id, sound: digest == nil ? decision.sound : nil,
+                 subtitle: digest == nil ? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,
+                 program: program, title: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
+                                                                    table: "NotificationsPanel", bundle: .module) })
         }
         if !decision.desktop, let sound = decision.sound {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
@@ -333,10 +328,10 @@ final class NotificationCenterService {
     }
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
-                      subtitle: String? = nil, program: ProgramStatusNotification? = nil) {
+                      subtitle: String? = nil, program: ProgramStatusNotification? = nil, title: String? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
-        let title = program?.title(localizations: localizations)
+        let title = title ?? program?.title(localizations: localizations)
             ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
         desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
