@@ -9,6 +9,7 @@
 //! cmux status clear [KEY] [--target …] [--all]
 //! cmux status list [--target …]
 //! cmux status run [--label T] [--target …] [--badge-ttl 8s] -- CMD …
+//! cmux status wait KEY [--target …] [--until settled|cleared|state=S] [--timeout D]
 //! ```
 //!
 //! `KEY` defaults to `cli:<terminal>`, so repeated `set`s from one terminal
@@ -19,7 +20,8 @@
 //! ended it). The app decides whether a finished run notifies (only when it
 //! took long enough and the terminal is not visible).
 //!
-//! `cmux terminal <t> wait --until idle|prompt` lives here too
+//! `wait` (status/status_wait.rs) blocks until the entry settles, clears or
+//! shows a state. `cmux terminal <t> wait --until idle|prompt` lives here too
 //! (status/terminal_wait.rs): it waits on the same status facts.
 
 use std::process::Command;
@@ -29,6 +31,7 @@ use std::time::Instant;
 use super::command::CommandPlan;
 use super::{GlobalArgs, OutputMode, Surface, UsageError};
 
+mod status_wait;
 mod terminal_wait;
 
 const DEFAULT_BADGE_TTL: &str = "8s";
@@ -86,6 +89,11 @@ fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     }
     if first != "status" {
         return None;
+    }
+    if let Some((verb, words)) = rest.split_first()
+        && verb == "wait"
+    {
+        return Some(status_wait::run(global, words));
     }
     Some(match parse(rest) {
         Ok(Status::Send(words)) => send(global, &words),
@@ -228,7 +236,7 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
             Ok(Status::Run(RunPlan { key, label, target, badge_ttl, argv }))
         }
         (["run"], _) => Err(UsageError::new("status run needs a command after --")),
-        _ => Err(UsageError::new("status takes set, clear, list or run")),
+        _ => Err(UsageError::new("status takes set, clear, list, run or wait")),
     }
 }
 
