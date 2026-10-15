@@ -555,6 +555,10 @@ impl Hub {
                 let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     o.extend(self.turn_error_fields(session, None));
+                    // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
+                    if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
+                        o.insert("cancelForced".into(), Value::Bool(true));
+                    }
                 }
                 self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);
@@ -733,24 +737,6 @@ impl Hub {
             );
         }
         Some(text)
-    }
-
-    pub async fn cancel(&self, session: &Arc<Session>) -> Result<(), RpcError> {
-        let child = session
-            .child
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| RpcError::invalid_params("session has no live agent"))?;
-        let sid = session
-            .meta()
-            .agent_session_id
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
-        self.cancel_pending_permissions(session);
-        child
-            .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// Pass a session-scoped request to the child, rewriting the session id.
