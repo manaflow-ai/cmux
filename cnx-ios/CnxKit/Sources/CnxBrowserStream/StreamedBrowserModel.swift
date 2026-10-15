@@ -82,6 +82,26 @@ public final class StreamedBrowserModel: BrowserTabState {
     @ObservationIgnored private var welcomed = false
     @ObservationIgnored private var connecting = false
     @ObservationIgnored private var samples: [Meter.Sample] = []
+    /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
+    /// verify/parity-mac.md): the browser reports the old history while the page loads, so
+    /// until the history moved the buttons follow the step, and a second step waits for it.
+    @ObservationIgnored private var history: PendingHistory?
+    /// A step tapped while another was in flight: sent once that one commits.
+    @ObservationIgnored private var queuedHistory: String?
+    /// A phone navigation in flight: the browser reports the old page (`about:blank` for a new
+    /// tab) while it loads, which must not replace the address the person asked for.
+    @ObservationIgnored private var navigating: (target: URL, from: URL?)?
+
+    struct PendingHistory {
+        var op: String
+        var from: URL?
+        var sawLoading = false
+        var since: ContinuousClock.Instant
+    }
+
+    /// How long a sent step holds the next one back when the Mac never reports it (a page
+    /// that does not load); a UI bound, not synchronization.
+    static let historyHold: Duration = .seconds(2)
 
     public struct Meter: Equatable, Sendable {
         struct Sample: Equatable, Sendable {
@@ -202,11 +222,7 @@ public final class StreamedBrowserModel: BrowserTabState {
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
         case "rb.page":
             guard let page = RemoteBrowserPage(json: json) else { return }
-            if let next = URL(string: page.url), !page.url.isEmpty { url = next }
-            title = page.title
-            isLoading = page.loading
-            canGoBack = page.canGoBack
-            canGoForward = page.canGoForward
+            apply(page)
         case "rb.screen_applied":
             phase = .live
         default:
@@ -255,15 +271,71 @@ public final class StreamedBrowserModel: BrowserTabState {
         }
     }
 
+    /// The Mac's page facts, read through the step or navigation in flight.
+    func apply(_ page: RemoteBrowserPage) {
+        let reported = URL(string: page.url).flatMap { page.url.isEmpty ? nil : $0 }
+        if let (target, from) = navigating {
+            // The old page (or a new tab's about:blank) while the asked-for one loads.
+            let stale = reported == nil || reported?.absoluteString == "about:blank" || reported == from
+            if stale, page.loading {
+                url = target
+            } else {
+                navigating = nil
+                if let reported { url = reported }
+            }
+        } else if let reported {
+            url = reported
+        }
+        title = page.title
+        isLoading = page.loading
+        if var step = history {
+            if page.loading { step.sawLoading = true }
+            let moved = reported != nil && reported != step.from
+            if !page.loading, step.sawLoading || moved {
+                history = nil
+            } else {
+                history = step
+            }
+        }
+        if let step = history {
+            // Not committed yet: a Back always leaves a page to go forward to, and the reverse.
+            canGoBack = page.canGoBack || step.op == "forward"
+            canGoForward = page.canGoForward || step.op == "back"
+        } else {
+            canGoBack = page.canGoBack
+            canGoForward = page.canGoForward
+            if let queued = queuedHistory {
+                queuedHistory = nil
+                step(queued)
+            }
+        }
+    }
+
     // MARK: Toolbar
 
-    public func goBack() { send(wire.history("back")) }
-    public func goForward() { send(wire.history("forward")) }
+    public func goBack() { step("back") }
+    public func goForward() { step("forward") }
     public func reloadOrStop() { send(wire.history(isLoading ? "stop" : "reload")) }
+
+    /// Back or Forward. Right after another step the browser still reports the old history,
+    /// so it would ignore this one: it waits until that step commits (a few hundred ms).
+    private func step(_ op: String) {
+        let now = ContinuousClock.now
+        if let pending = history, pending.since.duration(to: now) < Self.historyHold {
+            queuedHistory = op
+            return
+        }
+        history = PendingHistory(op: op, from: url, since: now)
+        if op == "back" { canGoForward = true } else { canGoBack = true }
+        send(wire.history(op))
+    }
 
     public func navigate(to text: String) {
         guard let target = Self.url(for: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+        navigating = (target, url)
         url = target
+        history = nil
+        queuedHistory = nil
         send(wire.navigate(target.absoluteString))
     }
 

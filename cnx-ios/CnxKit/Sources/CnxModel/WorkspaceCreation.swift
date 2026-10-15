@@ -82,6 +82,41 @@ public enum NewTabKind: Hashable, Sendable {
     }
 }
 
+/// A tab group change from a tab's menu, in the Mac's words (its tab menu and
+/// `TabGroupActionCatalog`): every one acts on the tab's own group except `create` and `add`.
+public enum TabGroupEdit: Hashable, Sendable {
+    /// New Tab Group: a group of this tab alone (`create-tab-group`).
+    case create
+    /// Add Tab to Group…: into a group of the same workspace (`add-tabs-to-tab-group`).
+    case add(group: String)
+    /// Remove Tab from Group (`remove-tabs-from-tab-group`).
+    case remove
+    /// Rename Tab Group… (`update-tab-group {name}`).
+    case rename(String)
+    /// Ungroup Tabs: the group goes, its tabs stay (`ungroup-tab-group`).
+    case ungroup
+    /// Close Tab Group: closes every tab in it (`close-tab-group`).
+    case close
+    /// Pin Group: saves it on the Mac so it can be reopened (`save-tab-group`).
+    case save
+    /// Unpin Group (`unsave-tab-group`).
+    case unsave
+
+    /// The Mac's menu title.
+    public var title: String {
+        switch self {
+        case .create: "New Tab Group"
+        case .add: "Add Tab to Group…"
+        case .remove: "Remove Tab from Group"
+        case .rename: "Rename Tab Group…"
+        case .ungroup: "Ungroup Tabs"
+        case .close: "Close Tab Group"
+        case .save: "Pin Group"
+        case .unsave: "Unpin Group"
+        }
+    }
+}
+
 /// Where workspaces are really created: the mock store, or a Mac's daemon.
 @MainActor
 public protocol WorkspaceCreationBackend: AnyObject {
@@ -120,6 +155,17 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
     /// Moves a tab to the place of `target` (its pane and position there).
     func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws
+    /// Move Tab to Workspace… (`destination`) or Move Tab to New Workspace (nil, named as the
+    /// Mac names it). Returns the workspace the tab is in now, once the Mac lists it.
+    func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace?
+    /// Pin Tab / Unpin Tab.
+    func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws
+    /// A tab group change (`TabGroupEdit`).
+    func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// The chat menu's Fork: a copy of the chat in a new tab beside it, returned once the Mac lists it.
+    func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// The chat menu's Archive: the chat is archived on the Mac and its tab closes.
+    func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws
 }
 
 extension WorkspaceCreationBackend {
@@ -149,6 +195,21 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace? {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
 }
@@ -502,6 +563,37 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         try await settle()
+    }
+
+    /// Mock mode: the store moves the tab; a new workspace is the caller's to add.
+    public func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace? {
+        try await settle()
+        return destination
+    }
+
+    public func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws {
+        try await settle()
+    }
+
+    /// Every edit the mock received, in order (tests).
+    public private(set) var groupEdits: [TabGroupEdit] = []
+
+    public func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        groupEdits.append(edit)
+    }
+
+    public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .agent, title: tab.title, subtitle: "Fork",
+                            harness: tab.harness)
+    }
+
+    public private(set) var archived: [String] = []
+
+    public func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        archived.append(tab.id)
     }
 
     private func settle() async throws {
