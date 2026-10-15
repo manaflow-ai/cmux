@@ -1337,7 +1337,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 "terminal.output.foreground_reconcile surface=\(surfaceID) "
                     + "task=\(outputTask != nil) owner=\(ownsCurrentStream)"
             )
-            stopMountedTasks(releaseViewport: true)
+            stopMountedTasks(releaseViewport: handoffTerminalSizingWhenInactive)
             startMountedTasks(
                 surfaceView: surfaceView,
                 resetRestartFailure: true
