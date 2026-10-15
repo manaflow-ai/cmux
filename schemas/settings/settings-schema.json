@@ -9971,7 +9971,8 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -10031,6 +10032,13 @@
             "text" : "Two-Tone"
           },
           "value" : "two-tone"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.floating",
+            "text" : "Floating Panes"
+          },
+          "value" : "floating"
         }
       ],
       "consumers" : [
@@ -10063,7 +10071,9 @@
         "sidebar",
         "two-tone",
         "minimal",
-        "bare"
+        "bare",
+        "floating",
+        "gaps"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -23623,7 +23633,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "da20f6a8fb0309b03995d766f2cf273683b7f0964963478a2233afe165f619f2",
+  "schema_hash" : "7bf35790b69a80a2c565dab89ec94bd49c0b5f6e5e448f55eaec9a4580a58139",
   "sections" : [
     {
       "id" : "general",
