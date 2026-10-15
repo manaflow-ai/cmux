@@ -17,7 +17,8 @@ and compares the selection with what the matching sidebar action (`nextSidebarTa
 `prevSidebarTab`, `selectWorkspaceByNumber`) selects from the same start. A key that switches
 the pane's tabs, or that the surface swallows, leaves a different selection.
 
-Leo's two Karabiner paths also go in transition by transition with their timing (Cmd down,
+Leo's two Karabiner paths (Cmd-Shift-] / [, Ctrl-Tab) now cycle the pane's tabs, so they are no
+longer checked here (SEQUENCES is empty). They went in transition by transition with their timing (Cmd down,
 Shift down, ] down ~5 ms apart; Ctrl down, Tab down ~270 ms later and held ~175 ms) through
 `debug.key` `sequence`, which builds each as a CGEvent and posts it to the app's event queue.
 Other keys go in as real key-downs through cua-driver (`--real`, the app frontmost on a whole mini,
@@ -39,7 +40,7 @@ parser.add_argument("--surfaces", default="terminal,terminal2,newtab,newtab2,com
                     help="also copymode, page, settings, home")
 parser.add_argument("--tidy", action="store_true",
                     help="first close every other workspace (a tag's workspaces persist between launches)")
-parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Tab,Cmd-Shift-])")
+parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Cmd-],Ctrl-PageDown)")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
