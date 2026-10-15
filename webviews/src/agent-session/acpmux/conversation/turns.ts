@@ -430,7 +430,8 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, statu
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it.
-  const shown = last.kind === "activity" ? [...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }] : rows;
+  const shown =
+    last.kind === "activity" ? [...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }] : rows;
   const plan = statusCards ? [...shown].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
   if (!plan) return [status, ...shown];
   const work = shown.filter((row) => row !== plan);

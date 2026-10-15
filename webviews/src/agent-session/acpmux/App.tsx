@@ -2660,7 +2660,16 @@ function AcpmuxPane() {
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
     });
-  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, panelAsks, sessionStatus]);
+  }, [
+    childRows,
+    sourceRows,
+    expanded,
+    snapshot.isWorking,
+    snapshot.clockOffsetMs,
+    chatShellRuns,
+    panelAsks,
+    sessionStatus,
+  ]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
