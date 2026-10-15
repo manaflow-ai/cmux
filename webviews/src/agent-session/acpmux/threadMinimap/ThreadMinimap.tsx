@@ -280,9 +280,9 @@ export function ThreadMinimap({
     const state = scrub.current;
     scrub.current = undefined;
     if (!state?.moved) return;
-    // The click a drag ends with never jumps.
+    // The click a drag ends with never jumps. The next press clears it, not a timer: a slow frame
+    // can run a timer between the pointerup and its click.
     swallowClick.current = true;
-    setTimeout(() => (swallowClick.current = false), 0);
     setScrubbing(false);
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
@@ -325,6 +325,7 @@ export function ThreadMinimap({
           onPointerDown={(event) => {
             if (event.button !== 0 || event.pointerType === "touch") return;
             pressing.current = true;
+            swallowClick.current = false;
             scrub.current = { pointer: event.pointerId, y: event.clientY, moved: false };
           }}
           onPointerMove={(event) => {
