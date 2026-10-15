@@ -1241,10 +1241,33 @@ struct BrowserScreen: View {
         }
     }
 
+    /// (…) › Close All Tabs: Safari asks first. The sheet names terminals
+    /// apart from tabs (closing one ends its shell) and can keep them.
     private func closeAll() {
-        let ids = tabs.items.map(\.id)
+        let terminals = tabs.items.filter(\.isTerminal).count
+        let plan = CloseAllPlan(tabs: tabs.items.count - terminals, terminals: terminals)
+        guard !plan.isEmpty,
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              var top = scene.keyWindow?.rootViewController else { return }
+        while let p = top.presentedViewController { top = p }
+        let sheet = UIAlertController(title: plan.title, message: plan.message, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: plan.closeAllLabel, style: .destructive) { _ in performCloseAll(keepTerminals: false) })
+        if let tabsOnly = plan.closeTabsOnlyLabel {
+            sheet.addAction(UIAlertAction(title: tabsOnly, style: .destructive) { _ in performCloseAll(keepTerminals: true) })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = top.view
+            pop.sourceRect = CGRect(x: top.view.bounds.maxX - 38, y: safeTop + 24, width: 1, height: 1)
+        }
+        top.present(sheet, animated: true)
+    }
+
+    private func performCloseAll(keepTerminals: Bool) {
+        let ids = tabs.items.filter { !keepTerminals || !$0.isTerminal }.map(\.id)
         for id in ids { tabs.close(id, animation: motion.resolve(motion.reflow)) }
-        newTabFromOverview()
+        // Safari leaves one fresh tab when nothing is left.
+        if !keepTerminals { newTabFromOverview() }
     }
 
     // MARK: Toolbar swipe
