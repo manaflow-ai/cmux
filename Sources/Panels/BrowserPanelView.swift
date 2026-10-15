@@ -1978,12 +1978,14 @@ struct BrowserPanelView: View {
             }
         }
         .overlay {
-            // Chromium permission questions (design spec §4); WebKit panels
+            // Chromium permission questions, a strip docked under the
+            // toolbar (design spec §4 v1.1); WebKit panels
             // keep WebKit's own sheets, so nothing mounts for them.
             if panel.engineKind == .chromium {
                 BrowserPermissionPromptBar(
                     queue: panel.enginePageDelegate.permissionQueue,
                     metrics: chromeMetrics,
+                    backgroundColor: Color(nsColor: browserChromeBackgroundColor),
                     mountCard: { AnyView($0.browserPageOccluding(panel.pageOverlays, id: "permissionPrompt")) }
                 )
             }
