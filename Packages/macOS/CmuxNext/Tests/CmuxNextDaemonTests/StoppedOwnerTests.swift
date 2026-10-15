@@ -23,8 +23,9 @@ struct StoppedOwnerTests {
         _ = try await launcher.ensure()
         let wake = RetryWake(owner: "StoppedOwnerTests")
         var configuration = DaemonConnection.Configuration(retryWake: wake)
-        configuration.bridgeHeartbeat = .seconds(1)
-        configuration.bridgeHeartbeatMisses = 2
+        configuration.heartbeat = .seconds(1)
+        configuration.heartbeatMisses = 2
+        configuration.localHeartbeat = true
         let connection = DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
         let owner = try await connection.start().pid
         let store = await DaemonStore()
