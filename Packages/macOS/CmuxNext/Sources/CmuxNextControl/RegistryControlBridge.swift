@@ -227,6 +227,5 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.signedIn, "signedIn"),
         (.signedOut, "signedOut"),
         (.cloudWorkspace, "cloudWorkspace"),
-        (.sideSessions, "sideSessions"),
     ]
 }
