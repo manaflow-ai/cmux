@@ -926,6 +926,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "browser.builtInAdBlocker" : {
+      "default" : true,
+      "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
+      "title" : "Built-in uBlock Origin",
+      "type" : "boolean"
+    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
@@ -1459,6 +1465,12 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "labs.classicHome" : {
+      "default" : false,
+      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+      "title" : "Classic Home",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -2853,6 +2865,28 @@
       "minimum" : 4,
       "title" : "Font Size",
       "type" : "number"
+    },
+    "ui.animations.bounce" : {
+      "default" : "none",
+      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
+      "enum" : [
+        "none",
+        "subtle"
+      ],
+      "title" : "Animation Bounce",
+      "type" : "string"
+    },
+    "ui.animations.newTab" : {
+      "default" : true,
+      "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
+      "title" : "Animate New Tabs",
+      "type" : "boolean"
+    },
+    "ui.animations.newWorkspace" : {
+      "default" : false,
+      "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
+      "title" : "Animate New Workspaces",
+      "type" : "boolean"
     },
     "ui.animationSpeed" : {
       "default" : "fast",
