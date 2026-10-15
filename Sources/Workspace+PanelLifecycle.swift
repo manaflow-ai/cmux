@@ -440,13 +440,11 @@ extension Workspace {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
         for (key, lifecycle) in runtimeState.agentLifecycleStates {
-            setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)
-        }
-        for (key, sessionID) in runtimeState.agentLifecycleSessionIDs {
-            sidebarAgentRuntimeObservation.setAgentLifecycleSessionID(
-                sessionID,
+            setAgentLifecycle(
                 key: key,
-                panelId: runtimeState.panelId
+                panelId: runtimeState.panelId,
+                lifecycle: lifecycle,
+                sessionID: runtimeState.agentLifecycleSessionIDs[key]
             )
         }
         if didAdoptAgentPID {
