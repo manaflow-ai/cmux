@@ -236,7 +236,7 @@ final class CardSwipeState {
             // (re-audit 3 3g); right: the fitted spring (3i passes).
             let animation: Animation = from > 0
                 ? CardSwipe.snapBackRight.animation(initialVelocity: abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0)
-                : .safari(.snapBack, lead: 1.5 / 60)
+                : .safari(.snapBack)
             withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
