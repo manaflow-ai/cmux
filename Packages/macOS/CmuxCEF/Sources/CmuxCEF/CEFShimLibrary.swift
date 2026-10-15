@@ -208,7 +208,7 @@ public struct CEFShimLibrary: @unchecked Sendable {
     public let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     public let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
-    public enum LoadError: Error, Equatable {
+    public enum LoadError: Error, Equatable, Sendable {
         case open(String)
         case missingSymbol(String)
         /// Identities are SHA-256 hex strings of the header (`CEFShimABI`).
