@@ -76,7 +76,7 @@ pub(super) fn detach_client(
         // A relay sub-view leaves alone; its relay stays attached and
         // forwards the notice to that leaf only.
         mux.detach_terminal_sub_view(placement, relay, &view);
-        mux.release_terminal_grid_holds();
+        mux.release_terminal_grid_holds(&[placement]);
         let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
         mux.control_clients.send_surface_event(
             relay,
@@ -138,8 +138,9 @@ pub(super) fn detach_attached_view(
         (Some(lease), None) => lease,
         (None, Some(view)) => {
             let detached = mux.detach_terminal_sub_view(surface, client, &view);
-            // A relay detaches its leaf on purpose: no departed-view hold.
-            mux.release_terminal_grid_holds();
+            // A relay detaches its leaf: no departed-view hold for this
+            // terminal (a relay does not say whether its leaf's link dropped).
+            mux.release_terminal_grid_holds(&[surface]);
             return Ok(match detached {
                 Some(_) => json!({"outcome": "applied"}),
                 None => json!({"outcome": "superseded"}),

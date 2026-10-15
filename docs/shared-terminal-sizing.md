@@ -144,6 +144,18 @@ This is the daemon applying the engine's decision late, not an engine rule, so
 the fixtures do not change. A Mac, TUI or desktop view that leaves never holds
 the grid.
 
+- The hold covers only the terminals the departed view showed; a disconnect
+  ends the holds of the terminals it touched, not every hold.
+- A phone or tablet view that arrives with a size (the same phone back, or
+  another) ends the hold at once: its own size counts, larger or not.
+- During a hold the published size state is the engine's decision, so a Mac
+  can read a wider size than the PTY has for up to 30 seconds.
+- A phone that closes its attach stream to show another terminal also
+  holds the first terminal's grid; the daemon cannot tell that from a drop.
+- A relay that retires a leaf (`detach-attached-view {view}`) ends the hold,
+  because the relay does not say whether the leaf's link dropped. Relayed
+  phones therefore get no hold yet.
+
 ## Size state (wire format)
 
 Hosts publish one JSON object per change, the same shape on both hosts:
