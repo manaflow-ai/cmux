@@ -296,6 +296,9 @@ def observed_load(job, url, label, watch):
             if message.get("method", "").startswith("Network."):
                 events.append(message)
         state = poll(session, "window.mv2 && window.mv2.done && window.mv2", 10) or {}
+        time.sleep(2)
+        state["slot_late"] = session.evaluate("getComputedStyle(document.getElementById('ad-slot')).display")
+        state["ubo_world"] = ubo_world_state(session)
         state["shot"] = job.page_shot(session, f"{label}-page")
     finally:
         session.close()
@@ -325,8 +328,34 @@ def observed_load(job, url, label, watch):
     return state, outcomes
 
 
+def ubo_world_state(session):
+    """What uBlock Origin's content script sees in the page (its isolated world)."""
+    try:
+        session.call("Runtime.disable")
+        session._send(json.dumps({"id": 777777, "method": "Runtime.enable", "params": {}}))
+        session.sock.settimeout(5)
+        context = None
+        while True:
+            message = session._recv()
+            if message.get("method") == "Runtime.executionContextCreated" and message["params"]["context"].get("name") == "uBlock Origin":
+                context = message["params"]["context"]["id"]
+            if message.get("id") == 777777:
+                break
+        if context is None:
+            return "no uBlock Origin world"
+        result = session.call("Runtime.evaluate", {"contextId": context, "returnByValue": True, "expression":
+            "JSON.stringify({vapi: typeof vAPI, noGeneric: self.vAPI && vAPI.noGenericCosmeticFiltering,"
+            " noSpecific: self.vAPI && vAPI.noSpecificCosmeticFiltering, filterer: !!(self.vAPI && vAPI.domFilterer),"
+            " surveyor: !!(self.vAPI && vAPI.domSurveyor), bootstrapped: self.vAPI && vAPI.bootstrap === undefined})"})
+        return result.get("result", {}).get("value")
+    except Exception as error:  # noqa: BLE001 - diagnosis only
+        return repr(error)
+
+
 def enforced(outcome):
-    return outcome == "blocked" or outcome.startswith("redirected to chrome-extension://")
+    """Blocked, or answered by uBlock Origin with a neutered resource (its
+    web_accessible_resources surrogate or a data: no-op)."""
+    return outcome == "blocked" or outcome.startswith(("redirected to chrome-extension://", "redirected to data:"))
 
 
 def poll(session, expression, timeout, interval=0.5):
@@ -659,6 +688,9 @@ def phase_ublock(args):
                 detail["shot"] = job.page_shot(session, "ublock-popup")
                 # Dynamic filtering through uBlock Origin's own privileged messaging (an
                 # extension page may use the dashboard channel), as "My rules" does.
+                # uBlock Origin applies dynamic rules only in its advanced-user mode
+                # (pagestore.js: userSettings.advancedUserEnabled).
+                session.evaluate("vAPI.messaging.send('dashboard', {what: 'userSettings', name: 'advancedUserEnabled', value: true})")
                 ctx["rule"] = session.evaluate(
                     "vAPI.messaging.send('dashboard', {what: 'modifyRuleset', permanent: false,"
                     " toAdd: '* * 3p-script block', toRemove: ''})"
