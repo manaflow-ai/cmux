@@ -160,7 +160,7 @@ struct SidebarJSRuntimeTests {
         #expect(captured == [.cmux(method: "workspace.select", params: ["workspace_id": "w1"])])
     }
 
-    @Test func logHandlerDispatchesAnInfoAction() async {
+    @Test func logHandlerDispatchesAnInfoAction() async throws {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
         runtime.dispatch = SidebarActionDispatch { action in
@@ -169,7 +169,7 @@ struct SidebarJSRuntimeTests {
         runtime.start(source: """
         sidebar(() => Button("Trace", () => log("row tapped")))
         """)
-        let rootId = try! #require(runtime.store.rootId)
+        let rootId = try #require(runtime.store.rootId)
         runtime.dispatchEvent(nodeId: rootId, event: "tap")
         await pumpActions()
         #expect(captured == [.log("row tapped")])
